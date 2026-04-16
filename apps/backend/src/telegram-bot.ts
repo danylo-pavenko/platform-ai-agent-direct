@@ -79,6 +79,143 @@ function stateLabel(state: string): string {
 
 const bot = getBot();
 
+// Set bot commands menu (visible in Telegram UI)
+bot.api.setMyCommands([
+  { command: 'start', description: 'Привітання та інформація' },
+  { command: 'login', description: 'Авторизація менеджера' },
+  { command: 'conversations', description: 'Активні розмови' },
+  { command: 'takeover', description: 'Взяти розмову (ID)' },
+  { command: 'return', description: 'Повернути розмову боту (ID)' },
+  { command: 'close', description: 'Закрити розмову (ID)' },
+  { command: 'help', description: 'Список команд' },
+]).catch((err) => log.warn({ err }, 'Failed to set bot commands'));
+
+// ── Helpers ──
+
+function isManagerAuthorized(tgUserId: number): Promise<boolean> {
+  return prisma.adminUser.findFirst({
+    where: { tgUserId: String(tgUserId) },
+  }).then((u) => !!u);
+}
+
+function buildMenuKeyboard() {
+  return {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '💬 Активні розмови', callback_data: 'menu:conversations' },
+        ],
+        [
+          { text: '📊 Синхронізація', callback_data: 'menu:sync' },
+          { text: '❓ Допомога', callback_data: 'menu:help' },
+        ],
+      ],
+    },
+  };
+}
+
+const HELP_TEXT = `Доступні команди:
+
+/start — Привітання
+/login <пароль> — Авторизація менеджера
+/conversations — Список активних розмов
+/takeover <ID> — Взяти розмову собі
+/return <ID> — Повернути розмову боту
+/close <ID> — Закрити розмову
+/help — Ця довідка
+
+Після авторизації ви будете отримувати:
+• Сповіщення про ескалації (клієнт просить менеджера)
+• Картки замовлень з кнопками Підтвердити / Відхилити
+• Повідомлення від клієнтів у режимі хендофу`;
+
+// /start — Welcome message
+bot.command('start', async (ctx) => {
+  try {
+    const authorized = await isManagerAuthorized(ctx.from!.id);
+
+    if (authorized) {
+      await ctx.reply(
+        `Вітаю! 👋\n\nВи авторизовані як менеджер Status Blessed.\nОберіть дію:`,
+        buildMenuKeyboard(),
+      );
+    } else {
+      await ctx.reply(
+        `Вітаю! 👋\n\nЦе бот менеджера магазину Status Blessed.\n\nДля початку роботи авторизуйтесь:\n/login <ваш пароль>\n\nПісля авторизації ви зможете:\n• Отримувати сповіщення про ескалації\n• Керувати розмовами з клієнтами\n• Підтверджувати замовлення`,
+      );
+    }
+  } catch (err) {
+    log.error(err, 'Error in /start command');
+    await ctx.reply('Сталася помилка. Спробуйте пізніше.');
+  }
+});
+
+// /help — Commands list
+bot.command('help', async (ctx) => {
+  try {
+    await ctx.reply(HELP_TEXT);
+  } catch (err) {
+    log.error(err, 'Error in /help command');
+  }
+});
+
+// Menu inline button callbacks
+bot.on('callback_query:data', async (ctx, next) => {
+  const data = ctx.callbackQuery.data;
+  if (!data.startsWith('menu:')) return next();
+
+  try {
+    if (data === 'menu:conversations') {
+      // Reuse conversations logic
+      const conversations = await prisma.conversation.findMany({
+        where: { state: { in: ['bot', 'handoff'] } },
+        include: { client: true },
+        orderBy: { lastMessageAt: 'desc' },
+        take: 10,
+      });
+
+      if (conversations.length === 0) {
+        await ctx.answerCallbackQuery();
+        await ctx.editMessageText('Немає активних розмов.', buildMenuKeyboard());
+        return;
+      }
+
+      const lines = conversations.map((conv, i) => {
+        const clientName = conv.client.displayName || conv.client.igUserId || 'невідомий';
+        const emoji = stateEmoji(conv.state);
+        const label = stateLabel(conv.state);
+        const ago = timeAgo(conv.lastMessageAt);
+        const id = shortId(conv.id);
+        return `${i + 1}. [${id}] ${clientName} — ${emoji} ${label} — ${ago}`;
+      });
+
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(
+        `Активні розмови:\n\n${lines.join('\n')}`,
+        buildMenuKeyboard(),
+      );
+    } else if (data === 'menu:sync') {
+      const lastRun = await prisma.keycrmSyncRun.findFirst({
+        orderBy: { startedAt: 'desc' },
+      });
+      const status = lastRun
+        ? `Остання синхронізація: ${lastRun.status === 'ok' ? '✅' : '❌'} ${new Date(lastRun.startedAt).toLocaleString('uk-UA')}`
+        : 'Синхронізацій ще не було.';
+
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(status, buildMenuKeyboard());
+    } else if (data === 'menu:help') {
+      await ctx.answerCallbackQuery();
+      await ctx.editMessageText(HELP_TEXT, buildMenuKeyboard());
+    } else {
+      await ctx.answerCallbackQuery();
+    }
+  } catch (err) {
+    log.error(err, 'Error in menu callback');
+    await ctx.answerCallbackQuery({ text: 'Помилка' }).catch(() => {});
+  }
+});
+
 // /login PASSWORD — Manager authentication
 bot.command('login', async (ctx) => {
   try {
@@ -117,7 +254,10 @@ bot.command('login', async (ctx) => {
     });
 
     log.info({ tgUserId, adminUserId: targetUser.id }, 'Manager authenticated via Telegram');
-    await ctx.reply('Авторизовано! Ви будете отримувати сповіщення.');
+    await ctx.reply(
+      `Авторизовано! ✅\n\nВи тепер отримуватимете сповіщення про ескалації та замовлення.\n\nОберіть дію:`,
+      buildMenuKeyboard(),
+    );
   } catch (err) {
     log.error(err, 'Error in /login command');
     await ctx.reply('Сталася помилка. Спробуйте пізніше.');
