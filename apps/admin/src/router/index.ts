@@ -44,6 +44,11 @@ const router = createRouter({
       name: 'sync',
       component: () => import('@/views/SyncView.vue'),
     },
+    {
+      path: '/teach',
+      name: 'teach',
+      component: () => import('@/views/TeachChat.vue'),
+    },
   ],
 });
 

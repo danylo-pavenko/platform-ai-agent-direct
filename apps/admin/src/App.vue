@@ -29,6 +29,11 @@
           :to="{ name: 'orders' }"
         />
         <v-list-item
+          prepend-icon="mdi-robot"
+          title="Навчання агента"
+          :to="{ name: 'teach' }"
+        />
+        <v-list-item
           prepend-icon="mdi-sync"
           title="Синхронізація"
           :to="{ name: 'sync' }"
