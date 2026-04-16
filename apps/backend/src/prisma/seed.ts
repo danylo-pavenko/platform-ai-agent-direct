@@ -1,7 +1,12 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client.js';
 import bcrypt from 'bcryptjs';
+import { readFileSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -53,6 +58,29 @@ async function main() {
   }
 
   console.log('Default settings seeded.');
+
+  // Seed system prompt from sales-agent.txt (if no prompts exist yet)
+  const promptCount = await prisma.systemPrompt.count();
+  if (promptCount === 0) {
+    const promptPath = resolve(__dirname, '..', '..', '..', 'workspace', 'prompts', 'sales-agent.txt');
+    try {
+      const content = readFileSync(promptPath, 'utf-8');
+      await prisma.systemPrompt.create({
+        data: {
+          version: 1,
+          content,
+          author: 'human',
+          changeSummary: 'Initial system prompt (Version 3)',
+          isActive: true,
+        },
+      });
+      console.log('System prompt v1 seeded and activated.');
+    } catch (err) {
+      console.warn(`Could not seed system prompt from ${promptPath}:`, err);
+    }
+  } else {
+    console.log(`System prompts already exist (${promptCount}), skipping seed.`);
+  }
 }
 
 main()
