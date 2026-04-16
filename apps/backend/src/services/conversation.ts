@@ -10,6 +10,7 @@ import {
   loadCatalogSnippet,
 } from './prompt-builder.js';
 import { downloadAllMedia } from './media.js';
+import { notifyHandoff } from './telegram-notify.js';
 
 const log = pino({ name: 'conversation' });
 
@@ -107,7 +108,13 @@ export async function handleIncomingMessage(
       { conversationId },
       'Message in handoff mode, skipping bot response',
     );
-    // TODO: forward to Telegram (E.3)
+    // Forward message to Telegram manager group for handoff conversations
+    notifyHandoff({
+      conversationId,
+      clientIgUserId: client.igUserId!,
+      reason: conversation.handoffReason || 'Клієнт написав під час хендофу',
+      lastMessages: [{ sender: 'client', text: messageText }],
+    }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
     return;
   }
 
@@ -238,7 +245,23 @@ export async function handleIncomingMessage(
       });
 
       log.info({ conversationId, reason }, 'Conversation handed off to manager');
-      // TODO: notify Telegram (E.3)
+
+      // Notify Telegram manager group about the handoff
+      const recentMsgs = await prisma.message.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { sender: true, text: true },
+      });
+      notifyHandoff({
+        conversationId,
+        clientIgUserId: client.igUserId!,
+        reason,
+        lastMessages: recentMsgs
+          .reverse()
+          .filter((m) => m.text)
+          .map((m) => ({ sender: m.sender, text: m.text! })),
+      }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
       return;
     }
 
