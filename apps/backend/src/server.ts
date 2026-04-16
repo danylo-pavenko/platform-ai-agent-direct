@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { authPlugin } from './lib/auth.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/admin-auth.js';
+import { syncRoutes } from './routes/sync.js';
 
 const app = Fastify({
   logger: {
@@ -39,6 +40,7 @@ await app.register(authPlugin);
 // Routes
 await app.register(webhookRoutes);
 await app.register(authRoutes, { prefix: '/auth' });
+await app.register(syncRoutes, { prefix: '/sync' });
 
 // Health check
 app.get('/health', async () => {
