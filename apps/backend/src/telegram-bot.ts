@@ -4,6 +4,7 @@ import pino from 'pino';
 import { config } from './config.js';
 import { getBot } from './lib/telegram.js';
 import { prisma } from './lib/prisma.js';
+import { sendText } from './services/instagram.js';
 
 const log = pino({
   name: `${config.INSTANCE_ID.toUpperCase()}-bot`,
@@ -322,6 +323,76 @@ bot.on('callback_query:data', async (ctx) => {
 
       await ctx.answerCallbackQuery({ text: 'Повернуто боту!' });
       await ctx.editMessageText('\u{2705} Повернуто боту');
+    } else if (data.startsWith('approve:')) {
+      const orderId = data.substring('approve:'.length);
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { client: true },
+      });
+
+      if (!order) {
+        await ctx.answerCallbackQuery({ text: 'Замовлення не знайдено.' });
+        return;
+      }
+
+      if (order.status === 'confirmed' || order.status === 'cancelled') {
+        await ctx.answerCallbackQuery({ text: 'Замовлення вже оброблено.' });
+        return;
+      }
+
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: 'confirmed' },
+      });
+
+      if (order.client.igUserId) {
+        await sendText(
+          order.client.igUserId,
+          'Ваше замовлення підтверджено! Менеджер зв\'яжеться з вами для уточнення деталей доставки.',
+        );
+      }
+
+      const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
+      log.info({ orderId, tgUserId: ctx.from.id }, 'Order approved via callback');
+
+      await ctx.answerCallbackQuery({ text: 'Підтверджено!' });
+      await ctx.editMessageText(`\u{2705} Замовлення підтверджено менеджером @${username}`);
+    } else if (data.startsWith('decline:')) {
+      const orderId = data.substring('decline:'.length);
+
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { client: true },
+      });
+
+      if (!order) {
+        await ctx.answerCallbackQuery({ text: 'Замовлення не знайдено.' });
+        return;
+      }
+
+      if (order.status === 'confirmed' || order.status === 'cancelled') {
+        await ctx.answerCallbackQuery({ text: 'Замовлення вже оброблено.' });
+        return;
+      }
+
+      await prisma.order.update({
+        where: { id: orderId },
+        data: { status: 'cancelled' },
+      });
+
+      if (order.client.igUserId) {
+        await sendText(
+          order.client.igUserId,
+          'На жаль, ваше замовлення не може бути оброблене. Менеджер зв\'яжеться з вами.',
+        );
+      }
+
+      const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
+      log.info({ orderId, tgUserId: ctx.from.id }, 'Order declined via callback');
+
+      await ctx.answerCallbackQuery({ text: 'Відхилено.' });
+      await ctx.editMessageText(`\u{274C} Замовлення відхилено менеджером @${username}`);
     } else {
       await ctx.answerCallbackQuery();
     }

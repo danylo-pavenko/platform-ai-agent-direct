@@ -128,7 +128,11 @@ export async function notifyOrder(params: {
     `<b>Разом: ${total} ₴</b>`,
   ].join('\n');
 
-  await sendToManagerGroup(text);
+  const keyboard = new InlineKeyboard()
+    .text('✅ Підтвердити', `approve:${orderId}`)
+    .text('❌ Відхилити', `decline:${orderId}`);
+
+  await sendToManagerGroup(text, keyboard);
 }
 
 /**

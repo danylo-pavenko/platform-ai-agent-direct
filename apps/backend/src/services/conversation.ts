@@ -11,6 +11,8 @@ import {
 } from './prompt-builder.js';
 import { downloadAllMedia } from './media.js';
 import { notifyHandoff } from './telegram-notify.js';
+import { salesAgentTools } from '../lib/tool-definitions.js';
+import { handleCollectOrder } from './order.js';
 
 const log = pino({ name: 'conversation' });
 
@@ -208,6 +210,7 @@ export async function handleIncomingMessage(
     conversationHistory: history,
     userMessage: messageText,
     images: localPaths.length > 0 ? localPaths : undefined,
+    tools: salesAgentTools,
   });
 
   // ── 9. Handle tool calls ──────────────────────────────────────────
@@ -267,11 +270,13 @@ export async function handleIncomingMessage(
 
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
     if (collectOrder) {
-      // TODO: handle order (H.2)
-      log.info(
-        { conversationId, args: collectOrder.args },
-        'collect_order tool call received (not yet implemented)',
+      await handleCollectOrder(
+        conversationId,
+        client.id,
+        client.igUserId!,
+        collectOrder.args,
       );
+      return;
     }
   }
 

@@ -69,6 +69,7 @@ function buildArgs(req: ClaudeRequest): string[] {
   const args: string[] = [
     '-p',
     '--output-format', 'stream-json',
+    '--verbose',
     '--model', config.CLAUDE_MODEL,
   ];
 
