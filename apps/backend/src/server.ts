@@ -4,6 +4,8 @@ import jwt from '@fastify/jwt';
 import { config } from './config.js';
 import { prisma } from './lib/prisma.js';
 import { authPlugin } from './lib/auth.js';
+import { webhookRoutes } from './routes/webhooks.js';
+import { authRoutes } from './routes/admin-auth.js';
 
 const app = Fastify({
   logger: {
@@ -33,6 +35,10 @@ await app.register(jwt, {
 
 // Auth decorator
 await app.register(authPlugin);
+
+// Routes
+await app.register(webhookRoutes);
+await app.register(authRoutes, { prefix: '/auth' });
 
 // Health check
 app.get('/health', async () => {

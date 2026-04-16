@@ -14,7 +14,7 @@ async function auth(app: FastifyInstance) {
     'authenticate',
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
-        const payload = await request.jwtVerify();
+        const payload = await request.jwtVerify() as { sub: string; username: string; role: string };
         const user = await prisma.adminUser.findUnique({
           where: { id: payload.sub },
         });
