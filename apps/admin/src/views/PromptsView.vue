@@ -24,13 +24,13 @@
           <strong>v{{ item.version }}</strong>
         </template>
 
-        <template #item.is_active="{ item }">
+        <template #item.isActive="{ item }">
           <v-chip
-            :color="item.is_active ? 'green' : 'grey'"
+            :color="item.isActive ? 'green' : 'grey'"
             size="small"
             label
           >
-            {{ item.is_active ? 'Активний' : 'Неактивний' }}
+            {{ item.isActive ? 'Активний' : 'Неактивний' }}
           </v-chip>
         </template>
 
@@ -40,7 +40,7 @@
 
         <template #item.actions="{ item }">
           <v-btn
-            v-if="!item.is_active"
+            v-if="!item.isActive"
             size="small"
             variant="outlined"
             color="primary"
@@ -121,7 +121,7 @@ interface Prompt {
   content: string;
   changeSummary: string;
   author: string;
-  is_active: boolean;
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -140,7 +140,7 @@ const headers = [
   { title: 'Автор', key: 'author' },
   { title: 'Опис змін', key: 'changeSummary' },
   { title: 'Дата', key: 'createdAt', width: '180px' },
-  { title: 'Статус', key: 'is_active', width: '130px' },
+  { title: 'Статус', key: 'isActive', width: '130px' },
   { title: 'Дії', key: 'actions', sortable: false, width: '150px' },
 ];
 
@@ -153,7 +153,7 @@ function openNewDialog() {
   newContent.value = '';
   newChangeSummary.value = '';
   // Pre-fill with latest active prompt content
-  const active = prompts.value.find((p) => p.is_active);
+  const active = prompts.value.find((p) => p.isActive);
   if (active) {
     newContent.value = active.content;
   }
