@@ -1,30 +1,16 @@
 import type { FastifyInstance } from 'fastify';
-import { spawn } from 'node:child_process';
 import { prisma } from '../lib/prisma.js';
+import { runSync } from '../sync-worker.js';
 
 export async function syncRoutes(app: FastifyInstance): Promise<void> {
-  // POST /sync/trigger — spawn sync-worker as detached child process
+  // POST /sync/trigger — run sync in background (async, don't await)
   app.post('/trigger', { onRequest: [app.authenticate] }, async (_request, reply) => {
-    const isDev = process.env.NODE_ENV !== 'production';
     const startedAt = new Date().toISOString();
 
-    if (isDev) {
-      const child = spawn('npx', ['tsx', 'src/sync-worker.ts'], {
-        cwd: 'apps/backend',
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-      app.log.info({ pid: child.pid }, 'Sync worker spawned (dev mode)');
-    } else {
-      const child = spawn('node', ['--enable-source-maps', 'dist/sync-worker.js'], {
-        cwd: 'apps/backend',
-        detached: true,
-        stdio: 'ignore',
-      });
-      child.unref();
-      app.log.info({ pid: child.pid }, 'Sync worker spawned (production)');
-    }
+    // Fire and forget — sync runs in background within this process
+    runSync()
+      .then(() => app.log.info('Sync completed successfully'))
+      .catch((err) => app.log.error({ err }, 'Sync failed'));
 
     return reply.code(202).send({ message: 'Sync triggered', startedAt });
   });

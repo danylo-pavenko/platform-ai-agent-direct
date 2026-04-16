@@ -270,9 +270,9 @@ function buildCatalog(
   return lines.join('\n') + '\n';
 }
 
-// ── Main ───────────────────────────────────────────────────────────────────
+// ── Main (exported for use by routes/sync.ts) ─────────────────────────────
 
-async function main(): Promise<void> {
+export async function runSync(): Promise<void> {
   log.info('KeyCRM sync started');
 
   // Create sync run record
@@ -337,12 +337,20 @@ async function main(): Promise<void> {
         errorMessage: message.slice(0, 2000),
       },
     });
-  } finally {
-    await prisma.$disconnect();
   }
 }
 
-main().catch((err) => {
-  log.fatal({ err }, 'Unhandled error in sync worker');
-  process.exit(1);
-});
+// ── Standalone entrypoint (PM2: SB-sync) ──────────────────────────────────
+// When run directly, execute sync and exit.
+
+const isMainModule = process.argv[1] &&
+  (process.argv[1].endsWith('sync-worker.ts') || process.argv[1].endsWith('sync-worker.js'));
+
+if (isMainModule) {
+  runSync()
+    .catch((err) => {
+      log.fatal({ err }, 'Unhandled error in sync worker');
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}
