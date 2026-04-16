@@ -7,6 +7,10 @@ import { authPlugin } from './lib/auth.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/admin-auth.js';
 import { syncRoutes } from './routes/sync.js';
+import { conversationRoutes } from './routes/conversations.js';
+import { promptRoutes } from './routes/prompts.js';
+import { settingsRoutes } from './routes/settings.js';
+import { orderRoutes } from './routes/orders.js';
 
 const app = Fastify({
   logger: {
@@ -41,6 +45,10 @@ await app.register(authPlugin);
 await app.register(webhookRoutes);
 await app.register(authRoutes, { prefix: '/auth' });
 await app.register(syncRoutes, { prefix: '/sync' });
+await app.register(conversationRoutes, { prefix: '/conversations' });
+await app.register(promptRoutes, { prefix: '/prompts' });
+await app.register(settingsRoutes, { prefix: '/settings' });
+await app.register(orderRoutes, { prefix: '/orders' });
 
 // Health check
 app.get('/health', async () => {
