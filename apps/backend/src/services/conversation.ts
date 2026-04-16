@@ -19,56 +19,8 @@ const log = pino({ name: 'conversation' });
 /** Regex to detect leaked internal IDs / prices in bot output */
 const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 
-/** Default message when out-of-hours template is not configured */
-const DEFAULT_OUT_OF_HOURS =
-  'Дякуємо за повідомлення! Наразі ми не працюємо, але відповімо вам у робочий час.';
-
-/** Duration in ms to consider a conversation "recently active" */
-const RECENT_ACTIVITY_MS = 30 * 60 * 1000; // 30 minutes
-
 /** Max messages to include in Claude conversation history */
 const MAX_HISTORY_MESSAGES = 30;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function getOutOfHoursTemplate(): Promise<string> {
-  try {
-    const setting = await prisma.setting.findUnique({
-      where: { key: 'out_of_hours_template' },
-    });
-
-    if (setting?.value && typeof setting.value === 'string') {
-      return setting.value;
-    }
-
-    // The value might be stored as a JSON string
-    if (setting?.value && typeof setting.value === 'object') {
-      const val = (setting.value as Record<string, unknown>).text;
-      if (typeof val === 'string') return val;
-    }
-
-    return DEFAULT_OUT_OF_HOURS;
-  } catch (err) {
-    log.error({ err }, 'Failed to fetch out_of_hours_template');
-    return DEFAULT_OUT_OF_HOURS;
-  }
-}
-
-async function hasRecentActivity(conversationId: string): Promise<boolean> {
-  const cutoff = new Date(Date.now() - RECENT_ACTIVITY_MS);
-
-  const recentMessage = await prisma.message.findFirst({
-    where: {
-      conversationId,
-      createdAt: { gte: cutoff },
-    },
-    select: { id: true },
-  });
-
-  return recentMessage !== null;
-}
 
 // ---------------------------------------------------------------------------
 // Main handler
@@ -132,38 +84,12 @@ export async function handleIncomingMessage(
   // ── 4. Working hours check ────────────────────────────────────────
   const hours = await getWorkingHours();
   const now = new Date();
+  const outOfHours = !isWithinWorkingHours(now, hours);
 
-  if (!isWithinWorkingHours(now, hours)) {
-    const recentlyActive = await hasRecentActivity(conversationId);
-
-    if (!recentlyActive) {
-      const template = await getOutOfHoursTemplate();
-
-      try {
-        await sendText(client.igUserId, template);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to send out-of-hours message');
-        return;
-      }
-
-      // Persist the bot message
-      await prisma.message.create({
-        data: {
-          conversationId,
-          direction: 'out',
-          sender: 'bot',
-          text: template,
-        },
-      });
-
-      log.info({ conversationId }, 'Sent out-of-hours template');
-      return;
-    }
-
-    // Recently active — continue serving even outside hours
-    log.debug(
+  if (outOfHours) {
+    log.info(
       { conversationId },
-      'Outside working hours but conversation recently active, continuing',
+      'Outside working hours — bot will respond with out-of-hours context',
     );
   }
 
@@ -179,6 +105,7 @@ export async function handleIncomingMessage(
     conversationState: conversation.state as 'bot' | 'handoff',
     clientIgUsername: client.igUserId,
     conversationIdShort: conversation.id.slice(0, 8),
+    isOutOfHours: outOfHours,
   });
 
   // ── 6. Build conversation history (last 30 messages) ──────────────
