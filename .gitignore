@@ -27,4 +27,5 @@ Thumbs.db
 pm2-*.log
 
 # Prisma
+apps/backend/src/generated/
 apps/backend/src/prisma/migrations/**/migration_lock.toml

@@ -1,0 +1,224 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Clients ──
+
+model Client {
+  id              String         @id @default(uuid()) @db.Uuid
+  igUserId        String?        @unique @map("ig_user_id")
+  tgUserId        String?        @unique @map("tg_user_id")
+  displayName     String?        @map("display_name")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  lastActivityAt  DateTime       @default(now()) @map("last_activity_at")
+
+  conversations   Conversation[]
+  orders          Order[]
+
+  @@map("clients")
+}
+
+// ── Conversations ──
+
+enum ConversationChannel {
+  ig
+  tg
+
+  @@map("conversation_channel")
+}
+
+enum ConversationState {
+  bot
+  handoff
+  paused
+  closed
+
+  @@map("conversation_state")
+}
+
+model Conversation {
+  id              String              @id @default(uuid()) @db.Uuid
+  clientId        String              @map("client_id") @db.Uuid
+  channel         ConversationChannel
+  state           ConversationState   @default(bot)
+  lastMessageAt   DateTime?           @map("last_message_at")
+  handoffReason   String?             @map("handoff_reason")
+  handedOffTo     String?             @map("handed_off_to")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  client          Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages        Message[]
+  orders          Order[]
+
+  @@map("conversations")
+}
+
+// ── Messages ──
+
+enum MessageDirection {
+  in
+  out
+  system
+
+  @@map("message_direction")
+}
+
+enum MessageSender {
+  client
+  bot
+  manager
+  system
+
+  @@map("message_sender")
+}
+
+model Message {
+  id              String            @id @default(uuid()) @db.Uuid
+  conversationId  String            @map("conversation_id") @db.Uuid
+  direction       MessageDirection
+  sender          MessageSender
+  text            String?
+  mediaUrls       Json?             @map("media_urls") @db.JsonB
+  sharedPost      Json?             @map("shared_post") @db.JsonB
+  igMessageId     String?           @unique @map("ig_message_id")
+  claudeTurnId    String?           @map("claude_turn_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// ── Orders ──
+
+enum OrderStatus {
+  draft
+  submitted
+  confirmed
+  cancelled
+
+  @@map("order_status")
+}
+
+enum PaymentMethod {
+  card
+  transfer
+  cod
+
+  @@map("payment_method")
+}
+
+model Order {
+  id                    String        @id @default(uuid()) @db.Uuid
+  conversationId        String        @map("conversation_id") @db.Uuid
+  clientId              String        @map("client_id") @db.Uuid
+  items                 Json          @db.JsonB
+  customerName          String        @map("customer_name")
+  phone                 String
+  city                  String
+  npBranch              String        @map("np_branch")
+  paymentMethod         PaymentMethod @map("payment_method")
+  note                  String?
+  status                OrderStatus   @default(draft)
+  submittedToManagerAt  DateTime?     @map("submitted_to_manager_at")
+  keycrmOrderId         String?       @map("keycrm_order_id")
+  createdAt             DateTime      @default(now()) @map("created_at")
+
+  conversation          Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  client                Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("orders")
+}
+
+// ── System Prompts ──
+
+enum PromptAuthor {
+  human
+  meta_agent
+
+  @@map("prompt_author")
+}
+
+model SystemPrompt {
+  id              String        @id @default(uuid()) @db.Uuid
+  version         Int
+  content         String
+  author          PromptAuthor  @default(human)
+  authorUserId    String?       @map("author_user_id") @db.Uuid
+  changeSummary   String?       @map("change_summary")
+  isActive        Boolean       @default(false) @map("is_active")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@map("system_prompts")
+}
+
+// ── Admin Users ──
+
+enum AdminRole {
+  owner
+  manager
+
+  @@map("admin_role")
+}
+
+model AdminUser {
+  id            String    @id @default(uuid()) @db.Uuid
+  username      String    @unique
+  passwordHash  String    @map("password_hash")
+  role          AdminRole @default(manager)
+  tgUserId      String?   @map("tg_user_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("admin_users")
+}
+
+// ── Settings (key-value) ──
+
+model Setting {
+  key       String   @id
+  value     Json     @db.JsonB
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+// ── KeyCRM Sync Runs ──
+
+enum SyncStatus {
+  ok
+  error
+
+  @@map("sync_status")
+}
+
+model KeycrmSyncRun {
+  id            String      @id @default(uuid()) @db.Uuid
+  startedAt     DateTime    @default(now()) @map("started_at")
+  finishedAt    DateTime?   @map("finished_at")
+  status        SyncStatus
+  counts        Json?       @db.JsonB
+  errorMessage  String?     @map("error_message")
+
+  @@map("keycrm_sync_runs")
+}
+
+// ── Audit Log ──
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actor       String
+  action      String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  payload     Json?    @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@map("audit_log")
+}
