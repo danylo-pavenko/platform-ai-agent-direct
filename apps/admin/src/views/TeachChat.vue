@@ -1,188 +1,159 @@
 <template>
-  <v-container fluid class="d-flex flex-column" style="height: calc(100vh - 24px);">
+  <v-container fluid class="d-flex flex-column pa-2 pa-md-4" style="height: calc(100vh - 64px);">
     <!-- Header -->
-    <v-card class="mb-3" flat>
-      <v-card-text class="d-flex align-center ga-3 pa-3">
-        <v-icon color="primary" size="28">mdi-robot-outline</v-icon>
-        <div>
-          <div class="text-subtitle-1 font-weight-bold">Навчання агента</div>
-          <div class="text-caption text-grey">
-            Чат з мета-агентом для редагування промпту
+    <v-card class="mb-2 mb-md-3" flat>
+      <v-card-text class="d-flex align-center ga-2 pa-2 pa-md-3">
+        <v-icon color="primary" size="24">mdi-robot-outline</v-icon>
+        <div class="flex-grow-1">
+          <div class="text-subtitle-2 text-md-subtitle-1 font-weight-bold">Навчання агента</div>
+          <div class="text-caption text-grey d-none d-sm-block">
+            Опишіть зміни — мета-агент запропонує правки до промпту
           </div>
         </div>
-        <v-spacer />
         <v-btn
           variant="text"
           size="small"
-          prepend-icon="mdi-delete-outline"
+          icon="mdi-delete-outline"
           :disabled="messages.length === 0"
           @click="clearChat"
-        >
-          Очистити
-        </v-btn>
+        />
       </v-card-text>
     </v-card>
 
-    <!-- Main content area -->
-    <v-row class="flex-grow-1" style="min-height: 0;" no-gutters>
+    <!-- Main content -->
+    <div class="flex-grow-1 d-flex flex-column flex-md-row ga-2 ga-md-3" style="min-height: 0; overflow: hidden;">
       <!-- Chat panel -->
-      <v-col :cols="currentDiff ? 7 : 12" class="d-flex flex-column" style="min-height: 0;">
-        <v-card class="flex-grow-1 overflow-hidden d-flex flex-column" flat>
+      <v-card
+        class="d-flex flex-column"
+        :class="currentDiff ? 'chat-with-diff' : 'flex-grow-1'"
+        flat
+        style="min-height: 0;"
+      >
+        <!-- Messages -->
+        <div
+          ref="messagesContainer"
+          class="flex-grow-1 overflow-y-auto pa-3 pa-md-4"
+          style="min-height: 0;"
+        >
+          <!-- Empty state -->
+          <div
+            v-if="messages.length === 0 && !loading"
+            class="d-flex flex-column align-center justify-center text-center"
+            style="height: 100%;"
+          >
+            <v-icon size="48" color="grey-lighten-1" class="mb-3">mdi-chat-outline</v-icon>
+            <div class="text-body-1 text-grey-darken-1 mb-1">Почніть розмову</div>
+            <div class="text-body-2 text-grey px-4" style="max-width: 360px;">
+              Наприклад: "Додай правило про безкоштовну доставку від 2000 грн"
+            </div>
+          </div>
+
           <!-- Messages -->
           <div
-            ref="messagesContainer"
-            class="flex-grow-1 overflow-y-auto pa-4"
-            style="min-height: 0;"
+            v-for="(msg, idx) in messages"
+            :key="idx"
+            class="mb-3 d-flex"
+            :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
           >
-            <!-- Empty state -->
-            <div
-              v-if="messages.length === 0 && !loading"
-              class="d-flex flex-column align-center justify-center"
-              style="height: 100%;"
-            >
-              <v-icon size="64" color="grey-lighten-1" class="mb-4">
-                mdi-chat-outline
-              </v-icon>
-              <div class="text-h6 text-grey-lighten-1 mb-2">
-                Почніть розмову
+            <div :style="{ maxWidth: mobile ? '90%' : '75%' }">
+              <div
+                class="text-caption text-grey mb-1"
+                :class="msg.role === 'user' ? 'text-right' : ''"
+              >
+                {{ msg.role === 'user' ? 'Ви' : 'Мета-агент' }}
               </div>
-              <div class="text-body-2 text-grey text-center" style="max-width: 400px;">
-                Опишіть, що потрібно змінити в промпті агента. Мета-агент
-                запропонує зміни, які ви зможете переглянути та застосувати.
-              </div>
-            </div>
-
-            <!-- Message bubbles -->
-            <div
-              v-for="(msg, idx) in messages"
-              :key="idx"
-              class="mb-3 d-flex"
-              :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
-            >
-              <div style="max-width: 80%;">
-                <v-card
-                  :color="msg.role === 'user' ? 'primary' : 'grey-lighten-3'"
-                  :variant="msg.role === 'user' ? 'flat' : 'tonal'"
-                  rounded="lg"
-                  class="pa-3"
-                >
-                  <div
-                    class="text-body-2"
-                    :class="{ 'text-white': msg.role === 'user' }"
-                    style="white-space: pre-wrap; word-break: break-word;"
-                  >
-                    {{ msg.content }}
-                  </div>
-                </v-card>
+              <v-card
+                :color="msg.role === 'user' ? 'primary' : 'grey-lighten-4'"
+                :variant="msg.role === 'user' ? 'flat' : 'flat'"
+                rounded="lg"
+                class="pa-3"
+              >
                 <div
-                  class="text-caption text-grey mt-1"
-                  :class="msg.role === 'user' ? 'text-right' : ''"
-                >
-                  {{ msg.role === 'user' ? 'Ви' : 'Мета-агент' }}
-                </div>
-              </div>
-            </div>
-
-            <!-- Loading indicator -->
-            <div v-if="loading" class="d-flex justify-start mb-3">
-              <v-card color="grey-lighten-3" variant="tonal" rounded="lg" class="pa-3">
-                <v-progress-circular indeterminate size="20" width="2" color="primary" />
-                <span class="text-body-2 text-grey ml-2">Думаю...</span>
+                  class="text-body-2 msg-content"
+                  :class="{ 'text-white': msg.role === 'user' }"
+                  v-html="formatMessage(msg.content)"
+                />
               </v-card>
             </div>
           </div>
 
-          <!-- Input area -->
-          <v-divider />
-          <div class="pa-3">
-            <v-row dense align="center">
-              <v-col>
-                <v-textarea
-                  v-model="inputText"
-                  label="Опишіть зміни до промпту..."
-                  variant="outlined"
-                  density="compact"
-                  rows="2"
-                  auto-grow
-                  hide-details
-                  :disabled="loading"
-                  @keydown.ctrl.enter="sendMessage"
-                  @keydown.meta.enter="sendMessage"
-                />
-              </v-col>
-              <v-col cols="auto">
-                <v-btn
-                  color="primary"
-                  :loading="loading"
-                  :disabled="!inputText.trim()"
-                  @click="sendMessage"
-                >
-                  <v-icon start>mdi-send</v-icon>
-                  Надіслати
-                </v-btn>
-              </v-col>
-            </v-row>
-            <div class="text-caption text-grey mt-1">
-              Ctrl+Enter для надсилання
-            </div>
+          <!-- Loading -->
+          <div v-if="loading" class="d-flex justify-start mb-3">
+            <v-card color="grey-lighten-4" variant="flat" rounded="lg" class="pa-3 d-flex align-center">
+              <v-progress-circular indeterminate size="18" width="2" color="primary" />
+              <span class="text-body-2 text-grey ml-2">Аналізую промпт...</span>
+            </v-card>
           </div>
-        </v-card>
-      </v-col>
+        </div>
 
-      <!-- Diff panel -->
-      <v-col v-if="currentDiff" cols="5" class="pl-3 d-flex flex-column" style="min-height: 0;">
-        <v-card class="flex-grow-1 overflow-y-auto" flat>
-          <v-card-title class="d-flex align-center">
-            <v-icon start color="warning">mdi-file-compare</v-icon>
-            Пропоновані зміни
-          </v-card-title>
-
-          <v-card-text>
-            <!-- Summary -->
-            <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-              {{ currentDiff.summary }}
-            </v-alert>
-
-            <!-- Before -->
-            <div class="text-subtitle-2 font-weight-bold mb-1 text-error">
-              <v-icon size="small" color="error" class="mr-1">mdi-minus-circle</v-icon>
-              БУЛО
-            </div>
-            <pre class="diff-block diff-before mb-4">{{ currentDiff.before }}</pre>
-
-            <!-- After -->
-            <div class="text-subtitle-2 font-weight-bold mb-1 text-success">
-              <v-icon size="small" color="success" class="mr-1">mdi-plus-circle</v-icon>
-              СТАЛО
-            </div>
-            <pre class="diff-block diff-after mb-4">{{ currentDiff.after }}</pre>
-          </v-card-text>
-
-          <v-divider />
-
-          <v-card-actions class="pa-3">
-            <v-btn
+        <!-- Input -->
+        <v-divider />
+        <div class="pa-2 pa-md-3">
+          <div class="d-flex ga-2 align-end">
+            <v-textarea
+              v-model="inputText"
+              placeholder="Опишіть зміни до промпту..."
               variant="outlined"
-              :disabled="applying"
-              @click="rejectDiff"
-            >
-              Відхилити
-            </v-btn>
-            <v-spacer />
+              density="compact"
+              rows="1"
+              max-rows="4"
+              auto-grow
+              hide-details
+              :disabled="loading"
+              @keydown.ctrl.enter="sendMessage"
+              @keydown.meta.enter="sendMessage"
+            />
             <v-btn
               color="primary"
-              :loading="applying"
-              @click="applyDiff"
-            >
-              <v-icon start>mdi-check</v-icon>
-              Застосувати
-            </v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-col>
-    </v-row>
+              icon="mdi-send"
+              :loading="loading"
+              :disabled="!inputText.trim()"
+              size="small"
+              @click="sendMessage"
+            />
+          </div>
+        </div>
+      </v-card>
 
-    <!-- Snackbar -->
+      <!-- Diff panel -->
+      <v-card v-if="currentDiff" class="diff-panel d-flex flex-column" flat style="min-height: 0;">
+        <v-card-title class="text-subtitle-2 pa-3 d-flex align-center">
+          <v-icon start color="warning" size="20">mdi-file-compare</v-icon>
+          Пропоновані зміни
+        </v-card-title>
+
+        <div class="flex-grow-1 overflow-y-auto px-3 pb-3">
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3 text-body-2">
+            {{ currentDiff.summary }}
+          </v-alert>
+
+          <div class="text-caption font-weight-bold mb-1 text-error d-flex align-center">
+            <v-icon size="14" color="error" class="mr-1">mdi-minus-circle</v-icon>
+            БУЛО
+          </div>
+          <pre class="diff-block diff-before mb-3">{{ currentDiff.before }}</pre>
+
+          <div class="text-caption font-weight-bold mb-1 text-success d-flex align-center">
+            <v-icon size="14" color="success" class="mr-1">mdi-plus-circle</v-icon>
+            СТАЛО
+          </div>
+          <pre class="diff-block diff-after">{{ currentDiff.after }}</pre>
+        </div>
+
+        <v-divider />
+        <div class="pa-3 d-flex ga-2">
+          <v-btn variant="outlined" size="small" :disabled="applying" @click="rejectDiff">
+            Відхилити
+          </v-btn>
+          <v-spacer />
+          <v-btn color="primary" size="small" :loading="applying" @click="applyDiff">
+            <v-icon start size="16">mdi-check</v-icon>
+            Застосувати
+          </v-btn>
+        </div>
+      </v-card>
+    </div>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
@@ -191,7 +162,10 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue';
+import { useDisplay } from 'vuetify';
 import api from '@/api';
+
+const { mobile } = useDisplay();
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -221,6 +195,32 @@ function showSnackbar(text: string, color = 'success') {
   snackbar.value = true;
 }
 
+/** Format message text: convert markdown-like markers to styled HTML */
+function formatMessage(text: string): string {
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Bold: **text** or ЗАГОЛОВКИ
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // Code blocks: ```...```
+  html = html.replace(/```([\s\S]*?)```/g, '<pre class="code-inline">$1</pre>');
+
+  // Inline code: `text`
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Section headers: --- БУЛО --- / --- СТАЛО --- / ПОЯСНЕННЯ:
+  html = html.replace(/^(---\s*.+?\s*---)/gm, '<strong class="text-primary">$1</strong>');
+  html = html.replace(/^(ПОЯСНЕННЯ:)/gm, '<strong class="text-info">$1</strong>');
+
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
 async function scrollToBottom() {
   await nextTick();
   if (messagesContainer.value) {
@@ -232,10 +232,10 @@ async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || loading.value) return;
 
-  const userMessage: ChatMessage = { role: 'user', content: text };
-  messages.value.push(userMessage);
+  messages.value.push({ role: 'user', content: text });
   inputText.value = '';
   loading.value = true;
+  currentDiff.value = null;
   await scrollToBottom();
 
   try {
@@ -244,18 +244,13 @@ async function sendMessage() {
       history: messages.value.slice(0, -1),
     });
 
-    const assistantMessage: ChatMessage = { role: 'assistant', content: data.reply };
-    messages.value.push(assistantMessage);
+    messages.value.push({ role: 'assistant', content: data.reply });
 
     if (data.suggestedDiff) {
-      currentDiff.value = {
-        before: data.suggestedDiff.before,
-        after: data.suggestedDiff.after,
-        summary: data.suggestedDiff.summary,
-      };
+      currentDiff.value = data.suggestedDiff;
     }
   } catch (e: any) {
-    const errorMsg = e.response?.data?.message || 'Помилка звʼязку з мета-агентом';
+    const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
     messages.value.push({ role: 'assistant', content: `Помилка: ${errorMsg}` });
     showSnackbar(errorMsg, 'error');
   } finally {
@@ -275,8 +270,7 @@ async function applyDiff() {
     showSnackbar('Промпт оновлено!');
     currentDiff.value = null;
   } catch (e: any) {
-    const errorMsg = e.response?.data?.message || 'Не вдалося застосувати зміни';
-    showSnackbar(errorMsg, 'error');
+    showSnackbar(e.response?.data?.error || 'Не вдалося застосувати', 'error');
   } finally {
     applying.value = false;
   }
@@ -294,26 +288,72 @@ function clearChat() {
 </script>
 
 <style scoped>
+.chat-with-diff {
+  flex: 1 1 55%;
+  min-width: 0;
+}
+
+.diff-panel {
+  flex: 1 1 45%;
+  min-width: 0;
+}
+
+/* Mobile: stack vertically */
+@media (max-width: 960px) {
+  .chat-with-diff {
+    flex: 1 1 60%;
+  }
+  .diff-panel {
+    flex: 0 0 40%;
+  }
+}
+
 .diff-block {
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  overflow-x: auto;
-  font-family: 'Roboto Mono', monospace;
-  max-height: 300px;
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  max-height: 250px;
   overflow-y: auto;
 }
 
 .diff-before {
-  background-color: rgb(var(--v-theme-error), 0.05);
-  border: 1px solid rgb(var(--v-theme-error), 0.2);
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
 }
 
 .diff-after {
-  background-color: rgb(var(--v-theme-success), 0.05);
-  border: 1px solid rgb(var(--v-theme-success), 0.2);
+  background-color: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+:deep(.msg-content) {
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+:deep(.msg-content br + br) {
+  display: block;
+  content: '';
+  margin-top: 4px;
+}
+
+:deep(.msg-content code) {
+  background: rgba(0,0,0,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+:deep(.msg-content pre.code-inline) {
+  background: rgba(0,0,0,0.06);
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin: 8px 0;
+  font-size: 12px;
+  overflow-x: auto;
 }
 </style>
