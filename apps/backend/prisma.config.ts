@@ -1,5 +1,11 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'prisma/config';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Load .env from project root (2 levels up: apps/backend/ → apps/ → root)
+config({ path: resolve(__dirname, '..', '..', '.env') });
 
 export default defineConfig({
   earlyAccess: true,

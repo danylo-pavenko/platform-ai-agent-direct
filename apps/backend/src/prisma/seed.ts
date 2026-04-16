@@ -1,12 +1,14 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client.js';
 import bcrypt from 'bcryptjs';
+import { config as dotenvConfig } from 'dotenv';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import 'dotenv/config';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+// Load .env from project root (4 levels up: src/prisma/ → src/ → backend/ → apps/ → root)
+dotenvConfig({ path: resolve(__dirname, '..', '..', '..', '..', '.env') });
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
