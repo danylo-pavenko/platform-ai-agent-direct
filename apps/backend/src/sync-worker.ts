@@ -140,132 +140,202 @@ function orderedCategories(groups: Map<string, KeycrmProduct[]>): string[] {
 
 // ── Catalog builder ────────────────────────────────────────────────────────
 
+/**
+ * Check if a product is a "service" item (custom print/embroidery).
+ * These have price 1₴ and should be listed separately.
+ */
+function isServiceItem(product: KeycrmProduct): boolean {
+  const name = (product.name ?? '').toLowerCase();
+  return (
+    name.startsWith('принт ') ||
+    name.startsWith('вишивка ') ||
+    name === 'принт - сорочки' ||
+    name.includes('принт l + blessed')
+  );
+}
+
+/**
+ * Check if a product has ANY variant in stock.
+ */
+function hasAnyStock(productId: number, offersByPid: Map<number, KeycrmOffer[]>): boolean {
+  const po = offersByPid.get(productId) ?? [];
+  return po.some((o) => (o.quantity ?? 0) > 0);
+}
+
+/**
+ * Extract color from product name (e.g. "Худі, чорний" → "чорний").
+ */
+function extractColor(name: string): string | null {
+  const match = name.match(/,\s*(.+)$/);
+  return match ? match[1].trim().toLowerCase() : null;
+}
+
 function buildCatalog(
   products: KeycrmProduct[],
   offers: KeycrmOffer[],
-  categories: KeycrmCategory[],
+  _categories: KeycrmCategory[],
 ): string {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
-  // Filter: only non-archived products
+  // Filter: non-archived only
   const live = products.filter((p) => !p.is_archived);
   const liveIds = new Set(live.map((p) => p.id));
 
-  // Group offers by product_id
+  // Group offers by product_id (only for live products)
   const offersByPid = new Map<number, KeycrmOffer[]>();
   for (const o of offers) {
     if (liveIds.has(o.product_id)) {
-      const existing = offersByPid.get(o.product_id);
-      if (existing) {
-        existing.push(o);
-      } else {
-        offersByPid.set(o.product_id, [o]);
-      }
+      const arr = offersByPid.get(o.product_id);
+      if (arr) arr.push(o);
+      else offersByPid.set(o.product_id, [o]);
     }
   }
 
-  // Group products by display category
+  // Separate real products from service items
+  const realProducts = live.filter((p) => !isServiceItem(p));
+  const serviceItems = live.filter((p) => isServiceItem(p));
+
+  // Split into in-stock and out-of-stock
+  const inStockProducts = realProducts.filter((p) => hasAnyStock(p.id, offersByPid));
+  const oosProducts = realProducts.filter((p) => !hasAnyStock(p.id, offersByPid));
+
+  // Group in-stock by category
   const groups = new Map<string, KeycrmProduct[]>();
-  for (const p of live) {
+  for (const p of inStockProducts) {
     const cat = categorizeProduct(p);
-    const existing = groups.get(cat);
-    if (existing) {
-      existing.push(p);
-    } else {
-      groups.set(cat, [p]);
-    }
+    const arr = groups.get(cat);
+    if (arr) arr.push(p);
+    else groups.set(cat, [p]);
   }
 
   const ordered = orderedCategories(groups);
 
-  // Count total variants across live products
-  const totalVariants = live.reduce(
-    (sum, p) => sum + (offersByPid.get(p.id)?.length ?? 0),
-    0,
-  );
+  // Count in-stock variants
+  const totalInStockVariants = inStockProducts.reduce((sum, p) => {
+    const po = offersByPid.get(p.id) ?? [];
+    return sum + po.filter((o) => (o.quantity ?? 0) > 0).length;
+  }, 0);
 
   const lines: string[] = [];
 
-  // Header
+  // ── Header ──
   lines.push(`КАТАЛОГ ТОВАРІВ — ${config.BRAND_NAME.toUpperCase()}`);
   lines.push('='.repeat(50));
   lines.push(`Знімок з KeyCRM: ${now}`);
-  lines.push(`Товарів: ${live.length}, Варіантів: ${totalVariants}`);
+  lines.push(`Товарів у наявності: ${inStockProducts.length}, Варіантів у наявності: ${totalInStockVariants}`);
   lines.push('');
 
-  // Per-category blocks
+  // ── In-stock products by category ──
   for (const cat of ordered) {
     const items = groups.get(cat);
     if (!items || items.length === 0) continue;
 
-    lines.push('='.repeat(70));
+    lines.push('='.repeat(60));
     lines.push(`КАТЕГОРІЯ: ${cat}`);
-    lines.push('='.repeat(70));
+    lines.push('='.repeat(60));
     lines.push('');
 
-    // Sort products alphabetically within category
     const sorted = [...items].sort((a, b) =>
       (a.name ?? '').toLowerCase().localeCompare((b.name ?? '').toLowerCase(), 'uk'),
     );
 
     for (const p of sorted) {
       const name = (p.name ?? '').trim() || `#${p.id}`;
-      const price = fmtPriceRange(p.min_price, p.max_price);
       const po = offersByPid.get(p.id) ?? [];
-      const inStock = po.filter((o) => (o.quantity ?? 0) > 0).length;
-      const totalV = po.length;
+      const inStockOffers = po.filter((o) => (o.quantity ?? 0) > 0);
+      const price = fmtPriceRange(p.min_price, p.max_price);
 
       lines.push(`### ${name} — ${price}`);
-      if (p.description && p.description.trim()) {
-        lines.push(`  Опис: ${p.description.trim()}`);
-      }
-      lines.push(`  Варіанти: ${totalV} всього, ${inStock} в наявності`);
 
-      if (po.length > 0) {
-        // Sort variants by label for readability
-        const sortedOffers = [...po].sort((a, b) =>
+      // Only show in-stock variants (skip out-of-stock clutter)
+      if (inStockOffers.length > 0) {
+        const sortedOffers = [...inStockOffers].sort((a, b) =>
           variantLabel(a.properties).localeCompare(variantLabel(b.properties), 'uk'),
         );
         for (const o of sortedOffers) {
           const label = variantLabel(o.properties);
           const qty = Number(o.quantity ?? 0);
-          let stock: string;
-          if (qty > 0) {
-            stock = `в наявності: ${qty}`;
-          } else if (qty === 0) {
-            stock = 'немає в наявності';
-          } else {
-            stock = `немає (облік: ${qty})`;
-          }
-          const oPrice = fmtPrice(o.price);
-          lines.push(`  - ${label} — ${oPrice} — ${stock}`);
+          const stock = qty <= 3 ? `мало (${qty} шт)` : 'є';
+          lines.push(`  - ${label} — ${fmtPrice(o.price)} — ${stock}`);
         }
+      }
+
+      // Note which variants are OUT of stock
+      const oosOffers = po.filter((o) => (o.quantity ?? 0) <= 0);
+      if (oosOffers.length > 0) {
+        const oosLabels = oosOffers.map((o) => variantLabel(o.properties));
+        lines.push(`  [немає в наявності: ${oosLabels.join(', ')}]`);
       }
       lines.push('');
     }
   }
 
-  // Footer notes
-  lines.push('='.repeat(70));
-  lines.push('ПРИМІТКИ ДЛЯ БОТА');
-  lines.push('='.repeat(70));
-  lines.push(
-    '1. Розмірна сітка парна: XS/S, M/L, XL/2XL. Один варіант покриває ' +
-    'два суміжні розміри. Якщо клієнт питає чистий \'M\' — це M/L.',
-  );
-  lines.push(
-    '2. Категорія "Індивідуальне нанесення" — ціни 1 ₴ службові. ' +
-    'Реальна вартість: принт 400–600 ₴, вишивка 1000–1500 ₴. ' +
-    'НЕ квотуй клієнту ціну 1 ₴.',
-  );
-  lines.push(
-    '3. Якщо quantity = 0 або від\'ємне — НЕ обіцяй клієнту наявність, ' +
-    'ескалюй до менеджера або запропонуй альтернативу.',
-  );
-  lines.push(
-    '4. Значення quantity — це KeyCRM-залишок на всіх складах сумарно. ' +
-    'Для самовивозу завжди переадресовуй до менеджера.',
-  );
+  // ── Out-of-stock products (short list for alternatives) ──
+  if (oosProducts.length > 0) {
+    lines.push('='.repeat(60));
+    lines.push('ТОВАРИ, ЯКИХ ЗАРАЗ НЕМАЄ В НАЯВНОСТІ');
+    lines.push('(не пропонуй їх, але якщо клієнт запитає — скажи що немає і запропонуй альтернативу)');
+    lines.push('='.repeat(60));
+    lines.push('');
+
+    for (const p of oosProducts) {
+      const name = (p.name ?? '').trim();
+      const cat = categorizeProduct(p);
+      const color = extractColor(name);
+      const altHint = color
+        ? `→ запропонуй інший колір ${cat.toLowerCase()}`
+        : `→ запропонуй інший ${cat.toLowerCase()}`;
+      lines.push(`  - ${name} — НЕМАЄ. ${altHint}`);
+    }
+    lines.push('');
+  }
+
+  // ── Service items ──
+  if (serviceItems.length > 0) {
+    lines.push('='.repeat(60));
+    lines.push('ІНДИВІДУАЛЬНЕ НАНЕСЕННЯ (сервісні позиції)');
+    lines.push('='.repeat(60));
+    lines.push('Це НЕ окремі товари, а опції кастомізації. Ціна 1 ₴ — службова, НЕ квотуй клієнту.');
+    lines.push('Реальна вартість: принт 400–600 ₴, вишивка 1 000–1 500 ₴ (залежить від дизайну).');
+    lines.push('Для замовлення кастомного нанесення — передай менеджеру.');
+    lines.push('');
+    lines.push('Доступні дизайни нанесення:');
+    for (const p of serviceItems) {
+      const po = offersByPid.get(p.id) ?? [];
+      const designs = po
+        .filter((o) => (o.quantity ?? 0) > 0)
+        .map((o) => variantLabel(o.properties))
+        .filter((l) => l !== '(без варіанту)');
+      if (designs.length > 0) {
+        lines.push(`  ${(p.name ?? '').trim()}: ${designs.join(', ')}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // ── Bot instructions ──
+  lines.push('='.repeat(60));
+  lines.push('ІНСТРУКЦІЇ ДЛЯ БОТА');
+  lines.push('='.repeat(60));
+  lines.push('');
+  lines.push('ПРАВИЛА НАЯВНОСТІ:');
+  lines.push('- Пропонуй ТІЛЬКИ товари зі списку "В НАЯВНОСТІ" вище.');
+  lines.push('- Якщо варіант позначений "мало" — попередь клієнта: "Цього розміру залишилось небагато."');
+  lines.push('- Якщо варіант у списку [немає в наявності] — НЕ пропонуй його. Скажи що немає і запропонуй:');
+  lines.push('  а) інший колір того ж типу одягу (якщо є в наявності);');
+  lines.push('  б) схожий тип одягу (наприклад світшот замість худі);');
+  lines.push('  в) передати менеджеру для уточнення термінів поповнення.');
+  lines.push('- Товари з розділу "НЕМАЄ В НАЯВНОСТІ" — згадуй тільки якщо клієнт прямо запитав про них.');
+  lines.push('');
+  lines.push('РОЗМІРИ:');
+  lines.push('- Розмірна сітка парна: XS/S, M/L, XL/2XL (або XS, S/M, L/XL).');
+  lines.push('- Якщо клієнт каже "M" — це варіант M/L або S/M (дивись що є для конкретного товару).');
+  lines.push('- Для точної розмірної сітки конкретної моделі — передай менеджеру.');
+  lines.push('');
+  lines.push('ЦІНИ:');
+  lines.push('- Не показуй точну кількість у штуках (крім "мало"). Кажи "є в наявності" або "залишилось небагато".');
+  lines.push('- Ціни 1 ₴ — СЛУЖБОВІ (нанесення). Реальна вартість: принт 400–600 ₴, вишивка 1 000–1 500 ₴.');
+  lines.push('- Для самовивозу з магазину (Львів) — уточнюй у менеджера наявність саме в магазині.');
 
   return lines.join('\n') + '\n';
 }
