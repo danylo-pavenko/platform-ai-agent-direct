@@ -67,7 +67,7 @@ export async function handleCollectOrder(
 
   // 2. Send confirmation to client via Instagram
   const confirmationText =
-    'Замовлення прийнято! Менеджер підтвердить і напише вам найближчим часом.';
+    'Замовлення прийнято! Менеджер підтвердить і напише Вам найближчим часом.';
 
   await sendText(clientIgUserId, confirmationText);
 

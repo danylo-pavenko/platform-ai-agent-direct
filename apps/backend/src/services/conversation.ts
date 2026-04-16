@@ -157,7 +157,7 @@ export async function handleIncomingMessage(
         },
       });
 
-      const handoffMessage = 'Зачекайте, будь ласка, зʼєдную вас з менеджером.';
+      const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
 
       try {
         await sendText(client.igUserId, handoffMessage);

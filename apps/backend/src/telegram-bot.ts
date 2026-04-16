@@ -349,7 +349,7 @@ bot.on('callback_query:data', async (ctx) => {
       if (order.client.igUserId) {
         await sendText(
           order.client.igUserId,
-          'Ваше замовлення підтверджено! Менеджер зв\'яжеться з вами для уточнення деталей доставки.',
+          'Ваше замовлення підтверджено! Менеджер зв\'яжеться з Вами для уточнення деталей доставки.',
         );
       }
 
@@ -384,7 +384,7 @@ bot.on('callback_query:data', async (ctx) => {
       if (order.client.igUserId) {
         await sendText(
           order.client.igUserId,
-          'На жаль, ваше замовлення не може бути оброблене. Менеджер зв\'яжеться з вами.',
+          'На жаль, Ваше замовлення не може бути оброблене. Менеджер зв\'яжеться з Вами.',
         );
       }
 
