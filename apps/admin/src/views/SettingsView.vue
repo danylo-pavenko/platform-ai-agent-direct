@@ -207,10 +207,6 @@
 
       <!-- ── Integrations ── -->
       <div class="page-title mb-1" style="font-size:16px;">Інтеграції</div>
-      <div class="text-body-2 text-medium-emphasis mb-4">
-        API-ключі зберігаються в базі даних. При клонуванні платформи задайте їх тут — .env не потрібен.
-        Після збереження потрібен <strong>перезапуск сервера</strong>.
-      </div>
 
       <!-- Meta / Instagram -->
       <v-card class="mb-4">
@@ -220,6 +216,53 @@
         </v-card-title>
         <v-card-subtitle class="pb-2">Facebook App та Instagram Page для Messenger API</v-card-subtitle>
         <v-card-text>
+          <!-- Instructions -->
+          <v-btn
+            variant="text"
+            size="small"
+            color="info"
+            class="mb-3 px-1"
+            :prepend-icon="showMetaHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
+            @click="showMetaHelp = !showMetaHelp"
+          >
+            Натисни тут
+          </v-btn>
+          <v-expand-transition>
+            <v-alert v-if="showMetaHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
+              <div class="font-weight-bold mb-2">Покрокова інструкція</div>
+              <ol class="pl-4" style="line-height:1.8;">
+                <li>
+                  Відкрийте
+                  <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a>
+                  → <strong>Create App</strong> → тип <strong>Business</strong>.
+                </li>
+                <li>
+                  <strong>App ID</strong> та <strong>App Secret</strong> знаходяться у
+                  Settings → Basic вашого застосунку.
+                </li>
+                <li>
+                  <strong>Page ID</strong> — числовий ідентифікатор Facebook-сторінки. Відкрийте сторінку →
+                  About → прокрутіть вниз — там буде "Page ID".
+                </li>
+                <li>
+                  <strong>Page Access Token</strong> — отримайте через
+                  <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>:
+                  виберіть App → вашу сторінку → Generate Token. Для продакшн використовуйте довгостроковий або System User Token.
+                </li>
+                <li>
+                  <strong>Verify Token</strong> — довільний рядок (наприклад <code>my-webhook-2026</code>).
+                  Задайте тут, потім вкажіть той самий рядок у Facebook Developers → Products → Webhooks при реєстрації URL
+                  <code>https://api.your-domain.com/webhooks/instagram</code>.
+                </li>
+              </ol>
+              <div class="mt-2">
+                <a href="https://developers.facebook.com/docs/messenger-platform/getting-started/app-setup" target="_blank" rel="noopener">
+                  Офіційна документація Meta Messenger Platform →
+                </a>
+              </div>
+            </v-alert>
+          </v-expand-transition>
+
           <v-row dense>
             <v-col cols="12" sm="6">
               <v-text-field
@@ -287,6 +330,50 @@
         </v-card-title>
         <v-card-subtitle class="pb-2">Бот-токен та група для сповіщень менеджерам</v-card-subtitle>
         <v-card-text>
+          <!-- Instructions -->
+          <v-btn
+            variant="text"
+            size="small"
+            color="info"
+            class="mb-3 px-1"
+            :prepend-icon="showTelegramHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
+            @click="showTelegramHelp = !showTelegramHelp"
+          >
+            Натисни тут
+          </v-btn>
+          <v-expand-transition>
+            <v-alert v-if="showTelegramHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
+              <div class="font-weight-bold mb-2">Покрокова інструкція</div>
+              <ol class="pl-4" style="line-height:1.8;">
+                <li>
+                  Відкрийте Telegram → напишіть
+                  <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>
+                  → команда <code>/newbot</code> → введіть назву та username.
+                  Скопіюйте <strong>Bot Token</strong> формату <code>123456:ABC-DEF…</code>
+                </li>
+                <li>
+                  Створіть групу для менеджерів у Telegram, додайте бота як учасника (або адміна).
+                </li>
+                <li>
+                  Щоб отримати <strong>Manager Group ID</strong>:
+                  напишіть будь-яке повідомлення в групу, потім відкрийте у браузері
+                  <code>https://api.telegram.org/bot<strong>TOKEN</strong>/getUpdates</code>
+                  і знайдіть <code>"chat":&#123;"id": -1001234567890&#125;</code> —
+                  це і є ID (від'ємне число).
+                </li>
+                <li>
+                  <strong>Admin Password</strong> — довільний пароль. Менеджер вводить
+                  <code>/login ВАШ_ПАРОЛЬ</code> у чаті з ботом, щоб отримати доступ до керування розмовами.
+                </li>
+              </ol>
+              <div class="mt-2">
+                <a href="https://core.telegram.org/bots/tutorial" target="_blank" rel="noopener">
+                  Офіційна документація Telegram Bots →
+                </a>
+              </div>
+            </v-alert>
+          </v-expand-transition>
+
           <v-row dense>
             <v-col cols="12" sm="6">
               <v-text-field
@@ -335,6 +422,44 @@
         </v-card-title>
         <v-card-subtitle class="pb-2">API ключ для синхронізації каталогу</v-card-subtitle>
         <v-card-text>
+          <!-- Instructions -->
+          <v-btn
+            variant="text"
+            size="small"
+            color="info"
+            class="mb-3 px-1"
+            :prepend-icon="showKeycrmHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
+            @click="showKeycrmHelp = !showKeycrmHelp"
+          >
+            Натисни тут
+          </v-btn>
+          <v-expand-transition>
+            <v-alert v-if="showKeycrmHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
+              <div class="font-weight-bold mb-2">Покрокова інструкція</div>
+              <ol class="pl-4" style="line-height:1.8;">
+                <li>
+                  Зайдіть у ваш акаунт
+                  <a href="https://app.keycrm.app/" target="_blank" rel="noopener">KeyCRM</a>.
+                </li>
+                <li>
+                  Перейдіть: <strong>Налаштування → Інтеграції → API</strong>.
+                </li>
+                <li>
+                  Якщо ключа ще немає — натисніть <strong>"Згенерувати"</strong>. Скопіюйте ключ та вставте сюди.
+                </li>
+                <li>
+                  <strong>Інтервал синхронізації</strong> — як часто оновлювати каталог товарів із KeyCRM.
+                  Рекомендовано: <strong>30–60 хвилин</strong> (мінімум 5 хв).
+                </li>
+              </ol>
+              <div class="mt-2">
+                <a href="https://api.keycrm.app/" target="_blank" rel="noopener">
+                  KeyCRM API документація (Swagger) →
+                </a>
+              </div>
+            </v-alert>
+          </v-expand-transition>
+
           <v-row dense>
             <v-col cols="12" sm="7">
               <v-text-field
@@ -456,6 +581,10 @@ const showSecrets = ref({
   tgPassword: false,
   keycrmKey: false,
 });
+
+const showMetaHelp = ref(false);
+const showTelegramHelp = ref(false);
+const showKeycrmHelp = ref(false);
 
 const agentMode = ref<'24_7' | 'schedule'>('schedule');
 
