@@ -308,6 +308,13 @@ const selectedPromptId = ref<string | null>(null);
 const promptOverride = ref('');
 const useCustomPrompt = ref(false);
 
+// Prompt agent (meta-agent mini-chat inside prompt panel)
+const promptAgentMessages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+const promptAgentInput = ref('');
+const promptAgentLoading = ref(false);
+const promptAgentDiff = ref<{ before: string; after: string; summary: string } | null>(null);
+const promptAgentTab = ref<'edit' | 'agent'>('edit');
+
 // Replay
 const replayMode = ref(false);
 const replayMessages = ref<string[]>([]);
@@ -536,6 +543,68 @@ async function loadPromptContent(id: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt Agent (meta-agent mini-chat)
+// ---------------------------------------------------------------------------
+
+async function sendToPromptAgent() {
+  const text = promptAgentInput.value.trim();
+  if (!text || promptAgentLoading.value) return;
+
+  promptAgentMessages.value.push({ role: 'user', content: text });
+  promptAgentInput.value = '';
+  promptAgentLoading.value = true;
+  promptAgentDiff.value = null;
+
+  try {
+    const { data } = await api.post('/meta-agent/chat', {
+      message: text,
+      history: promptAgentMessages.value.slice(0, -1),
+    });
+
+    promptAgentMessages.value.push({ role: 'assistant', content: data.reply });
+
+    if (data.suggestedDiff) {
+      promptAgentDiff.value = data.suggestedDiff;
+    }
+  } catch (e: any) {
+    const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
+    promptAgentMessages.value.push({ role: 'assistant', content: `Помилка: ${errorMsg}` });
+  } finally {
+    promptAgentLoading.value = false;
+  }
+}
+
+function applyPromptAgentDiff() {
+  if (!promptAgentDiff.value) return;
+  const { before, after } = promptAgentDiff.value;
+
+  // Load current prompt into override if not already editing
+  if (!useCustomPrompt.value) {
+    // Need to load the prompt content first
+    const activeId = selectedPromptId.value || prompts.value.find((p) => p.isActive)?.id;
+    if (activeId) {
+      loadPromptContent(activeId).then(() => {
+        doApplyDiff(before, after);
+      });
+      return;
+    }
+  }
+  doApplyDiff(before, after);
+}
+
+function doApplyDiff(before: string, after: string) {
+  if (before && promptOverride.value.includes(before)) {
+    promptOverride.value = promptOverride.value.replace(before, after);
+  } else {
+    promptOverride.value = promptOverride.value + '\n\n' + after;
+  }
+  useCustomPrompt.value = true;
+  promptAgentDiff.value = null;
+  promptAgentTab.value = 'edit';
+  showSnack('Зміни застосовано до промпту');
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components (inline to keep single file)
 // ---------------------------------------------------------------------------
 
@@ -545,9 +614,15 @@ const CasesPanel = defineComponent({
     return () =>
       h('div', { class: 'cases-panel d-flex flex-column', style: 'height: 100%;' }, [
         // Header
-        h('div', { class: 'pa-3 d-flex align-center' }, [
+        h('div', { class: 'pa-3 d-flex align-center ga-2' }, [
           h('div', { class: 'text-subtitle-2 flex-grow-1' }, 'Тестові кейси'),
           h('span', { class: 'text-caption text-grey' }, `${cases.value.length}/${MAX_CASES}`),
+          h('button', {
+            class: 'new-chat-btn',
+            title: 'Новий чат',
+            onClick: () => { resetChat(); selectedCaseId.value = null; if (mobile.value) showCasesDrawer.value = false; },
+            innerHTML: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>',
+          }),
         ]),
         h('hr', { class: 'v-divider' }),
         // List
@@ -577,7 +652,7 @@ const CasesPanel = defineComponent({
                       h('div', { class: 'text-body-2 font-weight-medium text-truncate' }, c.name),
                       h('div', { class: 'text-caption text-grey' }, `${c.messages.length} питань`),
                     ]),
-                    h('div', { class: 'd-flex ga-1' }, [
+                    h('div', { class: 'd-flex align-center ga-1' }, [
                       h('button', {
                         class: 'case-action-btn',
                         title: 'Запустити прогонку',
@@ -604,61 +679,139 @@ const PromptEditor = defineComponent({
   setup() {
     return () =>
       h('div', { class: 'prompt-editor d-flex flex-column', style: 'height: 100%;' }, [
-        h('div', { class: 'pa-3' }, [
+        // Header with tabs
+        h('div', { class: 'pa-3 pb-0' }, [
           h('div', { class: 'text-subtitle-2 mb-2' }, 'Системний промпт'),
-          h('div', { class: 'text-caption text-grey mb-3' }, 'Зміни застосовуються до наступного повідомлення'),
         ]),
-        h('div', { class: 'px-3 mb-2' }, [
-          h('select', {
-            class: 'prompt-select',
-            value: selectedPromptId.value ?? '',
-            onChange: (e: Event) => {
-              const id = (e.target as HTMLSelectElement).value;
-              selectedPromptId.value = id || null;
-              useCustomPrompt.value = false;
-            },
-          }, [
-            h('option', { value: '' }, 'Активний промпт'),
-            ...prompts.value.map((p) =>
-              h('option', { value: p.id, key: p.id },
-                `v${p.version}${p.isActive ? ' (активний)' : ''} — ${p.changeSummary || 'без опису'}`,
-              ),
-            ),
-          ]),
-        ]),
-        h('div', { class: 'px-3 mb-2 d-flex ga-2' }, [
+        h('div', { class: 'prompt-tabs d-flex px-3 mb-2' }, [
           h('button', {
-            class: 'text-caption text-primary cursor-pointer prompt-action-link',
-            onClick: () => {
-              if (selectedPromptId.value) {
-                loadPromptContent(selectedPromptId.value);
-              }
-            },
-          }, 'Редагувати копію'),
-          useCustomPrompt.value
-            ? h('button', {
-                class: 'text-caption text-grey cursor-pointer prompt-action-link',
-                onClick: () => {
-                  useCustomPrompt.value = false;
-                  promptOverride.value = '';
-                },
-              }, 'Скинути')
-            : null,
+            class: ['prompt-tab', promptAgentTab.value === 'edit' ? 'prompt-tab-active' : ''],
+            onClick: () => { promptAgentTab.value = 'edit'; },
+          }, 'Редагування'),
+          h('button', {
+            class: ['prompt-tab', promptAgentTab.value === 'agent' ? 'prompt-tab-active' : ''],
+            onClick: () => { promptAgentTab.value = 'agent'; },
+          }, 'Через агента'),
         ]),
-        useCustomPrompt.value
-          ? h('div', { class: 'flex-grow-1 px-3 pb-3', style: 'min-height: 0;' }, [
-              h('textarea', {
-                class: 'prompt-textarea',
-                value: promptOverride.value,
-                onInput: (e: Event) => {
-                  promptOverride.value = (e.target as HTMLTextAreaElement).value;
+
+        // Edit tab
+        promptAgentTab.value === 'edit'
+          ? h('div', { class: 'flex-grow-1 d-flex flex-column px-3 pb-3', style: 'min-height: 0; overflow: hidden;' }, [
+              // Prompt version selector
+              h('select', {
+                class: 'prompt-select mb-2',
+                value: selectedPromptId.value ?? '',
+                onChange: (e: Event) => {
+                  const id = (e.target as HTMLSelectElement).value;
+                  selectedPromptId.value = id || null;
+                  useCustomPrompt.value = false;
                 },
-                placeholder: 'Вставте або відредагуйте промпт...',
-              }),
+              }, [
+                h('option', { value: '' }, 'Активний промпт'),
+                ...prompts.value.map((p) =>
+                  h('option', { value: p.id, key: p.id },
+                    `v${p.version}${p.isActive ? ' (активний)' : ''} — ${p.changeSummary || 'без опису'}`,
+                  ),
+                ),
+              ]),
+              h('div', { class: 'mb-2 d-flex ga-2' }, [
+                h('button', {
+                  class: 'text-caption text-primary cursor-pointer prompt-action-link',
+                  onClick: () => {
+                    const id = selectedPromptId.value || prompts.value.find((p) => p.isActive)?.id;
+                    if (id) loadPromptContent(id);
+                  },
+                }, 'Редагувати копію'),
+                useCustomPrompt.value
+                  ? h('button', {
+                      class: 'text-caption text-grey cursor-pointer prompt-action-link',
+                      onClick: () => {
+                        useCustomPrompt.value = false;
+                        promptOverride.value = '';
+                      },
+                    }, 'Скинути')
+                  : null,
+              ]),
+              useCustomPrompt.value
+                ? h('textarea', {
+                    class: 'prompt-textarea flex-grow-1',
+                    value: promptOverride.value,
+                    onInput: (e: Event) => {
+                      promptOverride.value = (e.target as HTMLTextAreaElement).value;
+                    },
+                    placeholder: 'Вставте або відредагуйте промпт...',
+                  })
+                : h('div', { class: 'text-caption text-grey' },
+                    'Використовується обраний промпт з бази. Натисніть "Редагувати копію" для внесення змін.',
+                  ),
             ])
-          : h('div', { class: 'flex-grow-1 px-3 pb-3 text-caption text-grey' },
-              'Використовується обраний промпт з бази',
-            ),
+          : null,
+
+        // Agent tab
+        promptAgentTab.value === 'agent'
+          ? h('div', { class: 'flex-grow-1 d-flex flex-column px-3 pb-3', style: 'min-height: 0; overflow: hidden;' }, [
+              h('div', { class: 'text-caption text-grey mb-2' },
+                'Опишіть що змінити — агент запропонує правки',
+              ),
+              // Messages
+              h('div', { class: 'prompt-agent-messages flex-grow-1 mb-2' },
+                promptAgentMessages.value.length === 0 && !promptAgentLoading.value
+                  ? [h('div', { class: 'text-center text-grey pa-3 text-caption' }, 'Напишіть що змінити в промпті')]
+                  : [
+                      ...promptAgentMessages.value.map((msg, idx) =>
+                        h('div', {
+                          key: idx,
+                          class: ['prompt-agent-msg mb-1', msg.role === 'user' ? 'msg-user' : 'msg-bot'],
+                        }, [
+                          h('span', { class: 'text-caption font-weight-medium' },
+                            msg.role === 'user' ? 'Ви: ' : 'Агент: ',
+                          ),
+                          h('span', { class: 'text-caption' }, msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content),
+                        ]),
+                      ),
+                      promptAgentLoading.value
+                        ? h('div', { class: 'text-caption text-grey d-flex align-center ga-1' }, [
+                            h('span', { class: 'prompt-agent-spinner' }),
+                            'Аналізую...',
+                          ])
+                        : null,
+                    ],
+              ),
+              // Diff
+              promptAgentDiff.value
+                ? h('div', { class: 'prompt-agent-diff mb-2' }, [
+                    h('div', { class: 'text-caption font-weight-bold mb-1' }, promptAgentDiff.value.summary),
+                    h('div', { class: 'd-flex ga-1' }, [
+                      h('button', {
+                        class: 'prompt-agent-apply-btn',
+                        onClick: () => applyPromptAgentDiff(),
+                      }, 'Застосувати'),
+                      h('button', {
+                        class: 'prompt-agent-reject-btn',
+                        onClick: () => { promptAgentDiff.value = null; },
+                      }, 'Відхилити'),
+                    ]),
+                  ])
+                : null,
+              // Input
+              h('div', { class: 'd-flex ga-1 align-end' }, [
+                h('input', {
+                  class: 'prompt-agent-input',
+                  value: promptAgentInput.value,
+                  placeholder: 'Додай правило про...',
+                  disabled: promptAgentLoading.value,
+                  onInput: (e: Event) => { promptAgentInput.value = (e.target as HTMLInputElement).value; },
+                  onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') sendToPromptAgent(); },
+                }),
+                h('button', {
+                  class: 'prompt-agent-send-btn',
+                  disabled: !promptAgentInput.value.trim() || promptAgentLoading.value,
+                  onClick: () => sendToPromptAgent(),
+                  innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+                }),
+              ]),
+            ])
+          : null,
       ]);
   },
 });
@@ -868,15 +1021,46 @@ onMounted(async () => {
   background: rgba(var(--v-theme-primary), 0.08);
 }
 
+.new-chat-btn {
+  border: none;
+  background: rgba(var(--v-theme-primary), 0.1);
+  color: rgb(var(--v-theme-primary));
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  line-height: 0;
+  transition: background-color 0.15s;
+}
+.new-chat-btn :deep(svg) {
+  display: block;
+}
+.new-chat-btn:hover {
+  background: rgba(var(--v-theme-primary), 0.2);
+}
+
 .case-action-btn {
   border: none;
   background: none;
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
   border-radius: 4px;
   color: #666;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.case-action-btn :deep(svg) {
+  display: block;
 }
 .case-action-btn:hover {
   background: rgba(0,0,0,0.06);
@@ -925,6 +1109,122 @@ onMounted(async () => {
 /* Cursor pointer helper */
 .cursor-pointer {
   cursor: pointer;
+}
+
+/* Prompt panel tabs */
+.prompt-tabs {
+  gap: 0;
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+.prompt-tab {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #666;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.prompt-tab:hover {
+  color: #333;
+}
+.prompt-tab-active {
+  color: rgb(var(--v-theme-primary));
+  border-bottom-color: rgb(var(--v-theme-primary));
+  font-weight: 500;
+}
+
+/* Prompt agent mini-chat */
+.prompt-agent-messages {
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 8px;
+  overflow-y: auto;
+  min-height: 80px;
+}
+.prompt-agent-msg {
+  padding: 4px 8px;
+  border-radius: 6px;
+  line-height: 1.4;
+}
+.prompt-agent-msg.msg-user {
+  background: rgba(var(--v-theme-primary), 0.06);
+}
+.prompt-agent-msg.msg-bot {
+  background: #f5f5f5;
+}
+
+.prompt-agent-diff {
+  background: #fffde7;
+  border: 1px solid #fff9c4;
+  border-radius: 8px;
+  padding: 8px;
+}
+.prompt-agent-apply-btn {
+  border: none;
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.prompt-agent-apply-btn:hover {
+  opacity: 0.9;
+}
+.prompt-agent-reject-btn {
+  border: 1px solid #ccc;
+  background: #fff;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #666;
+}
+
+.prompt-agent-input {
+  flex: 1;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  outline: none;
+}
+.prompt-agent-input:focus {
+  border-color: rgb(var(--v-theme-primary));
+}
+.prompt-agent-send-btn {
+  border: none;
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+.prompt-agent-send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.prompt-agent-send-btn :deep(svg) {
+  display: block;
+}
+
+.prompt-agent-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(var(--v-theme-primary), 0.2);
+  border-top-color: rgb(var(--v-theme-primary));
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Mobile adjustments */

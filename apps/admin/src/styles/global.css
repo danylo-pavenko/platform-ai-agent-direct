@@ -1,0 +1,281 @@
+/* ═══════════════════════════════════════════════════════════════
+   Global Styles — Stripe/Notion-inspired admin theme
+   ═══════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+/* ── Base ─────────────────────────────────────────────────────── */
+
+:root {
+  --sidebar-width: 240px;
+  --header-height: 56px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --color-border: #e3e8ee;
+  --color-bg: #f8f9fb;
+  --color-text: #0a2540;
+  --color-text-secondary: #596773;
+  --color-primary: #635bff;
+}
+
+html, body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* ── Vuetify Overrides ────────────────────────────────────────── */
+
+/* App shell */
+.v-application {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+/* Navigation drawer */
+.v-navigation-drawer {
+  border-right: 1px solid var(--color-border) !important;
+  background: #fff !important;
+}
+
+.v-navigation-drawer .v-list-item {
+  border-radius: 8px !important;
+  margin: 2px 8px !important;
+  min-height: 40px !important;
+}
+
+.v-navigation-drawer .v-list-item--active {
+  background: rgba(99, 91, 255, 0.08) !important;
+}
+
+.v-navigation-drawer .v-list-item--active .v-list-item-title {
+  font-weight: 600 !important;
+  color: var(--color-primary) !important;
+}
+
+.v-navigation-drawer .v-list-item--active .v-icon {
+  color: var(--color-primary) !important;
+}
+
+.v-navigation-drawer .v-list-item-title {
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.v-navigation-drawer .v-list-item .v-icon {
+  font-size: 20px !important;
+  opacity: 0.7;
+}
+
+/* Cards */
+.v-card {
+  border: 1px solid var(--color-border) !important;
+  box-shadow: var(--shadow-sm) !important;
+  transition: box-shadow 0.15s ease !important;
+}
+
+.v-card:hover {
+  box-shadow: var(--shadow-card) !important;
+}
+
+.v-card-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--color-text) !important;
+}
+
+.v-card-subtitle {
+  font-size: 13px !important;
+  color: var(--color-text-secondary) !important;
+}
+
+/* Buttons */
+.v-btn {
+  text-transform: none !important;
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  letter-spacing: 0 !important;
+}
+
+.v-btn--variant-flat.bg-primary {
+  box-shadow: 0 1px 2px rgba(99, 91, 255, 0.24) !important;
+}
+
+/* Chips */
+.v-chip {
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  letter-spacing: 0 !important;
+}
+
+/* Text fields / selects */
+.v-field {
+  font-size: 13.5px !important;
+}
+
+.v-field--variant-outlined .v-field__outline__start,
+.v-field--variant-outlined .v-field__outline__end {
+  border-color: var(--color-border) !important;
+}
+
+.v-field--focused .v-field__outline__start,
+.v-field--focused .v-field__outline__end {
+  border-color: var(--color-primary) !important;
+}
+
+.v-label {
+  font-size: 13.5px !important;
+}
+
+/* Tables */
+.v-data-table {
+  font-size: 13.5px !important;
+}
+
+.v-data-table thead th {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  color: var(--color-text-secondary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.v-data-table tbody tr {
+  transition: background-color 0.1s ease !important;
+}
+
+.v-data-table tbody tr:hover {
+  background: rgba(99, 91, 255, 0.03) !important;
+}
+
+.v-data-table tbody td {
+  border-bottom: 1px solid #f1f3f5 !important;
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+}
+
+/* Tabs */
+.v-tabs {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.v-tab {
+  text-transform: none !important;
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  letter-spacing: 0 !important;
+}
+
+/* App bar */
+.v-app-bar {
+  border-bottom: 1px solid var(--color-border) !important;
+  background: #fff !important;
+}
+
+.v-app-bar-title {
+  font-size: 15px !important;
+  font-weight: 600 !important;
+}
+
+/* Alerts */
+.v-alert {
+  font-size: 13.5px !important;
+}
+
+/* Dialogs */
+.v-dialog .v-card {
+  border: none !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Snackbar */
+.v-snackbar__content {
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* ── Typography helpers ───────────────────────────────────────── */
+
+.page-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  line-height: 1.2;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+/* ── Switch refinements ───────────────────────────────────────── */
+
+.v-switch .v-label {
+  opacity: 1 !important;
+}
+
+/* ── Radio refinements ────────────────────────────────────────── */
+
+.v-radio .v-label {
+  opacity: 1 !important;
+}
+
+/* ── Progress indicators ──────────────────────────────────────── */
+
+.v-progress-circular {
+  color: var(--color-primary) !important;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────── */
+
+code {
+  font-family: 'SF Mono', 'Fira Code', 'Fira Mono', monospace;
+  font-size: 12px;
+  background: #f1f3f5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--color-text);
+}
+
+/* ── Mobile polish ────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .v-navigation-drawer {
+    width: 280px !important;
+  }
+
+  .v-container {
+    padding: 12px !important;
+  }
+
+  .page-title {
+    font-size: 18px;
+  }
+}

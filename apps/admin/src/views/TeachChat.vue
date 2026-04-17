@@ -1,24 +1,19 @@
 <template>
   <v-container fluid class="d-flex flex-column pa-2 pa-md-4" style="height: calc(100vh - 64px);">
     <!-- Header -->
-    <v-card class="mb-2 mb-md-3" flat>
-      <v-card-text class="d-flex align-center ga-2 pa-2 pa-md-3">
-        <v-icon color="primary" size="24">mdi-robot-outline</v-icon>
-        <div class="flex-grow-1">
-          <div class="text-subtitle-2 text-md-subtitle-1 font-weight-bold">Навчання агента</div>
-          <div class="text-caption text-grey d-none d-sm-block">
-            Опишіть зміни — мета-агент запропонує правки до промпту
-          </div>
-        </div>
-        <v-btn
-          variant="text"
-          size="small"
-          icon="mdi-delete-outline"
-          :disabled="messages.length === 0"
-          @click="clearChat"
-        />
-      </v-card-text>
-    </v-card>
+    <div class="d-flex align-center ga-3 mb-3 px-1">
+      <div class="flex-grow-1">
+        <div class="page-title" style="font-size: 18px;">Навчання агента</div>
+        <div class="page-subtitle d-none d-sm-block">Опишіть зміни — мета-агент запропонує правки до промпту</div>
+      </div>
+      <v-btn
+        variant="tonal"
+        size="small"
+        icon="mdi-delete-outline"
+        :disabled="messages.length === 0"
+        @click="clearChat"
+      />
+    </div>
 
     <!-- Main content -->
     <div class="flex-grow-1 d-flex flex-column flex-md-row ga-2 ga-md-3" style="min-height: 0; overflow: hidden;">

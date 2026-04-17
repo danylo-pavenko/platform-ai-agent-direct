@@ -2,7 +2,7 @@
   <v-container fluid>
     <v-row class="mb-4" align="center">
       <v-col>
-        <h1 class="text-h5">Синхронізація</h1>
+        <div class="page-title">Синхронізація</div>
       </v-col>
       <v-col cols="auto">
         <v-btn

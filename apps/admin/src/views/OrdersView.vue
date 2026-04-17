@@ -2,7 +2,7 @@
   <v-container fluid>
     <v-row class="mb-4" align="center">
       <v-col>
-        <h1 class="text-h5">Замовлення</h1>
+        <div class="page-title">Замовлення</div>
       </v-col>
     </v-row>
 
