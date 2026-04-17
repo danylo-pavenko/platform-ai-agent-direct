@@ -13,6 +13,7 @@ interface ChatBody {
 }
 
 interface ApplyBody {
+  before: string;
   after: string;
   summary: string;
 }
@@ -160,7 +161,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/apply',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { after, summary } = request.body ?? {};
+      const { before, after, summary } = request.body ?? {};
 
       if (!after || typeof after !== 'string' || after.trim().length === 0) {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
@@ -170,7 +171,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'Change summary is required' });
       }
 
-      // 1. Verify there is a current active prompt
+      // 1. Fetch current active prompt
       const activePrompt = await prisma.systemPrompt.findFirst({
         where: { isActive: true },
       });
@@ -179,24 +180,45 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'No active prompt found' });
       }
 
-      // 2. Get max version
+      // 2. Apply the diff to the full prompt content
+      //    If `before` is provided and found in the text — do a targeted replacement.
+      //    Otherwise log a warning (shouldn't happen in normal flow) and bail out.
+      let newContent: string;
+      if (before && typeof before === 'string' && before.trim()) {
+        if (activePrompt.content.includes(before.trim())) {
+          newContent = activePrompt.content.replace(before.trim(), after.trim());
+        } else {
+          app.log.warn(
+            { beforeLength: before.length },
+            'Meta-agent apply: "before" fragment not found in active prompt — aborting to prevent data loss',
+          );
+          return reply.code(422).send({
+            error: 'Фрагмент "БУЛО" не знайдено в поточному промпті. Можливо промпт змінився. Спробуйте ще раз.',
+          });
+        }
+      } else {
+        // Legacy: no "before" provided — treat "after" as the full content (backward compat)
+        newContent = after.trim();
+      }
+
+      // 3. Get max version
       const maxVersion = await prisma.systemPrompt.aggregate({
         _max: { version: true },
       });
       const nextVersion = (maxVersion._max.version ?? 0) + 1;
 
-      // 3. Transaction: deactivate all, create new, audit log
+      // 4. Transaction: deactivate all, create new, audit log
       const newPrompt = await prisma.$transaction(async (tx) => {
         // Deactivate all existing prompts
         await tx.systemPrompt.updateMany({
           data: { isActive: false },
         });
 
-        // Create new prompt version
+        // Create new prompt version with the full updated content
         const created = await tx.systemPrompt.create({
           data: {
             version: nextVersion,
-            content: after.trim(),
+            content: newContent,
             author: 'meta_agent',
             authorUserId: request.user.id,
             changeSummary: summary.trim(),

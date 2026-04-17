@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { config } from '../config.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'instagram' });
 
@@ -11,7 +11,8 @@ const SPLIT_DELAY_MS = 200;
 // ── Internal helper ─────────────────────────────────────────────────────
 
 async function callIgApi(body: object): Promise<unknown> {
-  const url = `${IG_API_URL}?access_token=${encodeURIComponent(config.IG_PAGE_ACCESS_TOKEN)}`;
+  const { meta } = await getIntegrationConfig();
+  const url = `${IG_API_URL}?access_token=${encodeURIComponent(meta.pageAccessToken)}`;
 
   let lastError: Error | undefined;
 

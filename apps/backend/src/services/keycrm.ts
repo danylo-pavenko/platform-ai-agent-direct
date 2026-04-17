@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { config } from '../config.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'keycrm' });
 
@@ -88,10 +88,11 @@ async function keycrmGet<T>(
       await sleep(PACING_MS);
     }
 
+    const { keycrm } = await getIntegrationConfig();
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${config.KEYCRM_API_KEY}`,
+        Authorization: `Bearer ${keycrm.apiKey}`,
         Accept: 'application/json',
       },
     });

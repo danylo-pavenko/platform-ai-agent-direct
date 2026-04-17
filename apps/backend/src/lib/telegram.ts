@@ -1,29 +1,39 @@
 import { Bot } from 'grammy';
-import { config } from '../config.js';
+import { getIntegrationConfig } from './integration-config.js';
 
 /**
- * Shared grammY Bot instance.
+ * Shared grammY Bot instance, lazily created from DB/env token.
+ *
+ * getBot() is async so it can read the token from the integration config
+ * (DB with .env fallback). The instance is cached per token value and
+ * recreated if the token changes.
  *
  * Used by:
- * - telegram-bot.ts (PM2: SB-bot) — starts long polling, registers commands
- * - services/telegram-notify.ts (PM2: SB-api) — sends notifications via bot.api
- *
- * Both processes import this but only telegram-bot.ts calls bot.start().
- * grammY allows multiple Bot instances with the same token — only one
- * should do long polling.
+ * - telegram-bot.ts (PM2: SB-bot) — starts long polling
+ * - services/telegram-notify.ts (PM2: SB-api) — sends notifications
  */
-let _bot: Bot | undefined;
 
-export function getBot(): Bot {
-  if (!_bot) {
-    if (!config.TELEGRAM_BOT_TOKEN) {
-      throw new Error('TELEGRAM_BOT_TOKEN is not configured');
-    }
-    _bot = new Bot(config.TELEGRAM_BOT_TOKEN);
+let _bot: Bot | undefined;
+let _botToken = '';
+
+export async function getBot(): Promise<Bot> {
+  const cfg = await getIntegrationConfig();
+  const token = cfg.telegram.botToken;
+
+  if (!token) {
+    throw new Error('TELEGRAM_BOT_TOKEN is not configured');
   }
+
+  // Recreate if token changed
+  if (!_bot || _botToken !== token) {
+    _bot = new Bot(token);
+    _botToken = token;
+  }
+
   return _bot;
 }
 
-export function getManagerGroupId(): string {
-  return config.TELEGRAM_MANAGER_GROUP_ID;
+export async function getManagerGroupId(): Promise<string> {
+  const cfg = await getIntegrationConfig();
+  return cfg.telegram.managerGroupId;
 }

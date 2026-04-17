@@ -188,7 +188,7 @@
         </v-card-text>
       </v-card>
 
-      <!-- Save button -->
+      <!-- Save button (agent settings) -->
       <v-row class="mb-8">
         <v-col cols="auto">
           <v-btn
@@ -200,6 +200,192 @@
             <v-icon start>mdi-content-save</v-icon>
             Зберегти налаштування
           </v-btn>
+        </v-col>
+      </v-row>
+
+      <v-divider class="mb-6" />
+
+      <!-- ── Integrations ── -->
+      <div class="page-title mb-1" style="font-size:16px;">Інтеграції</div>
+      <div class="text-body-2 text-medium-emphasis mb-4">
+        API-ключі зберігаються в базі даних. При клонуванні платформи задайте їх тут — .env не потрібен.
+        Після збереження потрібен <strong>перезапуск сервера</strong>.
+      </div>
+
+      <!-- Meta / Instagram -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="blue-darken-1">mdi-instagram</v-icon>
+          Meta / Instagram
+        </v-card-title>
+        <v-card-subtitle class="pb-2">Facebook App та Instagram Page для Messenger API</v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.appId"
+                label="App ID"
+                variant="outlined"
+                density="compact"
+                hide-details
+                placeholder="123456789"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.appSecret"
+                label="App Secret"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.metaAppSecret ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.metaAppSecret ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.metaAppSecret = !showSecrets.metaAppSecret"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.pageId"
+                label="Page ID"
+                variant="outlined"
+                density="compact"
+                hide-details
+                placeholder="ID сторінки Facebook/Instagram"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.pageAccessToken"
+                label="Page Access Token"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.metaToken ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.metaToken ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.metaToken = !showSecrets.metaToken"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.verifyToken"
+                label="Webhook Verify Token"
+                variant="outlined"
+                density="compact"
+                hide-details
+                placeholder="sb-verify-2026"
+              />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
+      <!-- Telegram -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="blue">mdi-send</v-icon>
+          Telegram
+        </v-card-title>
+        <v-card-subtitle class="pb-2">Бот-токен та група для сповіщень менеджерам</v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.telegram.botToken"
+                label="Bot Token"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.tgToken ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.tgToken ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.tgToken = !showSecrets.tgToken"
+                placeholder="123456:ABC-DEF..."
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.telegram.managerGroupId"
+                label="Manager Group ID"
+                variant="outlined"
+                density="compact"
+                hide-details
+                placeholder="-1001234567890"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.telegram.adminPassword"
+                label="Admin Password (для /login)"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.tgPassword ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.tgPassword ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.tgPassword = !showSecrets.tgPassword"
+              />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
+      <!-- KeyCRM -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="green-darken-1">mdi-database-sync</v-icon>
+          KeyCRM
+        </v-card-title>
+        <v-card-subtitle class="pb-2">API ключ для синхронізації каталогу</v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="7">
+              <v-text-field
+                v-model="integrations.keycrm.apiKey"
+                label="API Key"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.keycrmKey ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.keycrmKey ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.keycrmKey = !showSecrets.keycrmKey"
+              />
+            </v-col>
+            <v-col cols="12" sm="5">
+              <v-text-field
+                v-model.number="integrations.keycrm.syncIntervalMin"
+                label="Інтервал синхронізації (хв)"
+                type="number"
+                variant="outlined"
+                density="compact"
+                hide-details
+                min="5"
+                max="1440"
+              />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
+      <!-- Save integrations -->
+      <v-row class="mb-8">
+        <v-col cols="auto">
+          <v-btn
+            color="primary"
+            size="large"
+            :loading="savingIntegrations"
+            @click="saveIntegrations"
+          >
+            <v-icon start>mdi-content-save</v-icon>
+            Зберегти інтеграції
+          </v-btn>
+        </v-col>
+        <v-col cols="auto" class="d-flex align-center">
+          <v-chip
+            v-if="integrationsSaved"
+            color="success"
+            size="small"
+            prepend-icon="mdi-check"
+          >
+            Збережено — перезапустіть сервер
+          </v-chip>
         </v-col>
       </v-row>
 
@@ -237,8 +423,39 @@ const days = [
 
 const loading = ref(false);
 const saving = ref(false);
+const savingIntegrations = ref(false);
+const integrationsSaved = ref(false);
 const error = ref('');
 const success = ref(false);
+
+// ── Integrations state ──────────────────────────────────────────────────────
+
+const integrations = ref({
+  meta: {
+    appId: '',
+    appSecret: '',
+    pageId: '',
+    pageAccessToken: '',
+    verifyToken: '',
+  },
+  telegram: {
+    botToken: '',
+    managerGroupId: '',
+    adminPassword: '',
+  },
+  keycrm: {
+    apiKey: '',
+    syncIntervalMin: 30,
+  },
+});
+
+const showSecrets = ref({
+  metaAppSecret: false,
+  metaToken: false,
+  tgToken: false,
+  tgPassword: false,
+  keycrmKey: false,
+});
 
 const agentMode = ref<'24_7' | 'schedule'>('schedule');
 
@@ -341,7 +558,55 @@ async function saveSettings() {
   }
 }
 
+async function fetchIntegrations() {
+  try {
+    const { data } = await api.get('/settings/integrations');
+
+    const m = data.integration_meta ?? {};
+    const t = data.integration_telegram ?? {};
+    const k = data.integration_keycrm ?? {};
+
+    integrations.value.meta = {
+      appId:            m.appId            ?? '',
+      appSecret:        m.appSecret        ?? '',
+      pageId:           m.pageId           ?? '',
+      pageAccessToken:  m.pageAccessToken  ?? '',
+      verifyToken:      m.verifyToken      ?? '',
+    };
+    integrations.value.telegram = {
+      botToken:        t.botToken        ?? '',
+      managerGroupId:  t.managerGroupId  ?? '',
+      adminPassword:   t.adminPassword   ?? '',
+    };
+    integrations.value.keycrm = {
+      apiKey:            k.apiKey            ?? '',
+      syncIntervalMin:   k.syncIntervalMin   ?? 30,
+    };
+  } catch {
+    // Non-critical: integrations may just not be set yet
+  }
+}
+
+async function saveIntegrations() {
+  savingIntegrations.value = true;
+  integrationsSaved.value = false;
+  error.value = '';
+  try {
+    await api.put('/settings/integrations', {
+      integration_meta:     integrations.value.meta,
+      integration_telegram: integrations.value.telegram,
+      integration_keycrm:   integrations.value.keycrm,
+    });
+    integrationsSaved.value = true;
+  } catch {
+    error.value = 'Не вдалося зберегти інтеграції';
+  } finally {
+    savingIntegrations.value = false;
+  }
+}
+
 onMounted(() => {
   fetchSettings();
+  fetchIntegrations();
 });
 </script>

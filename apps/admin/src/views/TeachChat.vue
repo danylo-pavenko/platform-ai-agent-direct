@@ -259,6 +259,7 @@ async function applyDiff() {
   applying.value = true;
   try {
     await api.post('/meta-agent/apply', {
+      before: currentDiff.value.before,
       after: currentDiff.value.after,
       summary: currentDiff.value.summary,
     });

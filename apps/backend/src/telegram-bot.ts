@@ -2,7 +2,8 @@ import './config.js'; // load dotenv first
 
 import pino from 'pino';
 import { config } from './config.js';
-import { getBot } from './lib/telegram.js';
+import { getIntegrationConfig } from './lib/integration-config.js';
+import { Bot } from 'grammy';
 import { prisma } from './lib/prisma.js';
 import { sendText } from './services/instagram.js';
 
@@ -77,7 +78,14 @@ function stateLabel(state: string): string {
 
 // ── Bot setup ──
 
-const bot = getBot();
+async function main() {
+  const cfg = await getIntegrationConfig();
+  if (!cfg.telegram.botToken) {
+    log.warn('TELEGRAM_BOT_TOKEN not configured — Telegram bot will not start');
+    return;
+  }
+
+  const bot = new Bot(cfg.telegram.botToken);
 
 // Set bot commands menu (visible in Telegram UI)
 bot.api.setMyCommands([
@@ -229,7 +237,8 @@ bot.command('login', async (ctx) => {
       return;
     }
 
-    if (password !== config.TELEGRAM_ADMIN_PASSWORD) {
+    const { telegram: tgCfg } = await getIntegrationConfig();
+    if (password !== tgCfg.adminPassword) {
       await ctx.reply('Невірний пароль.');
       return;
     }
@@ -542,19 +551,25 @@ bot.on('callback_query:data', async (ctx) => {
   }
 });
 
-// ── Start long polling ──
+  // ── Start long polling ──
 
-bot.start({
-  onStart: () => log.info('Telegram bot started'),
+  bot.start({
+    onStart: () => log.info('Telegram bot started'),
+  });
+
+  // ── Graceful shutdown ──
+
+  const shutdown = () => {
+    log.info('Shutting down Telegram bot...');
+    bot.stop();
+    prisma.$disconnect();
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+main().catch((err) => {
+  log.error(err, 'Fatal error in Telegram bot');
+  process.exit(1);
 });
-
-// ── Graceful shutdown ──
-
-const shutdown = () => {
-  log.info('Shutting down Telegram bot...');
-  bot.stop();
-  prisma.$disconnect();
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);

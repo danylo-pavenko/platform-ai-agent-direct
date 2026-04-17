@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { verifyIgSignature } from '../lib/ig-signature.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { handleIncomingMessage } from '../services/conversation.js';
 
@@ -65,9 +65,10 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const token = request.query['hub.verify_token'];
     const challenge = request.query['hub.challenge'];
 
+    const { meta: igCfg } = await getIntegrationConfig();
     if (
       mode === 'subscribe' &&
-      token === config.IG_WEBHOOK_VERIFY_TOKEN
+      token === igCfg.verifyToken
     ) {
       app.log.info('Instagram webhook verification succeeded');
       return reply.code(200).type('text/plain').send(challenge);
@@ -90,7 +91,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: 'Unauthorized' });
     }
 
-    if (!verifyIgSignature(rawBody, signature, config.META_APP_SECRET)) {
+    const { meta: igMeta } = await getIntegrationConfig();
+    if (!verifyIgSignature(rawBody, signature, igMeta.appSecret)) {
       app.log.warn('Invalid Instagram webhook signature');
       return reply.code(401).send({ error: 'Unauthorized' });
     }

@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { InlineKeyboard } from 'grammy';
 import { getBot, getManagerGroupId } from '../lib/telegram.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
 
 const log = pino({ name: 'telegram-notify' });
@@ -20,15 +21,16 @@ async function sendToManagerGroup(
   text: string,
   keyboard?: InlineKeyboard,
 ): Promise<void> {
-  const groupId = getManagerGroupId();
+  const { telegram } = await getIntegrationConfig();
+  const groupId = await getManagerGroupId();
 
-  if (!config.TELEGRAM_BOT_TOKEN || !groupId) {
+  if (!telegram.botToken || !groupId) {
     log.warn('Telegram bot token or manager group ID not configured — skipping notification');
     return;
   }
 
   try {
-    const bot = getBot();
+    const bot = await getBot();
     await bot.api.sendMessage(groupId, text, {
       parse_mode: 'HTML',
       ...(keyboard ? { reply_markup: keyboard } : {}),
