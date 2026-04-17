@@ -225,7 +225,7 @@
             :prepend-icon="showMetaHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
             @click="showMetaHelp = !showMetaHelp"
           >
-            Натисни тут
+            Де взяти ці дані? Натисни тут.
           </v-btn>
           <v-expand-transition>
             <v-alert v-if="showMetaHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
@@ -339,7 +339,7 @@
             :prepend-icon="showTelegramHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
             @click="showTelegramHelp = !showTelegramHelp"
           >
-            Натисни тут
+            Де взяти ці дані? Натисни тут.
           </v-btn>
           <v-expand-transition>
             <v-alert v-if="showTelegramHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
@@ -431,7 +431,7 @@
             :prepend-icon="showKeycrmHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
             @click="showKeycrmHelp = !showKeycrmHelp"
           >
-            Натисни тут
+            Де взяти ці дані? Натисни тут.
           </v-btn>
           <v-expand-transition>
             <v-alert v-if="showKeycrmHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
