@@ -1,0 +1,936 @@
+<template>
+  <v-container fluid class="sandbox-root pa-0" :class="{ 'mobile': mobile }">
+    <!-- Mobile header -->
+    <div v-if="mobile" class="sandbox-mobile-header d-flex align-center pa-2 ga-2">
+      <v-btn
+        icon="mdi-menu"
+        variant="text"
+        size="small"
+        @click="showCasesDrawer = true"
+      />
+      <div class="text-subtitle-2 flex-grow-1">Пісочниця</div>
+      <v-btn
+        icon="mdi-tune"
+        variant="text"
+        size="small"
+        @click="showPromptPanel = !showPromptPanel"
+      />
+    </div>
+
+    <div class="sandbox-layout" :class="{ 'with-prompt': showPromptPanel && !mobile }">
+      <!-- Left: Cases panel (desktop) / Drawer (mobile) -->
+      <v-navigation-drawer
+        v-if="mobile"
+        v-model="showCasesDrawer"
+        temporary
+        location="left"
+        width="300"
+      >
+        <cases-panel />
+      </v-navigation-drawer>
+
+      <div v-else class="cases-sidebar">
+        <cases-panel />
+      </div>
+
+      <!-- Center: Chat -->
+      <div class="chat-area d-flex flex-column">
+        <!-- Chat header -->
+        <div class="chat-header d-flex align-center pa-3 ga-2">
+          <v-avatar size="36" color="pink-lighten-4">
+            <v-icon color="pink-darken-1">mdi-account</v-icon>
+          </v-avatar>
+          <div class="flex-grow-1">
+            <div class="text-subtitle-2">Тестовий клієнт</div>
+            <div class="text-caption text-grey">sandbox_test • Пісочниця</div>
+          </div>
+
+          <!-- Replay controls -->
+          <template v-if="replayMode">
+            <v-chip color="warning" size="small" variant="flat">
+              <v-icon start size="14">mdi-replay</v-icon>
+              Прогонка {{ replayStep + 1 }}/{{ replayMessages.length }}
+            </v-chip>
+            <v-btn
+              icon="mdi-stop"
+              color="error"
+              variant="text"
+              size="small"
+              @click="stopReplay"
+            />
+          </template>
+          <template v-else>
+            <v-btn
+              v-if="chatMessages.length > 0"
+              icon="mdi-content-save-outline"
+              variant="text"
+              size="small"
+              title="Зберегти як кейс"
+              @click="showSaveDialog = true"
+            />
+            <v-btn
+              icon="mdi-delete-outline"
+              variant="text"
+              size="small"
+              title="Скинути діалог"
+              :disabled="chatMessages.length === 0"
+              @click="resetChat"
+            />
+            <v-btn
+              v-if="!mobile"
+              :icon="showPromptPanel ? 'mdi-text-box-minus' : 'mdi-text-box-edit'"
+              variant="text"
+              size="small"
+              title="Промпт"
+              @click="showPromptPanel = !showPromptPanel"
+            />
+          </template>
+        </div>
+
+        <v-divider />
+
+        <!-- Messages area (Instagram DM style) -->
+        <div ref="messagesArea" class="messages-area flex-grow-1 overflow-y-auto">
+          <!-- Empty state -->
+          <div v-if="chatMessages.length === 0 && !loading" class="empty-state">
+            <div class="ig-logo-placeholder mb-3">
+              <v-icon size="48" color="grey-lighten-1">mdi-instagram</v-icon>
+            </div>
+            <div class="text-body-1 text-grey-darken-1 mb-1">Тестовий чат</div>
+            <div class="text-body-2 text-grey mb-4" style="max-width: 300px; text-align: center;">
+              Пишіть як клієнт і дивіться як відповідає AI-агент
+            </div>
+            <div class="d-flex flex-wrap ga-2 justify-center">
+              <v-chip
+                v-for="hint in quickHints"
+                :key="hint"
+                size="small"
+                variant="outlined"
+                class="cursor-pointer"
+                @click="sendQuickHint(hint)"
+              >
+                {{ hint }}
+              </v-chip>
+            </div>
+          </div>
+
+          <!-- Chat messages -->
+          <div class="messages-list pa-3">
+            <template v-for="(msg, idx) in chatMessages" :key="idx">
+              <!-- Date separator (first message) -->
+              <div v-if="idx === 0" class="date-separator text-center mb-3">
+                <span class="text-caption text-grey bg-white px-2">Сьогодні</span>
+              </div>
+
+              <!-- Message bubble -->
+              <div
+                class="msg-row mb-2"
+                :class="msg.role === 'user' ? 'msg-sent' : 'msg-received'"
+              >
+                <div
+                  class="msg-bubble"
+                  :class="msg.role === 'user' ? 'bubble-sent' : 'bubble-received'"
+                >
+                  <div class="msg-text" v-html="formatMessage(msg.content)" />
+                  <div class="msg-time text-caption">
+                    {{ formatTime(msg.timestamp) }}
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <!-- Typing indicator -->
+            <div v-if="loading" class="msg-row msg-received mb-2">
+              <div class="msg-bubble bubble-received typing-bubble">
+                <div class="typing-dots">
+                  <span /><span /><span />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Replay step confirmation -->
+        <div v-if="replayMode && !replayWaitingResponse" class="replay-bar pa-3 d-flex align-center ga-2">
+          <v-icon size="18" color="warning">mdi-replay</v-icon>
+          <div class="flex-grow-1 text-body-2">
+            <template v-if="replayStep < replayMessages.length">
+              Наступне питання: <strong>{{ replayMessages[replayStep] }}</strong>
+            </template>
+            <template v-else>
+              Прогонка завершена!
+            </template>
+          </div>
+          <v-btn
+            v-if="replayStep < replayMessages.length"
+            color="primary"
+            size="small"
+            @click="sendReplayStep"
+          >
+            Далі
+          </v-btn>
+          <v-btn
+            variant="outlined"
+            size="small"
+            @click="stopReplay"
+          >
+            Стоп
+          </v-btn>
+        </div>
+
+        <!-- Input area -->
+        <div v-if="!replayMode" class="input-area pa-2 pa-md-3">
+          <div class="d-flex ga-2 align-end">
+            <v-textarea
+              v-model="inputText"
+              placeholder="Напишіть повідомлення як клієнт..."
+              variant="outlined"
+              density="compact"
+              rows="1"
+              max-rows="4"
+              auto-grow
+              hide-details
+              :disabled="loading"
+              @keydown.enter.exact.prevent="sendMessage"
+              @keydown.ctrl.enter="insertNewline"
+            />
+            <v-btn
+              color="primary"
+              icon="mdi-send"
+              :loading="loading"
+              :disabled="!inputText.trim()"
+              size="small"
+              @click="sendMessage"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Prompt panel (desktop only, or mobile bottom sheet) -->
+      <v-bottom-sheet v-if="mobile" v-model="showPromptPanel" inset>
+        <v-card class="pa-3">
+          <prompt-editor />
+        </v-card>
+      </v-bottom-sheet>
+
+      <div v-else-if="showPromptPanel" class="prompt-sidebar d-flex flex-column">
+        <prompt-editor />
+      </div>
+    </div>
+
+    <!-- Save case dialog -->
+    <v-dialog v-model="showSaveDialog" max-width="400">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Зберегти як кейс</v-card-title>
+        <v-card-text>
+          <v-text-field
+            v-model="saveCaseName"
+            label="Назва кейсу"
+            variant="outlined"
+            density="compact"
+            autofocus
+            placeholder="напр. Питання про доставку"
+            @keydown.enter="saveCase"
+          />
+          <div class="text-caption text-grey">
+            Збережуться {{ clientMessagesFromChat.length }} питань клієнта.
+            Відповіді агента будуть скинуті при прогонці.
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="showSaveDialog = false">Скасувати</v-btn>
+          <v-btn color="primary" :disabled="!saveCaseName.trim()" @click="saveCase">
+            Зберегти
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
+      {{ snackbarText }}
+    </v-snackbar>
+  </v-container>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, nextTick, onMounted, defineComponent, h } from 'vue';
+import { useDisplay } from 'vuetify';
+import api from '@/api';
+
+const { mobile } = useDisplay();
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+}
+
+interface SandboxCase {
+  id: string;
+  name: string;
+  messages: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface PromptOption {
+  id: string;
+  version: number;
+  changeSummary: string | null;
+  isActive: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+const chatMessages = ref<ChatMessage[]>([]);
+const inputText = ref('');
+const loading = ref(false);
+const messagesArea = ref<HTMLElement | null>(null);
+
+// Cases
+const cases = ref<SandboxCase[]>([]);
+const showCasesDrawer = ref(false);
+const showSaveDialog = ref(false);
+const saveCaseName = ref('');
+const selectedCaseId = ref<string | null>(null);
+
+// Prompt
+const showPromptPanel = ref(false);
+const prompts = ref<PromptOption[]>([]);
+const selectedPromptId = ref<string | null>(null);
+const promptOverride = ref('');
+const useCustomPrompt = ref(false);
+
+// Replay
+const replayMode = ref(false);
+const replayMessages = ref<string[]>([]);
+const replayStep = ref(0);
+const replayWaitingResponse = ref(false);
+
+// Snackbar
+const snackbar = ref(false);
+const snackbarText = ref('');
+const snackbarColor = ref('success');
+
+const MAX_CASES = 15;
+
+const quickHints = [
+  'Привіт! Що є в наявності?',
+  'Скільки коштує доставка?',
+  'Є щось зі знижкою?',
+  'Хочу замовити',
+];
+
+// ---------------------------------------------------------------------------
+// Computed
+// ---------------------------------------------------------------------------
+
+const clientMessagesFromChat = computed(() =>
+  chatMessages.value.filter((m) => m.role === 'user').map((m) => m.content),
+);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function showSnack(text: string, color = 'success') {
+  snackbarText.value = text;
+  snackbarColor.value = color;
+  snackbar.value = true;
+}
+
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatMessage(text: string): string {
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+async function scrollToBottom() {
+  await nextTick();
+  if (messagesArea.value) {
+    messagesArea.value.scrollTop = messagesArea.value.scrollHeight;
+  }
+}
+
+function insertNewline() {
+  inputText.value += '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Chat
+// ---------------------------------------------------------------------------
+
+async function sendChatMessage(text: string) {
+  chatMessages.value.push({
+    role: 'user',
+    content: text,
+    timestamp: new Date(),
+  });
+  loading.value = true;
+  await scrollToBottom();
+
+  try {
+    const payload: Record<string, unknown> = {
+      messages: chatMessages.value.map((m) => ({ role: m.role, content: m.content })),
+    };
+    if (useCustomPrompt.value && promptOverride.value.trim()) {
+      payload.promptOverride = promptOverride.value;
+    } else if (selectedPromptId.value) {
+      payload.systemPromptId = selectedPromptId.value;
+    }
+
+    const { data } = await api.post('/sandbox/chat', payload);
+
+    chatMessages.value.push({
+      role: 'assistant',
+      content: data.reply,
+      timestamp: new Date(),
+    });
+  } catch (e: any) {
+    const errorMsg = e.response?.data?.error || 'Помилка зв\'язку';
+    chatMessages.value.push({
+      role: 'assistant',
+      content: `⚠️ ${errorMsg}`,
+      timestamp: new Date(),
+    });
+    showSnack(errorMsg, 'error');
+  } finally {
+    loading.value = false;
+    await scrollToBottom();
+  }
+}
+
+function sendMessage() {
+  const text = inputText.value.trim();
+  if (!text || loading.value) return;
+  inputText.value = '';
+  sendChatMessage(text);
+}
+
+function sendQuickHint(text: string) {
+  sendChatMessage(text);
+}
+
+function resetChat() {
+  chatMessages.value = [];
+  replayMode.value = false;
+  replayStep.value = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Cases CRUD
+// ---------------------------------------------------------------------------
+
+async function loadCases() {
+  try {
+    const { data } = await api.get('/sandbox/cases');
+    cases.value = data;
+  } catch {
+    showSnack('Не вдалося завантажити кейси', 'error');
+  }
+}
+
+async function saveCase() {
+  if (!saveCaseName.value.trim() || clientMessagesFromChat.value.length === 0) return;
+
+  try {
+    await api.post('/sandbox/cases', {
+      name: saveCaseName.value.trim(),
+      messages: clientMessagesFromChat.value,
+    });
+    showSnack('Кейс збережено');
+    showSaveDialog.value = false;
+    saveCaseName.value = '';
+    await loadCases();
+  } catch (e: any) {
+    showSnack(e.response?.data?.error || 'Не вдалося зберегти', 'error');
+  }
+}
+
+async function deleteCase(id: string) {
+  try {
+    await api.delete(`/sandbox/cases/${id}`);
+    cases.value = cases.value.filter((c) => c.id !== id);
+    if (selectedCaseId.value === id) selectedCaseId.value = null;
+    showSnack('Кейс видалено');
+  } catch {
+    showSnack('Не вдалося видалити', 'error');
+  }
+}
+
+function loadCaseToChat(c: SandboxCase) {
+  selectedCaseId.value = c.id;
+  if (mobile.value) showCasesDrawer.value = false;
+}
+
+// ---------------------------------------------------------------------------
+// Replay
+// ---------------------------------------------------------------------------
+
+function startReplay(c: SandboxCase) {
+  resetChat();
+  replayMessages.value = [...c.messages];
+  replayStep.value = 0;
+  replayMode.value = true;
+  selectedCaseId.value = c.id;
+  if (mobile.value) showCasesDrawer.value = false;
+}
+
+async function sendReplayStep() {
+  if (replayStep.value >= replayMessages.value.length) return;
+
+  const text = replayMessages.value[replayStep.value];
+  replayWaitingResponse.value = true;
+  await sendChatMessage(text);
+  replayWaitingResponse.value = false;
+  replayStep.value++;
+}
+
+function stopReplay() {
+  replayMode.value = false;
+  replayStep.value = 0;
+  replayMessages.value = [];
+}
+
+// ---------------------------------------------------------------------------
+// Prompts
+// ---------------------------------------------------------------------------
+
+async function loadPrompts() {
+  try {
+    const { data } = await api.get('/sandbox/prompts');
+    prompts.value = data;
+    const active = data.find((p: PromptOption) => p.isActive);
+    if (active) selectedPromptId.value = active.id;
+  } catch {
+    // silent
+  }
+}
+
+async function loadPromptContent(id: string) {
+  try {
+    const { data } = await api.get(`/prompts/${id}`);
+    promptOverride.value = data.content || '';
+    useCustomPrompt.value = true;
+  } catch {
+    showSnack('Не вдалося завантажити промпт', 'error');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components (inline to keep single file)
+// ---------------------------------------------------------------------------
+
+const CasesPanel = defineComponent({
+  name: 'CasesPanel',
+  setup() {
+    return () =>
+      h('div', { class: 'cases-panel d-flex flex-column', style: 'height: 100%;' }, [
+        // Header
+        h('div', { class: 'pa-3 d-flex align-center' }, [
+          h('div', { class: 'text-subtitle-2 flex-grow-1' }, 'Тестові кейси'),
+          h('span', { class: 'text-caption text-grey' }, `${cases.value.length}/${MAX_CASES}`),
+        ]),
+        h('hr', { class: 'v-divider' }),
+        // List
+        h(
+          'div',
+          { class: 'flex-grow-1 overflow-y-auto' },
+          cases.value.length === 0
+            ? [
+                h('div', { class: 'pa-4 text-center text-body-2 text-grey' }, [
+                  h('div', { class: 'mb-2' }, '🧪'),
+                  'Збережіть діалог як кейс для повторного тестування',
+                ]),
+              ]
+            : cases.value.map((c) =>
+                h(
+                  'div',
+                  {
+                    key: c.id,
+                    class: [
+                      'case-item pa-3 d-flex align-center ga-2 cursor-pointer',
+                      selectedCaseId.value === c.id ? 'case-selected' : '',
+                    ],
+                    onClick: () => loadCaseToChat(c),
+                  },
+                  [
+                    h('div', { class: 'flex-grow-1' }, [
+                      h('div', { class: 'text-body-2 font-weight-medium text-truncate' }, c.name),
+                      h('div', { class: 'text-caption text-grey' }, `${c.messages.length} питань`),
+                    ]),
+                    h('div', { class: 'd-flex ga-1' }, [
+                      h('button', {
+                        class: 'case-action-btn',
+                        title: 'Запустити прогонку',
+                        onClick: (e: Event) => { e.stopPropagation(); startReplay(c); },
+                        innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+                      }),
+                      h('button', {
+                        class: 'case-action-btn text-error',
+                        title: 'Видалити',
+                        onClick: (e: Event) => { e.stopPropagation(); deleteCase(c.id); },
+                        innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>',
+                      }),
+                    ]),
+                  ],
+                ),
+              ),
+        ),
+      ]);
+  },
+});
+
+const PromptEditor = defineComponent({
+  name: 'PromptEditor',
+  setup() {
+    return () =>
+      h('div', { class: 'prompt-editor d-flex flex-column', style: 'height: 100%;' }, [
+        h('div', { class: 'pa-3' }, [
+          h('div', { class: 'text-subtitle-2 mb-2' }, 'Системний промпт'),
+          h('div', { class: 'text-caption text-grey mb-3' }, 'Зміни застосовуються до наступного повідомлення'),
+        ]),
+        h('div', { class: 'px-3 mb-2' }, [
+          h('select', {
+            class: 'prompt-select',
+            value: selectedPromptId.value ?? '',
+            onChange: (e: Event) => {
+              const id = (e.target as HTMLSelectElement).value;
+              selectedPromptId.value = id || null;
+              useCustomPrompt.value = false;
+            },
+          }, [
+            h('option', { value: '' }, 'Активний промпт'),
+            ...prompts.value.map((p) =>
+              h('option', { value: p.id, key: p.id },
+                `v${p.version}${p.isActive ? ' (активний)' : ''} — ${p.changeSummary || 'без опису'}`,
+              ),
+            ),
+          ]),
+        ]),
+        h('div', { class: 'px-3 mb-2 d-flex ga-2' }, [
+          h('button', {
+            class: 'text-caption text-primary cursor-pointer prompt-action-link',
+            onClick: () => {
+              if (selectedPromptId.value) {
+                loadPromptContent(selectedPromptId.value);
+              }
+            },
+          }, 'Редагувати копію'),
+          useCustomPrompt.value
+            ? h('button', {
+                class: 'text-caption text-grey cursor-pointer prompt-action-link',
+                onClick: () => {
+                  useCustomPrompt.value = false;
+                  promptOverride.value = '';
+                },
+              }, 'Скинути')
+            : null,
+        ]),
+        useCustomPrompt.value
+          ? h('div', { class: 'flex-grow-1 px-3 pb-3', style: 'min-height: 0;' }, [
+              h('textarea', {
+                class: 'prompt-textarea',
+                value: promptOverride.value,
+                onInput: (e: Event) => {
+                  promptOverride.value = (e.target as HTMLTextAreaElement).value;
+                },
+                placeholder: 'Вставте або відредагуйте промпт...',
+              }),
+            ])
+          : h('div', { class: 'flex-grow-1 px-3 pb-3 text-caption text-grey' },
+              'Використовується обраний промпт з бази',
+            ),
+      ]);
+  },
+});
+
+// Register inline components
+const casesPanel = CasesPanel;
+const promptEditor = PromptEditor;
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+onMounted(async () => {
+  await Promise.all([loadCases(), loadPrompts()]);
+});
+</script>
+
+<style scoped>
+.sandbox-root {
+  height: calc(100vh - 64px);
+  overflow: hidden;
+}
+.sandbox-root.mobile {
+  height: calc(100vh - 56px);
+}
+
+.sandbox-mobile-header {
+  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.sandbox-layout {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.sandbox-root.mobile .sandbox-layout {
+  height: calc(100% - 48px);
+}
+
+.cases-sidebar {
+  width: 260px;
+  min-width: 260px;
+  border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  overflow-y: auto;
+  background: rgb(var(--v-theme-surface));
+}
+
+.chat-area {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #fafafa;
+}
+
+.prompt-sidebar {
+  width: 320px;
+  min-width: 320px;
+  border-left: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgb(var(--v-theme-surface));
+  overflow-y: auto;
+}
+
+.chat-header {
+  background: rgb(var(--v-theme-surface));
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+/* Instagram DM style messages */
+.messages-area {
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #fafafa;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.msg-row {
+  display: flex;
+  max-width: 100%;
+}
+.msg-sent {
+  justify-content: flex-end;
+}
+.msg-received {
+  justify-content: flex-start;
+}
+
+.msg-bubble {
+  max-width: 70%;
+  padding: 8px 14px;
+  border-radius: 18px;
+  position: relative;
+  word-break: break-word;
+}
+
+.bubble-sent {
+  background: #3797f0;
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble-received {
+  background: #efefef;
+  color: #262626;
+  border-bottom-left-radius: 4px;
+}
+
+.msg-text {
+  font-size: 14px;
+  line-height: 1.45;
+}
+.msg-text :deep(strong) {
+  font-weight: 600;
+}
+.msg-text :deep(code) {
+  background: rgba(0,0,0,0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.msg-time {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 2px;
+  text-align: right;
+}
+.bubble-sent .msg-time {
+  color: rgba(255,255,255,0.7);
+}
+
+/* Typing indicator */
+.typing-bubble {
+  padding: 12px 18px;
+}
+.typing-dots {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.typing-dots span {
+  width: 8px;
+  height: 8px;
+  background: #999;
+  border-radius: 50%;
+  animation: typing-bounce 1.4s infinite both;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* Date separator */
+.date-separator {
+  position: relative;
+}
+.date-separator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  background: #dbdbdb;
+}
+.date-separator span {
+  position: relative;
+  z-index: 1;
+}
+
+/* Input area */
+.input-area {
+  background: rgb(var(--v-theme-surface));
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+/* Replay bar */
+.replay-bar {
+  background: #fff8e1;
+  border-top: 1px solid #ffe082;
+}
+
+/* Cases panel items */
+.case-item {
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  transition: background-color 0.15s;
+}
+.case-item:hover {
+  background: rgba(var(--v-theme-primary), 0.04);
+}
+.case-selected {
+  background: rgba(var(--v-theme-primary), 0.08);
+}
+
+.case-action-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: #666;
+  display: flex;
+  align-items: center;
+}
+.case-action-btn:hover {
+  background: rgba(0,0,0,0.06);
+}
+.case-action-btn.text-error {
+  color: #d32f2f;
+}
+
+/* Prompt panel */
+.prompt-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+}
+.prompt-select:focus {
+  border-color: rgb(var(--v-theme-primary));
+}
+
+.prompt-action-link {
+  border: none;
+  background: none;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.prompt-textarea {
+  width: 100%;
+  height: 100%;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'Roboto Mono', monospace;
+  resize: none;
+  outline: none;
+}
+.prompt-textarea:focus {
+  border-color: rgb(var(--v-theme-primary));
+}
+
+/* Cursor pointer helper */
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Mobile adjustments */
+@media (max-width: 960px) {
+  .msg-bubble {
+    max-width: 85%;
+  }
+}
+</style>

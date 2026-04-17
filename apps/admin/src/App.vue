@@ -51,6 +51,12 @@
           @click="onNavClick"
         />
         <v-list-item
+          prepend-icon="mdi-flask-outline"
+          title="Пісочниця"
+          :to="{ name: 'sandbox' }"
+          @click="onNavClick"
+        />
+        <v-list-item
           prepend-icon="mdi-sync"
           title="Синхронізація"
           :to="{ name: 'sync' }"

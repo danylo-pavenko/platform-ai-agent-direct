@@ -208,6 +208,18 @@ model KeycrmSyncRun {
   @@map("keycrm_sync_runs")
 }
 
+// ── Sandbox Test Cases ──
+
+model SandboxCase {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  messages  Json     @db.JsonB  // Array of client messages (strings)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("sandbox_cases")
+}
+
 // ── Audit Log ──
 
 model AuditLog {

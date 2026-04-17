@@ -49,6 +49,11 @@ const router = createRouter({
       name: 'teach',
       component: () => import('@/views/TeachChat.vue'),
     },
+    {
+      path: '/sandbox',
+      name: 'sandbox',
+      component: () => import('@/views/SandboxView.vue'),
+    },
   ],
 });
 
