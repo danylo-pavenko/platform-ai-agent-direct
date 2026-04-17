@@ -286,6 +286,25 @@
                 @click:append-inner="showSecrets.metaAppSecret = !showSecrets.metaAppSecret"
               />
             </v-col>
+
+            <!-- Facebook OAuth button -->
+            <v-col cols="12" class="pt-1 pb-0">
+              <v-btn
+                color="blue-darken-2"
+                variant="tonal"
+                size="small"
+                prepend-icon="mdi-facebook"
+                :loading="oauthLoading"
+                :disabled="!integrations.meta.appId || oauthLoading"
+                @click="startMetaOAuth"
+              >
+                Авторизуватись через Facebook
+              </v-btn>
+              <span class="text-caption text-medium-emphasis ml-2">
+                Автоматично заповнить Page ID та Page Access Token
+              </span>
+            </v-col>
+
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model="integrations.meta.pageId"
@@ -520,8 +539,44 @@
       <v-snackbar v-model="success" color="success" :timeout="3000">
         Налаштування збережено
       </v-snackbar>
+      <v-snackbar v-model="oauthSnackbar" :color="oauthSnackbarColor" :timeout="4000">
+        {{ oauthSnackbarText }}
+      </v-snackbar>
     </template>
   </v-container>
+
+  <!-- Facebook Page Picker dialog -->
+  <v-dialog v-model="showPagePicker" max-width="440" persistent>
+    <v-card>
+      <v-card-title class="d-flex align-center ga-2">
+        <v-icon color="blue-darken-2">mdi-facebook</v-icon>
+        Виберіть Facebook-сторінку
+      </v-card-title>
+      <v-card-subtitle class="pb-2 px-4">
+        Знайдено кілька сторінок. Виберіть ту, до якої підключено Instagram.
+      </v-card-subtitle>
+      <v-list>
+        <v-list-item
+          v-for="page in oauthPages"
+          :key="page.id"
+          :title="page.name"
+          :subtitle="`ID: ${page.id}`"
+          prepend-icon="mdi-page-layout-header"
+          rounded="lg"
+          class="mx-2"
+          @click="selectOAuthPage(page)"
+        >
+          <template #append>
+            <v-icon size="18" color="primary">mdi-chevron-right</v-icon>
+          </template>
+        </v-list-item>
+      </v-list>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="showPagePicker = false">Скасувати</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -585,6 +640,106 @@ const showSecrets = ref({
 const showMetaHelp = ref(false);
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
+
+// ── Facebook OAuth ──────────────────────────────────────────────────────────
+
+interface OAuthPage {
+  id: string;
+  name: string;
+  access_token: string;
+}
+
+const oauthLoading = ref(false);
+const oauthPages = ref<OAuthPage[]>([]);
+const showPagePicker = ref(false);
+const oauthSnackbar = ref(false);
+const oauthSnackbarText = ref('');
+const oauthSnackbarColor = ref('success');
+
+function showOAuthSnackbar(text: string, color = 'success') {
+  oauthSnackbarText.value = text;
+  oauthSnackbarColor.value = color;
+  oauthSnackbar.value = true;
+}
+
+async function startMetaOAuth() {
+  const appId = integrations.value.meta.appId.trim();
+  if (!appId || oauthLoading.value) return;
+
+  oauthLoading.value = true;
+
+  try {
+    // Save App ID + App Secret to DB first so backend can use them in the callback
+    await api.put('/settings/integrations', {
+      integration_meta: {
+        appId: integrations.value.meta.appId,
+        appSecret: integrations.value.meta.appSecret,
+      },
+    });
+
+    // Get OAuth URL from backend
+    const { data } = await api.get('/settings/meta/oauth-init', {
+      params: { appId },
+    });
+
+    // Open Facebook OAuth popup
+    const popup = window.open(
+      data.authUrl,
+      'meta_oauth',
+      'width=640,height=720,scrollbars=yes,resizable=yes',
+    );
+
+    if (!popup) {
+      showOAuthSnackbar('Не вдалося відкрити вікно авторизації. Дозвольте popup у браузері.', 'error');
+      oauthLoading.value = false;
+      return;
+    }
+
+    // Listen for postMessage from the popup (sent after OAuth callback)
+    const onMessage = (event: MessageEvent) => {
+      const msg = event.data;
+      if (!msg || !msg.type?.startsWith('meta_oauth')) return;
+
+      window.removeEventListener('message', onMessage);
+      clearInterval(closedTimer);
+      oauthLoading.value = false;
+
+      if (msg.type === 'meta_oauth_success') {
+        const pages = msg.pages as OAuthPage[];
+        if (pages.length === 1) {
+          selectOAuthPage(pages[0]);
+        } else {
+          oauthPages.value = pages;
+          showPagePicker.value = true;
+        }
+      } else {
+        showOAuthSnackbar(msg.error ?? 'Помилка авторизації Facebook', 'error');
+      }
+    };
+
+    window.addEventListener('message', onMessage);
+
+    // Fallback: if popup was closed by user without completing OAuth
+    const closedTimer = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(closedTimer);
+        window.removeEventListener('message', onMessage);
+        oauthLoading.value = false;
+      }
+    }, 1000);
+
+  } catch (e: any) {
+    showOAuthSnackbar(e.response?.data?.error ?? 'Помилка ініціалізації OAuth', 'error');
+    oauthLoading.value = false;
+  }
+}
+
+function selectOAuthPage(page: OAuthPage) {
+  integrations.value.meta.pageId = page.id;
+  integrations.value.meta.pageAccessToken = page.access_token;
+  showPagePicker.value = false;
+  showOAuthSnackbar(`Сторінку "${page.name}" вибрано. Натисніть "Зберегти інтеграції".`);
+}
 
 const agentMode = ref<'24_7' | 'schedule'>('schedule');
 
