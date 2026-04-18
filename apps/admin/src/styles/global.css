@@ -11,13 +11,14 @@
   --header-height: 56px;
   --radius-sm: 6px;
   --radius-md: 10px;
-  --radius-lg: 14px;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --color-border: #e3e8ee;
-  --color-bg: #f8f9fb;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --color-border: #e6ebf1;
+  --color-bg: #f6f9fc;
   --color-text: #0a2540;
-  --color-text-secondary: #596773;
+  --color-text-secondary: #6c7688;
   --color-primary: #635bff;
 }
 
@@ -27,6 +28,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   background: var(--color-bg);
   color: var(--color-text);
+  letter-spacing: -0.011em;
 }
 
 /* ── Vuetify Overrides ────────────────────────────────────────── */
@@ -43,22 +45,23 @@ html, body {
 }
 
 .v-navigation-drawer .v-list-item {
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   margin: 2px 8px !important;
   min-height: 40px !important;
 }
 
 .v-navigation-drawer .v-list-item--active {
-  background: rgba(99, 91, 255, 0.08) !important;
+  background: rgba(10, 37, 64, 0.06) !important;
 }
 
 .v-navigation-drawer .v-list-item--active .v-list-item-title {
   font-weight: 600 !important;
-  color: var(--color-primary) !important;
+  color: var(--color-text) !important;
 }
 
 .v-navigation-drawer .v-list-item--active .v-icon {
   color: var(--color-primary) !important;
+  opacity: 1 !important;
 }
 
 .v-navigation-drawer .v-list-item-title {

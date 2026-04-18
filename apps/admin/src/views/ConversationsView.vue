@@ -77,7 +77,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import api from '@/api';
 
 interface Client {
@@ -94,6 +94,7 @@ interface Conversation {
 }
 
 const router = useRouter();
+const route = useRoute();
 
 const conversations = ref<Conversation[]>([]);
 const total = ref(0);
@@ -166,7 +167,13 @@ watch([stateFilter, search], () => {
   fetchConversations();
 });
 
+const validStates = ['bot', 'handoff', 'closed', 'paused'] as const;
+
 onMounted(() => {
+  const q = route.query.state;
+  if (typeof q === 'string' && (validStates as readonly string[]).includes(q)) {
+    stateFilter.value = q;
+  }
   fetchConversations();
 });
 </script>

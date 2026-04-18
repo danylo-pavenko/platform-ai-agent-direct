@@ -11,7 +11,12 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: '/conversations',
+      redirect: '/dashboard',
+    },
+    {
+      path: '/dashboard',
+      name: 'dashboard',
+      component: () => import('@/views/DashboardView.vue'),
     },
     {
       path: '/conversations',
@@ -63,7 +68,7 @@ router.beforeEach((to) => {
     return { name: 'login' };
   }
   if (to.meta.guest && token) {
-    return { name: 'conversations' };
+    return { name: 'dashboard' };
   }
 });
 

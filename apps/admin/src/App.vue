@@ -33,6 +33,12 @@
       <div class="nav-section-label">Головне</div>
       <v-list density="compact" nav class="px-2">
         <v-list-item
+          prepend-icon="mdi-view-dashboard-outline"
+          title="Дашборд"
+          :to="{ name: 'dashboard' }"
+          @click="onNavClick"
+        />
+        <v-list-item
           prepend-icon="mdi-message-text-outline"
           title="Розмови"
           :to="{ name: 'conversations' }"
@@ -133,11 +139,12 @@ function onNavClick() {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #635bff 0%, #8b83ff 100%);
+  background: linear-gradient(145deg, #0a2540 0%, #1b3a5c 50%, #635bff 130%);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(10, 37, 64, 0.2);
 }
 
 .brand-name {

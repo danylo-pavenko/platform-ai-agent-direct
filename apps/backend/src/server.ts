@@ -14,6 +14,7 @@ import { orderRoutes } from './routes/orders.js';
 import { metaAgentRoutes } from './routes/meta-agent.js';
 import { metaOAuthRoutes } from './routes/meta-oauth.js';
 import { sandboxRoutes } from './routes/sandbox.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 
 const app = Fastify({
   logger: {
@@ -55,6 +56,7 @@ await app.register(orderRoutes, { prefix: '/orders' });
 await app.register(metaAgentRoutes, { prefix: '/meta-agent' });
 await app.register(metaOAuthRoutes, { prefix: '/settings' });
 await app.register(sandboxRoutes, { prefix: '/sandbox' });
+await app.register(dashboardRoutes, { prefix: '/dashboard' });
 
 // Health check
 app.get('/health', async () => {

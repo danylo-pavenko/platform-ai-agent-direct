@@ -20,7 +20,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = data.token;
     user.value = data.user;
     localStorage.setItem('token', data.token);
-    router.push({ name: 'conversations' });
+    router.push({ name: 'dashboard' });
   }
 
   async function fetchUser() {
