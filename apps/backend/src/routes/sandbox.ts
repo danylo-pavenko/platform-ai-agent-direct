@@ -73,7 +73,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         currentTime: now,
         workingHours,
         conversationState: 'bot',
-        clientIgUsername: 'sandbox_test',
+        clientIgUserId: 'sandbox_test',
         conversationIdShort: 'sandbox',
         isOutOfHours,
       });

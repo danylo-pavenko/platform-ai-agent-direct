@@ -4,8 +4,30 @@ import { verifyIgSignature } from '../lib/ig-signature.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { handleIncomingMessage } from '../services/conversation.js';
+import { fetchIgUserProfile } from '../services/ig-profile.js';
 
 // ── Meta webhook payload types (subset we care about) ──
+
+/**
+ * A "share" attachment — sent when a user forwards an Instagram post into DM.
+ * Contains the image, post URL, and caption (title) of the shared content.
+ */
+interface ShareAttachmentPayload {
+  url?: string;         // URL of the shared Instagram post
+  title?: string;       // Caption / post description
+  image_url?: string;   // Primary image from the shared post (may expire ~1 min)
+  link?: string;        // Alternate link (sometimes same as url)
+}
+
+/** Generic attachment for images/videos the user sends directly. */
+interface MediaAttachmentPayload {
+  url?: string;
+}
+
+interface MetaAttachment {
+  type: 'share' | 'image' | 'video' | 'audio' | 'file' | string;
+  payload?: ShareAttachmentPayload | MediaAttachmentPayload;
+}
 
 interface MetaMessagingEvent {
   sender: { id: string };
@@ -14,8 +36,21 @@ interface MetaMessagingEvent {
   message?: {
     mid: string;
     text?: string;
-    attachments?: Array<{ type: string; payload?: { url?: string } }>;
+    attachments?: MetaAttachment[];
   };
+}
+
+/**
+ * Structured representation of a shared Instagram post, stored in
+ * Message.sharedPost (JSONB) for reference and future processing.
+ *
+ * Index signature required for Prisma JSONB compatibility.
+ */
+export interface SharedPostData {
+  postUrl?: string;    // Original IG post link
+  imageUrl?: string;   // Image from the shared post
+  caption?: string;    // Post caption (raw, unsanitized)
+  [key: string]: unknown; // Allows Prisma to accept this as InputJsonValue
 }
 
 interface MetaWebhookBody {
@@ -152,7 +187,7 @@ async function processMessageEvent(
   const igUserId = sender.id;
   const igMessageId = message.mid;
   const rawText = message.text ?? '';
-  const attachments = message.attachments;
+  const attachments = message.attachments ?? [];
 
   // ── Deduplicate by ig_message_id ──
   const existingMessage = await prisma.message.findUnique({
@@ -176,7 +211,43 @@ async function processMessageEvent(
     );
   }
 
+  // ── Extract shared post (if user forwarded an IG post into DM) ──
+  // The "share" attachment type is sent when a user taps "Send" on a post.
+  const shareAttachment = attachments.find((a) => a.type === 'share');
+  let sharedPost: SharedPostData | null = null;
+
+  if (shareAttachment) {
+    const payload = shareAttachment.payload as ShareAttachmentPayload | undefined;
+    sharedPost = {
+      postUrl: payload?.url || payload?.link,
+      imageUrl: payload?.image_url,
+      // Caption comes in as "title" in the share payload
+      caption: payload?.title,
+    };
+    app.log.info(
+      { igUserId, igMessageId, postUrl: sharedPost.postUrl },
+      'Detected shared Instagram post in message',
+    );
+  }
+
+  // ── Extract direct media URLs (images/videos the user sends directly) ──
+  // Exclude "share" attachments here — shared post image is handled separately
+  const mediaUrls = attachments
+    .filter((a) => a.type !== 'share')
+    .map((a) => (a.payload as MediaAttachmentPayload | undefined)?.url)
+    .filter((url): url is string => !!url);
+
+  // If the shared post has an image, include it in mediaUrls so Claude can see it.
+  // Image CDN URLs from IG expire quickly — we download them in conversation.ts.
+  if (sharedPost?.imageUrl) {
+    mediaUrls.unshift(sharedPost.imageUrl);
+  }
+
   // ── Upsert client ──
+  // isNew = true means this is the first message from this user ever.
+  const existingClient = await prisma.client.findUnique({ where: { igUserId } });
+  const isNewClient = !existingClient;
+
   const client = await prisma.client.upsert({
     where: { igUserId },
     update: { lastActivityAt: new Date() },
@@ -185,6 +256,33 @@ async function processMessageEvent(
       lastActivityAt: new Date(),
     },
   });
+
+  // ── Fetch IG profile for brand-new clients ──
+  // This runs asynchronously after upsert — we don't block the message flow.
+  // We only fetch on first contact to avoid redundant API calls.
+  if (isNewClient) {
+    fetchIgUserProfile(igUserId)
+      .then(async (profile) => {
+        if (!profile || (!profile.name && !profile.username)) return;
+        await prisma.client.update({
+          where: { id: client.id },
+          data: {
+            igFullName: profile.name,
+            igUsername: profile.username,
+            // Pre-populate displayName if not set yet
+            displayName: profile.name ?? profile.username,
+          },
+        });
+        app.log.info(
+          { clientId: client.id, name: profile.name, username: profile.username },
+          'Updated new client with IG profile data',
+        );
+      })
+      .catch((err) => {
+        // Non-critical — we have igUserId as fallback identifier
+        app.log.warn({ err, clientId: client.id }, 'Failed to save IG profile (non-fatal)');
+      });
+  }
 
   // ── Find or create conversation ──
   let conversation = await prisma.conversation.findFirst({
@@ -210,11 +308,6 @@ async function processMessageEvent(
     );
   }
 
-  // ── Extract media URLs ──
-  const mediaUrls = attachments
-    ?.map((a) => a.payload?.url)
-    .filter((url): url is string => !!url);
-
   // ── Create message record ──
   await prisma.message.create({
     data: {
@@ -222,7 +315,13 @@ async function processMessageEvent(
       direction: 'in',
       sender: 'client',
       text: redacted || null,
-      mediaUrls: mediaUrls && mediaUrls.length > 0 ? mediaUrls : undefined,
+      mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+      // Store raw shared post metadata for audit / future reference.
+      // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
+      // accept typed interfaces with optional fields directly.
+      sharedPost: sharedPost
+        ? (sharedPost as unknown as Record<string, string | undefined>)
+        : undefined,
       igMessageId,
     },
   });
@@ -234,7 +333,13 @@ async function processMessageEvent(
   });
 
   app.log.info(
-    { igUserId, igMessageId, conversationId: conversation.id },
+    {
+      igUserId,
+      igMessageId,
+      conversationId: conversation.id,
+      hasSharedPost: !!sharedPost,
+      mediaCount: mediaUrls.length,
+    },
     'Persisted incoming Instagram message',
   );
 
@@ -243,6 +348,7 @@ async function processMessageEvent(
     conversation.id,
     redacted || '',
     mediaUrls,
+    sharedPost ?? undefined,
   ).catch((err) => {
     app.log.error({ err, conversationId: conversation.id }, 'Error in conversation handler');
   });

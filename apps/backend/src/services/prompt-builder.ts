@@ -13,13 +13,24 @@ export interface WorkingHours {
   // day keys: mon, tue, wed, thu, fri, sat, sun
 }
 
+/** Known facts about the client — injected into the session context block. */
+export interface ClientProfile {
+  igUsername?: string;   // @handle (without @)
+  igFullName?: string;   // Display name from IG profile
+  phone?: string;        // Previously confirmed phone
+  deliveryCity?: string;
+  deliveryNpBranch?: string;
+  deliveryNpType?: string; // "warehouse" | "postamat"
+}
+
 export interface PromptBuildParams {
   activePromptContent: string;
   catalogSnippet: string;
   currentTime: Date;
   workingHours: WorkingHours;
   conversationState: 'bot' | 'handoff';
-  clientIgUsername?: string;
+  clientIgUserId?: string;  // Raw IGSID (fallback identifier)
+  clientProfile?: ClientProfile;
   conversationIdShort?: string;
   isOutOfHours?: boolean;
 }
@@ -117,7 +128,8 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     currentTime,
     workingHours,
     conversationState,
-    clientIgUsername,
+    clientIgUserId,
+    clientProfile,
     conversationIdShort,
     isOutOfHours = false,
   } = params;
@@ -148,6 +160,16 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     ? 'bot — бот обслуговує'
     : 'handoff — менеджер підключений';
 
+  // ── Build client identity line ──────────────────────────────────────
+  // Show the best available name so Claude can address the client personally.
+  // Priority: full name > @handle > raw IGSID
+  const clientIdentityLine = buildClientIdentityLine(clientProfile, clientIgUserId);
+
+  // ── Build known client data block ───────────────────────────────────
+  // If we already know phone / delivery details from a previous session,
+  // Claude can use this without asking the client again.
+  const clientDataBlock = buildClientDataBlock(clientProfile);
+
   // ── Session context block ───────────────────────────────────────────
   const sessionBlock = `════════════════════════════════════════
 ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ
@@ -157,8 +179,9 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
 Магазин зараз: ${isOpen ? 'працює' : 'не працює'}
 Години роботи сьогодні: ${hoursLine}
 
-Клієнт: IG @${clientIgUsername ?? 'unknown'}, зараз у розмові #${conversationIdShort ?? '--------'}
+Клієнт: ${clientIdentityLine}, розмова #${conversationIdShort ?? '--------'}
 Стан розмови: ${stateLabel}
+${clientDataBlock}
 
 Каталог (живий знімок):
 {CATALOG_PLACEHOLDER}
@@ -259,6 +282,59 @@ export async function getWorkingHours(): Promise<WorkingHours> {
     log.error({ err }, 'Failed to fetch working hours setting');
     return DEFAULT_WORKING_HOURS;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Client profile helpers (used by buildRuntimePrompt)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns a human-readable client identity string for the session context.
+ * Claude uses this to address the client by name when possible.
+ */
+function buildClientIdentityLine(
+  profile: ClientProfile | undefined,
+  igUserId: string | undefined,
+): string {
+  const parts: string[] = [];
+
+  if (profile?.igFullName) {
+    parts.push(profile.igFullName);
+  }
+  if (profile?.igUsername) {
+    parts.push(`@${profile.igUsername}`);
+  }
+  if (parts.length === 0) {
+    parts.push(`IG ${igUserId ?? 'unknown'}`);
+  }
+
+  return parts.join(' / ');
+}
+
+/**
+ * Builds a multiline block of known customer data.
+ * Empty lines are omitted so the block is compact when data is missing.
+ */
+function buildClientDataBlock(profile: ClientProfile | undefined): string {
+  if (!profile) return '';
+
+  const lines: string[] = [];
+
+  if (profile.phone) {
+    lines.push(`Телефон клієнта: ${profile.phone}`);
+  }
+  if (profile.deliveryCity) {
+    lines.push(`Місто доставки: ${profile.deliveryCity}`);
+  }
+  if (profile.deliveryNpBranch) {
+    const typeLabel =
+      profile.deliveryNpType === 'postamat' ? 'Поштомат НП' : 'Відділення НП';
+    lines.push(`${typeLabel}: ${profile.deliveryNpBranch}`);
+  }
+
+  if (lines.length === 0) return '';
+
+  return '\nВже відомо про клієнта (не питай знову):\n' + lines.join('\n');
 }
 
 // ---------------------------------------------------------------------------

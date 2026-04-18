@@ -2,6 +2,43 @@ import type { ToolDefinition } from '../services/claude.js';
 
 export const salesAgentTools: ToolDefinition[] = [
   {
+    // Saves customer contact and delivery information to their profile.
+    // Claude should call this as soon as the client shares a phone number,
+    // full name, or Nova Poshta delivery details — even mid-conversation,
+    // without waiting for the order to be placed.
+    name: 'update_client_info',
+    description:
+      'Зберегти контактні або доставочні дані клієнта. Викликай одразу, як тільки клієнт назвав ПІБ, телефон, місто чи відділення НП — не чекай кінця оформлення замовлення.',
+    parameters: {
+      type: 'object',
+      properties: {
+        full_name: {
+          type: 'string',
+          description: "Повне ім'я (ПІБ) клієнта як він/вона назвав(ла)",
+        },
+        phone: {
+          type: 'string',
+          description: 'Номер телефону (зберігати як є, без форматування)',
+        },
+        city: {
+          type: 'string',
+          description: 'Місто для відправки Новою Поштою',
+        },
+        np_branch: {
+          type: 'string',
+          description: 'Номер відділення або адреса поштомату НП',
+        },
+        np_type: {
+          type: 'string',
+          enum: ['warehouse', 'postamat'],
+          description: 'warehouse = відділення НП; postamat = поштомат НП',
+        },
+      },
+      // All fields are optional — Claude can call with just what it knows
+      required: [],
+    },
+  },
+  {
     name: 'request_handoff',
     description:
       'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, запит на повернення, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи.',

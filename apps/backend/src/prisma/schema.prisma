@@ -10,15 +10,26 @@ datasource db {
 // ── Clients ──
 
 model Client {
-  id              String         @id @default(uuid()) @db.Uuid
-  igUserId        String?        @unique @map("ig_user_id")
-  tgUserId        String?        @unique @map("tg_user_id")
-  displayName     String?        @map("display_name")
-  createdAt       DateTime       @default(now()) @map("created_at")
-  lastActivityAt  DateTime       @default(now()) @map("last_activity_at")
+  id               String         @id @default(uuid()) @db.Uuid
+  igUserId         String?        @unique @map("ig_user_id")
+  tgUserId         String?        @unique @map("tg_user_id")
+  displayName      String?        @map("display_name")
 
-  conversations   Conversation[]
-  orders          Order[]
+  // Instagram profile fields — populated on first contact via Graph API
+  igUsername       String?        @map("ig_username")    // @handle (without @)
+  igFullName       String?        @map("ig_full_name")   // Full name from IG profile
+
+  // Customer delivery profile — extracted from conversation by Claude
+  phone            String?                               // Confirmed phone number
+  deliveryCity     String?        @map("delivery_city")  // City for Nova Poshta delivery
+  deliveryNpBranch String?        @map("delivery_np_branch") // Branch number or address
+  deliveryNpType   String?        @map("delivery_np_type")   // "warehouse" | "postamat"
+
+  createdAt        DateTime       @default(now()) @map("created_at")
+  lastActivityAt   DateTime       @default(now()) @map("last_activity_at")
+
+  conversations    Conversation[]
+  orders           Order[]
 
   @@map("clients")
 }
