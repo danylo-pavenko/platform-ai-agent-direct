@@ -44,7 +44,7 @@ cd "${PROJECT_ROOT}"
 # ── 4. Build TypeScript ──
 echo "[4/5] Building TypeScript..."
 cd "${APP_DIR}"
-npx tsc --project tsconfig.json
+./node_modules/.bin/tsc --project tsconfig.json
 cd "${PROJECT_ROOT}"
 
 # ── 5. Restart PM2 ──
