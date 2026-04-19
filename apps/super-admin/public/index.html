@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Direct AI Agents — Super Admin</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0a0f; --surface: #13131a; --surface2: #1a1a24;
+      --border: #1e1e2e; --accent: #7c6eff; --accent2: #9d91ff;
+      --text: #e8e8f0; --muted: #6b6b8a; --danger: #ef4444;
+      --success: #22c55e; --warn: #f59e0b;
+      --radius: 10px; --sidebar: 220px;
+    }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; -webkit-font-smoothing: antialiased; }
+    [v-cloak] { display: none; }
+
+    /* ── Layout ── */
+    .layout { display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: var(--sidebar); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Sidebar ── */
+    .sidebar-logo { padding: 20px 18px 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-logo span { font-size: 15px; font-weight: 700; color: var(--text); }
+    .sidebar-logo em { color: var(--accent); font-style: normal; }
+    .sidebar-logo small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .nav { padding: 10px 8px; flex: 1; }
+    .nav-item { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 7px; cursor: pointer; color: var(--muted); font-size: 13px; transition: all .15s; }
+    .nav-item:hover { background: var(--surface2); color: var(--text); }
+    .nav-item.active { background: rgba(124,110,255,.15); color: var(--accent2); }
+    .nav-item .icon { width: 16px; text-align: center; font-size: 15px; }
+    .sidebar-bottom { padding: 12px 8px; border-top: 1px solid var(--border); }
+    .logout-btn { width: 100%; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 8px 10px; border-radius: 7px; text-align: left; display: flex; align-items: center; gap: 9px; }
+    .logout-btn:hover { background: var(--surface2); color: var(--danger); }
+
+    /* ── Topbar ── */
+    .topbar { height: 52px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; }
+    .topbar h1 { font-size: 15px; font-weight: 600; }
+    .topbar-actions { display: flex; gap: 8px; }
+
+    /* ── Content ── */
+    .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all .15s; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-ghost:hover { border-color: var(--muted); }
+    .btn-danger { background: rgba(239,68,68,.15); color: var(--danger); border: 1px solid rgba(239,68,68,.25); }
+    .btn-danger:hover { background: rgba(239,68,68,.25); }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+    /* ── Cards / Table ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; border-bottom: 1px solid var(--border); }
+    td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    /* ── Badge ── */
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 100px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: rgba(34,197,94,.12); color: var(--success); }
+    .badge-provisioned { background: rgba(245,158,11,.12); color: var(--warn); }
+    .badge-suspended { background: rgba(239,68,68,.12); color: var(--danger); }
+    .badge::before { content: '●'; font-size: 7px; }
+
+    /* ── Stats row ── */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+    .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 6px; }
+    .stat-value { font-size: 26px; font-weight: 700; }
+    .stat-value.accent { color: var(--accent2); }
+    .stat-value.green { color: var(--success); }
+
+    /* ── Modal ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 200; }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 480px; max-width: 95vw; padding: 28px; }
+    .modal h2 { font-size: 17px; font-weight: 600; margin-bottom: 20px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+    /* ── Form ── */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
+    .field input, .field select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; transition: border-color .15s; }
+    .field input:focus, .field select:focus { border-color: var(--accent); }
+    .field select option { background: var(--surface2); }
+
+    /* ── Chat Panel ── */
+    .chat-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 360px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; z-index: 100; transform: translateX(100%); transition: transform .25s cubic-bezier(.4,0,.2,1); }
+    .chat-panel.open { transform: translateX(0); }
+    .chat-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .chat-header-info { display: flex; flex-direction: column; }
+    .chat-header-name { font-size: 14px; font-weight: 600; }
+    .chat-header-domain { font-size: 11px; color: var(--muted); }
+    .chat-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 4px; }
+    .chat-close:hover { color: var(--text); }
+    .chat-messages { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { display: flex; flex-direction: column; max-width: 82%; }
+    .msg.user { align-self: flex-end; align-items: flex-end; }
+    .msg.bot { align-self: flex-start; align-items: flex-start; }
+    .msg-bubble { padding: 9px 13px; border-radius: 14px; font-size: 13px; line-height: 1.5; }
+    .msg.user .msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+    .msg.bot .msg-bubble { background: var(--surface2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .msg-time { font-size: 10px; color: var(--muted); margin-top: 3px; padding: 0 4px; }
+    .chat-input-wrap { padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-shrink: 0; }
+    .chat-input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; resize: none; height: 38px; max-height: 100px; font-family: inherit; }
+    .chat-input:focus { border-color: var(--accent); }
+    .chat-send { background: var(--accent); border: none; color: #fff; border-radius: 8px; padding: 0 14px; cursor: pointer; font-size: 16px; flex-shrink: 0; }
+    .chat-send:hover { opacity: .88; }
+    .chat-send:disabled { opacity: .4; cursor: not-allowed; }
+    .chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; gap: 8px; }
+    .chat-empty span { font-size: 28px; }
+    .typing { display: flex; gap: 4px; align-items: center; padding: 10px 13px; }
+    .typing span { width: 6px; height: 6px; background: var(--muted); border-radius: 50%; animation: bounce .9s infinite; }
+    .typing span:nth-child(2) { animation-delay: .15s; }
+    .typing span:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+
+    /* ── Login ── */
+    .login-wrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+    .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 360px; }
+    .login-box h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+    .login-box p { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
+    .login-box .field { margin-bottom: 16px; }
+    .login-err { font-size: 13px; color: var(--danger); margin-top: 10px; text-align: center; }
+
+    /* ── Misc ── */
+    .actions-cell { display: flex; gap: 6px; }
+    .empty-row td { text-align: center; color: var(--muted); padding: 40px; }
+    .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 14px; }
+    .online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+    .online-dot.online { background: var(--success); }
+    .deploy-log { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 12px; font-family: monospace; font-size: 11px; color: var(--muted); max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
+  </style>
+</head>
+<body>
+<div id="app" v-cloak>
+
+  <!-- ── Login ── -->
+  <div class="login-wrap" v-if="!auth.token">
+    <div class="login-box">
+      <h1>Direct<span style="color:var(--accent)">AI</span> Admin</h1>
+      <p>Super Admin Dashboard</p>
+      <div class="field">
+        <label>Username</label>
+        <input v-model="login.username" type="text" placeholder="superadmin" @keyup.enter="doLogin" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input v-model="login.password" type="password" placeholder="••••••••" @keyup.enter="doLogin" />
+      </div>
+      <button class="btn btn-primary" style="width:100%" @click="doLogin" :disabled="login.loading">
+        {{ login.loading ? 'Входимо...' : 'Увійти' }}
+      </button>
+      <div class="login-err" v-if="login.error">{{ login.error }}</div>
+    </div>
+  </div>
+
+  <!-- ── App ── -->
+  <div class="layout" v-else>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span>Direct<em>AI</em> Agents</span>
+        <small>Super Admin</small>
+      </div>
+      <nav class="nav">
+        <div class="nav-item" :class="{active: page==='dashboard'}" @click="page='dashboard'">
+          <span class="icon">⬡</span> Dashboard
+        </div>
+        <div class="nav-item" :class="{active: page==='tenants'}" @click="page='tenants'">
+          <span class="icon">◈</span> Clients
+        </div>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="logout-btn" @click="logout">
+          <span class="icon">→</span> Logout
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <div class="main">
+
+      <!-- Dashboard -->
+      <template v-if="page==='dashboard'">
+        <div class="topbar">
+          <h1>Dashboard</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openAddModal">+ Add Client</button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Total clients</div>
+              <div class="stat-value accent">{{ tenants.length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active</div>
+              <div class="stat-value green">{{ tenants.filter(t=>t.status==='active').length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Provisioned</div>
+              <div class="stat-value" style="color:var(--warn)">{{ tenants.filter(t=>t.status==='provisioned').length }}</div>
+            </div>
+          </div>
+
+          <div class="section-title">Clients</div>
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>API Domain</th>
+                  <th>Status</th>
+                  <th>Health</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="tenants.length===0">
+                  <td colspan="5" class="empty-row">No clients yet. Add your first client.</td>
+                </tr>
+                <tr v-for="t in tenants" :key="t.id">
+                  <td>
+                    <div style="font-weight:600">{{ t.name }}</div>
+                    <div style="font-size:11px;color:var(--muted)">{{ t.instanceId.toUpperCase() }}</div>
+                  </td>
+                  <td style="color:var(--muted);font-size:12px">{{ t.apiDomain }}</td>
+                  <td><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td>
+                    <span class="online-dot" :class="{online: health[t.id]}"></span>
+                    {{ health[t.id] ? 'Online' : 'Offline' }}
+                  </td>
+                  <td>
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)">💬 Chat</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id">
+                        {{ deploying===t.id ? '...' : '🚀 Deploy' }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Tenants page -->
+      <template v-if="page==='tenants'">
+        <div class="topbar">
+          <h1>Clients</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openAddModal">+ Add Client</button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th><th>Name</th><th>API Domain</th><th>Admin Domain</th>
+                  <th>Ports</th><th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="tenants.length===0">
+                  <td colspan="7" class="empty-row">No clients yet.</td>
+                </tr>
+                <tr v-for="t in tenants" :key="t.id">
+                  <td><code style="font-size:12px;color:var(--accent2)">{{ t.instanceId }}</code></td>
+                  <td style="font-weight:600">{{ t.name }}</td>
+                  <td style="font-size:12px;color:var(--muted)">{{ t.apiDomain }}</td>
+                  <td style="font-size:12px;color:var(--muted)">{{ t.adminDomain }}</td>
+                  <td style="font-size:12px;color:var(--muted)">{{ t.apiPort }} / {{ t.adminPort }}</td>
+                  <td><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td>
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)">💬</button>
+                      <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️</button>
+                      <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+    </div><!-- /main -->
+  </div><!-- /layout -->
+
+  <!-- ── Compact Chat Panel ── -->
+  <div class="chat-panel" :class="{open: chat.open}">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-header-name">{{ chat.tenant?.name || '—' }}</div>
+        <div class="chat-header-domain">{{ chat.tenant?.apiDomain }}</div>
+      </div>
+      <button class="chat-close" @click="chat.open=false">✕</button>
+    </div>
+    <div class="chat-messages" ref="chatMessages">
+      <div class="chat-empty" v-if="chat.messages.length===0">
+        <span>🤖</span>
+        Напишіть повідомлення щоб протестувати агента
+      </div>
+      <div v-for="(m,i) in chat.messages" :key="i" class="msg" :class="m.role">
+        <div class="msg-bubble">{{ m.content }}</div>
+        <div class="msg-time">{{ m.time }}</div>
+      </div>
+      <div class="msg bot" v-if="chat.typing">
+        <div class="msg-bubble">
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-wrap">
+      <textarea
+        class="chat-input"
+        v-model="chat.input"
+        placeholder="Написати повідомлення..."
+        @keydown.enter.exact.prevent="sendChat"
+        rows="1"
+      ></textarea>
+      <button class="chat-send" @click="sendChat" :disabled="!chat.input.trim() || chat.typing">➤</button>
+    </div>
+  </div>
+
+  <!-- ── Add/Edit Modal ── -->
+  <div class="modal-overlay" v-if="modal.open" @click.self="modal.open=false">
+    <div class="modal">
+      <h2>{{ modal.editing ? 'Edit Client' : 'Add Client' }}</h2>
+      <div class="form-row">
+        <div class="field">
+          <label>Instance ID *</label>
+          <input v-model="modal.form.instanceId" placeholder="sb" :disabled="!!modal.editing" />
+        </div>
+        <div class="field">
+          <label>Name *</label>
+          <input v-model="modal.form.name" placeholder="StatusBlessed" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>API Domain *</label>
+          <input v-model="modal.form.apiDomain" placeholder="api.status-blessed.com" />
+        </div>
+        <div class="field">
+          <label>Admin Domain *</label>
+          <input v-model="modal.form.adminDomain" placeholder="agent.status-blessed.com" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>API Port *</label>
+          <input v-model.number="modal.form.apiPort" type="number" placeholder="3100" />
+        </div>
+        <div class="field">
+          <label>Admin Port *</label>
+          <input v-model.number="modal.form.adminPort" type="number" placeholder="3101" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Linux User *</label>
+          <input v-model="modal.form.linuxUser" placeholder="agent_sb" />
+        </div>
+        <div class="field">
+          <label>App Dir *</label>
+          <input v-model="modal.form.appDir" placeholder="/opt/agents/sb" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select v-model="modal.form.status">
+          <option value="provisioned">Provisioned</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="modal.open=false">Cancel</button>
+        <button class="btn btn-primary" @click="saveTenant" :disabled="modal.saving">
+          {{ modal.saving ? 'Saving...' : (modal.editing ? 'Save' : 'Add Client') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy log modal -->
+  <div class="modal-overlay" v-if="deployLog.open" @click.self="deployLog.open=false">
+    <div class="modal" style="width:600px">
+      <h2>🚀 Deploy: {{ deployLog.name }}</h2>
+      <div class="deploy-log">{{ deployLog.text || 'Running...' }}</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="deployLog.open=false">Close</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { createApp, ref, reactive, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+
+createApp({
+  setup() {
+    const BASE = '/api';
+    const auth = reactive({ token: localStorage.getItem('sa_token') || '' });
+    const login = reactive({ username: '', password: '', loading: false, error: '' });
+    const page = ref('dashboard');
+    const tenants = ref([]);
+    const health = reactive({});
+    const deploying = ref(null);
+    const deployLog = reactive({ open: false, name: '', text: '' });
+    const chatMessages = ref(null);
+
+    const chat = reactive({
+      open: false, tenant: null, messages: [], input: '', typing: false,
+      history: [], // for sandbox API
+    });
+
+    const modal = reactive({
+      open: false, editing: null, saving: false,
+      form: emptyForm(),
+    });
+
+    function emptyForm() {
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned' };
+    }
+
+    function headers() {
+      return { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` };
+    }
+
+    async function doLogin() {
+      login.loading = true; login.error = '';
+      try {
+        const r = await fetch(`${BASE}/auth/login`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ username: login.username, password: login.password }),
+        });
+        const d = await r.json();
+        if (!r.ok) { login.error = d.error || 'Login failed'; return; }
+        auth.token = d.token;
+        localStorage.setItem('sa_token', d.token);
+        await loadTenants();
+      } catch { login.error = 'Network error'; }
+      finally { login.loading = false; }
+    }
+
+    function logout() {
+      auth.token = ''; localStorage.removeItem('sa_token');
+    }
+
+    async function loadTenants() {
+      const r = await fetch(`${BASE}/tenants`, { headers: headers() });
+      if (r.status === 401) { logout(); return; }
+      tenants.value = await r.json();
+      checkAllHealth();
+    }
+
+    async function checkAllHealth() {
+      for (const t of tenants.value) {
+        fetch(`${BASE}/tenants/${t.id}/health`, { headers: headers() })
+          .then(r => r.json())
+          .then(d => { health[t.id] = d.online; })
+          .catch(() => { health[t.id] = false; });
+      }
+    }
+
+    function openAddModal() {
+      modal.editing = null;
+      modal.form = emptyForm();
+      modal.open = true;
+    }
+
+    function openEditModal(t) {
+      modal.editing = t.id;
+      modal.form = { ...t };
+      modal.open = true;
+    }
+
+    async function saveTenant() {
+      modal.saving = true;
+      try {
+        const url = modal.editing ? `${BASE}/tenants/${modal.editing}` : `${BASE}/tenants`;
+        const method = modal.editing ? 'PUT' : 'POST';
+        const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(modal.form) });
+        if (!r.ok) { alert('Error saving'); return; }
+        modal.open = false;
+        await loadTenants();
+      } finally { modal.saving = false; }
+    }
+
+    async function deleteTenant(t) {
+      if (!confirm(`Delete ${t.name}? This only removes the registry entry, not the server.`)) return;
+      await fetch(`${BASE}/tenants/${t.id}`, { method: 'DELETE', headers: headers() });
+      await loadTenants();
+    }
+
+    async function triggerDeploy(t) {
+      deploying.value = t.id;
+      deployLog.open = true; deployLog.name = t.name; deployLog.text = 'Running deploy...';
+      try {
+        const r = await fetch(`${BASE}/tenants/${t.id}/deploy`, { method:'POST', headers: headers() });
+        const d = await r.json();
+        deployLog.text = d.stdout || d.error || JSON.stringify(d);
+        await loadTenants();
+      } catch (e) { deployLog.text = e.message; }
+      finally { deploying.value = null; }
+    }
+
+    function openChat(t) {
+      chat.tenant = t;
+      chat.messages = [];
+      chat.history = [];
+      chat.input = '';
+      chat.open = true;
+    }
+
+    function now() {
+      return new Date().toLocaleTimeString('uk', { hour:'2-digit', minute:'2-digit' });
+    }
+
+    async function sendChat() {
+      const text = chat.input.trim();
+      if (!text || chat.typing) return;
+      chat.input = '';
+      chat.messages.push({ role:'user', content: text, time: now() });
+      chat.history.push({ role:'user', content: text });
+      chat.typing = true;
+      await nextTick();
+      if (chatMessages.value) chatMessages.value.scrollTop = chatMessages.value.scrollHeight;
+
+      try {
+        const r = await fetch(`${BASE}/tenants/${chat.tenant.id}/chat`, {
+          method: 'POST', headers: headers(),
+          body: JSON.stringify({ message: text, history: chat.history }),
+        });
+        const d = await r.json();
+        const reply = d.reply || d.text || d.error || 'Немає відповіді';
+        chat.messages.push({ role:'bot', content: reply, time: now() });
+        chat.history.push({ role:'assistant', content: reply });
+      } catch {
+        chat.messages.push({ role:'bot', content: '⚠️ Агент недоступний', time: now() });
+      }
+      chat.typing = false;
+      await nextTick();
+      if (chatMessages.value) chatMessages.value.scrollTop = chatMessages.value.scrollHeight;
+    }
+
+    onMounted(async () => {
+      if (auth.token) await loadTenants();
+    });
+
+    return {
+      auth, login, page, tenants, health, deploying, deployLog,
+      chat, chatMessages, modal,
+      doLogin, logout, openAddModal, openEditModal, saveTenant, deleteTenant,
+      triggerDeploy, openChat, sendChat,
+    };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
