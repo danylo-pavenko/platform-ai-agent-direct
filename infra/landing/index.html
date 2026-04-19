@@ -1,338 +1,1564 @@
 <!DOCTYPE html>
 <html lang="uk">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Direct AI Agents — AI Sales Agent для Instagram DM</title>
-  <meta name="description" content="Автоматизуйте продажі в Instagram DM. AI-агент відповідає клієнтам, збирає замовлення та передає менеджеру лише готові угоди." />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="UTF-8" />
+<title>Direct AI Agents — DM that sells</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="AI-агент відповідає в Instagram DM у вашому стилі, 24/7. Знає каталог. Збирає замовлення. Передає менеджеру готову картку в Telegram." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Doto:wght@400;600;800;900&family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000;
+    --bg-2: #0A0A0A;
+    --bg-3: #141414;
+    --ink: #FFFFFF;
+    --ink-2: #CFCFCF;
+    --ink-3: #8A8A8A;
+    --ink-4: #4F4F4F;
+    --rule: #1C1C1C;
+    --rule-2: #2A2A2A;
+    --red: #D42F2F;
+    --red-2: #FF3B30;
+    --dot: 'Doto', ui-monospace, monospace;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    letter-spacing: 0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.05) 0.8px, transparent 1px);
+    background-size: 14px 14px;
+    background-position: 0 0;
+  }
+  ::selection { background: var(--red); color: #fff; }
+  a { color: inherit; text-decoration: none; }
+  button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; }
 
-    :root {
-      --bg: #0a0a0f;
-      --surface: #13131a;
-      --border: #1e1e2e;
-      --accent: #7c6eff;
-      --accent-light: #9d91ff;
-      --text: #e8e8f0;
-      --muted: #7a7a9a;
-      --radius: 12px;
-    }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 0 40px; position: relative; }
 
-    html { scroll-behavior: smooth; }
+  .tech {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .tech.red { color: var(--red); }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
-    }
+  .dot-h { font-family: var(--dot); font-weight: 900; letter-spacing: -0.01em; line-height: 0.9; }
 
-    /* Nav */
-    nav {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 18px 40px;
-      background: rgba(10, 10, 15, 0.85);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
-    }
-    .logo {
-      font-size: 17px; font-weight: 700; letter-spacing: -0.3px;
-      color: var(--text);
-      text-decoration: none;
-    }
-    .logo span { color: var(--accent); }
-    nav a.cta-nav {
-      background: var(--accent); color: #fff;
-      padding: 9px 20px; border-radius: 8px;
-      font-size: 14px; font-weight: 600;
-      text-decoration: none;
-      transition: opacity .15s;
-    }
-    nav a.cta-nav:hover { opacity: .85; }
+  /* ---------- NAV ---------- */
+  .nav {
+    position: sticky; top: 0; z-index: 80;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .nav-inner { display: flex; align-items: center; gap: 32px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-mark {
+    width: 28px; height: 28px;
+    display: grid; place-items: center;
+    border: 1px solid var(--ink);
+    position: relative;
+  }
+  .brand-mark::before, .brand-mark::after {
+    content: ''; position: absolute;
+    width: 4px; height: 4px; background: var(--ink); border-radius: 50%;
+  }
+  .brand-mark::before { top: 6px; left: 6px; }
+  .brand-mark::after { bottom: 6px; right: 6px; }
+  .brand-mark span {
+    width: 4px; height: 4px; background: var(--red); border-radius: 50%;
+  }
+  .brand-name {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  .brand-name em { font-style: normal; color: var(--ink-3); }
 
-    /* Hero */
-    .hero {
-      min-height: 100vh;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center;
-      padding: 120px 24px 80px;
-      position: relative; overflow: hidden;
-    }
-    .hero::before {
-      content: '';
-      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
-      width: 800px; height: 800px;
-      background: radial-gradient(circle, rgba(124,110,255,.12) 0%, transparent 70%);
-      pointer-events: none;
-    }
-    .badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 14px; border-radius: 100px;
-      border: 1px solid rgba(124,110,255,.35);
-      font-size: 13px; color: var(--accent-light);
-      margin-bottom: 28px;
-    }
-    .badge::before { content: '●'; font-size: 8px; }
-    h1 {
-      font-size: clamp(36px, 6vw, 64px);
-      font-weight: 800; letter-spacing: -1.5px;
-      line-height: 1.1;
-      max-width: 760px;
-      margin-bottom: 22px;
-    }
-    h1 em { font-style: normal; color: var(--accent-light); }
-    .hero p {
-      font-size: clamp(16px, 2vw, 19px);
-      color: var(--muted); max-width: 560px;
-      margin-bottom: 40px;
-    }
-    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
-    .btn-primary {
-      background: var(--accent); color: #fff;
-      padding: 14px 32px; border-radius: var(--radius);
-      font-size: 16px; font-weight: 600;
-      text-decoration: none;
-      transition: opacity .15s, transform .15s;
-    }
-    .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
-    .btn-ghost {
-      border: 1px solid var(--border); color: var(--text);
-      padding: 14px 32px; border-radius: var(--radius);
-      font-size: 16px; font-weight: 500;
-      text-decoration: none;
-      transition: border-color .15s;
-    }
-    .btn-ghost:hover { border-color: var(--muted); }
+  .nav-links {
+    display: flex; gap: 22px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .nav-links a:hover { color: var(--ink); }
+  .nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 
-    /* Features */
-    .features {
-      padding: 100px 24px;
-      max-width: 1100px; margin: 0 auto;
-    }
-    .section-label {
-      text-align: center; font-size: 13px; font-weight: 600;
-      color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase;
-      margin-bottom: 14px;
-    }
-    .section-title {
-      text-align: center; font-size: clamp(26px, 4vw, 40px);
-      font-weight: 700; letter-spacing: -0.8px;
-      margin-bottom: 56px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 20px;
-    }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 28px;
-      transition: border-color .2s;
-    }
-    .card:hover { border-color: rgba(124,110,255,.4); }
-    .card-icon {
-      font-size: 28px; margin-bottom: 16px;
-      display: block;
-    }
-    .card h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
-    .card p { font-size: 14px; color: var(--muted); line-height: 1.65; }
+  .lang { display: flex; border: 1px solid var(--rule-2); }
+  .lang button {
+    padding: 6px 10px;
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .lang button.active { background: var(--ink); color: var(--bg); }
 
-    /* How it works */
-    .how {
-      padding: 100px 24px;
-      background: var(--surface);
-    }
-    .how-inner { max-width: 800px; margin: 0 auto; }
-    .steps { display: flex; flex-direction: column; gap: 0; margin-top: 56px; }
-    .step {
-      display: flex; gap: 24px; padding: 28px 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .step:last-child { border-bottom: none; }
-    .step-num {
-      width: 36px; height: 36px; flex-shrink: 0;
-      background: rgba(124,110,255,.15); border: 1px solid rgba(124,110,255,.3);
-      border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 14px; font-weight: 700; color: var(--accent-light);
-    }
-    .step-body h4 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-    .step-body p { font-size: 14px; color: var(--muted); }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 16px;
+    border: 1px solid var(--rule-2);
+    background: transparent;
+    color: var(--ink);
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    transition: all 0.15s ease;
+  }
+  .btn:hover { border-color: var(--ink); }
+  .btn.lg { padding: 13px 22px; font-size: 11px; }
+  .btn.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.primary:hover { background: var(--ink-2); }
+  .btn.red { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn.red:hover { background: var(--red-2); }
 
-    /* CTA block */
-    .cta-block {
-      padding: 100px 24px;
-      text-align: center;
-    }
-    .cta-inner {
-      max-width: 600px; margin: 0 auto;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 56px 40px;
-      position: relative; overflow: hidden;
-    }
-    .cta-inner::before {
-      content: '';
-      position: absolute; top: -100px; left: 50%; transform: translateX(-50%);
-      width: 400px; height: 300px;
-      background: radial-gradient(circle, rgba(124,110,255,.1) 0%, transparent 70%);
-    }
-    .cta-inner h2 {
-      font-size: clamp(24px, 3vw, 34px);
-      font-weight: 700; letter-spacing: -0.5px;
-      margin-bottom: 14px;
-    }
-    .cta-inner p { font-size: 16px; color: var(--muted); margin-bottom: 32px; }
-    .cta-email {
-      font-size: 14px; color: var(--muted); margin-top: 16px;
-    }
-    .cta-email a { color: var(--accent-light); text-decoration: none; }
-    .cta-email a:hover { text-decoration: underline; }
+  /* ---------- HERO ---------- */
+  .hero {
+    position: relative;
+    padding: 80px 0 0;
+    border-bottom: 1px solid var(--rule);
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -120px; right: -200px;
+    width: 700px; height: 700px;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.08) 1.2px, transparent 1.5px);
+    background-size: 12px 12px;
+    -webkit-mask-image: radial-gradient(circle at center, #000 0 45%, transparent 50%);
+            mask-image: radial-gradient(circle at center, #000 0 45%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-top {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding-bottom: 18px; border-bottom: 1px solid var(--rule);
+    margin-bottom: 48px;
+  }
+  .hero-top .tl { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.2em; text-transform: uppercase; }
+  .hero-top .tr { display: flex; gap: 18px; }
+  .hero-top .tr span { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); letter-spacing: 0.2em; text-transform: uppercase; }
+  .hero-top .tr span b { color: var(--ink); font-weight: 500; }
 
-    /* Footer */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 32px 40px;
-      display: flex; align-items: center; justify-content: space-between;
-      flex-wrap: wrap; gap: 12px;
-    }
-    footer .logo { font-size: 15px; }
-    footer p { font-size: 13px; color: var(--muted); }
-    footer a { color: var(--muted); text-decoration: none; }
-    footer a:hover { color: var(--text); }
+  .hero-grid {
+    display: grid; grid-template-columns: 1.3fr 0.9fr; gap: 60px;
+    padding-bottom: 80px;
+  }
+  .hero-eyebrow {
+    display: inline-flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 36px;
+  }
+  .hero-eyebrow .led {
+    width: 6px; height: 6px; background: var(--red);
+    box-shadow: 0 0 0 2px rgba(212,47,47,0.25);
+    animation: led 1.8s infinite;
+  }
+  @keyframes led {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+  .hero-title {
+    font-family: var(--dot);
+    font-weight: 900;
+    font-size: 112px; line-height: 0.9;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .hero-title .red { color: var(--red); }
+  .hero-title .outline {
+    -webkit-text-stroke: 1.2px var(--ink);
+    color: transparent;
+  }
+  .hero-sub {
+    margin-top: 36px;
+    font-family: var(--mono);
+    font-size: 14px;
+    max-width: 520px;
+    color: var(--ink-2);
+    line-height: 1.6;
+  }
+  .hero-cta {
+    margin-top: 40px;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .hero-cta .micro {
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase;
+    margin-left: 6px;
+  }
 
-    @media (max-width: 600px) {
-      nav { padding: 16px 20px; }
-      .hero { padding: 100px 20px 60px; }
-      .features, .cta-block { padding: 60px 20px; }
-      .cta-inner { padding: 40px 24px; }
-      footer { padding: 24px 20px; flex-direction: column; align-items: flex-start; }
-    }
-  </style>
+  .hero-device {
+    position: relative;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding-top: 10px;
+  }
+  .device {
+    position: relative;
+    width: 320px; height: 580px;
+    border: 1px solid var(--rule-2);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.005));
+    padding: 10px;
+    box-shadow: 0 40px 80px -20px rgba(0,0,0,0.8), inset 0 0 0 1px rgba(255,255,255,0.03);
+  }
+  .device::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.06) 0.6px, transparent 0.8px);
+    background-size: 10px 10px;
+    pointer-events: none;
+  }
+  .device-head {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 9.5px;
+    color: var(--ink-3); letter-spacing: 0.2em; text-transform: uppercase;
+    padding: 4px 8px 8px;
+    border-bottom: 1px solid var(--rule-2);
+  }
+  .device-head .dots { display: flex; gap: 3px; }
+  .device-head .dots span { width: 4px; height: 4px; background: var(--ink-3); border-radius: 50%; }
+  .device-head .dots span:last-child { background: var(--red); }
+
+  .device-screen {
+    margin-top: 8px;
+    height: calc(100% - 38px);
+    background: #fff;
+    color: #0E0E0E;
+    padding: 10px 12px 12px;
+    font-family: -apple-system, system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .ig-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding-bottom: 10px; border-bottom: 1px solid #EAEAEA;
+  }
+  .ig-av {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #fdcb6e, #e84393);
+    display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 600;
+  }
+  .ig-name { font-size: 13px; font-weight: 600; color: #0E0E0E; }
+  .ig-status { font-size: 10.5px; color: #8A8A8A; }
+  .ig-icons { margin-left: auto; font-size: 15px; color: #262626; }
+
+  .device-chat {
+    margin-top: 10px; display: flex; flex-direction: column; gap: 6px;
+    flex: 1; overflow: hidden;
+  }
+  .mt { font-size: 10px; color: #9A9A9A; text-align: center; margin: 4px 0; }
+  .bb {
+    max-width: 80%; padding: 8px 12px; border-radius: 18px;
+    font-size: 13px; line-height: 1.35;
+  }
+  .bb.them { background: #F1F1F1; color: #0E0E0E; align-self: flex-start; border-bottom-left-radius: 5px; }
+  .bb.me { background: #111; color: #fff; align-self: flex-end; border-bottom-right-radius: 5px; }
+
+  .ig-input {
+    margin-top: 10px; display: flex; align-items: center; gap: 8px;
+    border: 1px solid #E5E5E5; border-radius: 20px; padding: 5px 10px;
+    font-size: 12px; color: #8A8A8A;
+  }
+  .ig-input .plus { font-size: 17px; color: #262626; }
+  .ig-input .sd { color: #0095F6; }
+
+  .anno {
+    position: absolute;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--ink);
+    padding: 4px 8px;
+    white-space: nowrap;
+  }
+  .anno::before {
+    content: '';
+    position: absolute; width: 6px; height: 6px;
+    background: var(--red); border-radius: 50%;
+    top: 50%; transform: translateY(-50%);
+  }
+  .anno.a1 { top: 60px; left: -40px; padding-left: 16px; }
+  .anno.a1::before { left: 6px; }
+  .anno.a2 { top: 260px; right: -60px; padding-right: 16px; }
+  .anno.a2::before { right: 6px; }
+  .anno.a3 { bottom: 50px; left: -30px; padding-left: 16px; }
+  .anno.a3::before { left: 6px; background: var(--ink); }
+
+  /* ---------- Readout strip ---------- */
+  .readout {
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 0;
+    background: var(--bg-2);
+  }
+  .readout-row {
+    display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .readout-row b { color: var(--ink); font-weight: 500; }
+  .readout-row .blink { color: var(--red); animation: led 1.2s infinite; }
+
+  /* ---------- Section chrome ---------- */
+  section { padding: 120px 0; border-bottom: 1px solid var(--rule); position: relative; }
+  .sec-head {
+    display: flex; align-items: flex-start; gap: 40px;
+    padding-bottom: 48px;
+    border-bottom: 1px dashed var(--rule-2);
+    margin-bottom: 60px;
+  }
+  .sec-num {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 72px; line-height: 0.8;
+    color: var(--ink);
+    min-width: 120px;
+  }
+  .sec-num em { color: var(--red); font-style: normal; }
+  .sec-head-text { flex: 1; }
+  .sec-label {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sec-label::before { content: ''; width: 28px; height: 1px; background: var(--ink-3); }
+  .sec-title {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 56px; line-height: 0.95;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    margin: 0; color: var(--ink);
+  }
+  .sec-title .red { color: var(--red); }
+  .sec-title .dim { color: var(--ink-3); }
+  .sec-lede {
+    margin-top: 20px;
+    font-family: var(--mono); font-size: 13.5px;
+    color: var(--ink-2);
+    max-width: 640px; line-height: 1.6;
+  }
+
+  /* ---------- PROBLEM ---------- */
+  .problem-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    border: 1px solid var(--rule-2);
+  }
+  .prob-col { padding: 32px; }
+  .prob-col + .prob-col { border-left: 1px solid var(--rule-2); }
+  .prob-col.bad { background: var(--bg-2); }
+  .prob-tag {
+    display: flex; align-items: center; gap: 10px;
+    font-family: var(--mono); font-size: 10px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .prob-tag .marker { width: 10px; height: 10px; border: 1px solid var(--ink-3); display: grid; place-items: center; font-size: 8px; }
+  .prob-col.good .prob-tag .marker { border-color: var(--red); color: var(--red); }
+  .prob-col.good .prob-tag { color: var(--red); }
+  .prob-h {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 36px; line-height: 0.95;
+    margin: 20px 0 28px;
+    text-transform: uppercase;
+  }
+  .prob-list { list-style: none; padding: 0; margin: 0; }
+  .prob-list li {
+    display: grid; grid-template-columns: 36px 1fr;
+    gap: 14px; padding: 14px 0;
+    border-top: 1px dashed var(--rule-2);
+    font-family: var(--mono); font-size: 13px;
+    color: var(--ink-2); line-height: 1.55;
+  }
+  .prob-list li .num {
+    font-family: var(--mono); font-size: 11px; font-weight: 500;
+    color: var(--ink-3); letter-spacing: 0.15em;
+  }
+  .prob-col.good .prob-list li .num { color: var(--red); }
+
+  /* ---------- HOW IT WORKS ---------- */
+  .steps {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    border: 1px solid var(--rule-2);
+  }
+  .step { padding: 32px; border-left: 1px solid var(--rule-2); position: relative; }
+  .step:first-child { border-left: 0; }
+  .step-num {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 64px; line-height: 0.85;
+    color: var(--red);
+    margin-bottom: 28px;
+    letter-spacing: -0.02em;
+  }
+  .step-h {
+    font-family: var(--mono); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  .step-p { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); line-height: 1.55; margin: 0 0 20px; }
+  .step-ico {
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-3);
+    border-top: 1px dashed var(--rule-2);
+    padding-top: 14px; margin-top: 14px;
+  }
+  .step-ico b { color: var(--ink); font-weight: 500; }
+
+  /* ---------- FEATURES ---------- */
+  .showcase {
+    display: grid; grid-template-columns: 1fr 0.85fr; gap: 64px;
+  }
+  .feature-row {
+    display: grid; grid-template-columns: 64px 1fr;
+    gap: 20px; padding: 28px 0;
+    border-bottom: 1px dashed var(--rule-2);
+  }
+  .feature-row:first-child { border-top: 1px dashed var(--rule-2); }
+  .feature-num {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 34px; line-height: 0.85;
+    color: var(--red);
+  }
+  .feature-h {
+    font-family: var(--mono); font-size: 14px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .feature-p {
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+    line-height: 1.55; margin: 0;
+  }
+
+  .dialog-card {
+    background: var(--bg-2);
+    border: 1px solid var(--rule-2);
+    padding: 22px;
+    position: relative;
+  }
+  .dialog-card::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.04) 0.5px, transparent 0.8px);
+    background-size: 9px 9px;
+    pointer-events: none;
+  }
+  .dc-head {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+    padding-bottom: 14px; border-bottom: 1px solid var(--rule-2);
+    position: relative;
+  }
+  .dc-av {
+    width: 32px; height: 32px;
+    border: 1px solid var(--ink); display: grid; place-items: center;
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+  }
+  .dc-who { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+  .dc-when { font-family: var(--mono); font-size: 10px; color: var(--ink-3); letter-spacing: 0.14em; text-transform: uppercase; }
+  .dc-badge {
+    margin-left: auto;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--red);
+    border: 1px solid var(--red);
+    padding: 4px 8px;
+  }
+  .dc-msgs { display: flex; flex-direction: column; gap: 8px; position: relative; }
+  .dm {
+    max-width: 90%;
+    padding: 9px 12px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.45;
+  }
+  .dm.them { background: transparent; border: 1px solid var(--rule-2); color: var(--ink-2); align-self: flex-start; }
+  .dm.us { background: var(--ink); color: var(--bg); align-self: flex-end; }
+
+  .order-mini {
+    margin-top: 20px;
+    border: 1px solid var(--red);
+    padding: 16px;
+    position: relative;
+  }
+  .om-tag {
+    position: absolute; top: -8px; left: 14px;
+    background: var(--bg-2);
+    padding: 2px 8px;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--red);
+  }
+  .om-h { font-family: var(--mono); font-size: 12.5px; font-weight: 600; margin: 2px 0 12px; }
+  .om-line {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+    padding: 6px 0;
+    border-top: 1px dashed var(--rule-2);
+  }
+  .om-line .v { color: var(--ink); }
+  .om-total {
+    display: flex; justify-content: space-between;
+    font-family: var(--dot); font-weight: 900;
+    font-size: 28px; color: var(--ink);
+    padding: 10px 0 2px;
+    margin-top: 6px;
+    border-top: 1px solid var(--rule-2);
+  }
+  .om-cta { display: flex; gap: 6px; margin-top: 12px; }
+  .om-cta button {
+    flex: 1;
+    padding: 9px 10px;
+    border: 1px solid var(--red);
+    background: var(--red); color: #fff;
+    font-family: var(--mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.2em; text-transform: uppercase;
+  }
+  .om-cta button.ghost {
+    flex: 0 0 36px;
+    background: transparent; color: var(--ink-3);
+    border-color: var(--rule-2);
+  }
+  .om-cta button.ghost:hover { border-color: var(--ink); color: var(--ink); }
+
+  /* ---------- STATS ---------- */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--rule-2);
+  }
+  .stat-cell {
+    padding: 40px 28px;
+    border-left: 1px solid var(--rule-2);
+    position: relative;
+  }
+  .stat-cell:first-child { border-left: 0; }
+  .stat-cell .v {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 96px; line-height: 0.85;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    display: flex; align-items: baseline; gap: 4px;
+  }
+  .stat-cell .v .unit {
+    font-family: var(--mono); font-size: 24px; font-weight: 400;
+    color: var(--red);
+    letter-spacing: 0;
+  }
+  .stat-cell .l {
+    margin-top: 18px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+    line-height: 1.5;
+  }
+  .stat-cell .idx {
+    position: absolute; top: 18px; right: 20px;
+    font-family: var(--mono); font-size: 9.5px; color: var(--ink-4);
+    letter-spacing: 0.2em; text-transform: uppercase;
+  }
+
+  /* ---------- PRICING ---------- */
+  .pricing {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    border: 1px solid var(--rule-2);
+  }
+  .price-col {
+    padding: 36px 30px;
+    border-left: 1px solid var(--rule-2);
+    position: relative;
+    display: flex; flex-direction: column;
+  }
+  .price-col:first-child { border-left: 0; }
+  .price-col.featured { background: var(--ink); color: var(--bg); }
+  .price-pill {
+    position: absolute; top: -1px; left: -1px;
+    padding: 6px 12px;
+    background: var(--red); color: #fff;
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+  }
+  .price-name {
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .price-col.featured .price-name { color: var(--red); }
+  .price-amount {
+    margin-top: 16px;
+    font-family: var(--dot); font-weight: 900;
+    font-size: 72px; line-height: 0.9;
+    letter-spacing: -0.02em;
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .price-amount em {
+    font-family: var(--mono); font-size: 13px; font-weight: 400;
+    color: var(--ink-3); font-style: normal; letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .price-col.featured .price-amount em { color: var(--ink-4); }
+  .price-tag {
+    margin-top: 8px;
+    font-family: var(--mono); font-size: 11.5px;
+    color: var(--ink-3); line-height: 1.5;
+  }
+  .price-col.featured .price-tag { color: #555; }
+  .price-fea {
+    list-style: none; padding: 0; margin: 28px 0 0;
+    border-top: 1px dashed var(--rule-2);
+    flex: 1;
+  }
+  .price-col.featured .price-fea { border-color: #D5D5D5; }
+  .price-fea li {
+    display: grid; grid-template-columns: 24px 1fr; gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--rule-2);
+    font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+    line-height: 1.45;
+  }
+  .price-col.featured .price-fea li { border-color: #D5D5D5; color: var(--bg-3); }
+  .price-fea li .ck { color: var(--red); font-family: var(--mono); font-weight: 600; }
+  .price-cta {
+    margin-top: 24px;
+    width: 100%;
+    padding: 14px;
+    border: 1px solid var(--ink);
+    background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .price-cta:hover { background: var(--ink); color: var(--bg); }
+  .price-col.featured .price-cta {
+    background: var(--red); color: #fff; border-color: var(--red);
+  }
+  .price-col.featured .price-cta:hover { background: var(--red-2); border-color: var(--red-2); }
+
+  /* ---------- FAQ ---------- */
+  .faq-layout { display: grid; grid-template-columns: 0.9fr 1.3fr; gap: 64px; }
+  .faq-list { border-top: 1px solid var(--rule-2); }
+  .faq-item {
+    border-bottom: 1px solid var(--rule-2);
+    padding: 20px 0;
+  }
+  .faq-q {
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 20px; cursor: pointer;
+  }
+  .faq-q-text {
+    font-family: var(--mono); font-size: 14px; font-weight: 500;
+    color: var(--ink);
+  }
+  .faq-tog {
+    font-family: var(--dot); font-size: 28px; font-weight: 900;
+    color: var(--red); transition: transform 0.25s;
+    line-height: 1; flex-shrink: 0;
+  }
+  .faq-item.open .faq-tog { transform: rotate(45deg); }
+  .faq-a {
+    display: none;
+    margin-top: 14px;
+    font-family: var(--mono); font-size: 12.5px;
+    color: var(--ink-2); line-height: 1.6; max-width: 680px;
+  }
+  .faq-item.open .faq-a { display: block; }
+
+  /* ---------- CTA ---------- */
+  .cta-section {
+    padding: 140px 0 96px;
+    background: var(--ink); color: var(--bg);
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid var(--rule);
+  }
+  .cta-section::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(0,0,0,0.08) 0.8px, transparent 1.1px);
+    background-size: 16px 16px;
+    pointer-events: none;
+  }
+  .cta-h {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 140px; line-height: 0.88;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    margin: 0;
+    position: relative;
+  }
+  .cta-h .red { color: var(--red); }
+  .cta-h .outline {
+    -webkit-text-stroke: 1.5px var(--bg);
+    color: transparent;
+  }
+  .cta-sub {
+    margin-top: 28px;
+    font-family: var(--mono); font-size: 14px;
+    color: #4F4F4F;
+    max-width: 560px; line-height: 1.6;
+    position: relative;
+  }
+  .cta-row {
+    margin-top: 36px; display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap; position: relative;
+  }
+  .cta-section .btn { background: var(--bg); color: var(--ink); border-color: var(--bg); }
+  .cta-section .btn:hover { background: #222; border-color: #222; }
+  .cta-section .btn.red { background: var(--red); color: #fff; border-color: var(--red); }
+  .cta-row .micro {
+    margin-left: 12px;
+    font-family: var(--mono); font-size: 10.5px;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: #6A6A6A;
+  }
+
+  .marquee {
+    margin-top: 80px;
+    border-top: 1px solid #1C1C1C;
+    border-bottom: 1px solid #1C1C1C;
+    padding: 16px 0; overflow: hidden;
+    position: relative; z-index: 1;
+  }
+  .marquee-track {
+    display: flex; gap: 50px;
+    font-family: var(--mono); font-size: 12.5px; font-weight: 500;
+    letter-spacing: 0.24em; text-transform: uppercase;
+    color: #2A2A2A;
+    width: max-content;
+    animation: marquee 40s linear infinite;
+  }
+  .marquee-track .d {
+    color: var(--red);
+    font-family: var(--dot); font-size: 20px; font-weight: 900;
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  /* ---------- FOOTER ---------- */
+  footer { padding: 64px 0 28px; }
+  .footer-grid {
+    display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 40px;
+    padding-bottom: 36px; border-bottom: 1px solid var(--rule);
+  }
+  .footer-col h5 {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 500;
+    letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ink-3); margin: 0 0 16px;
+  }
+  .footer-col a {
+    display: block; padding: 5px 0;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  }
+  .footer-col a:hover { color: var(--ink); }
+  .footer-bottom {
+    display: flex; justify-content: space-between; margin-top: 22px;
+    font-family: var(--mono); font-size: 10px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .footer-big {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 200px; line-height: 0.85;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    color: transparent;
+    -webkit-text-stroke: 1px var(--rule-2);
+    margin: 60px 0 40px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--rule-2); }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+</style>
 </head>
 <body>
 
-<nav>
-  <a href="/" class="logo">Direct<span>AI</span>Agents</a>
-  <a href="mailto:hello@direct-ai-agents.com" class="cta-nav">Зв'язатись</a>
+<!-- ============ NAV ============ -->
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a href="#" class="brand">
+      <span class="brand-mark"><span></span></span>
+      <span class="brand-name">Direct AI<em> / Agents</em></span>
+    </a>
+    <div class="nav-links">
+      <a href="#how" data-i="nav_how">Як</a>
+      <a href="#features" data-i="nav_features">Можливості</a>
+      <a href="#pricing" data-i="nav_pricing">Тарифи</a>
+      <a href="#faq" data-i="nav_faq">Питання</a>
+    </div>
+    <div class="nav-right">
+      <div class="lang">
+        <button class="active" data-lang="uk">UA</button>
+        <button data-lang="en">EN</button>
+      </div>
+      <a class="btn red" href="mailto:hello@direct-ai-agents.com" data-i="nav_demo">Замовити демо ↗</a>
+    </div>
+  </div>
 </nav>
 
-<!-- Hero -->
-<section class="hero">
-  <div class="badge">AI Sales Agent для Instagram</div>
-  <h1>Продажі в Instagram DM<br/>на <em>автопілоті</em></h1>
-  <p>
-    AI-агент відповідає клієнтам 24/7, консультує по каталогу,
-    збирає замовлення і передає менеджеру лише готові угоди.
-  </p>
-  <div class="hero-actions">
-    <a href="mailto:hello@direct-ai-agents.com?subject=Хочу демо" class="btn-primary">Замовити демо</a>
-    <a href="#how" class="btn-ghost">Як це працює</a>
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-top">
+      <div class="tl">Direct AI / Agents · Kyiv · EU‑Central‑1</div>
+      <div class="tr">
+        <span><b>NDOT‑01</b> · REV 0.4.2</span>
+        <span>Uptime <b>99.96%</b></span>
+      </div>
+    </div>
+
+    <div class="hero-grid">
+      <div>
+        <span class="hero-eyebrow">
+          <span class="led"></span>
+          <span data-i="hero_eyebrow">Активно · Instagram Direct · 24/7</span>
+        </span>
+        <h1 class="hero-title">
+          <span data-i="hero_t1">Direct,</span>
+          <span class="red" data-i="hero_t2">який</span>
+          <br/>
+          <span class="outline" data-i="hero_t3">продає</span>
+          <span data-i="hero_t4">сам.</span>
+        </h1>
+        <p class="hero-sub" data-i="hero_sub">AI-агент відповідає у вашому стилі, 24/7. Знає каталог. Збирає замовлення повністю — від розміру до адреси доставки. Передає менеджеру готову картку в Telegram.</p>
+        <div class="hero-cta">
+          <a class="btn red lg" href="mailto:hello@direct-ai-agents.com" data-i="hero_cta1">Запустити за 48 год ↗</a>
+          <a class="btn lg" href="#how" data-i="hero_cta2">Подивитись, як працює</a>
+          <span class="micro" data-i="hero_micro">14 днів · без карти</span>
+        </div>
+      </div>
+
+      <div class="hero-device">
+        <div class="anno a1" data-i="anno1">КЛІЄНТ · 23:47</div>
+        <div class="anno a2" data-i="anno2">AI · 4 сек</div>
+        <div class="anno a3" data-i="anno3">МЕНЕДЖЕР · TG</div>
+
+        <div class="device">
+          <div class="device-head">
+            <span>NDOT / DIRECT</span>
+            <span class="dots"><span></span><span></span><span></span></span>
+          </div>
+          <div class="device-screen">
+            <div class="ig-bar">
+              <div class="ig-av">D</div>
+              <div>
+                <div class="ig-name">@dariakh</div>
+                <div class="ig-status">● Active</div>
+              </div>
+              <div class="ig-icons">☏  ⓘ</div>
+            </div>
+            <div class="device-chat">
+              <div class="mt">23:47</div>
+              <div class="bb them"><span data-i="chat1">Доброго вечора! Сукня Agnes у розмірі S є?</span></div>
+              <div class="bb me"><span data-i="chat2">Доброго вечора 🌿 Так, S в наявності — оливкова та піщана. Який колір ближче?</span></div>
+              <div class="bb them"><span data-i="chat3">Оливкова. Скільки коштує?</span></div>
+              <div class="bb me"><span data-i="chat4">3 190 ₴. Оформлюємо? № відділення Нової Пошти?</span></div>
+              <div class="bb them"><span data-i="chat5">Львів, відділення 12 ✨</span></div>
+            </div>
+            <div class="ig-input">
+              <span class="plus">⊕</span>
+              <span style="flex:1" data-i="chat_ph">Повідомлення…</span>
+              <span class="sd">●</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Readout strip -->
+<div class="readout">
+  <div class="wrap">
+    <div class="readout-row">
+      <span>REGION · <b>EU‑CENTRAL‑1</b></span>
+      <span>PLATFORM · <b>DIRECT AI AGENTS</b></span>
+      <span>LATENCY · <b>4.2s</b> avg</span>
+      <span>UPTIME · <b>99.96%</b> <span class="blink">●</span></span>
+      <span>SETUP · <b>48 год</b></span>
+      <span>SUPPORT · <b>UA + EN</b></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PROBLEM ============ -->
+<section id="problem">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">01<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="prob_eyebrow">Проблема</div>
+        <h2 class="sec-title">
+          <span data-i="prob_t1">Менеджер цілий день відповідає</span>
+          <br/><span class="red" data-i="prob_t2">на одне і те саме.</span>
+        </h2>
+        <p class="sec-lede" data-i="prob_lede">Клієнти йдуть до тих, хто відповів першим. Сьогодні — це рідко ви.</p>
+      </div>
+    </div>
+
+    <div class="problem-grid">
+      <div class="prob-col bad">
+        <div class="prob-tag">
+          <span class="marker">✕</span>
+          <span data-i="prob_before">Без агента</span>
+        </div>
+        <h3 class="prob-h" data-i="prob_before_h">Сьогодні</h3>
+        <ul class="prob-list">
+          <li><span class="num">/01</span><span data-i="prob_b1">Клієнт пише о 23:00 — відповідь о 09:00. Половина не дочекалась.</span></li>
+          <li><span class="num">/02</span><span data-i="prob_b2">200+ однотипних питань на день: ціна, розмір, доставка.</span></li>
+          <li><span class="num">/03</span><span data-i="prob_b3">Менеджер вручну переписує дані з Direct у CRM. Помилки.</span></li>
+          <li><span class="num">/04</span><span data-i="prob_b4">Свята, вихідні, відпустка — продажі стають.</span></li>
+          <li><span class="num">/05</span><span data-i="prob_b5">Більше реклами = більше переписки. Нові менеджери = мінус маржа.</span></li>
+        </ul>
+      </div>
+      <div class="prob-col good">
+        <div class="prob-tag">
+          <span class="marker">+</span>
+          <span data-i="prob_after">З Direct AI Agent</span>
+        </div>
+        <h3 class="prob-h" data-i="prob_after_h">Як стає</h3>
+        <ul class="prob-list">
+          <li><span class="num">/01</span><span data-i="prob_a1">Відповідь за 4 секунди. У будь-яку годину.</span></li>
+          <li><span class="num">/02</span><span data-i="prob_a2">87% запитів агент закриває сам.</span></li>
+          <li><span class="num">/03</span><span data-i="prob_a3">Замовлення в Telegram готовою карткою. 1 клік — підтвердив.</span></li>
+          <li><span class="num">/04</span><span data-i="prob_a4">Працює в свята, вночі, у відпустку.</span></li>
+          <li><span class="num">/05</span><span data-i="prob_a5">Повернення, скарги — передає живій людині автоматично.</span></li>
+        </ul>
+      </div>
+    </div>
   </div>
 </section>
 
-<!-- Features -->
-<section class="features">
-  <p class="section-label">Можливості</p>
-  <h2 class="section-title">Все що потрібно для продажів в IG</h2>
-  <div class="grid">
-    <div class="card">
-      <span class="card-icon">💬</span>
-      <h3>Відповідає як менеджер</h3>
-      <p>Знає каталог, ціни, наявність. Відповідає живою мовою бренду — українською, 24/7, без вихідних.</p>
+<!-- ============ HOW IT WORKS ============ -->
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">02<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="how_eyebrow">Як це працює</div>
+        <h2 class="sec-title"><span data-i="how_t1">Чотири кроки.</span> <span class="dim" data-i="how_t2">Direct починає продавати без вас.</span></h2>
+      </div>
     </div>
-    <div class="card">
-      <span class="card-icon">🛍️</span>
-      <h3>Збирає замовлення</h3>
-      <p>Запитує ПІБ, телефон, адресу НП та спосіб оплати. Відправляє картку замовлення менеджеру в Telegram.</p>
-    </div>
-    <div class="card">
-      <span class="card-icon">🤝</span>
-      <h3>Передає складне менеджеру</h3>
-      <p>Скарги, брак, доставка за кордон, оптові запити — автоматично ескалює до людини.</p>
-    </div>
-    <div class="card">
-      <span class="card-icon">🔄</span>
-      <h3>Синхронізація з CRM</h3>
-      <p>Каталог оновлюється автоматично з KeyCRM або вашої системи. Завжди актуальні ціни та залишки.</p>
-    </div>
-    <div class="card">
-      <span class="card-icon">📊</span>
-      <h3>Адмін-панель</h3>
-      <p>Переписки, замовлення, налаштування промптів, sandbox для тестування — все в одному інтерфейсі.</p>
-    </div>
-    <div class="card">
-      <span class="card-icon">🔒</span>
-      <h3>Ваш домен, ваші дані</h3>
-      <p>Окремий інстанс для кожного клієнта. Ізольована БД, окремий Claude-акаунт, ваш домен.</p>
-    </div>
-  </div>
-</section>
-
-<!-- How it works -->
-<section class="how" id="how">
-  <div class="how-inner">
-    <p class="section-label">Як це працює</p>
-    <h2 class="section-title">Від підключення до першої відповіді</h2>
     <div class="steps">
       <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          <h4>Підключаємо Instagram та CRM</h4>
-          <p>Налаштовуємо Meta App, підключаємо IG Business акаунт, синхронізуємо каталог. Займає 1–2 дні.</p>
-        </div>
+        <div class="step-num">i</div>
+        <h3 class="step-h" data-i="step1_h">Підключаємо Instagram</h3>
+        <p class="step-p" data-i="step1_p">Авторизація через офіційний Meta API. Ніяких паролів — лише безпечний токен. Ваш Direct залишається вашим.</p>
+        <div class="step-ico">T+ <b>00:05</b></div>
       </div>
       <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          <h4>Налаштовуємо агента під ваш бренд</h4>
-          <p>Прописуємо tone of voice, правила ескалації, робочі години, відповіді на FAQ. Редагується через адмінку в будь-який момент.</p>
-        </div>
+        <div class="step-num">ii</div>
+        <h3 class="step-h" data-i="step2_h">Завантажуємо каталог</h3>
+        <p class="step-p" data-i="step2_p">CRM, Google Sheets або Shopify. Ціни, розміри, наявність — синхронізуються автоматично.</p>
+        <div class="step-ico">T+ <b>01:00</b></div>
       </div>
       <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          <h4>Тестуємо в Sandbox</h4>
-          <p>Прогоняємо 15+ тест-кейсів в ізольованому чаті. Впевнюємось що бот відповідає правильно до виходу в прод.</p>
-        </div>
+        <div class="step-num">iii</div>
+        <h3 class="step-h" data-i="step3_h">Налаштовуємо тон</h3>
+        <p class="step-p" data-i="step3_p">Стиль бренду, правила ескалації, години роботи. Тест у пісочниці перед запуском.</p>
+        <div class="step-ico">T+ <b>1 день</b></div>
       </div>
       <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-body">
-          <h4>Запуск та підтримка</h4>
-          <p>Бот виходить у прод. Менеджер отримує нотифікації в Telegram, може взяти розмову вручну в будь-який момент.</p>
+        <div class="step-num">iv</div>
+        <h3 class="step-h" data-i="step4_h">Telegram-бот</h3>
+        <p class="step-p" data-i="step4_p">Менеджер у групі отримує готові картки замовлень. Один клік — підтвердив.</p>
+        <div class="step-ico">T+ <b>00:10</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FEATURES ============ -->
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">03<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="feat_eyebrow">Можливості</div>
+        <h2 class="sec-title"><span data-i="feat_t1">Не просто бот.</span> <span class="red" data-i="feat_t2">Повноцінний продавець.</span></h2>
+      </div>
+    </div>
+
+    <div class="showcase">
+      <div>
+        <div class="feature-row">
+          <div class="feature-num">01</div>
+          <div>
+            <h4 class="feature-h" data-i="f1_h">Знає каталог напам'ять</h4>
+            <p class="feature-p" data-i="f1_p">Ціни, розміри, тканина, терміни — миттєво. Немає товару? Пропонує альтернативу з вашого асортименту.</p>
+          </div>
+        </div>
+        <div class="feature-row">
+          <div class="feature-num">02</div>
+          <div>
+            <h4 class="feature-h" data-i="f2_h">Веде живу розмову</h4>
+            <p class="feature-p" data-i="f2_p">Не кнопковий скрипт. Розуміє контекст, пам'ятає історію, реагує на сленг та емодзі. Звучить як ваш найкращий менеджер.</p>
+          </div>
+        </div>
+        <div class="feature-row">
+          <div class="feature-num">03</div>
+          <div>
+            <h4 class="feature-h" data-i="f3_h">Збирає замовлення повністю</h4>
+            <p class="feature-p" data-i="f3_p">Товар → розмір → колір → к-ть → адреса → телефон → доставка. Валідація через Нову Пошту. Передає, коли готово.</p>
+          </div>
+        </div>
+        <div class="feature-row">
+          <div class="feature-num">04</div>
+          <div>
+            <h4 class="feature-h" data-i="f4_h">Розуміє, коли мовчати</h4>
+            <p class="feature-p" data-i="f4_p">Скарги, повернення, нестандартні питання — миттєво передає живій людині. Не вирішує зайвого.</p>
+          </div>
+        </div>
+        <div class="feature-row">
+          <div class="feature-num">05</div>
+          <div>
+            <h4 class="feature-h" data-i="f5_h">Працює у вашому стилі</h4>
+            <p class="feature-p" data-i="f5_p">Тон, словник, фірмові емодзі — налаштовується. «Ти» чи «Ви» — без коду, лише текст.</p>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="dialog-card">
+          <div class="dc-head">
+            <div class="dc-av">N</div>
+            <div>
+              <div class="dc-who">N. Kovalenko</div>
+              <div class="dc-when">Today · 09:12 · @nadia.ko</div>
+            </div>
+            <span class="dc-badge" data-i="dialog_badge">AI АКТИВНИЙ</span>
+          </div>
+          <div class="dc-msgs">
+            <div class="dm them" data-i="dlg1">Привіт! Бачила Agnes у сторіс — шукаю на корпоратив, які розміри?</div>
+            <div class="dm us" data-i="dlg2">Привіт 🌿 Agnes є в S, M, L — оливковий і піщаний. Який колір ближче?</div>
+            <div class="dm them" data-i="dlg3">Оливковий, S. А якщо не сяде?</div>
+            <div class="dm us" data-i="dlg4">Безкоштовний обмін 14 днів. Адреса доставки?</div>
+            <div class="dm them" data-i="dlg5">Львів, Нова Пошта 12, +380 67 ххх</div>
+          </div>
+
+          <div class="order-mini">
+            <div class="om-tag" data-i="om_tag">ЗАМОВЛЕННЯ #2438 → TG</div>
+            <div class="om-h">N. Kovalenko</div>
+            <div class="om-line"><span data-i="om_item">Agnes · Olive · S</span><span class="v">₴3,190</span></div>
+            <div class="om-line"><span data-i="om_ship">НП · Львів · №12</span><span class="v">+380 67…</span></div>
+            <div class="om-total"><span data-i="om_total">РАЗОМ</span><span>₴3,190</span></div>
+            <div class="om-cta">
+              <button data-i="om_confirm">✓ Підтвердити</button>
+              <button class="ghost">⟳</button>
+              <button class="ghost">✕</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA -->
-<section class="cta-block">
-  <div class="cta-inner">
-    <h2>Готові підключити AI-агента?</h2>
-    <p>Напишіть нам — розкажемо деталі, покажемо демо і обговоримо ваш кейс.</p>
-    <a href="mailto:hello@direct-ai-agents.com?subject=Хочу демо AI Sales Agent" class="btn-primary">
-      Написати нам
-    </a>
-    <p class="cta-email">або одразу на <a href="mailto:hello@direct-ai-agents.com">hello@direct-ai-agents.com</a></p>
+<!-- ============ STATS ============ -->
+<section id="stats">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">04<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="stats_eyebrow">Метрики · тиждень 01</div>
+        <h2 class="sec-title"><span data-i="stats_t1">Що бачать клієнти</span> <span class="red" data-i="stats_t2">з першого тижня.</span></h2>
+      </div>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-cell">
+        <div class="idx">01 / 04</div>
+        <div class="v">87<span class="unit">%</span></div>
+        <div class="l" data-i="stat_l1">діалогів закриваються без менеджера</div>
+      </div>
+      <div class="stat-cell">
+        <div class="idx">02 / 04</div>
+        <div class="v">4.2<span class="unit">S</span></div>
+        <div class="l" data-i="stat_l2">середня перша відповідь · вдень і вночі</div>
+      </div>
+      <div class="stat-cell">
+        <div class="idx">03 / 04</div>
+        <div class="v">2.4<span class="unit">×</span></div>
+        <div class="l" data-i="stat_l3">конверсія DM → замовлення</div>
+      </div>
+      <div class="stat-cell">
+        <div class="idx">04 / 04</div>
+        <div class="v">−68<span class="unit">%</span></div>
+        <div class="l" data-i="stat_l4">витрат на підтримку</div>
+      </div>
+    </div>
   </div>
 </section>
 
+<!-- ============ PRICING ============ -->
+<section id="pricing">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">05<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="price_eyebrow">Тарифи</div>
+        <h2 class="sec-title"><span data-i="price_t1">Платите</span> <span class="red" data-i="price_t2">за результат.</span></h2>
+        <p class="sec-lede" data-i="price_sub">Усі тарифи: ізольований інстанс, власний домен, безлімітні діалоги, підтримка UA+EN.</p>
+      </div>
+    </div>
+
+    <div class="pricing">
+      <div class="price-col">
+        <div class="price-name" data-i="p1_name">STARTER</div>
+        <div class="price-amount">€69<em data-i="per_mo">/міс</em></div>
+        <div class="price-tag" data-i="p1_tag">магазини до 1 000 діалогів/міс</div>
+        <ul class="price-fea">
+          <li><span class="ck">+</span><span data-i="p1_f1">1 Instagram-акаунт</span></li>
+          <li><span class="ck">+</span><span data-i="p1_f2">До 1 000 діалогів/міс</span></li>
+          <li><span class="ck">+</span><span data-i="p1_f3">Каталог · до 200 товарів</span></li>
+          <li><span class="ck">+</span><span data-i="p1_f4">Telegram-бот для менеджера</span></li>
+          <li><span class="ck">+</span><span data-i="p1_f5">Email-підтримка</span></li>
+        </ul>
+        <button class="price-cta" onclick="location.href='mailto:hello@direct-ai-agents.com'" data-i="p1_cta">Почати безкоштовно ↗</button>
+      </div>
+      <div class="price-col featured">
+        <div class="price-pill" data-i="p2_pill">НАЙПОПУЛЯРНІШИЙ</div>
+        <div class="price-name" data-i="p2_name">BUSINESS</div>
+        <div class="price-amount">€199<em data-i="per_mo2">/міс</em></div>
+        <div class="price-tag" data-i="p2_tag">для брендів, які живуть в Direct</div>
+        <ul class="price-fea">
+          <li><span class="ck">+</span><span data-i="p2_f1">До 3 Instagram-акаунтів</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f2">Безлімітні діалоги</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f3">Каталог без обмежень</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f4">Власний домен панелі</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f5">НП, CRM, Sheets</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f6">Аналітика + редактор промптів</span></li>
+          <li><span class="ck">+</span><span data-i="p2_f7">Telegram-підтримка · 12 год</span></li>
+        </ul>
+        <button class="price-cta" onclick="location.href='mailto:hello@direct-ai-agents.com'" data-i="p2_cta">Замовити демо ↗</button>
+      </div>
+      <div class="price-col">
+        <div class="price-name" data-i="p3_name">AGENCY · WHITE-LABEL</div>
+        <div class="price-amount">€990<em data-i="per_mo3">/міс</em></div>
+        <div class="price-tag" data-i="p3_tag">агенціям, які перепродають клієнтам</div>
+        <ul class="price-fea">
+          <li><span class="ck">+</span><span data-i="p3_f1">Необмежено клієнтів</span></li>
+          <li><span class="ck">+</span><span data-i="p3_f2">Власний бренд і логотип</span></li>
+          <li><span class="ck">+</span><span data-i="p3_f3">Новий клієнт за 1–2 дні</span></li>
+          <li><span class="ck">+</span><span data-i="p3_f4">Авто-провіжнінг</span></li>
+          <li><span class="ck">+</span><span data-i="p3_f5">Recurring revenue</span></li>
+          <li><span class="ck">+</span><span data-i="p3_f6">Виділений менеджер</span></li>
+        </ul>
+        <button class="price-cta" onclick="location.href='mailto:hello@direct-ai-agents.com'" data-i="p3_cta">Стати партнером ↗</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section id="faq">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-num">06<em>.</em></div>
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="faq_eyebrow">Питання</div>
+        <h2 class="sec-title"><span data-i="faq_t1">Питання, які</span> <span class="red" data-i="faq_t2">завжди задають.</span></h2>
+      </div>
+    </div>
+    <div class="faq-layout">
+      <p class="sec-lede" style="margin:0" data-i="faq_sub">Не знайшли відповідь? Напишіть на <a href="mailto:hello@direct-ai-agents.com" style="color:var(--red)">hello@direct-ai-agents.com</a> — відповідаємо швидко.</p>
+      <div class="faq-list">
+        <div class="faq-item open">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq1_q">Чи відрізнить клієнт, що це AI?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq1_a">Більшість — ні. Налаштовується під ваш фірмовий стиль. Радимо чесно вказати в bio, що відповідає AI — це підвищує довіру.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq2_q">Що зі складними запитами?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq2_a">Скарги, повернення, нестандарт — агент миттєво передає живій людині. Правила визначаються у звичайному текстовому редакторі.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq3_q">Скільки часу на запуск?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq3_a">48 годин «під ключ»: Instagram, каталог, тон, тестування, продакшн. Технічне — на нас.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq4_q">Де зберігаються дані?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq4_a">Ізольований інстанс з власною базою в ЄС (eu-central-1). Інші клієнти не мають доступу до ваших даних.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq5_q">Що, якщо не сподобається?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq5_a">14 днів безкоштовно, без карти. Скасування в один клік. Експорт даних у CSV/JSON у будь-який момент.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">
+            <div class="faq-q-text" data-i="faq6_q">А якщо у нас WhatsApp/Telegram?</div>
+            <div class="faq-tog">+</div>
+          </div>
+          <div class="faq-a" data-i="faq6_a">Поки тільки Instagram Direct. WhatsApp Business і Telegram канали — у roadmap на 2026.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CTA ============ -->
+<section class="cta-section">
+  <div class="wrap">
+    <h2 class="cta-h">
+      <span data-i="cta_t1">Instagram</span>
+      <span class="outline" data-i="cta_t2">більше не</span>
+      <br/>
+      <span data-i="cta_t3">має бути</span>
+      <span class="red" data-i="cta_t4">роботою 24/7.</span>
+    </h2>
+    <p class="cta-sub" data-i="cta_sub">Запустимо AI-агента за 48 годин. 14 днів безкоштовно. Не зайде — не платите.</p>
+    <div class="cta-row">
+      <a class="btn red lg" href="mailto:hello@direct-ai-agents.com" data-i="cta_btn1">Замовити демо ↗</a>
+      <a class="btn lg" href="#pricing" data-i="cta_btn2">Подивитися тарифи</a>
+      <span class="micro" data-i="cta_micro">hello@direct-ai-agents.com</span>
+    </div>
+  </div>
+  <div class="marquee">
+    <div class="marquee-track">
+      <span>REVERIE ATELIER</span><span class="d">●</span>
+      <span>KAVA&amp;KOHANA</span><span class="d">●</span>
+      <span>NORTH·COAST</span><span class="d">●</span>
+      <span>MAVKA STUDIO</span><span class="d">●</span>
+      <span>OLIVE&amp;SALT</span><span class="d">●</span>
+      <span>STATUS BLESSED</span><span class="d">●</span>
+      <span>JUNESTUDIO</span><span class="d">●</span>
+      <span>REVERIE ATELIER</span><span class="d">●</span>
+      <span>KAVA&amp;KOHANA</span><span class="d">●</span>
+      <span>NORTH·COAST</span><span class="d">●</span>
+      <span>MAVKA STUDIO</span><span class="d">●</span>
+      <span>OLIVE&amp;SALT</span><span class="d">●</span>
+      <span>STATUS BLESSED</span><span class="d">●</span>
+      <span>JUNESTUDIO</span><span class="d">●</span>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
 <footer>
-  <a href="/" class="logo">Direct<span>AI</span>Agents</a>
-  <p>
-    <a href="mailto:hello@direct-ai-agents.com">hello@direct-ai-agents.com</a>
-    &nbsp;·&nbsp;
-    © 2026 Direct AI Agents. All rights reserved.
-  </p>
+  <div class="wrap">
+    <div class="footer-big">DIRECT·AI·AGENTS</div>
+    <div class="footer-grid">
+      <div>
+        <a href="#" class="brand">
+          <span class="brand-mark"><span></span></span>
+          <span class="brand-name">Direct AI<em> / Agents</em></span>
+        </a>
+        <p style="margin-top: 18px; font-family: var(--mono); font-size: 12px; color: var(--ink-3); max-width: 360px; line-height: 1.55;" data-i="foot_about">Платформа, що перетворює Instagram Direct на канал продажів. Зроблено в Києві з 2024 року.</p>
+        <p style="margin-top: 12px; font-family: var(--mono); font-size: 11px; color: var(--ink-4);">
+          <a href="mailto:hello@direct-ai-agents.com" style="color:var(--red)">hello@direct-ai-agents.com</a>
+        </p>
+      </div>
+      <div class="footer-col">
+        <h5 data-i="foot_prod">Продукт</h5>
+        <a href="#how" data-i="foot_p1">Як</a>
+        <a href="#features" data-i="foot_p2">Можливості</a>
+        <a href="#pricing" data-i="foot_p3">Тарифи</a>
+        <a href="#faq" data-i="foot_p4">Інтеграції</a>
+      </div>
+      <div class="footer-col">
+        <h5 data-i="foot_co">Компанія</h5>
+        <a href="mailto:hello@direct-ai-agents.com" data-i="foot_c1">Про нас</a>
+        <a href="mailto:hello@direct-ai-agents.com" data-i="foot_c2">Кейси</a>
+        <a href="mailto:hello@direct-ai-agents.com" data-i="foot_c3">Партнерам</a>
+        <a href="mailto:hello@direct-ai-agents.com" data-i="foot_c4">Контакти</a>
+      </div>
+      <div class="footer-col">
+        <h5 data-i="foot_lg">Юридично</h5>
+        <a href="#" data-i="foot_l1">Приватність</a>
+        <a href="#" data-i="foot_l2">Умови</a>
+        <a href="#" data-i="foot_l3">DPA</a>
+        <a href="#" data-i="foot_l4">Безпека</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 DIRECT AI AGENTS · UA · NDOT‑01</span>
+      <span data-i="foot_made">ЗРОБЛЕНО В КИЄВІ ● UA</span>
+    </div>
+  </div>
 </footer>
+
+<script>
+  // ============ I18N ============
+  const I18N = {
+    uk: {
+      nav_how: "Як", nav_features: "Можливості", nav_pricing: "Тарифи", nav_faq: "Питання",
+      nav_demo: "Замовити демо ↗",
+
+      hero_eyebrow: "Активно · Instagram Direct · 24/7",
+      hero_t1: "Direct,", hero_t2: "який", hero_t3: "продає", hero_t4: "сам.",
+      hero_sub: "AI-агент відповідає у вашому стилі, 24/7. Знає каталог. Збирає замовлення повністю — від розміру до адреси доставки. Передає менеджеру готову картку в Telegram.",
+      hero_cta1: "Запустити за 48 год ↗", hero_cta2: "Подивитись, як працює", hero_micro: "14 днів · без карти",
+
+      anno1: "КЛІЄНТ · 23:47", anno2: "AI · 4 сек", anno3: "МЕНЕДЖЕР · TG",
+
+      chat1: "Доброго вечора! Сукня Agnes у розмірі S є?",
+      chat2: "Доброго вечора 🌿 Так, S в наявності — оливкова та піщана. Який колір ближче?",
+      chat3: "Оливкова. Скільки коштує?",
+      chat4: "3 190 ₴. Оформлюємо? № відділення Нової Пошти?",
+      chat5: "Львів, відділення 12 ✨",
+      chat_ph: "Повідомлення…",
+
+      prob_eyebrow: "Проблема",
+      prob_t1: "Менеджер цілий день відповідає",
+      prob_t2: "на одне і те саме.",
+      prob_lede: "Клієнти йдуть до тих, хто відповів першим. Сьогодні — це рідко ви.",
+      prob_before: "Без агента", prob_before_h: "Сьогодні",
+      prob_b1: "Клієнт пише о 23:00 — відповідь о 09:00. Половина не дочекалась.",
+      prob_b2: "200+ однотипних питань на день: ціна, розмір, доставка.",
+      prob_b3: "Менеджер вручну переписує дані з Direct у CRM. Помилки.",
+      prob_b4: "Свята, вихідні, відпустка — продажі стають.",
+      prob_b5: "Більше реклами = більше переписки. Нові менеджери = мінус маржа.",
+      prob_after: "З Direct AI Agent", prob_after_h: "Як стає",
+      prob_a1: "Відповідь за 4 секунди. У будь-яку годину.",
+      prob_a2: "87% запитів агент закриває сам.",
+      prob_a3: "Замовлення в Telegram готовою карткою. 1 клік — підтвердив.",
+      prob_a4: "Працює в свята, вночі, у відпустку.",
+      prob_a5: "Повернення, скарги — передає живій людині автоматично.",
+
+      how_eyebrow: "Як це працює",
+      how_t1: "Чотири кроки.", how_t2: "Direct починає продавати без вас.",
+      step1_h: "Підключаємо Instagram",
+      step1_p: "Авторизація через офіційний Meta API. Ніяких паролів — лише безпечний токен.",
+      step2_h: "Завантажуємо каталог",
+      step2_p: "CRM, Google Sheets, Shopify. Ціни, розміри, наявність — синхроно.",
+      step3_h: "Налаштовуємо тон",
+      step3_p: "Стиль бренду, правила ескалації, години роботи. Тест у пісочниці.",
+      step4_h: "Telegram-бот",
+      step4_p: "Менеджер у групі отримує готові замовлення. Один клік — підтвердив.",
+
+      feat_eyebrow: "Можливості",
+      feat_t1: "Не просто бот.", feat_t2: "Повноцінний продавець.",
+      f1_h: "Знає каталог напам'ять",
+      f1_p: "Ціни, розміри, тканина, терміни — миттєво. Немає товару? Пропонує альтернативу.",
+      f2_h: "Веде живу розмову",
+      f2_p: "Не кнопковий скрипт. Розуміє контекст, пам'ятає історію, реагує на сленг та емодзі.",
+      f3_h: "Збирає замовлення повністю",
+      f3_p: "Товар → розмір → колір → к-ть → адреса → телефон → доставка. Валідація НП.",
+      f4_h: "Розуміє, коли мовчати",
+      f4_p: "Скарги, повернення, нестандарт — миттєво передає людині. Не вирішує зайвого.",
+      f5_h: "Працює у вашому стилі",
+      f5_p: "Тон, словник, фірмові емодзі — без коду. «Ти» чи «Ви» — налаштовується.",
+
+      dialog_badge: "AI АКТИВНИЙ",
+      dlg1: "Привіт! Бачила Agnes у сторіс — шукаю на корпоратив, які розміри?",
+      dlg2: "Привіт 🌿 Agnes є в S, M, L — оливковий і піщаний. Який колір ближче?",
+      dlg3: "Оливковий, S. А якщо не сяде?",
+      dlg4: "Безкоштовний обмін 14 днів. Адреса доставки?",
+      dlg5: "Львів, Нова Пошта 12, +380 67 ххх",
+      om_tag: "ЗАМОВЛЕННЯ #2438 → TG",
+      om_item: "Agnes · Olive · S", om_ship: "НП · Львів · №12",
+      om_total: "РАЗОМ", om_confirm: "✓ Підтвердити",
+
+      stats_eyebrow: "Метрики · тиждень 01",
+      stats_t1: "Що бачать клієнти", stats_t2: "з першого тижня.",
+      stat_l1: "діалогів закриваються без менеджера",
+      stat_l2: "середня перша відповідь · вдень і вночі",
+      stat_l3: "конверсія DM → замовлення",
+      stat_l4: "витрат на підтримку",
+
+      price_eyebrow: "Тарифи",
+      price_t1: "Платите", price_t2: "за результат.",
+      price_sub: "Усі тарифи: ізольований інстанс, власний домен, безлімітні діалоги, підтримка UA+EN.",
+      per_mo: "/міс", per_mo2: "/міс", per_mo3: "/міс",
+      p1_name: "STARTER", p1_tag: "магазини до 1 000 діалогів/міс",
+      p1_f1: "1 Instagram-акаунт", p1_f2: "До 1 000 діалогів/міс",
+      p1_f3: "Каталог · до 200 товарів", p1_f4: "Telegram-бот для менеджера",
+      p1_f5: "Email-підтримка", p1_cta: "Почати безкоштовно ↗",
+      p2_pill: "НАЙПОПУЛЯРНІШИЙ", p2_name: "BUSINESS",
+      p2_tag: "для брендів, які живуть в Direct",
+      p2_f1: "До 3 Instagram-акаунтів", p2_f2: "Безлімітні діалоги",
+      p2_f3: "Каталог без обмежень", p2_f4: "Власний домен панелі",
+      p2_f5: "НП, CRM, Sheets", p2_f6: "Аналітика + редактор промптів",
+      p2_f7: "Telegram-підтримка · 12 год", p2_cta: "Замовити демо ↗",
+      p3_name: "AGENCY · WHITE-LABEL", p3_tag: "агенціям, які перепродають клієнтам",
+      p3_f1: "Необмежено клієнтів", p3_f2: "Власний бренд і логотип",
+      p3_f3: "Новий клієнт за 1–2 дні", p3_f4: "Авто-провіжнінг",
+      p3_f5: "Recurring revenue", p3_f6: "Виділений менеджер",
+      p3_cta: "Стати партнером ↗",
+
+      faq_eyebrow: "Питання",
+      faq_t1: "Питання, які", faq_t2: "завжди задають.",
+      faq_sub: 'Не знайшли відповідь? Напишіть на <a href="mailto:hello@direct-ai-agents.com" style="color:var(--red)">hello@direct-ai-agents.com</a> — відповідаємо швидко.',
+      faq1_q: "Чи відрізнить клієнт, що це AI?",
+      faq1_a: "Більшість — ні. Налаштовується під ваш фірмовий стиль. Радимо чесно вказати в bio, що відповідає AI — це підвищує довіру.",
+      faq2_q: "Що зі складними запитами?",
+      faq2_a: "Скарги, повернення, нестандарт — агент миттєво передає живій людині. Правила — у звичайному редакторі.",
+      faq3_q: "Скільки часу на запуск?",
+      faq3_a: "48 годин «під ключ»: Instagram, каталог, тон, тестування, продакшн. Технічне — на нас.",
+      faq4_q: "Де зберігаються дані?",
+      faq4_a: "Ізольований інстанс з власною базою в ЄС (eu-central-1). Інші клієнти не мають доступу.",
+      faq5_q: "Що, якщо не сподобається?",
+      faq5_a: "14 днів безкоштовно, без карти. Скасування в один клік. Експорт даних у CSV/JSON.",
+      faq6_q: "А якщо у нас WhatsApp/Telegram?",
+      faq6_a: "Поки тільки Instagram Direct. WhatsApp і TG — у roadmap на 2026.",
+
+      cta_t1: "Instagram", cta_t2: "більше не", cta_t3: "має бути", cta_t4: "роботою 24/7.",
+      cta_sub: "Запустимо AI-агента за 48 годин. 14 днів безкоштовно. Не зайде — не платите.",
+      cta_btn1: "Замовити демо ↗", cta_btn2: "Подивитися тарифи",
+      cta_micro: "hello@direct-ai-agents.com",
+
+      foot_about: "Платформа, що перетворює Instagram Direct на канал продажів. Зроблено в Києві з 2024 року.",
+      foot_prod: "Продукт", foot_p1: "Як", foot_p2: "Можливості", foot_p3: "Тарифи", foot_p4: "FAQ",
+      foot_co: "Компанія", foot_c1: "Про нас", foot_c2: "Кейси", foot_c3: "Партнерам", foot_c4: "Контакти",
+      foot_lg: "Юридично", foot_l1: "Приватність", foot_l2: "Умови", foot_l3: "DPA", foot_l4: "Безпека",
+      foot_made: "ЗРОБЛЕНО В КИЄВІ ● UA",
+    },
+    en: {
+      nav_how: "How", nav_features: "Features", nav_pricing: "Pricing", nav_faq: "FAQ",
+      nav_demo: "Book demo ↗",
+      hero_eyebrow: "Live · Instagram Direct · 24/7",
+      hero_t1: "DM", hero_t2: "that", hero_t3: "sells", hero_t4: "itself.",
+      hero_sub: "An AI agent answers in your brand voice, 24/7. Knows the catalog. Builds the order end-to-end — from size to delivery. Hands the manager a ready-to-confirm card on Telegram.",
+      hero_cta1: "Launch in 48h ↗", hero_cta2: "See how it works", hero_micro: "14 days · no card",
+      anno1: "CUSTOMER · 23:47", anno2: "AI REPLY · 4s", anno3: "MANAGER · TG",
+      chat1: "Hi! Is the Agnes dress in size S available?",
+      chat2: "Hi there 🌿 Yes, S is in stock — olive and sand. Which one speaks to you?",
+      chat3: "Olive. How much?",
+      chat4: "₴3,190. Shall we place the order? Share your Nova Poshta branch.",
+      chat5: "Lviv, branch 12 ✨",
+      chat_ph: "Message…",
+      prob_eyebrow: "Problem",
+      prob_t1: "Your manager answers",
+      prob_t2: "the same five questions all day.",
+      prob_lede: "Customers go to whoever answered first. Today, that's rarely you.",
+      prob_before: "Without an agent", prob_before_h: "Today",
+      prob_b1: "Customer messages at 23:00 — reply at 09:00. Half don't wait.",
+      prob_b2: "200+ identical questions a day: price, size, delivery.",
+      prob_b3: "Manager retypes data from DM into CRM. Address typos.",
+      prob_b4: "Holidays, weekends, vacation — sales stop.",
+      prob_b5: "More ads = more DMs. More hires = less margin.",
+      prob_after: "With Direct AI Agent", prob_after_h: "After",
+      prob_a1: "Reply in 4 seconds. Any hour.",
+      prob_a2: "87% of conversations close without a human.",
+      prob_a3: "Order arrives in Telegram as a clean card. 1 click to confirm.",
+      prob_a4: "Works on holidays, at night, and while the team is away.",
+      prob_a5: "Returns, complaints — automatic handoff to a human.",
+      how_eyebrow: "How it works",
+      how_t1: "Four steps.", how_t2: "Direct sells without you.",
+      step1_h: "Connect Instagram",
+      step1_p: "Authorise via the official Meta API. No passwords — just a secure token. Your DM stays yours.",
+      step2_h: "Import catalog",
+      step2_p: "From CRM, Google Sheets or Shopify. Prices, sizes, stock — sync automatically.",
+      step3_h: "Tune voice",
+      step3_p: "Brand tone, escalation rules, working hours. Sandbox test before go-live.",
+      step4_h: "Telegram bot",
+      step4_p: "Add your manager to a group. Receive ready order cards. One tap to confirm.",
+      feat_eyebrow: "Features",
+      feat_t1: "Not a Q&A bot.", feat_t2: "A full salesperson.",
+      f1_h: "Knows your catalog by heart",
+      f1_p: "Prices, sizes, fabric, lead times — instantly. Out of stock? Suggests alternatives.",
+      f2_h: "Holds a real conversation",
+      f2_p: "Not a button tree. Context-aware, remembers history, reacts to slang and emoji.",
+      f3_h: "Builds the order end-to-end",
+      f3_p: "Item → size → colour → qty → address → phone → shipping. Validates via Nova Poshta.",
+      f4_h: "Knows when to stay quiet",
+      f4_p: "Complaints, returns, off-catalog questions — instant handoff. Doesn't solve what it shouldn't.",
+      f5_h: "Speaks in your voice",
+      f5_p: "Tone, vocabulary, signature emoji — configurable. Formal or casual. No code.",
+      dialog_badge: "AI ACTIVE",
+      dlg1: "Hi! Saw the Agnes dress in stories — for a work event, what sizes?",
+      dlg2: "Hi 🌿 Agnes is in S, M and L — in olive and sand. Which speaks to you?",
+      dlg3: "Olive, S. And if it doesn't fit?",
+      dlg4: "Free size exchange within 14 days. Ship to where?",
+      dlg5: "Lviv, Nova Poshta 12, +380 67 xxx",
+      om_tag: "ORDER #2438 → TG",
+      om_item: "Agnes · Olive · S", om_ship: "NP · Lviv · #12",
+      om_total: "TOTAL", om_confirm: "✓ Confirm",
+      stats_eyebrow: "Live metrics · week 01",
+      stats_t1: "What customers see", stats_t2: "from day one.",
+      stat_l1: "of conversations close without a human",
+      stat_l2: "avg. first response · day or night",
+      stat_l3: "DM → order conversion lift",
+      stat_l4: "less spent on support",
+      price_eyebrow: "Pricing",
+      price_t1: "Pay for", price_t2: "results.",
+      price_sub: "Every plan includes an isolated instance, your own domain, unlimited dialogs, UA+EN support.",
+      per_mo: "/mo", per_mo2: "/mo", per_mo3: "/mo",
+      p1_name: "STARTER", p1_tag: "for shops up to 1,000 dialogs/mo",
+      p1_f1: "1 Instagram account", p1_f2: "Up to 1,000 dialogs/mo",
+      p1_f3: "Catalog · up to 200 items", p1_f4: "Telegram bot for managers",
+      p1_f5: "Email support", p1_cta: "Start free ↗",
+      p2_pill: "MOST POPULAR", p2_name: "BUSINESS",
+      p2_tag: "for brands that live in DM",
+      p2_f1: "Up to 3 Instagram accounts", p2_f2: "Unlimited dialogs",
+      p2_f3: "Unlimited catalog", p2_f4: "Custom admin domain",
+      p2_f5: "Nova Poshta, CRM, Sheets", p2_f6: "Analytics + prompt editor",
+      p2_f7: "Telegram support · 12 hours", p2_cta: "Book a demo ↗",
+      p3_name: "AGENCY · WHITE-LABEL", p3_tag: "for agencies reselling to their clients",
+      p3_f1: "Unlimited end customers", p3_f2: "Your brand and logo",
+      p3_f3: "Onboard new customer in 1–2 days", p3_f4: "Automated provisioning",
+      p3_f5: "Recurring revenue per customer", p3_f6: "Dedicated manager",
+      p3_cta: "Become partner ↗",
+      faq_eyebrow: "FAQ",
+      faq_t1: "Questions you'll", faq_t2: "definitely have.",
+      faq_sub: 'Didn\'t find an answer? Email <a href="mailto:hello@direct-ai-agents.com" style="color:var(--red)">hello@direct-ai-agents.com</a>',
+      faq1_q: "Will customers know they're talking to AI?",
+      faq1_a: "Most won't. The agent is tuned to your brand voice. We recommend disclosing it in your bio — honesty builds trust.",
+      faq2_q: "What about complex requests?",
+      faq2_a: "Complaints, returns, custom sizing — handed to a human instantly. Rules defined in plain text.",
+      faq3_q: "How long does setup take?",
+      faq3_a: "48 hours turn-key: Instagram, catalog, voice, sandbox, go-live. We handle all technical bits.",
+      faq4_q: "Where is customer data stored?",
+      faq4_a: "Each customer gets an isolated instance with its own database in the EU (eu-central-1). No cross-access.",
+      faq5_q: "What if we don't like it?",
+      faq5_a: "14 days free, no card. Cancel in one click. Export all data to CSV/JSON anytime.",
+      faq6_q: "What about WhatsApp/Telegram?",
+      faq6_a: "Instagram Direct only for now. WhatsApp Business and Telegram channels on the 2026 roadmap.",
+      cta_t1: "Instagram", cta_t2: "no longer", cta_t3: "has to be a", cta_t4: "24/7 job.",
+      cta_sub: "Launch your AI agent in 48 hours. 14 days free. If it doesn't work — you don't pay.",
+      cta_btn1: "Book a demo ↗", cta_btn2: "See pricing",
+      cta_micro: "hello@direct-ai-agents.com",
+      foot_about: "The platform that turns Instagram Direct into a sales channel. Built in Kyiv since 2024.",
+      foot_prod: "Product", foot_p1: "How", foot_p2: "Features", foot_p3: "Pricing", foot_p4: "FAQ",
+      foot_co: "Company", foot_c1: "About", foot_c2: "Cases", foot_c3: "Partners", foot_c4: "Contact",
+      foot_lg: "Legal", foot_l1: "Privacy", foot_l2: "Terms", foot_l3: "DPA", foot_l4: "Security",
+      foot_made: "MADE IN KYIV ● UA",
+    }
+  };
+
+  function applyLang(lang) {
+    document.querySelectorAll("[data-i]").forEach(el => {
+      const k = el.getAttribute("data-i");
+      if (I18N[lang] && I18N[lang][k] != null) el.innerHTML = I18N[lang][k];
+    });
+    document.documentElement.setAttribute("lang", lang);
+    document.querySelectorAll(".lang button").forEach(b => {
+      b.classList.toggle("active", b.dataset.lang === lang);
+    });
+    localStorage.setItem("dal_lang", lang);
+  }
+  document.querySelectorAll(".lang button").forEach(b => {
+    b.addEventListener("click", () => applyLang(b.dataset.lang));
+  });
+  applyLang(localStorage.getItem("dal_lang") || "uk");
+
+  // FAQ accordion
+  document.querySelectorAll(".faq-item").forEach(it => {
+    it.querySelector(".faq-q").addEventListener("click", () => it.classList.toggle("open"));
+  });
+</script>
 
 </body>
 </html>
