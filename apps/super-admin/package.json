@@ -12,9 +12,9 @@
     "db:push": "prisma db push --schema=prisma/schema.prisma"
   },
   "dependencies": {
-    "@fastify/cors": "^9.0.1",
-    "@fastify/jwt": "^8.0.1",
-    "@fastify/static": "^7.0.4",
+    "@fastify/cors": "^10.0.0",
+    "@fastify/jwt": "^9.0.0",
+    "@fastify/static": "^8.0.0",
     "@prisma/client": "^6.0.0",
     "@types/node": "^22.0.0",
     "dotenv": "^16.4.5",
