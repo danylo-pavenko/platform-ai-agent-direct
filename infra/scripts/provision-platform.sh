@@ -172,8 +172,17 @@ else
   SA_PASS="(see existing .env.super-admin)"
 fi
 
-# ── 8. NGINX + TLS ────────────────────────────────────────────────
-echo "[8/9] Configuring NGINX and obtaining TLS certificates..."
+# ── 8. Firewall (BEFORE certbot — port 80 must be open for ACME challenge) ──
+echo "[8/9] Configuring UFW firewall..."
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
+ufw allow 'Nginx Full' >/dev/null 2>&1 || true
+ufw --force enable >/dev/null
+echo "  UFW enabled: SSH + 80 + 443"
+
+# ── 9. NGINX + TLS ────────────────────────────────────────────────
+echo "[9/9] Configuring NGINX and obtaining TLS certificates..."
 
 mkdir -p /var/www/certbot
 rm -f /etc/nginx/sites-enabled/default
@@ -231,13 +240,6 @@ echo "  NGINX configured and reloaded."
 # Enable certbot auto-renew
 systemctl enable certbot.timer --quiet
 systemctl start certbot.timer --quiet
-
-# ── 9. Firewall ────────────────────────────────────────────────────
-echo "[9/9] Configuring UFW firewall..."
-ufw allow OpenSSH >/dev/null
-ufw allow 'Nginx Full' >/dev/null
-ufw --force enable >/dev/null
-echo "  UFW enabled: SSH + Nginx Full"
 
 # ── Summary ────────────────────────────────────────────────────────
 echo ""
