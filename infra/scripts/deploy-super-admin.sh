@@ -31,9 +31,9 @@ set -a; source "${ENV_FILE}"; set +a
 echo "[1/5] Pulling latest..."
 git pull --ff-only
 
-# ── 2. Install deps (npm install оновлює lock file якщо потрібно) ──
+# ── 2. Install deps (include dev — потрібен tsc для build) ──
 echo "[2/5] Installing dependencies..."
-npm install --prefix "${APP_DIR}"
+NODE_ENV=development npm install --prefix "${APP_DIR}"
 
 # ── 3. Generate Prisma client ──
 echo "[3/5] Generating Prisma client..."
