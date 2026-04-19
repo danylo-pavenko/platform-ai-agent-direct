@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<!--
+  OG IMAGE TEMPLATE — 1200 × 630
+  ─────────────────────────────────────────────────────────────────────
+  Як отримати og.png:
+    Chrome → відкрий цей файл → zoom 100% → DevTools → Ctrl+Shift+P →
+    "Capture screenshot" → збережи як og.png
+  Або: npx playwright screenshot og-image.html og.png --viewport-size=1200,630
+  ─────────────────────────────────────────────────────────────────────
+-->
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Doto:wght@900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: #000;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .canvas {
+    width: 1200px;
+    height: 630px;
+    position: relative;
+    background: #000;
+    background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.045) 0.7px, transparent 1px);
+    background-size: 14px 14px;
+    overflow: hidden;
+  }
+
+  /* outer border */
+  .canvas::before {
+    content: '';
+    position: absolute;
+    inset: 16px;
+    border: 1px solid #1C1C1C;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* large dot-circle decoration (top-right) */
+  .deco-circle {
+    position: absolute;
+    top: -160px;
+    right: -160px;
+    width: 560px;
+    height: 560px;
+    background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1.2px, transparent 1.5px);
+    background-size: 14px 14px;
+    -webkit-mask-image: radial-gradient(circle at center, #000 0 42%, transparent 48%);
+            mask-image: radial-gradient(circle at center, #000 0 42%, transparent 48%);
+    pointer-events: none;
+  }
+
+  /* red accent strip (left edge) */
+  .red-strip {
+    position: absolute;
+    left: 16px;
+    top: 16px;
+    bottom: 16px;
+    width: 3px;
+    background: #D42F2F;
+  }
+
+  /* main content */
+  .content {
+    position: absolute;
+    inset: 0;
+    padding: 52px 64px 48px 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    z-index: 1;
+  }
+
+  /* ── TOP ROW ── */
+  .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .brand-mark {
+    width: 32px;
+    height: 32px;
+    border: 1.5px solid #fff;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .brand-mark::before {
+    content: '';
+    position: absolute;
+    top: 7px; left: 7px;
+    width: 5px; height: 5px;
+    background: #fff;
+    border-radius: 50%;
+  }
+  .brand-mark::after {
+    content: '';
+    position: absolute;
+    bottom: 7px; right: 7px;
+    width: 5px; height: 5px;
+    background: #fff;
+    border-radius: 50%;
+  }
+  .brand-mark-center {
+    width: 5px; height: 5px;
+    background: #D42F2F;
+    border-radius: 50%;
+  }
+  .brand-name {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .brand-name em { font-style: normal; color: #4F4F4F; }
+
+  .top-meta {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #4F4F4F;
+    text-align: right;
+    line-height: 1.8;
+  }
+  .top-meta .live {
+    color: #D42F2F;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .top-meta .led {
+    display: inline-block;
+    width: 5px; height: 5px;
+    background: #D42F2F;
+    border-radius: 50%;
+  }
+
+  /* ── HEADLINE ── */
+  .headline {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 20px 0;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: #4F4F4F;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 32px;
+    height: 1px;
+    background: #2A2A2A;
+  }
+
+  .big-title {
+    font-family: 'Doto', ui-monospace, monospace;
+    font-weight: 900;
+    font-size: 120px;
+    line-height: 0.88;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .big-title .red { color: #D42F2F; }
+  .big-title .outline {
+    -webkit-text-stroke: 1.5px #fff;
+    color: transparent;
+  }
+
+  .sub {
+    margin-top: 28px;
+    font-size: 15px;
+    color: #8A8A8A;
+    line-height: 1.5;
+    max-width: 600px;
+    letter-spacing: 0.01em;
+  }
+
+  /* ── BOTTOM STATS ── */
+  .bottom {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    border-top: 1px solid #1C1C1C;
+    padding-top: 24px;
+  }
+
+  .stats {
+    display: flex;
+    gap: 0;
+  }
+  .stat {
+    padding: 0 28px 0 0;
+    margin-right: 28px;
+    border-right: 1px solid #1C1C1C;
+  }
+  .stat:last-child { border-right: none; margin-right: 0; }
+  .stat-v {
+    font-family: 'Doto', ui-monospace, monospace;
+    font-weight: 900;
+    font-size: 42px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: #fff;
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+  }
+  .stat-v .u {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 400;
+    color: #D42F2F;
+  }
+  .stat-l {
+    margin-top: 6px;
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #4F4F4F;
+    line-height: 1.4;
+  }
+
+  .cta-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #D42F2F;
+    color: #fff;
+    padding: 12px 22px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+  }
+
+  /* horizontal rule */
+  .h-rule {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    height: 1px;
+    background: #1C1C1C;
+  }
+  .h-rule.t { top: 92px; }
+
+  /* corner marks */
+  .corner {
+    position: absolute;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #2A2A2A;
+  }
+  .corner.br { bottom: 24px; right: 32px; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="deco-circle"></div>
+  <div class="red-strip"></div>
+  <div class="h-rule t"></div>
+
+  <div class="content">
+    <!-- TOP -->
+    <div class="top">
+      <div class="brand">
+        <div class="brand-mark">
+          <div class="brand-mark-center"></div>
+        </div>
+        <div class="brand-name">Direct AI<em> / Agents</em></div>
+      </div>
+      <div class="top-meta">
+        <div class="live"><span class="led"></span> LIVE · EU-CENTRAL-1</div>
+        <div>INSTAGRAM DIRECT · AI SALES AGENT</div>
+        <div>direct-ai-agents.com</div>
+      </div>
+    </div>
+
+    <!-- HEADLINE -->
+    <div class="headline">
+      <div class="eyebrow">AI SALES AGENT FOR INSTAGRAM DM</div>
+      <div class="big-title">
+        <span class="red">DM</span> that<br>
+        <span class="outline">sells</span> itself.
+      </div>
+      <div class="sub">
+        AI-агент відповідає у вашому стилі, 24/7 — від розміру до оформлення замовлення. Запуск за 48 годин.
+      </div>
+    </div>
+
+    <!-- BOTTOM -->
+    <div class="bottom">
+      <div class="stats">
+        <div class="stat">
+          <div class="stat-v">87<span class="u">%</span></div>
+          <div class="stat-l">діалогів без<br>менеджера</div>
+        </div>
+        <div class="stat">
+          <div class="stat-v">4.2<span class="u">s</span></div>
+          <div class="stat-l">середня перша<br>відповідь</div>
+        </div>
+        <div class="stat">
+          <div class="stat-v">2.4<span class="u">×</span></div>
+          <div class="stat-l">конверсія<br>DM → замовлення</div>
+        </div>
+        <div class="stat">
+          <div class="stat-v">48<span class="u">h</span></div>
+          <div class="stat-l">запуск<br>під ключ</div>
+        </div>
+      </div>
+      <div class="cta-pill">Замовити демо ↗</div>
+    </div>
+  </div>
+
+  <div class="corner br">NDOT-01 · REV 0.4.2</div>
+</div>
+</body>
+</html>
