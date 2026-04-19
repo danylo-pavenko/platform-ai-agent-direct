@@ -2,17 +2,17 @@
 #
 # deploy-super-admin.sh — Build and restart Super Admin app
 #
-# Run as agentsadmin from project root:
+# Run as agentsadmin from anywhere:
 #   bash infra/scripts/deploy-super-admin.sh
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-cd "${PROJECT_ROOT}"
+APP_DIR="${PROJECT_ROOT}/apps/super-admin"
+ENV_FILE="${PROJECT_ROOT}/.env.super-admin"
 
-ENV_FILE=".env.super-admin"
-APP_DIR="apps/super-admin"
+cd "${PROJECT_ROOT}"
 
 echo "══════════════════════════════════════════"
 echo "  Super Admin — Deploy"
@@ -21,23 +21,19 @@ echo "════════════════════════�
 
 if [ ! -f "${ENV_FILE}" ]; then
   echo "ERROR: ${ENV_FILE} not found."
-  echo "  Copy from provision or create manually."
   exit 1
 fi
 
-# Load env for health check
-# shellcheck disable=SC2046
-export $(grep -v '^#' "${ENV_FILE}" | grep -v '^$' | xargs)
+# Load env
+set -a; source "${ENV_FILE}"; set +a
 
 # ── 1. Pull latest ──
 echo "[1/5] Pulling latest..."
 git pull --ff-only
 
-# ── 2. Install super-admin deps ──
+# ── 2. Install deps (npm install оновлює lock file якщо потрібно) ──
 echo "[2/5] Installing dependencies..."
-cd "${APP_DIR}"
-npm ci --prefer-offline
-cd "${PROJECT_ROOT}"
+npm install --prefix "${APP_DIR}"
 
 # ── 3. Generate Prisma client ──
 echo "[3/5] Generating Prisma client..."
@@ -65,9 +61,9 @@ sleep 2
 SA_PORT="${SA_API_PORT:-4000}"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${SA_PORT}/api/health" 2>/dev/null || echo "000")
 if [ "${STATUS}" = "200" ]; then
-  echo "  ✓ Health check passed (HTTP ${STATUS})"
+  echo "  ✓ Health OK (HTTP ${STATUS})"
 else
-  echo "  ✗ Health check returned ${STATUS} — check: pm2 logs SA-api"
+  echo "  ✗ HTTP ${STATUS} — check: pm2 logs SA-api"
 fi
 
 echo ""
