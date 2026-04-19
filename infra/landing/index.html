@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Direct AI Agents — AI Sales Agent для Instagram DM</title>
+  <meta name="description" content="Автоматизуйте продажі в Instagram DM. AI-агент відповідає клієнтам, збирає замовлення та передає менеджеру лише готові угоди." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --surface: #13131a;
+      --border: #1e1e2e;
+      --accent: #7c6eff;
+      --accent-light: #9d91ff;
+      --text: #e8e8f0;
+      --muted: #7a7a9a;
+      --radius: 12px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Nav */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 40px;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-size: 17px; font-weight: 700; letter-spacing: -0.3px;
+      color: var(--text);
+      text-decoration: none;
+    }
+    .logo span { color: var(--accent); }
+    nav a.cta-nav {
+      background: var(--accent); color: #fff;
+      padding: 9px 20px; border-radius: 8px;
+      font-size: 14px; font-weight: 600;
+      text-decoration: none;
+      transition: opacity .15s;
+    }
+    nav a.cta-nav:hover { opacity: .85; }
+
+    /* Hero */
+    .hero {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 120px 24px 80px;
+      position: relative; overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 800px;
+      background: radial-gradient(circle, rgba(124,110,255,.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 14px; border-radius: 100px;
+      border: 1px solid rgba(124,110,255,.35);
+      font-size: 13px; color: var(--accent-light);
+      margin-bottom: 28px;
+    }
+    .badge::before { content: '●'; font-size: 8px; }
+    h1 {
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 800; letter-spacing: -1.5px;
+      line-height: 1.1;
+      max-width: 760px;
+      margin-bottom: 22px;
+    }
+    h1 em { font-style: normal; color: var(--accent-light); }
+    .hero p {
+      font-size: clamp(16px, 2vw, 19px);
+      color: var(--muted); max-width: 560px;
+      margin-bottom: 40px;
+    }
+    .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+    .btn-primary {
+      background: var(--accent); color: #fff;
+      padding: 14px 32px; border-radius: var(--radius);
+      font-size: 16px; font-weight: 600;
+      text-decoration: none;
+      transition: opacity .15s, transform .15s;
+    }
+    .btn-primary:hover { opacity: .88; transform: translateY(-1px); }
+    .btn-ghost {
+      border: 1px solid var(--border); color: var(--text);
+      padding: 14px 32px; border-radius: var(--radius);
+      font-size: 16px; font-weight: 500;
+      text-decoration: none;
+      transition: border-color .15s;
+    }
+    .btn-ghost:hover { border-color: var(--muted); }
+
+    /* Features */
+    .features {
+      padding: 100px 24px;
+      max-width: 1100px; margin: 0 auto;
+    }
+    .section-label {
+      text-align: center; font-size: 13px; font-weight: 600;
+      color: var(--accent); letter-spacing: 1.5px; text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .section-title {
+      text-align: center; font-size: clamp(26px, 4vw, 40px);
+      font-weight: 700; letter-spacing: -0.8px;
+      margin-bottom: 56px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      transition: border-color .2s;
+    }
+    .card:hover { border-color: rgba(124,110,255,.4); }
+    .card-icon {
+      font-size: 28px; margin-bottom: 16px;
+      display: block;
+    }
+    .card h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+    .card p { font-size: 14px; color: var(--muted); line-height: 1.65; }
+
+    /* How it works */
+    .how {
+      padding: 100px 24px;
+      background: var(--surface);
+    }
+    .how-inner { max-width: 800px; margin: 0 auto; }
+    .steps { display: flex; flex-direction: column; gap: 0; margin-top: 56px; }
+    .step {
+      display: flex; gap: 24px; padding: 28px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .step:last-child { border-bottom: none; }
+    .step-num {
+      width: 36px; height: 36px; flex-shrink: 0;
+      background: rgba(124,110,255,.15); border: 1px solid rgba(124,110,255,.3);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700; color: var(--accent-light);
+    }
+    .step-body h4 { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+    .step-body p { font-size: 14px; color: var(--muted); }
+
+    /* CTA block */
+    .cta-block {
+      padding: 100px 24px;
+      text-align: center;
+    }
+    .cta-inner {
+      max-width: 600px; margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 56px 40px;
+      position: relative; overflow: hidden;
+    }
+    .cta-inner::before {
+      content: '';
+      position: absolute; top: -100px; left: 50%; transform: translateX(-50%);
+      width: 400px; height: 300px;
+      background: radial-gradient(circle, rgba(124,110,255,.1) 0%, transparent 70%);
+    }
+    .cta-inner h2 {
+      font-size: clamp(24px, 3vw, 34px);
+      font-weight: 700; letter-spacing: -0.5px;
+      margin-bottom: 14px;
+    }
+    .cta-inner p { font-size: 16px; color: var(--muted); margin-bottom: 32px; }
+    .cta-email {
+      font-size: 14px; color: var(--muted); margin-top: 16px;
+    }
+    .cta-email a { color: var(--accent-light); text-decoration: none; }
+    .cta-email a:hover { text-decoration: underline; }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+    }
+    footer .logo { font-size: 15px; }
+    footer p { font-size: 13px; color: var(--muted); }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 600px) {
+      nav { padding: 16px 20px; }
+      .hero { padding: 100px 20px 60px; }
+      .features, .cta-block { padding: 60px 20px; }
+      .cta-inner { padding: 40px 24px; }
+      footer { padding: 24px 20px; flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="logo">Direct<span>AI</span>Agents</a>
+  <a href="mailto:hello@direct-ai-agents.com" class="cta-nav">Зв'язатись</a>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">AI Sales Agent для Instagram</div>
+  <h1>Продажі в Instagram DM<br/>на <em>автопілоті</em></h1>
+  <p>
+    AI-агент відповідає клієнтам 24/7, консультує по каталогу,
+    збирає замовлення і передає менеджеру лише готові угоди.
+  </p>
+  <div class="hero-actions">
+    <a href="mailto:hello@direct-ai-agents.com?subject=Хочу демо" class="btn-primary">Замовити демо</a>
+    <a href="#how" class="btn-ghost">Як це працює</a>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features">
+  <p class="section-label">Можливості</p>
+  <h2 class="section-title">Все що потрібно для продажів в IG</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="card-icon">💬</span>
+      <h3>Відповідає як менеджер</h3>
+      <p>Знає каталог, ціни, наявність. Відповідає живою мовою бренду — українською, 24/7, без вихідних.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🛍️</span>
+      <h3>Збирає замовлення</h3>
+      <p>Запитує ПІБ, телефон, адресу НП та спосіб оплати. Відправляє картку замовлення менеджеру в Telegram.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🤝</span>
+      <h3>Передає складне менеджеру</h3>
+      <p>Скарги, брак, доставка за кордон, оптові запити — автоматично ескалює до людини.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔄</span>
+      <h3>Синхронізація з CRM</h3>
+      <p>Каталог оновлюється автоматично з KeyCRM або вашої системи. Завжди актуальні ціни та залишки.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">📊</span>
+      <h3>Адмін-панель</h3>
+      <p>Переписки, замовлення, налаштування промптів, sandbox для тестування — все в одному інтерфейсі.</p>
+    </div>
+    <div class="card">
+      <span class="card-icon">🔒</span>
+      <h3>Ваш домен, ваші дані</h3>
+      <p>Окремий інстанс для кожного клієнта. Ізольована БД, окремий Claude-акаунт, ваш домен.</p>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="how" id="how">
+  <div class="how-inner">
+    <p class="section-label">Як це працює</p>
+    <h2 class="section-title">Від підключення до першої відповіді</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h4>Підключаємо Instagram та CRM</h4>
+          <p>Налаштовуємо Meta App, підключаємо IG Business акаунт, синхронізуємо каталог. Займає 1–2 дні.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h4>Налаштовуємо агента під ваш бренд</h4>
+          <p>Прописуємо tone of voice, правила ескалації, робочі години, відповіді на FAQ. Редагується через адмінку в будь-який момент.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h4>Тестуємо в Sandbox</h4>
+          <p>Прогоняємо 15+ тест-кейсів в ізольованому чаті. Впевнюємось що бот відповідає правильно до виходу в прод.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h4>Запуск та підтримка</h4>
+          <p>Бот виходить у прод. Менеджер отримує нотифікації в Telegram, може взяти розмову вручну в будь-який момент.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-block">
+  <div class="cta-inner">
+    <h2>Готові підключити AI-агента?</h2>
+    <p>Напишіть нам — розкажемо деталі, покажемо демо і обговоримо ваш кейс.</p>
+    <a href="mailto:hello@direct-ai-agents.com?subject=Хочу демо AI Sales Agent" class="btn-primary">
+      Написати нам
+    </a>
+    <p class="cta-email">або одразу на <a href="mailto:hello@direct-ai-agents.com">hello@direct-ai-agents.com</a></p>
+  </div>
+</section>
+
+<footer>
+  <a href="/" class="logo">Direct<span>AI</span>Agents</a>
+  <p>
+    <a href="mailto:hello@direct-ai-agents.com">hello@direct-ai-agents.com</a>
+    &nbsp;·&nbsp;
+    © 2026 Direct AI Agents. All rights reserved.
+  </p>
+</footer>
+
+</body>
+</html>

@@ -1,78 +1,140 @@
 # Onboarding нового клієнта — покрокова інструкція
 
-> Цей документ для тебе (super-admin / власник платформи).
-> Описує повний процес від "новий клієнт погодився" до "бот відповідає в Instagram".
+> Документ для власника платформи (super-admin).
+> Від "сервер чистий" до "бот відповідає в Instagram".
 
 ---
 
-## Передумови (одноразово на сервер)
+## Частина 1 — Підготовка сервера (один раз)
 
-Якщо сервер ще не налаштований — виконай спочатку:
+### Передумови
+
+1. **VPS**: Ubuntu 24.04, мінімум 2 vCPU / 4 GB RAM / 40 GB SSD
+2. **DNS записи** (зроби до запуску скрипту — certbot їх перевіряє):
+
+   | Домен | Тип | Значення |
+   |-------|-----|---------|
+   | `direct-ai-agents.com` | A | IP сервера |
+   | `www.direct-ai-agents.com` | A | IP сервера |
+   | `admin.direct-ai-agents.com` | A | IP сервера |
+
+3. **Перевір DNS** (з локального комп'ютера):
+   ```bash
+   dig +short direct-ai-agents.com
+   dig +short admin.direct-ai-agents.com
+   # Обидва мають вертати IP сервера
+   ```
+
+---
+
+### Крок 1 — Клонувати репо на сервер і запустити provision
 
 ```bash
-# 1. Базова ініціалізація сервера (пакети, PM2, Nginx, PostgreSQL)
-CERTBOT_EMAIL=you@example.com bash infra/scripts/provision-server.sh
+# Зайти на сервер
+ssh root@<IP>
 
-# 2. Super Admin дашборд
-SUPER_ADMIN_DOMAIN=admin.yourplatform.com \
-CERTBOT_EMAIL=you@example.com \
-SUPER_ADMIN_REPO=https://github.com/yourorg/platform-super-admin.git \
-bash infra/scripts/provision-super-admin.sh
+# Клонувати репо у тимчасове місце
+git clone https://github.com/danylo-pavenko/platform-ai-agent-direct.git /tmp/platform
+
+# Запустити provision (все в одному скрипті)
+CERTBOT_EMAIL=hello@direct-ai-agents.com \
+bash /tmp/platform/infra/scripts/provision-platform.sh
 ```
 
-Після цього зайди на `https://admin.yourplatform.com` і перевір що super-admin працює.
+**Що зробить скрипт автоматично:**
+- Встановить Node.js 20, PM2, Nginx, Certbot, PostgreSQL, UFW
+- Створить Linux user `agentsadmin`
+- Склонує репо в `/home/agentsadmin/platform-ai-agent-direct`
+- Створить PostgreSQL БД `platform_admin` + таблицю `tenants`
+- Налаштує NGINX для `direct-ai-agents.com` та `admin.direct-ai-agents.com`
+- Отримає TLS сертифікати через Certbot
+- Згенерує `.env.super-admin` з credentials
+
+Наприкінці скрипт **виведе credentials** — обов'язково збережи їх.
 
 ---
 
-## Крок 1 — Вибір параметрів клієнта
+### Крок 2 — Перевірити що лендинг піднявся
 
-Перед тим як виконувати скрипти — домовся з клієнтом про:
+```bash
+curl -I https://direct-ai-agents.com
+# HTTP/2 200
 
-| Параметр | Приклад | Примітка |
-|----------|---------|---------|
-| `INSTANCE_ID` | `sb` | Коротко, лише латиниця, lowercase. Стане префіксом PM2, DB, Linux user. |
-| `CLIENT_NAME` | `StatusBlessed` | Повна назва, без пробілів |
-| `API_DOMAIN` | `api.status-blessed.com` | Домен клієнта, DNS A-record → IP сервера |
-| `ADMIN_DOMAIN` | `agent.status-blessed.com` | Домен адмінки, DNS A-record → IP сервера |
-| `API_PORT` | `3100` | Унікальний порт (3100, 3200, 3300...) |
-| `ADMIN_PORT` | `3101` | Унікальний порт (3101, 3201, 3301...) |
+curl -I https://www.direct-ai-agents.com
+# HTTP/2 301 → redirect to direct-ai-agents.com
+```
+
+Відкрий `https://direct-ai-agents.com` в браузері — має з'явитись лендинг.
+
+---
+
+### Крок 3 — Super Admin app (коли буде готовий)
+
+> Super Admin UI розробляється окремо (Блок I). Поки що NGINX для `admin.direct-ai-agents.com` вже налаштований і чекає на додаток на портах 4000/4001.
+
+Коли super-admin app буде готовий:
+```bash
+su - agentsadmin
+cd /home/agentsadmin/platform-ai-agent-direct
+
+# Скопіювати .env
+cp .env.super-admin .env
+
+# Встановити залежності та запустити
+npm install
+pm2 start ecosystem.super-admin.config.cjs
+pm2 save
+```
+
+---
+
+## Частина 2 — Онбординг клієнта
+
+### Крок 4 — Вибір параметрів клієнта
+
+Перед виконанням скрипту визнач:
+
+| Параметр | Приклад SB | Наступний клієнт |
+|----------|-----------|-----------------|
+| `INSTANCE_ID` | `sb` | `mb`, `xx`... |
+| `CLIENT_NAME` | `StatusBlessed` | `MyBrand`... |
+| `API_DOMAIN` | `api.status-blessed.com` | `api.mybrand.com` |
+| `ADMIN_DOMAIN` | `agent.status-blessed.com` | `admin.mybrand.com` |
+| `API_PORT` | `3100` | `3200`, `3300`... |
+| `ADMIN_PORT` | `3101` | `3201`, `3301`... |
 
 **Таблиця зайнятих портів (оновлюй вручну):**
 
-| Клієнт | INSTANCE_ID | API Port | Admin Port |
-|--------|-------------|----------|------------|
+| Клієнт | ID | API | Admin |
+|--------|----|-----|-------|
+| Super Admin | sa | 4000 | 4001 |
 | Status Blessed | sb | 3100 | 3101 |
 | _(наступний)_ | — | 3200 | 3201 |
-| _(наступний)_ | — | 3300 | 3301 |
-| Super Admin | sa | 4000 | 4001 |
 
 ---
 
-## Крок 2 — DNS записи
+### Крок 5 — DNS записи клієнта
 
-**Клієнт має налаштувати у себе в DNS панелі** (або ти, якщо домен у тебе):
-
+Клієнт налаштовує у своїй DNS панелі (або ти, якщо домен у тебе):
 ```
-api.status-blessed.com   A   <IP сервера>
-agent.status-blessed.com A   <IP сервера>
+api.status-blessed.com    A  <IP сервера>
+agent.status-blessed.com  A  <IP сервера>
 ```
 
-Перевір що DNS propagated:
+Перевірити:
 ```bash
 dig +short api.status-blessed.com
-# має повернути IP сервера
 ```
 
 ---
 
-## Крок 3 — Provision клієнта
-
-Виконай **на сервері від root**:
+### Крок 6 — Запустити provision клієнта
 
 ```bash
-CERTBOT_EMAIL=you@example.com \
+# Від root на сервері
+CERTBOT_EMAIL=hello@direct-ai-agents.com \
 PLATFORM_REPO=https://github.com/danylo-pavenko/platform-ai-agent-direct.git \
-bash /opt/platform-admin/infra/scripts/provision-client.sh \
+bash /home/agentsadmin/platform-ai-agent-direct/infra/scripts/provision-client.sh \
   sb StatusBlessed api.status-blessed.com agent.status-blessed.com 3100 3101
 ```
 
@@ -80,111 +142,93 @@ bash /opt/platform-admin/infra/scripts/provision-client.sh \
 - Створить Linux user `agent_sb`
 - Створить БД `sb_agent` + user `sb_agent`
 - Склонує репо в `/opt/agents/sb/`
-- Згенерує `.env` з усіма параметрами
-- Налаштує NGINX vhost + TLS сертифікати
-- Зареєструє tenant у super-admin DB
-
-Наприкінці скрипт виведе **credentials** — збережи їх.
+- Згенерує `.env` (всі значення крім API credentials)
+- Налаштує NGINX vhost + TLS
+- Зареєструє tenant у `platform_admin.tenants`
+- Виведе credentials: DB url, admin password, TG password
 
 ---
 
-## Крок 4 — Заповнення credentials клієнта
+### Крок 7 — Заповнити credentials клієнта
 
-Зайди під юзером клієнта:
 ```bash
 su - agent_sb
 nano /opt/agents/sb/.env
 ```
 
-Заповни ці поля (решта вже згенерована):
+Заповни ці поля:
 
-### Instagram / Meta
 ```env
-META_APP_ID=         # з developers.facebook.com → App Settings → Basic
-META_APP_SECRET=     # там само
+# ── Instagram / Meta ──
+META_APP_ID=          # developers.facebook.com → App → Settings → Basic
+META_APP_SECRET=      # там само
 IG_PAGE_ACCESS_TOKEN= # long-lived Page Access Token (інструкція нижче)
-IG_PAGE_ID=          # Facebook Page ID
+IG_PAGE_ID=           # Facebook Page ID (linked to IG Business)
+
+# ── Telegram ──
+TELEGRAM_BOT_TOKEN=           # від @BotFather → /newbot
+TELEGRAM_MANAGER_GROUP_ID=    # ID групи менеджерів (від'ємне число)
+
+# ── CRM (якщо є) ──
+CRM_PROVIDER=keycrm           # або 'none'
+KEYCRM_API_KEY=               # API ключ KeyCRM
 ```
 
 **Як отримати IG_PAGE_ACCESS_TOKEN:**
-1. developers.facebook.com → Graph API Explorer
-2. Application: вибери Meta App клієнта
+1. [developers.facebook.com](https://developers.facebook.com) → Graph API Explorer
+2. Application → вибери Meta App клієнта
 3. User or Page → вибери Facebook Page клієнта
 4. Generate Access Token з правами:
-   - `instagram_basic`
-   - `instagram_manage_messages`
-   - `pages_messaging`
-   - `pages_manage_metadata`
-5. Конвертуй short → long-lived:
+   `instagram_basic`, `instagram_manage_messages`, `pages_messaging`, `pages_manage_metadata`
+5. Конвертуй short → long-lived (живе ~60 днів):
    ```
    GET https://graph.facebook.com/oauth/access_token
      ?grant_type=fb_exchange_token
      &client_id={META_APP_ID}
      &client_secret={META_APP_SECRET}
-     &fb_exchange_token={SHORT_LIVED_TOKEN}
+     &fb_exchange_token={SHORT_TOKEN}
    ```
-6. Скопіюй отриманий long-lived token в `.env`
-
-> Token живе ~60 днів. Нагадай клієнту оновити або налаштуй авто-refresh.
-
-### Telegram
-```env
-TELEGRAM_BOT_TOKEN=          # від @BotFather → /newbot
-TELEGRAM_MANAGER_GROUP_ID=   # ID групи менеджерів (від'ємне число)
-```
+6. Скопіюй отриманий token в `.env`
 
 **Як отримати TELEGRAM_MANAGER_GROUP_ID:**
-1. Створи групу, додай бота туди, зроби його адміном
-2. Відправ будь-яке повідомлення в групу
-3. `curl "https://api.telegram.org/bot{TOKEN}/getUpdates"` → знайди `chat.id`
-
-### CRM (опціонально)
-```env
-CRM_PROVIDER=keycrm          # або 'none' якщо немає
-KEYCRM_API_KEY=your-key
-```
+1. Створи TG групу, додай бота (`@StatusBlessedAdminBot`), зроби його адміном
+2. Надішли будь-яке повідомлення в групу
+3. `curl "https://api.telegram.org/bot{TOKEN}/getUpdates"` → знайди `chat.id` (від'ємне число)
 
 ---
 
-## Крок 5 — Автентифікація Claude Code
+### Крок 8 — Автентифікація Claude Code
 
-> Це **обовʼязковий ручний крок** — OAuth flow відкриває браузер.
-> Виконується ОДИН РАЗ при onboarding клієнта.
+> Єдиний ручний крок — OAuth через браузер. Виконується **один раз** при онбордингу.
 
 ```bash
 su - agent_sb
 claude auth login
 # Відкриє посилання — відкрий в браузері
-# Увійди в Claude акаунт КЛІЄНТА (або свій, якщо ліміти спільні)
-# Після авторизації — claude збереже сесію для user agent_sb
+# Увійди в Claude акаунт (клієнта або свій)
 ```
 
-Перевір що claude працює:
+Перевірка:
 ```bash
-echo "ping" | claude -p "Відповідай одним словом: pong"
-# Має вивести: pong
+echo "ping" | claude -p "Say one word: pong"
+# Відповідь: pong
 ```
 
 ---
 
-## Крок 6 — Деплой додатку
+### Крок 9 — Деплой
 
 ```bash
 su - agent_sb
 bash /opt/agents/sb/infra/scripts/deploy-client.sh
 ```
 
-Скрипт:
-- `git pull`
-- `npm ci`
-- `prisma migrate deploy` (створить всі таблиці + seed admin user)
-- `npm run build:backend && npm run build:admin`
-- `pm2 start ecosystem.config.cjs`
+Скрипт зробить: `git pull` → `npm ci` → `prisma migrate deploy` (створить таблиці + seed admin) → build → `pm2 start`
 
-Перевір що все запустилось:
+Перевірка:
 ```bash
 pm2 ls
-# має бути: SB-api, SB-bot, SB-sync, SB-admin — всі online
+# SB-api, SB-bot, SB-sync, SB-admin — всі online
 
 curl https://api.status-blessed.com/health
 # {"status":"ok","instance":"sb"}
@@ -192,126 +236,105 @@ curl https://api.status-blessed.com/health
 
 ---
 
-## Крок 7 — Підключення Instagram Webhook
+### Крок 10 — Підключити Instagram Webhook
 
-У Meta Dashboard → App → Instagram → Webhooks:
+У [Meta Dashboard](https://developers.facebook.com) → App → Instagram → Webhooks:
 
 1. **Callback URL:** `https://api.status-blessed.com/webhooks/instagram`
-2. **Verify Token:** значення `IG_WEBHOOK_VERIFY_TOKEN` з `.env` (наприклад `sb-verify-2026`)
-3. Підпишись на поле: `messages`
-4. Натисни "Verify and Save"
-
-Перевірка:
-- Надішли DM тестове повідомлення через IG → повинен з'явитись запис в БД
-- `pm2 logs SB-api` — повинна бути ваша webhook entry
+2. **Verify Token:** значення `IG_WEBHOOK_VERIFY_TOKEN` з `.env`
+3. Підписатись на поле: `messages`
+4. "Verify and Save"
 
 ---
 
-## Крок 8 — Заповнення Knowledge Base
+### Крок 11 — Knowledge Base і перший вхід в адмінку
 
-Зайди в `/opt/agents/sb/apps/workspace/knowledge/` і заповни файли:
-
+**Knowledge base:**
 ```bash
 su - agent_sb
-nano /opt/agents/sb/apps/workspace/knowledge/brand.txt      # бренд, tone of voice
-nano /opt/agents/sb/apps/workspace/knowledge/contacts.txt   # контакти, графік
-nano /opt/agents/sb/apps/workspace/knowledge/delivery.txt   # доставка, оплата
-nano /opt/agents/sb/apps/workspace/knowledge/faq.txt        # FAQ
+nano /opt/agents/sb/apps/workspace/knowledge/brand.txt
+nano /opt/agents/sb/apps/workspace/knowledge/contacts.txt
+nano /opt/agents/sb/apps/workspace/knowledge/delivery.txt
+nano /opt/agents/sb/apps/workspace/knowledge/faq.txt
 ```
 
-Системний промпт (sales agent) — редагується через адмінку:
-`https://agent.status-blessed.com` → Системний промпт
+**Адмінка:**
+- URL: `https://agent.status-blessed.com`
+- Login/password: з `DEFAULT_ADMIN_USERNAME` / `DEFAULT_ADMIN_PASSWORD` в `.env`
+- Після входу: змінити пароль, перевірити Prompts, зробити тест в Sandbox
 
 ---
 
-## Крок 9 — Перший вхід в адмінку
+### Крок 12 — Фінальний тест
 
-URL: `https://agent.status-blessed.com`
-
-Credentials з `.env`:
-- Username: `admin` (або `DEFAULT_ADMIN_USERNAME`)
-- Password: з `DEFAULT_ADMIN_PASSWORD` (виведено скриптом provision-client.sh)
-
-**Після першого входу:**
-1. Змінити пароль адміна
-2. Перевірити налаштування → Working Hours
-3. Перевірити системний промпт (Prompts)
-4. Зробити тест через Sandbox
+1. Надішли DM в Instagram акаунт клієнта
+2. Бот має відповісти протягом 10–30 секунд
+3. Перевір логи: `pm2 logs SB-api --lines 30`
 
 ---
 
-## Крок 10 — Фінальна перевірка
-
-```bash
-# Всі процеси online
-pm2 ls | grep SB-
-
-# Health check API
-curl https://api.status-blessed.com/health
-
-# Перевірка логів
-pm2 logs SB-api --lines 20
-
-# Тест Claude (від імені agent_sb user)
-su - agent_sb
-echo "Привіт" | claude -p "Ти консультант магазину. Відповідай по-українськи."
-```
-
-Надішли тестове DM в IG аккаунт клієнта → перевір відповідь бота.
-
----
-
-## Довідка: що де знаходиться
+## Довідка — що де знаходиться
 
 | Що | Де |
 |----|----|
-| App dir | `/opt/agents/{instance_id}/` |
-| .env | `/opt/agents/{instance_id}/.env` |
-| Logs (PM2) | `pm2 logs {INSTANCE_ID_UPPER}-api` |
-| DB | `{instance_id}_agent` (PostgreSQL) |
-| Uploaded media | `/opt/agents/{instance_id}/uploads/` |
-| NGINX config | `/etc/nginx/sites-available/{instance_id}-agent.conf` |
-| TLS cert | `/etc/letsencrypt/live/{api_domain}/` |
-| Workspace | `/opt/agents/{instance_id}/apps/workspace/` |
+| Скрипти | `/home/agentsadmin/platform-ai-agent-direct/infra/scripts/` |
+| Landing page | `/home/agentsadmin/platform-ai-agent-direct/infra/landing/index.html` |
+| NGINX конфіг (platform) | `/etc/nginx/sites-available/platform.conf` |
+| Super Admin .env | `/home/agentsadmin/platform-ai-agent-direct/.env.super-admin` |
+| Super Admin DB | PostgreSQL: `platform_admin` |
+| Client app dir | `/opt/agents/{id}/` |
+| Client .env | `/opt/agents/{id}/.env` |
+| Client NGINX | `/etc/nginx/sites-available/{id}-agent.conf` |
+| Client PM2 logs | `pm2 logs {ID}-api` |
+| TLS certs | `/etc/letsencrypt/live/{domain}/` |
 
 ---
 
 ## Оновлення клієнта (після першого деплою)
 
 ```bash
-su - agent_{instance_id}
-bash /opt/agents/{instance_id}/infra/scripts/deploy-client.sh
+su - agent_{id}
+bash /opt/agents/{id}/infra/scripts/deploy-client.sh
 ```
-
-Або через super-admin дашборд → Clients → Deploy.
 
 ---
 
 ## Troubleshooting
 
-**PM2 процес не стартує:**
+**Лендинг не відкривається:**
 ```bash
-pm2 logs SB-api --lines 50
-# Зазвичай: помилка у .env або незаповнені credentials
-```
-
-**Webhook не верифікується:**
-```bash
-# Перевір IG_WEBHOOK_VERIFY_TOKEN в .env
-grep IG_WEBHOOK_VERIFY_TOKEN /opt/agents/sb/.env
-# Має співпадати з тим що введено в Meta Dashboard
-```
-
-**Claude не відповідає:**
-```bash
-su - agent_sb
-claude auth status
-# Якщо не авторизований — повтори: claude auth login
+nginx -t                          # перевір конфіг
+systemctl status nginx            # статус
+cat /etc/nginx/sites-enabled/platform.conf  # перевір шляхи
+ls /home/agentsadmin/platform-ai-agent-direct/infra/landing/  # файли є?
 ```
 
 **TLS сертифікат не отримано:**
 ```bash
-# Перевір що DNS направлений правильно
-dig +short api.status-blessed.com
-certbot certonly --nginx -d api.status-blessed.com -d agent.status-blessed.com
+# Перевір DNS
+dig +short direct-ai-agents.com   # має бути IP сервера
+
+# Повторити вручну
+certbot certonly --nginx \
+  -d direct-ai-agents.com -d www.direct-ai-agents.com \
+  --email hello@direct-ai-agents.com --agree-tos --non-interactive
+```
+
+**PM2 процес не стартує:**
+```bash
+pm2 logs SB-api --lines 50
+# Зазвичай: помилка у .env або не заповнені credentials
+```
+
+**Claude не авторизований:**
+```bash
+su - agent_{id}
+claude auth status
+claude auth login   # повторити якщо потрібно
+```
+
+**Webhook не верифікується:**
+```bash
+grep IG_WEBHOOK_VERIFY_TOKEN /opt/agents/sb/.env
+# Порівняй з тим що введено в Meta Dashboard
 ```
