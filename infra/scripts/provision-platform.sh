@@ -172,6 +172,13 @@ else
   SA_PASS="(see existing .env.super-admin)"
 fi
 
+# ── 8a. Deploy landing to /var/www/ (NGINX www-data can't read /home/) ──────
+echo "  Deploying landing page to /var/www/direct-ai-agents.com..."
+mkdir -p /var/www/direct-ai-agents.com
+cp -r "${APP_DIR}/infra/landing/." /var/www/direct-ai-agents.com/
+chown -R www-data:www-data /var/www/direct-ai-agents.com
+echo "  Landing deployed."
+
 # ── 8. Firewall (BEFORE certbot — port 80 must be open for ACME challenge) ──
 echo "[8/9] Configuring UFW firewall..."
 ufw allow OpenSSH >/dev/null
