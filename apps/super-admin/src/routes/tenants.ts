@@ -23,8 +23,13 @@ export async function tenantsRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] };
 
   // List all tenants
-  app.get('/api/tenants', auth, async () => {
-    return prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } });
+  app.get('/api/tenants', auth, async (req, reply) => {
+    try {
+      return await prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } });
+    } catch (err: any) {
+      app.log.error({ err }, 'Failed to fetch tenants');
+      return reply.status(500).send({ error: 'DB error', detail: err.message });
+    }
   });
 
   // Get single tenant

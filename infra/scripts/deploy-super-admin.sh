@@ -47,13 +47,25 @@ cd "${APP_DIR}"
 ./node_modules/.bin/tsc --project tsconfig.json
 cd "${PROJECT_ROOT}"
 
-# ── 5. Restart PM2 ──
+# ── 5. Restart PM2 (inject env vars from .env.super-admin) ──
 echo "[5/5] Restarting PM2..."
+
+# Build env args to pass explicitly (PM2 env_file has path resolution issues)
+ENV_ARGS=""
+while IFS= read -r line; do
+  [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
+  ENV_ARGS="${ENV_ARGS} --env-${line%%=*}='${line#*=}'"
+done < "${ENV_FILE}"
+
 if pm2 list 2>/dev/null | grep -q "SA-api"; then
-  pm2 reload ecosystem.super-admin.config.cjs --update-env
-else
-  pm2 start ecosystem.super-admin.config.cjs
+  pm2 stop SA-api 2>/dev/null || true
+  pm2 delete SA-api 2>/dev/null || true
 fi
+
+# Start with environment loaded from file
+env $(grep -v '^#' "${ENV_FILE}" | grep -v '^$' | xargs) \
+  pm2 start ecosystem.super-admin.config.cjs
+
 pm2 save
 
 # ── Health check ──

@@ -11,7 +11,6 @@ module.exports = {
       script: 'dist/server.js',
       node_args: '--enable-source-maps',
       instances: 1,
-      env_file: '.env.super-admin',
       env: { NODE_ENV: 'production' },
       max_memory_restart: '256M',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',

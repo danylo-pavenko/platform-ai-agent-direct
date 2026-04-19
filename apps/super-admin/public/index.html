@@ -465,10 +465,17 @@ createApp({
     }
 
     async function loadTenants() {
-      const r = await fetch(`${BASE}/tenants`, { headers: headers() });
-      if (r.status === 401) { logout(); return; }
-      tenants.value = await r.json();
-      checkAllHealth();
+      try {
+        const r = await fetch(`${BASE}/tenants`, { headers: headers() });
+        if (r.status === 401) { logout(); return; }
+        const data = await r.json();
+        tenants.value = Array.isArray(data) ? data : [];
+        if (!Array.isArray(data)) console.error('Tenants API error:', data);
+        checkAllHealth();
+      } catch (e) {
+        console.error('loadTenants failed:', e);
+        tenants.value = [];
+      }
     }
 
     async function checkAllHealth() {

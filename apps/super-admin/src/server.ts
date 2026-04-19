@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import Fastify from 'fastify';
