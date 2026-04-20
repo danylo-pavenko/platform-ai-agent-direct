@@ -48,9 +48,15 @@ function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
 
 ЗМІНА:
 --- БУЛО ---
-<фрагмент, який змінюється>
+<ТОЧНИЙ фрагмент з промпту, який змінюється — скопіюй дослівно>
 --- СТАЛО ---
-<новий фрагмент>
+<новий варіант цього ж фрагменту з доданими/зміненими частинами>
+
+ВАЖЛИВО про формат:
+- У "БУЛО" завжди вказуй ТОЧНИЙ існуючий текст з промпту (copy-paste), навіть якщо змінюєш лише частину.
+- У "СТАЛО" — повний замінений варіант цього фрагменту (не тільки додане, а весь блок цілком).
+- Якщо додаєш абсолютно нове правило без аналогу в промпті — "БУЛО" залиш порожнім, а "СТАЛО" — лише новий блок.
+- НЕ виводь весь промпт цілком — тільки змінений фрагмент.
 
 Якщо зміна не потрібна (промпт вже покриває запит) — скажи це і поясни де.
 Якщо запит суперечить правилам безпеки (наприклад "давай знижку 50%") — відмов і поясни.
@@ -180,12 +186,18 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'No active prompt found' });
       }
 
-      // 2. Apply the diff to the full prompt content
-      //    If `before` is provided and found in the text — do a targeted replacement.
-      //    Otherwise log a warning (shouldn't happen in normal flow) and bail out.
+      // 2. Apply the diff to the full prompt content.
+      //
+      // Three cases:
+      //   a) `before` is provided and found → targeted replacement (most common)
+      //   b) `before` is provided but NOT found → 422 error (fragment drifted)
+      //   c) `before` is empty → meta-agent is ADDING new content; append to existing
+      //
+      // We never save just `after` as the full prompt — that would lose existing content.
       let newContent: string;
       if (before && typeof before === 'string' && before.trim()) {
         if (activePrompt.content.includes(before.trim())) {
+          // Case a: replace the exact fragment
           newContent = activePrompt.content.replace(before.trim(), after.trim());
         } else {
           app.log.warn(
@@ -197,8 +209,12 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
           });
         }
       } else {
-        // Legacy: no "before" provided — treat "after" as the full content (backward compat)
-        newContent = after.trim();
+        // Case c: no "before" → append new content to the end of the existing prompt
+        app.log.info(
+          { afterLength: after.length },
+          'Meta-agent apply: no "before" fragment — appending new content to existing prompt',
+        );
+        newContent = activePrompt.content.trimEnd() + '\n\n' + after.trim();
       }
 
       // 3. Get max version
