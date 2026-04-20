@@ -24,11 +24,20 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   exit 1
 fi
 
-# Parse key=value pairs (ignore comments and empty lines)
-set -o allexport
-# shellcheck disable=SC1090
-source <(grep -E '^[A-Z_]+=.+' "${ENV_FILE}" | sed 's/#.*//')
-set +o allexport
+# Parse key=value pairs — handles values with spaces, strips inline comments
+while IFS= read -r line || [[ -n "$line" ]]; do
+  # Skip blank lines and comments
+  [[ "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${line//[[:space:]]/}" ]] && continue
+  # Must start with uppercase letter or underscore (env var name)
+  [[ "$line" =~ ^[A-Z_] ]] || continue
+  # Strip inline comment (only if not inside quotes — simple heuristic)
+  key="${line%%=*}"
+  value="${line#*=}"
+  value="${value%%#*}"              # strip inline comment
+  value="${value%"${value##*[^ ]}"}" # trim trailing whitespace
+  export "${key}=${value}"
+done < "${ENV_FILE}"
 
 # ── Validate required vars ──
 : "${INSTANCE_ID:?INSTANCE_ID not set in .env}"
