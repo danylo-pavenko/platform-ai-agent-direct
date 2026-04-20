@@ -31,13 +31,7 @@ module.exports = {
       autorestart: false,
       env: { NODE_ENV: 'production' },
     },
-    {
-      name: `${prefix}-admin`,
-      cwd: './apps/admin',
-      script: 'node_modules/.bin/vite',
-      args: `preview --port ${process.env.ADMIN_PORT || 3101} --host 0.0.0.0`,
-      instances: 1,
-      env: { NODE_ENV: 'production' },
-    },
+    // Admin SPA is served as static files by nginx from apps/admin/dist
+    // No PM2 process needed — nginx root points to the built dist folder
   ],
 };
