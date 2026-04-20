@@ -52,13 +52,21 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# ── Validate port uniqueness ──
-for port in "${API_PORT}" "${ADMIN_PORT}"; do
-  if ss -tlnp | grep -q ":${port} "; then
-    echo "ERROR: Port ${port} is already in use. Choose different ports."
-    exit 1
-  fi
-done
+# ── Validate port uniqueness (skip if re-provisioning existing instance) ──
+INSTANCE_EXISTS=false
+if id "${LINUX_USER}" &>/dev/null || [ -d "${APP_DIR}/.git" ]; then
+  INSTANCE_EXISTS=true
+  echo "  Re-provisioning existing instance '${INSTANCE_ID}' — skipping port conflict check."
+fi
+
+if [ "${INSTANCE_EXISTS}" = false ]; then
+  for port in "${API_PORT}" "${ADMIN_PORT}"; do
+    if ss -tlnp | grep -q ":${port} "; then
+      echo "ERROR: Port ${port} is already in use. Choose different ports."
+      exit 1
+    fi
+  done
+fi
 
 # ── 1. Linux user ──
 echo ""

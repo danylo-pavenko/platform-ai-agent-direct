@@ -201,7 +201,6 @@ platform-ai-agent-direct/
 │       ├── deploy-client.sh            # [CLIENT USER] Pull + build + restart
 │       ├── deploy-landing.sh           # Deploy landing page
 │       ├── dev.sh                      # Local development
-│       ├── deploy.sh                   # SB-specific deploy (legacy)
 │       └── provision.sh                # SB-specific provision (legacy)
 │
 ├── ONBOARDING_INSTRUCTION.md           # Step-by-step client onboarding guide
