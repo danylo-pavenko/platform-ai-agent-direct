@@ -1,7 +1,7 @@
 <template>
   <v-app>
     <!-- Mobile app bar -->
-    <v-app-bar v-if="authStore.isAuthenticated" class="d-md-none" flat height="56">
+    <v-app-bar v-if="authStore.isAuthenticated && mobile" flat height="56">
       <v-app-bar-nav-icon @click="drawer = !drawer" />
       <v-app-bar-title>{{ brandName }}</v-app-bar-title>
     </v-app-bar>

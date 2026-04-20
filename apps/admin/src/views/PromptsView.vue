@@ -341,7 +341,7 @@ function openNewDialog() {
   agentInput.value = '';
   agentDiff.value = null;
   editTab.value = 'manual';
-  const active = prompts.value.find((p) => p.isActive);
+  const active = Array.isArray(prompts.value) ? prompts.value.find((p) => p.isActive) : undefined;
   if (active) {
     newContent.value = active.content;
   }
@@ -357,9 +357,11 @@ async function fetchPrompts() {
   error.value = '';
   try {
     const { data } = await api.get('/prompts');
-    prompts.value = data.data;
+    const raw = data?.data;
+    prompts.value = Array.isArray(raw) ? raw : [];
   } catch {
     error.value = 'Не вдалося завантажити промпти';
+    prompts.value = [];
   } finally {
     loading.value = false;
   }

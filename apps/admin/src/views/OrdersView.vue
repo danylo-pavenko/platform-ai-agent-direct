@@ -223,8 +223,8 @@ async function fetchOrders() {
     if (statusFilter.value) params.status = statusFilter.value;
 
     const { data } = await api.get('/orders', { params });
-    orders.value = data.data;
-    total.value = data.total;
+    orders.value = Array.isArray(data?.data) ? data.data : [];
+    total.value = data?.total ?? 0;
   } catch (e) {
     console.error('Failed to fetch orders', e);
   } finally {

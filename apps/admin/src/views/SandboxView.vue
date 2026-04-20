@@ -553,11 +553,11 @@ function stopReplay() {
 async function loadPrompts() {
   try {
     const { data } = await api.get('/sandbox/prompts');
-    prompts.value = data;
-    const active = data.find((p: PromptOption) => p.isActive);
+    prompts.value = Array.isArray(data) ? data : [];
+    const active = prompts.value.find((p: PromptOption) => p.isActive);
     if (active) selectedPromptId.value = active.id;
   } catch {
-    // silent
+    prompts.value = [];
   }
 }
 

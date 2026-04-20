@@ -149,8 +149,8 @@ async function fetchConversations() {
     if (search.value) params.search = search.value;
 
     const { data } = await api.get('/conversations', { params });
-    conversations.value = data.data;
-    total.value = data.total;
+    conversations.value = Array.isArray(data?.data) ? data.data : [];
+    total.value = data?.total ?? 0;
   } catch (e) {
     console.error('Failed to fetch conversations', e);
   } finally {
