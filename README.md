@@ -18,12 +18,12 @@ server
 ├── /home/agentsadmin/platform-ai-agent-direct/   # Super Admin app (Linux user: agentsadmin)
 │   └── Port 4000 → https://admin.direct-ai-agents.com
 │
-└── /opt/agents/
-    ├── sb/                       # Client 1 (Linux user: agent_sb)
-    │   └── Ports 3100/3101 → api.status-blessed.com + agent.status-blessed.com
-    ├── mb/                       # Client 2 (Linux user: agent_mb)
-    │   └── Ports 3200/3201 → api.mybrand.com + admin.mybrand.com
-    └── ...
+├── /home/blessed/platform-ai-agent-direct/       # Client 1 (Linux user: blessed)
+│   └── Ports 3100/3101 → api.status-blessed.com + agent.status-blessed.com
+│
+├── /home/mb/platform-ai-agent-direct/            # Client 2 (Linux user: mb)
+│   └── Ports 3200/3201 → api.mybrand.com + admin.mybrand.com
+└── ...
 ```
 
 ### Per-client stack
@@ -47,7 +47,7 @@ server
 | Resource | Shared | Per-client |
 |----------|--------|------------|
 | Codebase | Same repo | — |
-| Linux user | — | `agent_{id}` |
+| Linux user | — | `{instance_id}` (e.g. `blessed`, `mb`) |
 | PostgreSQL DB | Server | Separate DB per client |
 | Claude Code account | — | Separate login per user |
 | PM2 processes | — | `{ID}-api`, `-bot`, `-sync`, `-admin` |
@@ -287,16 +287,18 @@ bash infra/scripts/deploy-super-admin.sh
 
 CERTBOT_EMAIL=you@example.com \
 bash infra/scripts/provision-client.sh \
-  sb StatusBlessed api.status-blessed.com agent.status-blessed.com 3100 3101
+  blessed Blessed api.status-blessed.com agent.status-blessed.com 3100 3101
 ```
+
+Script creates Linux user `blessed`, app at `/home/blessed/platform-ai-agent-direct`.
 
 ### Step 4 — Manual steps per client (after provision)
 
 ```bash
-su - agent_sb
+su - blessed
 
 # 1. Fill in credentials
-nano /opt/agents/sb/.env
+nano ~/platform-ai-agent-direct/.env
 # Set: META_APP_ID, META_APP_SECRET, IG_PAGE_ACCESS_TOKEN, IG_PAGE_ID
 # Set: TELEGRAM_BOT_TOKEN, TELEGRAM_MANAGER_GROUP_ID
 
@@ -304,7 +306,7 @@ nano /opt/agents/sb/.env
 claude auth login
 
 # 3. Deploy
-bash /opt/agents/sb/infra/scripts/deploy-client.sh
+bash ~/platform-ai-agent-direct/infra/scripts/deploy-client.sh
 ```
 
 See [ONBOARDING_INSTRUCTION.md](./ONBOARDING_INSTRUCTION.md) for the full step-by-step guide.

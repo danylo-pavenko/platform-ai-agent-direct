@@ -6,13 +6,13 @@
 #   bash provision-client.sh <INSTANCE_ID> <CLIENT_NAME> <API_DOMAIN> <ADMIN_DOMAIN> <API_PORT> <ADMIN_PORT>
 #
 # Example:
-#   bash provision-client.sh sb StatusBlessed api.status-blessed.com agent.status-blessed.com 3100 3101
+#   bash provision-client.sh blessed Blessed api.status-blessed.com agent.status-blessed.com 3100 3101
 #   bash provision-client.sh mb MyBrand api.mybrand.com admin.mybrand.com 3200 3201
 #
 # What this does:
-#   - Creates Linux user agent_{instance_id}
+#   - Creates Linux user {instance_id} (home: /home/{instance_id})
 #   - Creates PostgreSQL DB {instance_id}_agent with a dedicated user
-#   - Creates /opt/agents/{instance_id}/ and clones the platform repo
+#   - Clones the platform repo to /home/{instance_id}/platform-ai-agent-direct
 #   - Generates .env from template with all provided values
 #   - Creates NGINX vhost for API and Admin domains
 #   - Obtains TLS certificates via Certbot
@@ -30,17 +30,27 @@ API_PORT="${5:?Missing API_PORT}"
 ADMIN_PORT="${6:?Missing ADMIN_PORT}"
 
 # ── Config ──
-INSTANCE_ID_UPPER="${INSTANCE_ID^^}"   # uppercase
-LINUX_USER="agent_${INSTANCE_ID}"
-APP_DIR="/opt/agents/${INSTANCE_ID}"
+INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
+LINUX_USER="${INSTANCE_ID}"
+# APP_DIR is derived from the user's home dir — always /home/{user}/platform-ai-agent-direct
+# For existing users, we detect the actual home dir; for new users, default to /home/{user}
+if id "${LINUX_USER}" &>/dev/null; then
+  USER_HOME=$(getent passwd "${LINUX_USER}" | cut -d: -f6)
+else
+  USER_HOME="/home/${LINUX_USER}"
+fi
+APP_DIR="${USER_HOME}/platform-ai-agent-direct"
+
 PG_DB="${INSTANCE_ID}_agent"
 PG_USER="${INSTANCE_ID}_agent"
-PLATFORM_REPO="${PLATFORM_REPO:-https://github.com/danylo-pavenko/platform-ai-agent-direct.git}"
+PLATFORM_REPO="${PLATFORM_REPO:-git@github.com:danylo-pavenko/platform-ai-agent-direct.git}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
 echo "══════════════════════════════════════════════"
 echo "  Platform — Provision Client: ${CLIENT_NAME}"
 echo "  Instance ID: ${INSTANCE_ID_UPPER}"
+echo "  Linux user:  ${LINUX_USER}"
+echo "  App dir:     ${APP_DIR}"
 echo "  API:   https://${API_DOMAIN}"
 echo "  Admin: https://${ADMIN_DOMAIN}"
 echo "  Ports: ${API_PORT} / ${ADMIN_PORT}"
@@ -73,20 +83,26 @@ echo ""
 echo "[1/8] Creating Linux user '${LINUX_USER}'..."
 if ! id "${LINUX_USER}" &>/dev/null; then
   useradd -m -s /bin/bash "${LINUX_USER}"
-  echo "  Created: ${LINUX_USER}"
+  echo "  Created: ${LINUX_USER} (home: /home/${LINUX_USER})"
 else
   echo "  Already exists: ${LINUX_USER}"
 fi
 
-mkdir -p "${APP_DIR}" "${APP_DIR}/uploads"
-chown -R "${LINUX_USER}:${LINUX_USER}" "${APP_DIR}"
-chmod 750 "${APP_DIR}"
+# Re-resolve APP_DIR now that user definitely exists
+USER_HOME=$(getent passwd "${LINUX_USER}" | cut -d: -f6)
+APP_DIR="${USER_HOME}/platform-ai-agent-direct"
 
 # ── 2. PostgreSQL ──
 echo "[2/8] Creating PostgreSQL database '${PG_DB}'..."
 systemctl start postgresql
 
-PG_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+# Reuse existing password if re-provisioning
+if [ -f "${APP_DIR}/.env" ]; then
+  PG_PASS=$(grep '^DATABASE_URL=' "${APP_DIR}/.env" | sed -E 's|.*:([^@]+)@.*|\1|')
+  echo "  Using existing DB password from .env"
+else
+  PG_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+fi
 
 sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${PG_USER}'" | grep -q 1 || \
   sudo -u postgres psql -c "CREATE USER ${PG_USER} WITH PASSWORD '${PG_PASS}';"
@@ -99,13 +115,26 @@ echo "  Database: ${PG_DB}, User: ${PG_USER}"
 
 # ── 3. Clone platform repo ──
 echo "[3/8] Cloning platform repo to ${APP_DIR}..."
-if [ ! -d "${APP_DIR}/.git" ]; then
-  sudo -u "${LINUX_USER}" git clone "${PLATFORM_REPO}" "${APP_DIR}"
-  echo "  Cloned from ${PLATFORM_REPO}"
-else
+if [ -d "${APP_DIR}/.git" ]; then
   echo "  Repo already exists — pulling latest..."
   sudo -u "${LINUX_USER}" git -C "${APP_DIR}" pull --ff-only
+elif [ -d "${APP_DIR}" ]; then
+  # Dir exists but is not a git repo (e.g. partially set up) — clone into it
+  echo "  Dir exists but is not a git repo — merging clone into it..."
+  TMPDIR_CLONE=$(mktemp -d)
+  sudo -u "${LINUX_USER}" git clone "${PLATFORM_REPO}" "${TMPDIR_CLONE}/repo"
+  cp -a "${TMPDIR_CLONE}/repo/." "${APP_DIR}/"
+  rm -rf "${TMPDIR_CLONE}"
+  echo "  Cloned from ${PLATFORM_REPO}"
+else
+  sudo -u "${LINUX_USER}" git clone "${PLATFORM_REPO}" "${APP_DIR}"
+  echo "  Cloned from ${PLATFORM_REPO}"
 fi
+
+# Ensure uploads dir and permissions
+mkdir -p "${APP_DIR}/uploads"
+chown -R "${LINUX_USER}:${LINUX_USER}" "${APP_DIR}"
+chmod 750 "${APP_DIR}"
 
 # ── 4. Generate .env ──
 echo "[4/8] Generating .env for ${INSTANCE_ID_UPPER}..."
@@ -230,10 +259,14 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/${ADMIN_DOMAIN}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
     location / {
         proxy_pass http://127.0.0.1:${ADMIN_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 
@@ -249,11 +282,17 @@ server {
 
     client_max_body_size 10m;
 
+    add_header X-Frame-Options "DENY" always;
+    add_header X-Content-Type-Options "nosniff" always;
+
     location / {
         proxy_pass http://127.0.0.1:${API_PORT};
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 
@@ -283,6 +322,8 @@ if [ "${SA_DB_EXISTS}" = "1" ]; then
       name = EXCLUDED.name,
       api_domain = EXCLUDED.api_domain,
       admin_domain = EXCLUDED.admin_domain,
+      linux_user = EXCLUDED.linux_user,
+      app_dir = EXCLUDED.app_dir,
       status = 'provisioned',
       updated_at = NOW();
   " 2>/dev/null && echo "  Registered in super-admin DB" || echo "  (tenants table not ready yet — register manually)"
@@ -294,7 +335,7 @@ fi
 echo "[8/8] Configuring deploy permissions..."
 SUDOERS_FILE="/etc/sudoers.d/${LINUX_USER}-deploy"
 cat > "${SUDOERS_FILE}" <<SUDOERS
-# Allow ${LINUX_USER} to reload nginx and restart its own PM2 processes
+# Allow ${LINUX_USER} to reload nginx
 ${LINUX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx
 SUDOERS
 chmod 440 "${SUDOERS_FILE}"
