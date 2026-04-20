@@ -42,24 +42,33 @@ function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
 4. НЕ видаляй існуючі правила безпеки, ескалації, заборонені дії.
 5. НЕ додавай нічого, про що адмін не просив.
 
-Відповідай ТІЛЬКИ у форматі:
+Відповідай ТІЛЬКИ у форматі нижче. Якщо потрібно кілька змін — повтори блок ПОЯСНЕННЯ + ЗМІНА для кожної окремо:
 
-ПОЯСНЕННЯ: <1-2 речення, що саме ти змінив і чому саме там>
+ПОЯСНЕННЯ 1: <1-2 речення, що саме змінюється і чому>
 
-ЗМІНА:
+ЗМІНА 1:
 --- БУЛО ---
-<ТОЧНИЙ фрагмент з промпту, який змінюється — скопіюй дослівно>
+<ТОЧНИЙ фрагмент з промпту — скопіюй дослівно>
 --- СТАЛО ---
-<новий варіант цього ж фрагменту з доданими/зміненими частинами>
+<новий варіант цього фрагменту цілком>
 
-ВАЖЛИВО про формат:
-- У "БУЛО" завжди вказуй ТОЧНИЙ існуючий текст з промпту (copy-paste), навіть якщо змінюєш лише частину.
-- У "СТАЛО" — повний замінений варіант цього фрагменту (не тільки додане, а весь блок цілком).
-- Якщо додаєш абсолютно нове правило без аналогу в промпті — "БУЛО" залиш порожнім, а "СТАЛО" — лише новий блок.
-- НЕ виводь весь промпт цілком — тільки змінений фрагмент.
+ПОЯСНЕННЯ 2: <якщо є друга зміна>
 
-Якщо зміна не потрібна (промпт вже покриває запит) — скажи це і поясни де.
-Якщо запит суперечить правилам безпеки (наприклад "давай знижку 50%") — відмов і поясни.
+ЗМІНА 2:
+--- БУЛО ---
+<ТОЧНИЙ фрагмент>
+--- СТАЛО ---
+<новий варіант>
+
+ВАЖЛИВО:
+- У "БУЛО" завжди копіюй ТОЧНИЙ текст з промпту (copy-paste), навіть якщо змінюєш частину блоку.
+- У "СТАЛО" — повний замінений варіант (не тільки нове, а весь блок цілком).
+- Якщо додаєш нове правило без аналогу — "БУЛО" залиш порожнім, "СТАЛО" — новий блок.
+- НЕ виводь весь промпт — тільки змінені фрагменти.
+- Кожен ЗМІНА-блок повинен бути незалежний: застосування одного не повинно ламати інший.
+
+Якщо зміна не потрібна (промпт вже покриває) — скажи це і поясни де.
+Якщо запит суперечить правилам безпеки — відмов і поясни.
 
 <current_prompt>
 ${currentPromptContent}
@@ -67,45 +76,128 @@ ${currentPromptContent}
 }
 
 /**
- * Parse the meta-agent response to extract a suggested diff.
+ * Parse the meta-agent response to extract the LAST suggested diff.
  *
- * Expected format:
- *   ПОЯСНЕННЯ: ...
- *   ЗМІНА:
+ * When the meta-agent returns multiple ЗМІНА blocks, we take the LAST one —
+ * it corresponds to what the UI shows in the diff panel (the final change).
+ *
+ * Expected format (one or more blocks):
+ *   ПОЯСНЕННЯ [N]: ...
+ *   ЗМІНА [N]:
  *   --- БУЛО ---
  *   ...old text...
  *   --- СТАЛО ---
  *   ...new text...
  *
- * We are lenient with whitespace and optional trailing markers.
+ * We are lenient with whitespace and optional numbering.
  */
 function parseDiff(text: string): SuggestedDiff | null {
-  // Extract summary from ПОЯСНЕННЯ line
-  const summaryMatch = text.match(/ПОЯСНЕННЯ:\s*(.+?)(?:\n|$)/);
-  const summary = summaryMatch ? summaryMatch[1].trim() : '';
+  // Find all occurrences of --- БУЛО --- to identify how many diff blocks exist
+  const buloMarker = '--- БУЛО ---';
+  const staloMarker = '--- СТАЛО ---';
 
-  // Look for БУЛО / СТАЛО markers (lenient with surrounding whitespace/dashes)
-  const buloIdx = text.indexOf('--- БУЛО ---');
-  const staloIdx = text.indexOf('--- СТАЛО ---');
+  // Collect all (buloIdx, staloIdx) pairs
+  const pairs: Array<{ buloIdx: number; staloIdx: number }> = [];
+  let searchFrom = 0;
 
-  if (buloIdx === -1 || staloIdx === -1 || staloIdx <= buloIdx) {
-    return null;
+  while (true) {
+    const buloIdx = text.indexOf(buloMarker, searchFrom);
+    if (buloIdx === -1) break;
+    const staloIdx = text.indexOf(staloMarker, buloIdx);
+    if (staloIdx === -1) break;
+    pairs.push({ buloIdx, staloIdx });
+    searchFrom = staloIdx + staloMarker.length;
   }
 
-  // "before" is everything between the end of "--- БУЛО ---" and "--- СТАЛО ---"
-  const afterBuloMarker = buloIdx + '--- БУЛО ---'.length;
+  if (pairs.length === 0) return null;
+
+  // Use the LAST diff block (matches what is visible in the diff panel)
+  const { buloIdx, staloIdx } = pairs[pairs.length - 1];
+
+  // "before" = text between end of --- БУЛО --- and --- СТАЛО ---
+  const afterBuloMarker = buloIdx + buloMarker.length;
   const before = text.slice(afterBuloMarker, staloIdx).trim();
 
-  // "after" is everything after "--- СТАЛО ---" until end of text
-  // (or until another section marker if one exists)
-  const afterStaloMarker = staloIdx + '--- СТАЛО ---'.length;
-  const after = text.slice(afterStaloMarker).trim();
+  // "after" = text from end of --- СТАЛО --- until the next --- БУЛО ---
+  // (stop before the next diff block to avoid polluting the content)
+  const afterStaloMarker = staloIdx + staloMarker.length;
+  const nextBuloIdx = text.indexOf(buloMarker, afterStaloMarker);
+  const after = (nextBuloIdx !== -1
+    ? text.slice(afterStaloMarker, nextBuloIdx)
+    : text.slice(afterStaloMarker)
+  ).trim();
 
-  if (!before && !after) {
-    return null;
+  if (!before && !after) return null;
+
+  // Extract the summary from the ПОЯСНЕННЯ line closest before this diff block.
+  // Handles both "ПОЯСНЕННЯ:" and "ПОЯСНЕННЯ 2:" / "ПОЯСНЕННЯ N:" variants.
+  const textBeforeDiff = text.slice(0, buloIdx);
+  const summaryMatch = textBeforeDiff.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+?)(?:\n|$)/gi);
+  let summary = '';
+  if (summaryMatch && summaryMatch.length > 0) {
+    // Take the last matching ПОЯСНЕННЯ (closest to this diff block)
+    const lastMatch = summaryMatch[summaryMatch.length - 1];
+    const m = lastMatch.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+)/i);
+    if (m) summary = m[1].trim();
   }
 
   return { before, after, summary };
+}
+
+/**
+ * Parse ALL diff blocks from the meta-agent response.
+ * Returns an array (may be empty if no blocks found).
+ * Each block has its own before/after/summary.
+ */
+function parseAllDiffs(text: string): SuggestedDiff[] {
+  const buloMarker = '--- БУЛО ---';
+  const staloMarker = '--- СТАЛО ---';
+  const results: SuggestedDiff[] = [];
+
+  // Find all БУЛО indices
+  const buloPositions: number[] = [];
+  let pos = 0;
+  while (true) {
+    const idx = text.indexOf(buloMarker, pos);
+    if (idx === -1) break;
+    buloPositions.push(idx);
+    pos = idx + buloMarker.length;
+  }
+
+  for (let i = 0; i < buloPositions.length; i++) {
+    const buloIdx = buloPositions[i];
+    const staloIdx = text.indexOf(staloMarker, buloIdx);
+    if (staloIdx === -1) break;
+
+    const afterBuloMarker = buloIdx + buloMarker.length;
+    const before = text.slice(afterBuloMarker, staloIdx).trim();
+
+    const afterStaloMarker = staloIdx + staloMarker.length;
+    // `after` ends at the next БУЛО block (or end of text)
+    const nextBuloIdx = buloPositions[i + 1] ?? -1;
+    // Also stop at the ПОЯСНЕННЯ marker before next block
+    const textAfterStalo = nextBuloIdx !== -1
+      ? text.slice(afterStaloMarker, nextBuloIdx)
+      : text.slice(afterStaloMarker);
+    // Strip trailing ЗМІНА headers
+    const after = textAfterStalo.replace(/\s*ЗМІНА\s*\d*\s*:?\s*$/, '').trim();
+
+    if (!before && !after) continue;
+
+    // Extract summary from the ПОЯСНЕННЯ line just before this diff block
+    const textBeforeBulo = text.slice(0, buloIdx);
+    const allPoyas = textBeforeBulo.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+?)(?:\n|$)/gi);
+    let summary = '';
+    if (allPoyas && allPoyas.length > 0) {
+      const lastPoyas = allPoyas[allPoyas.length - 1];
+      const m = lastPoyas.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+)/i);
+      if (m) summary = m[1].trim();
+    }
+
+    results.push({ before, after, summary });
+  }
+
+  return results;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,13 +240,14 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         'Meta-agent chat response received',
       );
 
-      // 4. Parse diff from response
-      const suggestedDiff = parseDiff(response.text);
+      // 4. Parse all diffs from response
+      const suggestedDiffs = parseAllDiffs(response.text);
 
-      if (suggestedDiff) {
+      if (suggestedDiffs.length > 0) {
         return {
           reply: response.text,
-          suggestedDiff,
+          suggestedDiff: suggestedDiffs[suggestedDiffs.length - 1], // backward compat: last diff
+          suggestedDiffs, // all diffs for multi-change UI
         };
       }
 
@@ -173,9 +266,10 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
       }
 
-      if (!summary || typeof summary !== 'string' || summary.trim().length === 0) {
-        return reply.code(400).send({ error: 'Change summary is required' });
-      }
+      // summary is optional — fall back to a generic description if not provided
+      const effectiveSummary = (summary && typeof summary === 'string' && summary.trim())
+        ? summary.trim()
+        : 'Зміна через мета-агент (без опису)';
 
       // 1. Fetch current active prompt
       const activePrompt = await prisma.systemPrompt.findFirst({
@@ -237,7 +331,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
             content: newContent,
             author: 'meta_agent',
             authorUserId: request.user.id,
-            changeSummary: summary.trim(),
+            changeSummary: effectiveSummary,
             isActive: true,
           },
         });
@@ -250,7 +344,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
             entityType: 'system_prompt',
             entityId: created.id,
             payload: {
-              summary: summary.trim(),
+              summary: effectiveSummary,
               version: created.version,
             },
           },

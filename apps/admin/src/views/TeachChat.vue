@@ -20,7 +20,7 @@
       <!-- Chat panel -->
       <v-card
         class="d-flex flex-column"
-        :class="currentDiff ? 'chat-with-diff' : 'flex-grow-1'"
+        :class="currentDiffs.length > 0 ? 'chat-with-diff' : 'flex-grow-1'"
         flat
         style="min-height: 0;"
       >
@@ -110,40 +110,82 @@
         </div>
       </v-card>
 
-      <!-- Diff panel -->
-      <v-card v-if="currentDiff" class="diff-panel d-flex flex-column" flat style="min-height: 0;">
+      <!-- Diff panel(s) -->
+      <v-card v-if="currentDiffs.length > 0" class="diff-panel d-flex flex-column" flat style="min-height: 0;">
         <v-card-title class="text-subtitle-2 pa-3 d-flex align-center">
           <v-icon start color="warning" size="20">mdi-file-compare</v-icon>
           Пропоновані зміни
+          <v-chip v-if="currentDiffs.length > 1" size="x-small" color="warning" variant="tonal" class="ml-2">
+            {{ currentDiffs.length }} зміни
+          </v-chip>
         </v-card-title>
 
         <div class="flex-grow-1 overflow-y-auto px-3 pb-3">
-          <v-alert type="info" variant="tonal" density="compact" class="mb-3 text-body-2">
-            {{ currentDiff.summary }}
-          </v-alert>
+          <div
+            v-for="(diff, idx) in currentDiffs"
+            :key="idx"
+            class="diff-item mb-4"
+            :class="{ 'diff-item-applied': appliedIndexes.has(idx) }"
+          >
+            <!-- Зміна N / Applied badge -->
+            <div class="d-flex align-center ga-2 mb-2">
+              <span class="text-caption font-weight-bold text-grey">
+                {{ currentDiffs.length > 1 ? `ЗМІНА ${idx + 1}` : 'ЗМІНА' }}
+              </span>
+              <v-chip v-if="appliedIndexes.has(idx)" size="x-small" color="success" variant="flat">
+                <v-icon start size="10">mdi-check</v-icon>застосовано
+              </v-chip>
+            </div>
 
-          <div class="text-caption font-weight-bold mb-1 text-error d-flex align-center">
-            <v-icon size="14" color="error" class="mr-1">mdi-minus-circle</v-icon>
-            БУЛО
-          </div>
-          <pre class="diff-block diff-before mb-3">{{ currentDiff.before }}</pre>
+            <v-alert v-if="diff.summary" type="info" variant="tonal" density="compact" class="mb-2 text-body-2">
+              {{ diff.summary }}
+            </v-alert>
 
-          <div class="text-caption font-weight-bold mb-1 text-success d-flex align-center">
-            <v-icon size="14" color="success" class="mr-1">mdi-plus-circle</v-icon>
-            СТАЛО
+            <div class="text-caption font-weight-bold mb-1 text-error d-flex align-center">
+              <v-icon size="14" color="error" class="mr-1">mdi-minus-circle</v-icon>
+              БУЛО
+            </div>
+            <pre class="diff-block diff-before mb-2">{{ diff.before || '(порожньо — нове правило)' }}</pre>
+
+            <div class="text-caption font-weight-bold mb-1 text-success d-flex align-center">
+              <v-icon size="14" color="success" class="mr-1">mdi-plus-circle</v-icon>
+              СТАЛО
+            </div>
+            <pre class="diff-block diff-after mb-2">{{ diff.after }}</pre>
+
+            <!-- Per-diff apply button -->
+            <div class="d-flex justify-end">
+              <v-btn
+                v-if="!appliedIndexes.has(idx)"
+                color="primary"
+                size="x-small"
+                variant="tonal"
+                :loading="applyingIndex === idx"
+                :disabled="applyingIndex !== null && applyingIndex !== idx"
+                @click="applyDiffAt(idx)"
+              >
+                <v-icon start size="14">mdi-check</v-icon>
+                Застосувати
+              </v-btn>
+            </div>
           </div>
-          <pre class="diff-block diff-after">{{ currentDiff.after }}</pre>
         </div>
 
         <v-divider />
         <div class="pa-3 d-flex ga-2">
-          <v-btn variant="outlined" size="small" :disabled="applying" @click="rejectDiff">
-            Відхилити
+          <v-btn variant="outlined" size="small" :disabled="applyingIndex !== null" @click="rejectDiff">
+            {{ appliedIndexes.size > 0 ? 'Закрити' : 'Відхилити всі' }}
           </v-btn>
           <v-spacer />
-          <v-btn color="primary" size="small" :loading="applying" @click="applyDiff">
-            <v-icon start size="16">mdi-check</v-icon>
-            Застосувати
+          <v-btn
+            v-if="unappliedDiffs.length > 1"
+            color="primary"
+            size="small"
+            :loading="applyingIndex !== null"
+            @click="applyAllDiffs"
+          >
+            <v-icon start size="16">mdi-check-all</v-icon>
+            Застосувати всі ({{ unappliedDiffs.length }})
           </v-btn>
         </div>
       </v-card>
@@ -156,7 +198,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
+import { ref, computed, nextTick } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 
@@ -176,13 +218,18 @@ interface SuggestedDiff {
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref('');
 const loading = ref(false);
-const currentDiff = ref<SuggestedDiff | null>(null);
-const applying = ref(false);
+const currentDiffs = ref<SuggestedDiff[]>([]);
+const appliedIndexes = ref<Set<number>>(new Set());
+const applyingIndex = ref<number | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
+
+const unappliedDiffs = computed(() =>
+  currentDiffs.value.filter((_, i) => !appliedIndexes.value.has(i)),
+);
 
 function showSnackbar(text: string, color = 'success') {
   snackbarText.value = text;
@@ -197,20 +244,11 @@ function formatMessage(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Bold: **text** or ЗАГОЛОВКИ
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-
-  // Code blocks: ```...```
   html = html.replace(/```([\s\S]*?)```/g, '<pre class="code-inline">$1</pre>');
-
-  // Inline code: `text`
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-  // Section headers: --- БУЛО --- / --- СТАЛО --- / ПОЯСНЕННЯ:
   html = html.replace(/^(---\s*.+?\s*---)/gm, '<strong class="text-primary">$1</strong>');
-  html = html.replace(/^(ПОЯСНЕННЯ:)/gm, '<strong class="text-info">$1</strong>');
-
-  // Line breaks
+  html = html.replace(/^(ПОЯСНЕННЯ(?:\s*\d+)?:)/gm, '<strong class="text-info">$1</strong>');
   html = html.replace(/\n/g, '<br>');
 
   return html;
@@ -230,7 +268,8 @@ async function sendMessage() {
   messages.value.push({ role: 'user', content: text });
   inputText.value = '';
   loading.value = true;
-  currentDiff.value = null;
+  currentDiffs.value = [];
+  appliedIndexes.value = new Set();
   await scrollToBottom();
 
   try {
@@ -241,8 +280,10 @@ async function sendMessage() {
 
     messages.value.push({ role: 'assistant', content: data.reply });
 
-    if (data.suggestedDiff) {
-      currentDiff.value = data.suggestedDiff;
+    if (data.suggestedDiffs && data.suggestedDiffs.length > 0) {
+      currentDiffs.value = data.suggestedDiffs;
+    } else if (data.suggestedDiff) {
+      currentDiffs.value = [data.suggestedDiff];
     }
   } catch (e: any) {
     const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
@@ -254,31 +295,48 @@ async function sendMessage() {
   }
 }
 
-async function applyDiff() {
-  if (!currentDiff.value) return;
-  applying.value = true;
+async function applyDiffAt(idx: number) {
+  const diff = currentDiffs.value[idx];
+  if (!diff || applyingIndex.value !== null) return;
+
+  applyingIndex.value = idx;
   try {
     await api.post('/meta-agent/apply', {
-      before: currentDiff.value.before,
-      after: currentDiff.value.after,
-      summary: currentDiff.value.summary,
+      before: diff.before,
+      after: diff.after,
+      summary: diff.summary,
     });
-    showSnackbar('Промпт оновлено!');
-    currentDiff.value = null;
+    appliedIndexes.value = new Set([...appliedIndexes.value, idx]);
+    showSnackbar(
+      currentDiffs.value.length > 1
+        ? `Зміна ${idx + 1} застосована!`
+        : 'Промпт оновлено!',
+    );
   } catch (e: any) {
     showSnackbar(e.response?.data?.error || 'Не вдалося застосувати', 'error');
   } finally {
-    applying.value = false;
+    applyingIndex.value = null;
   }
 }
 
+async function applyAllDiffs() {
+  for (let i = 0; i < currentDiffs.value.length; i++) {
+    if (!appliedIndexes.value.has(i)) {
+      await applyDiffAt(i);
+    }
+  }
+  showSnackbar('Всі зміни застосовано!');
+}
+
 function rejectDiff() {
-  currentDiff.value = null;
+  currentDiffs.value = [];
+  appliedIndexes.value = new Set();
 }
 
 function clearChat() {
   messages.value = [];
-  currentDiff.value = null;
+  currentDiffs.value = [];
+  appliedIndexes.value = new Set();
   inputText.value = '';
 }
 </script>
