@@ -262,6 +262,18 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
 
+    # API proxy — /api/* → backend (strips /api prefix)
+    location /api/ {
+        proxy_pass http://127.0.0.1:${API_PORT}/;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Admin SPA
     location / {
         proxy_pass http://127.0.0.1:${ADMIN_PORT};
         proxy_set_header Host \$host;
