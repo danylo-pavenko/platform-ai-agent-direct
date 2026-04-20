@@ -245,6 +245,7 @@
                   <td>
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)">💬 Chat</button>
+                      <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id">
                         {{ deploying===t.id ? '...' : '🚀 Deploy' }}
                       </button>
@@ -496,7 +497,17 @@ createApp({
 
     function openEditModal(t) {
       modal.editing = t.id;
-      modal.form = { ...t };
+      modal.form = {
+        instanceId: t.instanceId,
+        name: t.name,
+        apiDomain: t.apiDomain,
+        adminDomain: t.adminDomain,
+        apiPort: t.apiPort,
+        adminPort: t.adminPort,
+        linuxUser: t.linuxUser,
+        appDir: t.appDir,
+        status: t.status,
+      };
       modal.open = true;
     }
 

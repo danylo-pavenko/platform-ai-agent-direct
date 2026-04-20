@@ -15,8 +15,8 @@ Managed from a central **Super Admin** dashboard.
 
 ```
 server
-├── /opt/platform-admin/          # Super Admin app (Linux user: platform_admin)
-│   └── Port 4000/4001 → https://admin.yourplatform.com
+├── /home/agentsadmin/platform-ai-agent-direct/   # Super Admin app (Linux user: agentsadmin)
+│   └── Port 4000 → https://admin.direct-ai-agents.com
 │
 └── /opt/agents/
     ├── sb/                       # Client 1 (Linux user: agent_sb)
@@ -37,7 +37,7 @@ server
 │  Admin API ──┘           │               CLI        │
 │  Sync Worker ────→ Catalog ──→ PostgreSQL (own DB)  │
 │                                                     │
-│  Admin Panel (Vue 3 + Vuetify)                      │
+│  Admin Panel (Vue 3 + Vuetify 3)                    │
 │  Nginx vhost → client's own domain                  │
 └────────────────────────────────────────────────────┘
 ```
@@ -61,11 +61,13 @@ server
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Node.js 20+, TypeScript, Fastify, Prisma 7 (PostgreSQL) |
-| Frontend | Vue 3, Vuetify 4, Vite, Pinia, Vue Router |
+| Backend | Node.js 20+, TypeScript, Fastify, Prisma 6 (PostgreSQL) |
+| Frontend (admin) | Vue 3, Vuetify 3, Vite, Pinia, Vue Router 4 |
+| Super Admin | Fastify + vanilla HTML/JS (single-page, no build step) |
 | Telegram | grammY framework, long polling |
 | AI inference | Claude Code headless CLI (`claude -p`), NOT Anthropic API |
 | CRM | KeyCRM (pluggable, can be `none`) |
+| Delivery | Nova Poshta API v2 |
 | Process manager | PM2 |
 | Reverse proxy | Nginx + Let's Encrypt |
 
@@ -76,24 +78,26 @@ server
 ### Core (per-client)
 - **Instagram DM automation** — webhook receiver, Claude-powered responses, message splitting for >1000 chars
 - **Smart conversation routing** — bot / handoff / paused states, working hours awareness
-- **Catalog sync** — periodic KeyCRM fetch, smart filtering
+- **Shared post handling** — agent identifies garment type, color, print from IG post; matches CRM catalog; shows size chart
+- **Catalog sync** — periodic KeyCRM fetch, smart filtering, `catalog.txt` snapshot for Claude
 - **Order collection** — Claude collects order details via structured tool calls, sends to TG for manager approval
+- **Delivery cost** — Nova Poshta API v2 integration, `get_delivery_cost` tool for Claude
 - **Handoff to humans** — keyword + AI-based escalation, TG notifications with inline actions
 
 ### Admin Panel (per-client)
 - **Conversations** — full chat history, search, filters, manual reply
-- **System Prompts** — versioned prompt management, activate/rollback, diff view
+- **System Prompts** — versioned prompt management, activate/rollback
 - **Meta-Agent (Teach Chat)** — describe changes in natural language, AI proposes prompt edits
 - **Sandbox** — Instagram DM-style test chat, save up to 15 test cases, step-by-step replay
-- **Settings** — working hours, handoff keywords, feature flags
+- **Settings** — working hours, handoff keywords, integrations (KeyCRM, Nova Poshta), feature flags
 - **Orders** — list with status filters, manager actions
 - **Sync** — manual trigger, run history, status monitoring
 
 ### Super Admin (platform-level)
-- **Tenant management** — list all clients, status, provisioning date
+- **Tenant management** — list/add/edit/delete clients, status, domains, ports
 - **Deploy control** — trigger deploy per client
 - **Health overview** — PM2 status across all instances
-- **Metrics** — per-tenant conversation/order counts
+- **Test chat** — built-in chat panel to test any client's agent
 
 ---
 
@@ -106,31 +110,103 @@ platform-ai-agent-direct/
 │   │   ├── src/
 │   │   │   ├── server.ts               # Fastify API (PM2: {ID}-api)
 │   │   │   ├── telegram-bot.ts         # grammY bot (PM2: {ID}-bot)
-│   │   │   ├── sync-worker.ts          # CRM sync (PM2: {ID}-sync)
+│   │   │   ├── sync-worker.ts          # KeyCRM sync (PM2: {ID}-sync)
 │   │   │   ├── config.ts               # Zod-validated env
-│   │   │   ├── routes/                 # webhooks, auth, conversations, prompts,
-│   │   │   │                           # settings, orders, sync, meta-agent, sandbox
-│   │   │   ├── services/               # claude, instagram, conversation, prompt-builder,
-│   │   │   │                           # keycrm, order, telegram-notify, media
-│   │   │   └── lib/                    # prisma, auth, queue, ig-signature, sanitize
-│   │   └── prisma.config.ts
-│   ├── admin/                          # Vue 3 SPA (PM2: {ID}-admin)
-│   └── workspace/                      # Claude agent context
-│       ├── knowledge/                  # brand, contacts, delivery, faq, catalog
-│       └── prompts/                    # sales-agent.txt, meta-agent.txt, regression-tests.json
+│   │   │   ├── routes/
+│   │   │   │   ├── webhooks.ts         # IG webhook receiver
+│   │   │   │   ├── conversations.ts
+│   │   │   │   ├── prompts.ts
+│   │   │   │   ├── settings.ts         # incl. /nova-poshta/resolve-city
+│   │   │   │   ├── orders.ts
+│   │   │   │   ├── sync.ts
+│   │   │   │   ├── sandbox.ts
+│   │   │   │   ├── meta-agent.ts       # Teach Chat
+│   │   │   │   ├── meta-oauth.ts       # Facebook OAuth flow
+│   │   │   │   ├── dashboard.ts
+│   │   │   │   └── admin-auth.ts
+│   │   │   ├── services/
+│   │   │   │   ├── claude.ts           # headless CLI wrapper
+│   │   │   │   ├── conversation.ts     # main message handler
+│   │   │   │   ├── prompt-builder.ts   # runtime prompt assembly
+│   │   │   │   ├── instagram.ts        # IG Graph API client
+│   │   │   │   ├── ig-profile.ts       # profile fetch + cache
+│   │   │   │   ├── ig-history.ts       # IG conversation history
+│   │   │   │   ├── keycrm.ts           # KeyCRM API client
+│   │   │   │   ├── nova-poshta.ts      # NP API v2 delivery cost
+│   │   │   │   ├── order.ts            # order builder
+│   │   │   │   ├── product-search.ts   # catalog search
+│   │   │   │   ├── media.ts            # image download helper
+│   │   │   │   └── telegram-notify.ts  # TG notifications
+│   │   │   ├── lib/
+│   │   │   │   ├── prisma.ts
+│   │   │   │   ├── auth.ts
+│   │   │   │   ├── queue.ts            # in-memory concurrency queue
+│   │   │   │   ├── ig-signature.ts     # HMAC webhook verification
+│   │   │   │   ├── sanitize.ts         # input sanitization
+│   │   │   │   ├── integration-config.ts # DB-first integration settings
+│   │   │   │   ├── tool-definitions.ts # Claude tool schemas
+│   │   │   │   └── telegram.ts         # Telegram client helper
+│   │   │   ├── prisma/
+│   │   │   │   ├── schema.prisma
+│   │   │   │   ├── migrations/
+│   │   │   │   └── seed.ts
+│   │   │   └── generated/prisma/       # generated Prisma client
+│   │   ├── prisma.config.ts
+│   │   └── tsconfig.json
+│   │
+│   ├── admin/                          # Vue 3 SPA (PM2: {ID}-admin or static via Vite)
+│   │   └── src/views/
+│   │       ├── ConversationsView.vue
+│   │       ├── ConversationDetail.vue
+│   │       ├── PromptsView.vue
+│   │       ├── TeachChat.vue
+│   │       ├── SandboxView.vue
+│   │       ├── SettingsView.vue
+│   │       ├── OrdersView.vue
+│   │       ├── SyncView.vue
+│   │       └── DashboardView.vue
+│   │
+│   ├── super-admin/                    # Super Admin dashboard
+│   │   ├── public/index.html           # Single-page app (Fastify serves it)
+│   │   ├── src/
+│   │   │   ├── server.ts
+│   │   │   ├── routes/tenants.ts
+│   │   │   ├── routes/auth.ts
+│   │   │   └── config.ts
+│   │   └── prisma/schema.prisma        # tenants table
+│   │
+│   └── workspace/                      # Claude agent context (per-client)
+│       ├── knowledge/
+│       │   ├── catalog.txt             # auto-generated by sync worker
+│       │   ├── brand.txt
+│       │   ├── contacts.txt
+│       │   ├── delivery.txt
+│       │   └── faq.txt
+│       └── prompts/
+│           └── sales-agent.txt
+│
 ├── infra/
+│   ├── landing/
+│   │   ├── index.html                  # Platform landing page
+│   │   └── og-image.html               # OG image template
 │   ├── nginx/
-│   │   └── sb-agent.conf               # Reference nginx config
+│   │   ├── platform.conf               # Super Admin nginx config
+│   │   └── sb-agent.conf               # Client nginx config reference
 │   └── scripts/
 │       ├── provision-server.sh         # [ROOT] One-time server setup
-│       ├── provision-super-admin.sh    # [ROOT] Set up super admin dashboard
+│       ├── provision-super-admin.sh    # [ROOT] Set up super admin
 │       ├── provision-client.sh         # [ROOT] Onboard new client
+│       ├── provision-platform.sh       # [ROOT] Full platform provision
+│       ├── deploy-super-admin.sh       # [agentsadmin] Build + restart super admin
 │       ├── deploy-client.sh            # [CLIENT USER] Pull + build + restart
+│       ├── deploy-landing.sh           # Deploy landing page
 │       ├── dev.sh                      # Local development
-│       ├── deploy.sh                   # Legacy SB-specific deploy
-│       └── provision.sh                # Legacy SB-specific provision
+│       ├── deploy.sh                   # SB-specific deploy (legacy)
+│       └── provision.sh                # SB-specific provision (legacy)
+│
 ├── ONBOARDING_INSTRUCTION.md           # Step-by-step client onboarding guide
-├── ecosystem.config.cjs                # PM2 config (reads INSTANCE_ID from env)
+├── ecosystem.config.cjs                # PM2 config for client instances
+├── ecosystem.super-admin.config.cjs    # PM2 config for super admin
 ├── .env.example
 └── package.json
 ```
@@ -195,13 +271,15 @@ Installs: Node.js, PM2, Nginx, Certbot, PostgreSQL, UFW.
 ### Step 2 — Super Admin dashboard
 
 ```bash
-SUPER_ADMIN_DOMAIN=admin.yourplatform.com \
-CERTBOT_EMAIL=you@example.com \
-SUPER_ADMIN_REPO=https://github.com/yourorg/platform-super-admin.git \
 bash infra/scripts/provision-super-admin.sh
 ```
 
-Creates Linux user `platform_admin`, DB `platform_admin`, deploys super admin app.
+Creates Linux user `agentsadmin`, DB `platform_admin`, deploys super admin on port 4000.
+
+To redeploy after code changes:
+```bash
+bash infra/scripts/deploy-super-admin.sh
+```
 
 ### Step 3 — Onboard a client
 
@@ -238,7 +316,7 @@ See [ONBOARDING_INSTRUCTION.md](./ONBOARDING_INSTRUCTION.md) for the full step-b
 
 | Instance | API Port | Admin Port | PM2 Prefix |
 |----------|----------|-----------|------------|
-| Super Admin | 4000 | 4001 | SA- |
+| Super Admin | 4000 | — | SA- |
 | Status Blessed | 3100 | 3101 | SB- |
 | Client 2 | 3200 | 3201 | C2- |
 | Client 3 | 3300 | 3301 | C3- |
@@ -254,7 +332,8 @@ Processes are prefixed with `INSTANCE_ID` (uppercase):
 | `{ID}-api` | Fastify backend |
 | `{ID}-bot` | Telegram bot |
 | `{ID}-sync` | CRM sync worker |
-| `{ID}-admin` | Vue SPA serving |
+| `{ID}-admin` | Vue SPA serving (via `vite preview`) |
+| `SA-api` | Super Admin (fixed name) |
 
 ---
 
@@ -272,6 +351,9 @@ See `.env.example` for the full list. Key groups:
 | Claude | `CLAUDE_MAX_CONCURRENCY`, `CLAUDE_TIMEOUT_MS`, `CLAUDE_MODEL` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRES_IN` |
 | CRM | `CRM_PROVIDER`, `KEYCRM_API_KEY` |
+| Delivery | `NOVA_POSHTA_API_KEY` (or set via Admin → Settings) |
+
+Super Admin uses a separate `.env.super-admin` file.
 
 ---
 
