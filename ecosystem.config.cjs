@@ -31,7 +31,13 @@ module.exports = {
       autorestart: false,
       env: { NODE_ENV: 'production' },
     },
-    // Admin SPA is served as static files by nginx from apps/admin/dist
-    // No PM2 process needed — nginx root points to the built dist folder
+    {
+      name: `${prefix}-admin`,
+      cwd: './apps/admin',
+      script: 'node_modules/.bin/serve',
+      args: `-s dist -l ${process.env.ADMIN_PORT || 3101}`,
+      instances: 1,
+      env: { NODE_ENV: 'production' },
+    },
   ],
 };

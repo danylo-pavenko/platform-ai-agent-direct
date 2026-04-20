@@ -249,7 +249,7 @@ done
 
 # Install full HTTPS NGINX config
 cat > "${NGINX_CONF}" <<NGINX
-# ${CLIENT_NAME} (${INSTANCE_ID_UPPER}) — Admin SPA (static files from dist)
+# ${CLIENT_NAME} (${INSTANCE_ID_UPPER}) — Admin SPA
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
@@ -262,19 +262,11 @@ server {
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
 
-    root ${APP_DIR}/apps/admin/dist;
-    index index.html;
-
-    # SPA fallback — all routes → index.html
     location / {
-        try_files \$uri \$uri/ /index.html;
-    }
-
-    # Cache hashed static assets for 1 year
-    location ~* \.(js|css|woff2?|ttf|eot|svg|png|jpg|ico)\$ {
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
+        proxy_pass http://127.0.0.1:${ADMIN_PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 
