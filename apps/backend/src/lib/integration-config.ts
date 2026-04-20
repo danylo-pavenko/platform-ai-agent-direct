@@ -1,5 +1,5 @@
 /**
- * Integration config — reads from DB settings with .env fallback.
+ * Integration config - reads from DB settings with .env fallback.
  *
  * Stored in the `settings` table under three keys:
  *   integration_meta      → { appId, appSecret, pageId, pageAccessToken, verifyToken }
@@ -36,10 +36,17 @@ export interface IntegrationKeycrm {
   syncIntervalMin: number;
 }
 
+export interface IntegrationNovaPoshta {
+  apiKey: string;
+  senderCity: string;
+  senderCityRef: string;
+}
+
 export interface IntegrationConfig {
   meta: IntegrationMeta;
   telegram: IntegrationTelegram;
   keycrm: IntegrationKeycrm;
+  novaposhta: IntegrationNovaPoshta;
 }
 
 let _cache: IntegrationConfig | null = null;
@@ -54,7 +61,7 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
   const rows = await prisma.setting.findMany({
     where: {
       key: {
-        in: ['integration_meta', 'integration_telegram', 'integration_keycrm'],
+        in: ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'],
       },
     },
   });
@@ -67,6 +74,7 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
   const m = (db['integration_meta'] ?? {}) as Partial<IntegrationMeta>;
   const t = (db['integration_telegram'] ?? {}) as Partial<IntegrationTelegram>;
   const k = (db['integration_keycrm'] ?? {}) as Partial<IntegrationKeycrm>;
+  const np = (db['integration_novaposhta'] ?? {}) as Partial<IntegrationNovaPoshta>;
 
   _cache = {
     meta: {
@@ -85,6 +93,11 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
       apiKey:          k.apiKey           || config.KEYCRM_API_KEY,
       syncIntervalMin: k.syncIntervalMin  ?? config.KEYCRM_SYNC_INTERVAL_MIN,
     },
+    novaposhta: {
+      apiKey:          np.apiKey          || config.NOVA_POSHTA_API_KEY,
+      senderCity:      np.senderCity      || 'Київ',
+      senderCityRef:   np.senderCityRef   || '8d5a980d-391c-11dd-90d9-001a92567626',
+    },
   };
 
   _cacheAt = Date.now();
@@ -96,9 +109,10 @@ export function invalidateIntegrationConfigCache(): void {
   _cacheAt = 0;
 }
 
-/** Sensitive field names — masked as "••••••" in GET responses */
+/** Sensitive field names - masked as "••••••" in GET responses */
 export const SENSITIVE_FIELDS: Record<string, string[]> = {
-  integration_meta:     ['appSecret', 'pageAccessToken'],
-  integration_telegram: ['botToken', 'adminPassword'],
-  integration_keycrm:   ['apiKey'],
+  integration_meta:        ['appSecret', 'pageAccessToken'],
+  integration_telegram:    ['botToken', 'adminPassword'],
+  integration_keycrm:      ['apiKey'],
+  integration_novaposhta:  ['apiKey'],
 };

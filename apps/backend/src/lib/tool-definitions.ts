@@ -4,11 +4,11 @@ export const salesAgentTools: ToolDefinition[] = [
   {
     // Saves customer contact and delivery information to their profile.
     // Claude should call this as soon as the client shares a phone number,
-    // full name, or Nova Poshta delivery details — even mid-conversation,
+    // full name, or Nova Poshta delivery details - even mid-conversation,
     // without waiting for the order to be placed.
     name: 'update_client_info',
     description:
-      'Зберегти контактні або доставочні дані клієнта. Викликай одразу, як тільки клієнт назвав ПІБ, телефон, місто чи відділення НП — не чекай кінця оформлення замовлення.',
+      'Зберегти контактні або доставочні дані клієнта. Викликай одразу, як тільки клієнт назвав ПІБ, телефон, місто чи відділення НП - не чекай кінця оформлення замовлення.',
     parameters: {
       type: 'object',
       properties: {
@@ -38,7 +38,7 @@ export const salesAgentTools: ToolDefinition[] = [
           description: 'Email-адреса клієнта',
         },
       },
-      // All fields are optional — Claude can call with just what it knows
+      // All fields are optional - Claude can call with just what it knows
       required: [],
     },
   },
@@ -60,6 +60,29 @@ export const salesAgentTools: ToolDefinition[] = [
         },
       },
       required: ['tags'],
+    },
+  },
+  {
+    name: 'get_delivery_cost',
+    description:
+      'Отримати вартість доставки Новою Поштою по Украъни. Викликай коли клієнт запитує скільки коштує доставка до його міста. Для міжнародної доставки - ескалюй до менеджера.',
+    parameters: {
+      type: 'object',
+      properties: {
+        city: {
+          type: 'string',
+          description: 'Місто отримувача українською (наприклад "Харків", "Одеса", "Дніпро")',
+        },
+        weight_kg: {
+          type: 'number',
+          description: 'Орієнтовна вага відправлення в кг. Якщо невідома - передай 0.5',
+        },
+        declared_value: {
+          type: 'number',
+          description: 'Оголошена вартість замовлення в грн. Якщо невідома - передай 500',
+        },
+      },
+      required: ['city'],
     },
   },
   {

@@ -2,7 +2,7 @@
  * ig-profile.ts
  *
  * Fetches Instagram user profile information via the Meta Graph API.
- * Called once when a new client first contacts us — gives us their
+ * Called once when a new client first contacts us - gives us their
  * real name and @handle so Claude can address them properly.
  *
  * Endpoint: GET /{igsid}?fields=name,username&access_token={page_token}
@@ -28,7 +28,7 @@ export interface IgUserProfile {
 /**
  * Fetches the Instagram profile for a given IGSID (Instagram-Scoped User ID).
  *
- * Returns null on any error — callers should treat a missing profile
+ * Returns null on any error - callers should treat a missing profile
  * as non-critical and continue with igUserId as the identifier.
  *
  * NOTE: Requires the Instagram account to have granted messaging permissions.
@@ -46,7 +46,7 @@ export async function fetchIgUserProfile(
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: { Accept: 'application/json' },
-      // Short timeout — profile fetch is best-effort, don't block message processing
+      // Short timeout - profile fetch is best-effort, don't block message processing
       signal: AbortSignal.timeout(5_000),
     });
 
@@ -76,7 +76,7 @@ export async function fetchIgUserProfile(
 
     return profile;
   } catch (err) {
-    // AbortError means timeout — log as warn, not error
+    // AbortError means timeout - log as warn, not error
     const isTimeout = err instanceof Error && err.name === 'AbortError';
     (isTimeout ? log.warn : log.error)(
       { err, igScopedUserId },

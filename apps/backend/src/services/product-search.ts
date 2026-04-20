@@ -3,7 +3,7 @@
  *
  * Real-time product availability lookup via KeyCRM API.
  *
- * Used when a client shares an Instagram post with a product photo —
+ * Used when a client shares an Instagram post with a product photo -
  * we extract keywords from the post caption and search KeyCRM for
  * matching ACTIVE products (not archived) that have stock > 0.
  *
@@ -107,7 +107,7 @@ async function fetchActiveOffersForProduct(productId: number): Promise<KeycrmOff
       (offer) => !offer.is_archived && (offer.quantity - offer.in_reserve) > 0,
     );
   } catch (err) {
-    log.warn({ err, productId }, 'Failed to fetch offers for product — skipping');
+    log.warn({ err, productId }, 'Failed to fetch offers for product - skipping');
     return [];
   }
 }
@@ -208,7 +208,7 @@ export async function searchActiveProductsForContext(
     if (activeOffers.length === 0 && product.quantity <= 0) {
       log.debug(
         { productId: product.id, name: product.name },
-        'Skipping product — no available stock',
+        'Skipping product - no available stock',
       );
       continue;
     }
@@ -221,7 +221,7 @@ export async function searchActiveProductsForContext(
         `• ${product.name} | ${priceStr} | В наявності: ${product.quantity} шт`,
       );
     } else {
-      // Product has variants — list available sizes/colors
+      // Product has variants - list available sizes/colors
       const variantLines = activeOffers.map((offer) => {
         const variantDesc = formatVariantProps(offer.properties);
         const available = offer.quantity - offer.in_reserve;
@@ -255,7 +255,7 @@ export async function searchActiveProductsForContext(
 /**
  * Extracts meaningful keywords from an Instagram post caption.
  *
- * Strips hashtags, emojis, and links — keeps only the descriptive words
+ * Strips hashtags, emojis, and links - keeps only the descriptive words
  * that are likely to match a product name in KeyCRM.
  *
  * @example
@@ -276,6 +276,6 @@ export function extractKeywordsFromCaption(caption: string): string {
     // Collapse whitespace
     .replace(/\s+/g, ' ')
     .trim()
-    // Keep first 80 chars — a product name is never this long
+    // Keep first 80 chars - a product name is never this long
     .slice(0, 80);
 }

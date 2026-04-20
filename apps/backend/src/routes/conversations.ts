@@ -4,7 +4,7 @@ import { sendText } from '../services/instagram.js';
 import { importIgConversationHistory } from '../services/ig-history.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
-  // GET / — List conversations
+  // GET / - List conversations
   app.get<{
     Querystring: {
       state?: 'bot' | 'handoff' | 'closed';
@@ -50,7 +50,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return { data, total, page, limit };
   });
 
-  // GET /:id — Get conversation detail with messages
+  // GET /:id - Get conversation detail with messages
   app.get<{
     Params: { id: string };
   }>('/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -70,7 +70,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return conversation;
   });
 
-  // POST /:id/reply — Manual reply from admin
+  // POST /:id/reply - Manual reply from admin
   app.post<{
     Params: { id: string };
     Body: { text: string };
@@ -116,7 +116,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return message;
   });
 
-  // POST /:id/import-ig-history — Import historical IG messages from Graph API
+  // POST /:id/import-ig-history - Import historical IG messages from Graph API
   app.post<{
     Params: { id: string };
   }>('/:id/import-ig-history', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -141,7 +141,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
-  // PUT /clients/:clientId — Manually update client profile from admin
+  // PUT /clients/:clientId - Manually update client profile from admin
   app.put<{
     Params: { clientId: string };
     Body: {

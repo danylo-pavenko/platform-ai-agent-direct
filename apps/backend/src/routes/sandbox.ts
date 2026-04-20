@@ -31,7 +31,7 @@ const MAX_CASES = 15;
 // ---------------------------------------------------------------------------
 
 export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
-  // ── POST /chat — Send message to AI agent (sandbox, isolated) ──────
+  // ── POST /chat - Send message to AI agent (sandbox, isolated) ──────
   app.post<{ Body: ChatBody }>(
     '/chat',
     { onRequest: [app.authenticate] },
@@ -95,7 +95,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── GET /cases — List saved test cases ─────────────────────────────
+  // ── GET /cases - List saved test cases ─────────────────────────────
   app.get(
     '/cases',
     { onRequest: [app.authenticate] },
@@ -107,7 +107,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── POST /cases — Save a test case ─────────────────────────────────
+  // ── POST /cases - Save a test case ─────────────────────────────────
   app.post<{ Body: SaveCaseBody }>(
     '/cases',
     { onRequest: [app.authenticate] },
@@ -141,7 +141,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── PUT /cases/:id — Update a test case ────────────────────────────
+  // ── PUT /cases/:id - Update a test case ────────────────────────────
   app.put<{ Params: { id: string }; Body: SaveCaseBody }>(
     '/cases/:id',
     { onRequest: [app.authenticate] },
@@ -166,7 +166,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── DELETE /cases/:id — Delete a test case ─────────────────────────
+  // ── DELETE /cases/:id - Delete a test case ─────────────────────────
   app.delete<{ Params: { id: string } }>(
     '/cases/:id',
     { onRequest: [app.authenticate] },
@@ -183,7 +183,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── GET /prompts — List all prompts for sandbox selector ───────────
+  // ── GET /prompts - List all prompts for sandbox selector ───────────
   app.get(
     '/prompts',
     { onRequest: [app.authenticate] },

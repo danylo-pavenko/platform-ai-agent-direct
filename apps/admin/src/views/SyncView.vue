@@ -56,23 +56,23 @@
         <template #item.counts="{ item }">
           <template v-if="item.counts">
             <v-chip size="x-small" class="mr-1" variant="outlined">
-              Категорій: {{ item.counts.categories ?? '—' }}
+              Категорій: {{ item.counts.categories ?? '-' }}
             </v-chip>
             <v-chip size="x-small" class="mr-1" variant="outlined">
-              Товарів: {{ item.counts.products ?? '—' }}
+              Товарів: {{ item.counts.products ?? '-' }}
             </v-chip>
             <v-chip size="x-small" variant="outlined">
-              Варіантів: {{ item.counts.offers ?? '—' }}
+              Варіантів: {{ item.counts.offers ?? '-' }}
             </v-chip>
           </template>
-          <span v-else class="text-grey">—</span>
+          <span v-else class="text-grey">-</span>
         </template>
 
         <template #item.errorMessage="{ item }">
           <span v-if="item.status === 'error' && item.errorMessage" class="text-red text-body-2">
             {{ item.errorMessage }}
           </span>
-          <span v-else>—</span>
+          <span v-else>-</span>
         </template>
       </v-data-table>
     </v-card>
@@ -114,12 +114,12 @@ const headers = [
 ];
 
 function formatDate(dateStr?: string): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 
 function calcDuration(start?: string, end?: string): string {
-  if (!start || !end) return '—';
+  if (!start || !end) return '-';
   const ms = new Date(end).getTime() - new Date(start).getTime();
   if (ms < 1000) return `${ms} мс`;
   const seconds = Math.floor(ms / 1000);

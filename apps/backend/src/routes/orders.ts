@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 
 export async function orderRoutes(app: FastifyInstance): Promise<void> {
-  // GET / — List orders
+  // GET / - List orders
   app.get<{
     Querystring: {
       status?: string;
@@ -38,7 +38,7 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
     return { data, total, page, limit };
   });
 
-  // GET /:id — Get single order detail
+  // GET /:id - Get single order detail
   app.get<{
     Params: { id: string };
   }>('/:id', { onRequest: [app.authenticate] }, async (request, reply) => {

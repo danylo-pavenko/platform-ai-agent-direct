@@ -81,7 +81,7 @@ function stateLabel(state: string): string {
 async function main() {
   const cfg = await getIntegrationConfig();
   if (!cfg.telegram.botToken) {
-    log.warn('TELEGRAM_BOT_TOKEN not configured — Telegram bot will not start');
+    log.warn('TELEGRAM_BOT_TOKEN not configured - Telegram bot will not start');
     return;
   }
 
@@ -124,20 +124,20 @@ function buildMenuKeyboard() {
 
 const HELP_TEXT = `Доступні команди:
 
-/start — Привітання
-/login <пароль> — Авторизація менеджера
-/conversations — Список активних розмов
-/takeover <ID> — Взяти розмову собі
-/return <ID> — Повернути розмову боту
-/close <ID> — Закрити розмову
-/help — Ця довідка
+/start - Привітання
+/login <пароль> - Авторизація менеджера
+/conversations - Список активних розмов
+/takeover <ID> - Взяти розмову собі
+/return <ID> - Повернути розмову боту
+/close <ID> - Закрити розмову
+/help - Ця довідка
 
 Після авторизації ви будете отримувати:
 • Сповіщення про ескалації (клієнт просить менеджера)
 • Картки замовлень з кнопками Підтвердити / Відхилити
 • Повідомлення від клієнтів у режимі хендофу`;
 
-// /start — Welcome message
+// /start - Welcome message
 bot.command('start', async (ctx) => {
   try {
     const authorized = await isManagerAuthorized(ctx.from!.id);
@@ -158,7 +158,7 @@ bot.command('start', async (ctx) => {
   }
 });
 
-// /help — Commands list
+// /help - Commands list
 bot.command('help', async (ctx) => {
   try {
     await ctx.reply(HELP_TEXT);
@@ -194,7 +194,7 @@ bot.on('callback_query:data', async (ctx, next) => {
         const label = stateLabel(conv.state);
         const ago = timeAgo(conv.lastMessageAt);
         const id = shortId(conv.id);
-        return `${i + 1}. [${id}] ${clientName} — ${emoji} ${label} — ${ago}`;
+        return `${i + 1}. [${id}] ${clientName} - ${emoji} ${label} - ${ago}`;
       });
 
       await ctx.answerCallbackQuery();
@@ -224,7 +224,7 @@ bot.on('callback_query:data', async (ctx, next) => {
   }
 });
 
-// /login PASSWORD — Manager authentication
+// /login PASSWORD - Manager authentication
 bot.command('login', async (ctx) => {
   try {
     // Try to delete the message containing the password
@@ -273,7 +273,7 @@ bot.command('login', async (ctx) => {
   }
 });
 
-// /conversations — List active conversations
+// /conversations - List active conversations
 bot.command('conversations', async (ctx) => {
   try {
     const conversations = await prisma.conversation.findMany({
@@ -296,7 +296,7 @@ bot.command('conversations', async (ctx) => {
       const ago = timeAgo(conv.lastMessageAt);
       const id = shortId(conv.id);
 
-      return `${i + 1}. [${id}] ${channel} ${clientName} — ${emoji} ${label} — ${ago}`;
+      return `${i + 1}. [${id}] ${channel} ${clientName} - ${emoji} ${label} - ${ago}`;
     });
 
     await ctx.reply(`Активні розмови:\n${lines.join('\n')}`);
@@ -306,7 +306,7 @@ bot.command('conversations', async (ctx) => {
   }
 });
 
-// /takeover CONV_ID — Take over conversation
+// /takeover CONV_ID - Take over conversation
 bot.command('takeover', async (ctx) => {
   try {
     const prefix = ctx.match?.trim();
@@ -346,7 +346,7 @@ bot.command('takeover', async (ctx) => {
   }
 });
 
-// /return CONV_ID — Return conversation to bot
+// /return CONV_ID - Return conversation to bot
 bot.command('return', async (ctx) => {
   try {
     const prefix = ctx.match?.trim();
@@ -380,7 +380,7 @@ bot.command('return', async (ctx) => {
   }
 });
 
-// /close CONV_ID — Close conversation
+// /close CONV_ID - Close conversation
 bot.command('close', async (ctx) => {
   try {
     const prefix = ctx.match?.trim();

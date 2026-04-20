@@ -29,11 +29,11 @@ interface SuggestedDiff {
 // ---------------------------------------------------------------------------
 
 function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
-  return `Ти — редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
+  return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
 
 Контекст:
 - Поточний активний системний промпт агента наведений нижче в блоці <current_prompt>.
-- Адміністратор магазину дає тобі інструкцію в чаті — як змінити поведінку бота.
+- Адміністратор магазину дає тобі інструкцію в чаті - як змінити поведінку бота.
 
 Твоя задача:
 1. Зрозуми, що саме адмін хоче змінити.
@@ -42,13 +42,13 @@ function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
 4. НЕ видаляй існуючі правила безпеки, ескалації, заборонені дії.
 5. НЕ додавай нічого, про що адмін не просив.
 
-Відповідай ТІЛЬКИ у форматі нижче. Якщо потрібно кілька змін — повтори блок ПОЯСНЕННЯ + ЗМІНА для кожної окремо:
+Відповідай ТІЛЬКИ у форматі нижче. Якщо потрібно кілька змін - повтори блок ПОЯСНЕННЯ + ЗМІНА для кожної окремо:
 
 ПОЯСНЕННЯ 1: <1-2 речення, що саме змінюється і чому>
 
 ЗМІНА 1:
 --- БУЛО ---
-<ТОЧНИЙ фрагмент з промпту — скопіюй дослівно>
+<ТОЧНИЙ фрагмент з промпту - скопіюй дослівно>
 --- СТАЛО ---
 <новий варіант цього фрагменту цілком>
 
@@ -62,13 +62,13 @@ function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
 
 ВАЖЛИВО:
 - У "БУЛО" завжди копіюй ТОЧНИЙ текст з промпту (copy-paste), навіть якщо змінюєш частину блоку.
-- У "СТАЛО" — повний замінений варіант (не тільки нове, а весь блок цілком).
-- Якщо додаєш нове правило без аналогу — "БУЛО" залиш порожнім, "СТАЛО" — новий блок.
-- НЕ виводь весь промпт — тільки змінені фрагменти.
+- У "СТАЛО" - повний замінений варіант (не тільки нове, а весь блок цілком).
+- Якщо додаєш нове правило без аналогу - "БУЛО" залиш порожнім, "СТАЛО" - новий блок.
+- НЕ виводь весь промпт - тільки змінені фрагменти.
 - Кожен ЗМІНА-блок повинен бути незалежний: застосування одного не повинно ламати інший.
 
-Якщо зміна не потрібна (промпт вже покриває) — скажи це і поясни де.
-Якщо запит суперечить правилам безпеки — відмов і поясни.
+Якщо зміна не потрібна (промпт вже покриває) - скажи це і поясни де.
+Якщо запит суперечить правилам безпеки - відмов і поясни.
 
 <current_prompt>
 ${currentPromptContent}
@@ -78,7 +78,7 @@ ${currentPromptContent}
 /**
  * Parse the meta-agent response to extract the LAST suggested diff.
  *
- * When the meta-agent returns multiple ЗМІНА blocks, we take the LAST one —
+ * When the meta-agent returns multiple ЗМІНА blocks, we take the LAST one -
  * it corresponds to what the UI shows in the diff panel (the final change).
  *
  * Expected format (one or more blocks):
@@ -205,7 +205,7 @@ function parseAllDiffs(text: string): SuggestedDiff[] {
 // ---------------------------------------------------------------------------
 
 export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
-  // POST /chat — Converse with the meta-agent about prompt changes
+  // POST /chat - Converse with the meta-agent about prompt changes
   app.post<{ Body: ChatBody }>(
     '/chat',
     { onRequest: [app.authenticate] },
@@ -255,7 +255,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // POST /apply — Apply a suggested prompt change
+  // POST /apply - Apply a suggested prompt change
   app.post<{ Body: ApplyBody }>(
     '/apply',
     { onRequest: [app.authenticate] },
@@ -266,7 +266,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
       }
 
-      // summary is optional — fall back to a generic description if not provided
+      // summary is optional - fall back to a generic description if not provided
       const effectiveSummary = (summary && typeof summary === 'string' && summary.trim())
         ? summary.trim()
         : 'Зміна через мета-агент (без опису)';
@@ -287,7 +287,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       //   b) `before` is provided but NOT found → 422 error (fragment drifted)
       //   c) `before` is empty → meta-agent is ADDING new content; append to existing
       //
-      // We never save just `after` as the full prompt — that would lose existing content.
+      // We never save just `after` as the full prompt - that would lose existing content.
       let newContent: string;
       if (before && typeof before === 'string' && before.trim()) {
         if (activePrompt.content.includes(before.trim())) {
@@ -296,7 +296,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         } else {
           app.log.warn(
             { beforeLength: before.length },
-            'Meta-agent apply: "before" fragment not found in active prompt — aborting to prevent data loss',
+            'Meta-agent apply: "before" fragment not found in active prompt - aborting to prevent data loss',
           );
           return reply.code(422).send({
             error: 'Фрагмент "БУЛО" не знайдено в поточному промпті. Можливо промпт змінився. Спробуйте ще раз.',
@@ -306,7 +306,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         // Case c: no "before" → append new content to the end of the existing prompt
         app.log.info(
           { afterLength: after.length },
-          'Meta-agent apply: no "before" fragment — appending new content to existing prompt',
+          'Meta-agent apply: no "before" fragment - appending new content to existing prompt',
         );
         newContent = activePrompt.content.trimEnd() + '\n\n' + after.trim();
       }

@@ -55,7 +55,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /settings/meta/oauth-init
    * Authenticated. Returns Facebook OAuth authorization URL.
-   * ?appId= — the App ID to use (must be saved in DB already or passed here).
+   * ?appId= - the App ID to use (must be saved in DB already or passed here).
    */
   app.get<{ Querystring: { appId?: string } }>(
     '/meta/oauth-init',
@@ -85,7 +85,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * GET /settings/meta/oauth-callback
-   * Public — Facebook redirects here after user authorizes.
+   * Public - Facebook redirects here after user authorizes.
    * Exchanges code → short-lived token → long-lived token → pages list.
    * Sends result to opener via postMessage and closes the popup.
    */
@@ -117,7 +117,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
       if (!consumeState(state)) {
         return reply.send(
-          buildPopupHtml({ type: 'meta_oauth_error', error: 'Invalid or expired state — please try again' }),
+          buildPopupHtml({ type: 'meta_oauth_error', error: 'Invalid or expired state - please try again' }),
         );
       }
 
@@ -125,14 +125,14 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       const { meta } = await getIntegrationConfig();
       if (!meta.appId || !meta.appSecret) {
         return reply.send(
-          buildPopupHtml({ type: 'meta_oauth_error', error: 'App ID / App Secret not configured — save them first' }),
+          buildPopupHtml({ type: 'meta_oauth_error', error: 'App ID / App Secret not configured - save them first' }),
         );
       }
 
       const redirectUri = `${getApiBaseUrl()}/settings/meta/oauth-callback`;
 
       try {
-        // Step 1 — exchange code for short-lived user access token
+        // Step 1 - exchange code for short-lived user access token
         const tokenUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
         tokenUrl.searchParams.set('client_id', meta.appId);
         tokenUrl.searchParams.set('client_secret', meta.appSecret);
@@ -144,7 +144,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         if (tokenData.error) throw new Error(tokenData.error.message);
         const shortToken: string = tokenData.access_token;
 
-        // Step 2 — exchange for long-lived user access token (~60 days)
+        // Step 2 - exchange for long-lived user access token (~60 days)
         const llUrl = new URL('https://graph.facebook.com/v19.0/oauth/access_token');
         llUrl.searchParams.set('grant_type', 'fb_exchange_token');
         llUrl.searchParams.set('client_id', meta.appId);
@@ -156,7 +156,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         if (llData.error) throw new Error(llData.error.message);
         const longToken: string = llData.access_token;
 
-        // Step 3 — get managed pages (page tokens derived from long-lived token are also long-lived)
+        // Step 3 - get managed pages (page tokens derived from long-lived token are also long-lived)
         const pagesRes = await fetch(
           `https://graph.facebook.com/v19.0/me/accounts?` +
             new URLSearchParams({ access_token: longToken, fields: 'id,name,access_token' }),

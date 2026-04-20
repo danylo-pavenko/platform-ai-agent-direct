@@ -53,7 +53,7 @@
           </template>
 
           <template #item.client="{ item }">
-            {{ item.client?.displayName || item.client?.igUserId || '—' }}
+            {{ item.client?.displayName || item.client?.igUserId || '-' }}
           </template>
 
           <template #item.state="{ item }">
@@ -130,7 +130,7 @@ function stateColor(state: string): string {
 }
 
 function formatDate(dateStr: string): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 

@@ -4,11 +4,12 @@ import {
   invalidateIntegrationConfigCache,
   SENSITIVE_FIELDS,
 } from '../lib/integration-config.js';
+import { resolveCityRef } from '../services/nova-poshta.js';
 
-const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm'];
+const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
-  // GET / — Get all non-integration settings
+  // GET / - Get all non-integration settings
   app.get('/', { onRequest: [app.authenticate] }, async () => {
     const settings = await prisma.setting.findMany({
       where: { key: { notIn: INTEGRATION_KEYS } },
@@ -22,7 +23,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return result;
   });
 
-  // PUT / — Update settings (non-integration)
+  // PUT / - Update settings (non-integration)
   app.put<{
     Body: Record<string, unknown>;
   }>('/', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -78,6 +79,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       integration_meta: {},
       integration_telegram: {},
       integration_keycrm: {},
+      integration_novaposhta: {},
     };
 
     for (const row of rows) {
@@ -125,7 +127,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       const sensitive = SENSITIVE_FIELDS[key] ?? [];
 
       for (const [field, value] of Object.entries(incoming)) {
-        // Skip masked placeholder — keep existing value
+        // Skip masked placeholder - keep existing value
         if (sensitive.includes(field) && value === '••••••') {
           continue;
         }
@@ -144,4 +146,24 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     return { ok: true };
   });
+
+  // POST /settings/nova-poshta/resolve-city
+  // Given a city name, returns its NP Ref UUID. Used to configure sender city.
+  app.post<{ Body: { cityName: string } }>(
+    '/nova-poshta/resolve-city',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const { cityName } = request.body ?? {};
+      if (!cityName || typeof cityName !== 'string') {
+        return reply.code(400).send({ error: 'cityName is required' });
+      }
+
+      const result = await resolveCityRef(cityName.trim());
+      if (!result) {
+        return reply.code(404).send({ error: `City "${cityName}" not found in Nova Poshta` });
+      }
+
+      return result;
+    },
+  );
 }

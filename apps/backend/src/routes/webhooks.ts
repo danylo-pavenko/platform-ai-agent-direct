@@ -9,7 +9,7 @@ import { fetchIgUserProfile } from '../services/ig-profile.js';
 // ── Meta webhook payload types (subset we care about) ──
 
 /**
- * A "share" attachment — sent when a user forwards an Instagram post into DM.
+ * A "share" attachment - sent when a user forwards an Instagram post into DM.
  * Contains the image, post URL, and caption (title) of the shared content.
  */
 interface ShareAttachmentPayload {
@@ -132,7 +132,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: 'Unauthorized' });
     }
 
-    // Return 200 immediately — Meta requires response within 5 seconds
+    // Return 200 immediately - Meta requires response within 5 seconds
     reply.code(200).send('EVENT_RECEIVED');
 
     // Process asynchronously after response is sent
@@ -161,7 +161,7 @@ async function processWebhookEvents(
 
     for (const event of events) {
       if (!event.message) {
-        // Not a message event (e.g. delivery, read receipt) — skip
+        // Not a message event (e.g. delivery, read receipt) - skip
         continue;
       }
 
@@ -195,7 +195,7 @@ async function processMessageEvent(
   });
 
   if (existingMessage) {
-    app.log.debug({ igMessageId }, 'Duplicate message — skipping');
+    app.log.debug({ igMessageId }, 'Duplicate message - skipping');
     return;
   }
 
@@ -231,14 +231,14 @@ async function processMessageEvent(
   }
 
   // ── Extract direct media URLs (images/videos the user sends directly) ──
-  // Exclude "share" attachments here — shared post image is handled separately
+  // Exclude "share" attachments here - shared post image is handled separately
   const mediaUrls = attachments
     .filter((a) => a.type !== 'share')
     .map((a) => (a.payload as MediaAttachmentPayload | undefined)?.url)
     .filter((url): url is string => !!url);
 
   // If the shared post has an image, include it in mediaUrls so Claude can see it.
-  // Image CDN URLs from IG expire quickly — we download them in conversation.ts.
+  // Image CDN URLs from IG expire quickly - we download them in conversation.ts.
   if (sharedPost?.imageUrl) {
     mediaUrls.unshift(sharedPost.imageUrl);
   }
@@ -258,7 +258,7 @@ async function processMessageEvent(
   });
 
   // ── Fetch IG profile for brand-new clients ──
-  // This runs asynchronously after upsert — we don't block the message flow.
+  // This runs asynchronously after upsert - we don't block the message flow.
   // We only fetch on first contact to avoid redundant API calls.
   if (isNewClient) {
     fetchIgUserProfile(igUserId)
@@ -279,7 +279,7 @@ async function processMessageEvent(
         );
       })
       .catch((err) => {
-        // Non-critical — we have igUserId as fallback identifier
+        // Non-critical - we have igUserId as fallback identifier
         app.log.warn({ err, clientId: client.id }, 'Failed to save IG profile (non-fatal)');
       });
   }
@@ -343,7 +343,7 @@ async function processMessageEvent(
     'Persisted incoming Instagram message',
   );
 
-  // Enqueue Claude turn asynchronously (don't await — webhook already responded)
+  // Enqueue Claude turn asynchronously (don't await - webhook already responded)
   handleIncomingMessage(
     conversation.id,
     redacted || '',

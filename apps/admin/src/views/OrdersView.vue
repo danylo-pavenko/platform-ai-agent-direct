@@ -51,7 +51,7 @@
           </template>
 
           <template #item.total="{ item }">
-            {{ item.total ? `${item.total} ₴` : '—' }}
+            {{ item.total ? `${item.total} ₴` : '-' }}
           </template>
 
           <template #item.createdAt="{ item }">
@@ -209,7 +209,7 @@ function statusLabel(status: string): string {
 }
 
 function formatDate(dateStr: string): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 

@@ -25,7 +25,7 @@ async function sendToManagerGroup(
   const groupId = await getManagerGroupId();
 
   if (!telegram.botToken || !groupId) {
-    log.warn('Telegram bot token or manager group ID not configured — skipping notification');
+    log.warn('Telegram bot token or manager group ID not configured - skipping notification');
     return;
   }
 
@@ -111,7 +111,7 @@ export async function notifyOrder(params: {
   const itemsBlock = items
     .map((item) => {
       const variant = item.variant ? ` (${escapeHtml(item.variant)})` : '';
-      return `• ${escapeHtml(item.name)}${variant} × ${item.qty} — ${item.price} ₴`;
+      return `• ${escapeHtml(item.name)}${variant} × ${item.qty} - ${item.price} ₴`;
     })
     .join('\n');
 

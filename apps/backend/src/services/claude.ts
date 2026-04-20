@@ -133,14 +133,14 @@ function parseResponse(raw: string): ClaudeResponse {
         }
       }
 
-      // content_block_delta streaming events — accumulate text
+      // content_block_delta streaming events - accumulate text
       // (handled by looking at the final assistant message above,
       //  but as a safety net we also check for a plain text field)
       if (typeof obj.text === 'string' && obj.text.length > 0 && !obj.type) {
         return { text: obj.text };
       }
     } catch {
-      // Not valid JSON — skip
+      // Not valid JSON - skip
     }
   }
 
@@ -186,7 +186,7 @@ function spawnClaude(
     // Timeout handling
     const timer = setTimeout(() => {
       if (!settled) {
-        log.warn({ timeoutMs }, 'Claude CLI timed out — killing process');
+        log.warn({ timeoutMs }, 'Claude CLI timed out - killing process');
         child.kill('SIGKILL');
         settle(FALLBACK_TIMEOUT);
       }
@@ -242,7 +242,7 @@ export async function askClaude(req: ClaudeRequest): Promise<ClaudeResponse> {
   if (semaphore.pending > MAX_PENDING) {
     log.warn(
       { pending: semaphore.pending, active: semaphore.active },
-      'Claude queue overloaded — returning fallback',
+      'Claude queue overloaded - returning fallback',
     );
     return FALLBACK_BUSY;
   }

@@ -1,5 +1,5 @@
 /**
- * sync-worker.ts — Standalone KeyCRM sync entrypoint.
+ * sync-worker.ts - Standalone KeyCRM sync entrypoint.
  *
  * PM2 name: {INSTANCE_ID}-sync (e.g. SB-sync).
  * Runs once, fetches KeyCRM data, generates catalog.txt, exits.
@@ -41,7 +41,7 @@ const log = pino({
 
 const NO_CAT = 'Без категорії';
 
-/** Name-based heuristic: (substring, category). Order matters — first match wins. */
+/** Name-based heuristic: (substring, category). Order matters - first match wins. */
 const NAME_HEURISTIC: Array<[string, string]> = [
   ['худі', 'Худі'],
   ['лонгслів', 'Лонги'],
@@ -96,9 +96,9 @@ function categorizeProduct(product: KeycrmProduct): string {
  * Format a price number with space as thousands separator: 1234 → "1 234 ₴".
  */
 function fmtPrice(v: number | null | undefined): string {
-  if (v == null) return '—';
+  if (v == null) return '-';
   const n = Number(v);
-  if (Number.isNaN(n)) return '—';
+  if (Number.isNaN(n)) return '-';
   if (Number.isInteger(n)) {
     return n.toLocaleString('uk-UA').replace(/\u00a0/g, ' ') + ' ₴';
   }
@@ -106,7 +106,7 @@ function fmtPrice(v: number | null | undefined): string {
 }
 
 function fmtPriceRange(lo: number | null | undefined, hi: number | null | undefined): string {
-  if (lo == null && hi == null) return '—';
+  if (lo == null && hi == null) return '-';
   if (lo === hi || hi == null) return fmtPrice(lo);
   if (lo == null) return fmtPrice(hi);
   return `${fmtPrice(lo)} – ${fmtPrice(hi)}`;
@@ -219,7 +219,7 @@ function buildCatalog(
   const lines: string[] = [];
 
   // ── Header ──
-  lines.push(`КАТАЛОГ ТОВАРІВ — ${config.BRAND_NAME.toUpperCase()}`);
+  lines.push(`КАТАЛОГ ТОВАРІВ - ${config.BRAND_NAME.toUpperCase()}`);
   lines.push('='.repeat(50));
   lines.push(`Знімок з KeyCRM: ${now}`);
   lines.push(`Товарів у наявності: ${inStockProducts.length}, Варіантів у наявності: ${totalInStockVariants}`);
@@ -245,7 +245,7 @@ function buildCatalog(
       const inStockOffers = po.filter((o) => (o.quantity ?? 0) > 0);
       const price = fmtPriceRange(p.min_price, p.max_price);
 
-      lines.push(`### ${name} — ${price}`);
+      lines.push(`### ${name} - ${price}`);
 
       // Only show in-stock variants (skip out-of-stock clutter)
       if (inStockOffers.length > 0) {
@@ -256,7 +256,7 @@ function buildCatalog(
           const label = variantLabel(o.properties);
           const qty = Number(o.quantity ?? 0);
           const stock = qty <= 3 ? `мало (${qty} шт)` : 'є';
-          lines.push(`  - ${label} — ${fmtPrice(o.price)} — ${stock}`);
+          lines.push(`  - ${label} - ${fmtPrice(o.price)} - ${stock}`);
         }
       }
 
@@ -274,7 +274,7 @@ function buildCatalog(
   if (oosProducts.length > 0) {
     lines.push('='.repeat(60));
     lines.push('ТОВАРИ, ЯКИХ ЗАРАЗ НЕМАЄ В НАЯВНОСТІ');
-    lines.push('(не пропонуй їх, але якщо клієнт запитає — скажи що немає і запропонуй альтернативу)');
+    lines.push('(не пропонуй їх, але якщо клієнт запитає - скажи що немає і запропонуй альтернативу)');
     lines.push('='.repeat(60));
     lines.push('');
 
@@ -285,7 +285,7 @@ function buildCatalog(
       const altHint = color
         ? `→ запропонуй інший колір ${cat.toLowerCase()}`
         : `→ запропонуй інший ${cat.toLowerCase()}`;
-      lines.push(`  - ${name} — НЕМАЄ. ${altHint}`);
+      lines.push(`  - ${name} - НЕМАЄ. ${altHint}`);
     }
     lines.push('');
   }
@@ -295,9 +295,9 @@ function buildCatalog(
     lines.push('='.repeat(60));
     lines.push('ІНДИВІДУАЛЬНЕ НАНЕСЕННЯ (сервісні позиції)');
     lines.push('='.repeat(60));
-    lines.push('Це НЕ окремі товари, а опції кастомізації. Ціна 1 ₴ — службова, НЕ квотуй клієнту.');
+    lines.push('Це НЕ окремі товари, а опції кастомізації. Ціна 1 ₴ - службова, НЕ квотуй клієнту.');
     lines.push('Реальна вартість: принт 400–600 ₴, вишивка 1 000–1 500 ₴ (залежить від дизайну).');
-    lines.push('Для замовлення кастомного нанесення — передай менеджеру.');
+    lines.push('Для замовлення кастомного нанесення - передай менеджеру.');
     lines.push('');
     lines.push('Доступні дизайни нанесення:');
     for (const p of serviceItems) {
@@ -320,22 +320,22 @@ function buildCatalog(
   lines.push('');
   lines.push('ПРАВИЛА НАЯВНОСТІ:');
   lines.push('- Пропонуй ТІЛЬКИ товари зі списку "В НАЯВНОСТІ" вище.');
-  lines.push('- Якщо варіант позначений "мало" — попередь клієнта: "Цього розміру залишилось небагато."');
-  lines.push('- Якщо варіант у списку [немає в наявності] — НЕ пропонуй його. Скажи що немає і запропонуй:');
+  lines.push('- Якщо варіант позначений "мало" - попередь клієнта: "Цього розміру залишилось небагато."');
+  lines.push('- Якщо варіант у списку [немає в наявності] - НЕ пропонуй його. Скажи що немає і запропонуй:');
   lines.push('  а) інший колір того ж типу одягу (якщо є в наявності);');
   lines.push('  б) схожий тип одягу (наприклад світшот замість худі);');
   lines.push('  в) передати менеджеру для уточнення термінів поповнення.');
-  lines.push('- Товари з розділу "НЕМАЄ В НАЯВНОСТІ" — згадуй тільки якщо клієнт прямо запитав про них.');
+  lines.push('- Товари з розділу "НЕМАЄ В НАЯВНОСТІ" - згадуй тільки якщо клієнт прямо запитав про них.');
   lines.push('');
   lines.push('РОЗМІРИ:');
   lines.push('- Розмірна сітка парна: XS/S, M/L, XL/2XL (або XS, S/M, L/XL).');
-  lines.push('- Якщо клієнт каже "M" — це варіант M/L або S/M (дивись що є для конкретного товару).');
-  lines.push('- Для точної розмірної сітки конкретної моделі — передай менеджеру.');
+  lines.push('- Якщо клієнт каже "M" - це варіант M/L або S/M (дивись що є для конкретного товару).');
+  lines.push('- Для точної розмірної сітки конкретної моделі - передай менеджеру.');
   lines.push('');
   lines.push('ЦІНИ:');
   lines.push('- Не показуй точну кількість у штуках (крім "мало"). Кажи "є в наявності" або "залишилось небагато".');
-  lines.push('- Ціни 1 ₴ — СЛУЖБОВІ (нанесення). Реальна вартість: принт 400–600 ₴, вишивка 1 000–1 500 ₴.');
-  lines.push('- Для самовивозу з магазину (Львів) — уточнюй у менеджера наявність саме в магазині.');
+  lines.push('- Ціни 1 ₴ - СЛУЖБОВІ (нанесення). Реальна вартість: принт 400–600 ₴, вишивка 1 000–1 500 ₴.');
+  lines.push('- Для самовивозу з магазину (Львів) - уточнюй у менеджера наявність саме в магазині.');
 
   return lines.join('\n') + '\n';
 }
@@ -379,7 +379,7 @@ export async function runSync(): Promise<void> {
     await writeFile(CATALOG_PATH, catalogText, 'utf-8');
     log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
 
-    // Update sync run — success
+    // Update sync run - success
     await prisma.keycrmSyncRun.update({
       where: { id: syncRun.id },
       data: {
@@ -398,7 +398,7 @@ export async function runSync(): Promise<void> {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'KeyCRM sync failed');
 
-    // Update sync run — error
+    // Update sync run - error
     await prisma.keycrmSyncRun.update({
       where: { id: syncRun.id },
       data: {

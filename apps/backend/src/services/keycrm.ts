@@ -79,7 +79,7 @@ async function keycrmGet<T>(
   let lastError: Error | undefined;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    // Pacing — respect 60 req/min rate limit
+    // Pacing - respect 60 req/min rate limit
     if (attempt > 1) {
       const backoff = PACING_MS * Math.pow(2, attempt - 1);
       log.warn({ attempt, backoff }, 'Retrying after backoff');
@@ -113,7 +113,7 @@ async function keycrmGet<T>(
       continue;
     }
 
-    // Non-retryable 4xx — throw immediately
+    // Non-retryable 4xx - throw immediately
     throw new Error(`KeyCRM ${status} on ${path}: ${body.slice(0, 500)}`);
   }
 

@@ -30,7 +30,7 @@ export class Semaphore {
   /**
    * Acquire a slot. Resolves immediately if a slot is available,
    * otherwise waits until one is freed.
-   * @returns A release function — call it exactly once when done.
+   * @returns A release function - call it exactly once when done.
    */
   async acquire(): Promise<() => void> {
     if (this._active < this.maxConcurrency) {
@@ -38,7 +38,7 @@ export class Semaphore {
       return this.createRelease();
     }
 
-    // No slot available — enqueue and wait
+    // No slot available - enqueue and wait
     return new Promise<() => void>((resolve) => {
       this.waiters.push(resolve);
     });

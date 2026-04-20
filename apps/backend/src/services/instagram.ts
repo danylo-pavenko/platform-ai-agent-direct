@@ -54,7 +54,7 @@ async function callIgApi(body: object): Promise<unknown> {
       continue;
     }
 
-    // Non-retryable error — fail immediately
+    // Non-retryable error - fail immediately
     const errorBody = await res.text().catch(() => '');
     throw new Error(
       `IG API returned ${res.status}: ${errorBody}`,

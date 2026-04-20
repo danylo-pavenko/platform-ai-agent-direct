@@ -48,6 +48,9 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('7d'),
 
+  // Nova Poshta
+  NOVA_POSHTA_API_KEY: z.string().default(''),
+
   // File storage
   UPLOADS_DIR: z.string().default('./uploads'),
 

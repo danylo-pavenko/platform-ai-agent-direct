@@ -447,7 +447,7 @@ const ClientProfilePanel = defineComponent({
                 placeholder: 'Повне імʼя',
                 onInput: (e: Event) => { form.value.displayName = (e.target as HTMLInputElement).value; },
               })
-            : h('span', { class: 'text-body-2' }, c?.displayName || c?.igFullName || '—'),
+            : h('span', { class: 'text-body-2' }, c?.displayName || c?.igFullName || '-'),
           ),
 
           // Phone
@@ -458,7 +458,7 @@ const ClientProfilePanel = defineComponent({
                 placeholder: '+380...',
                 onInput: (e: Event) => { form.value.phone = (e.target as HTMLInputElement).value; },
               })
-            : h('span', { class: 'text-body-2' }, c?.phone || '—'),
+            : h('span', { class: 'text-body-2' }, c?.phone || '-'),
           ),
 
           // Email
@@ -469,7 +469,7 @@ const ClientProfilePanel = defineComponent({
                 placeholder: 'email@example.com',
                 onInput: (e: Event) => { form.value.email = (e.target as HTMLInputElement).value; },
               })
-            : h('span', { class: 'text-body-2' }, c?.email || '—'),
+            : h('span', { class: 'text-body-2' }, c?.email || '-'),
           ),
 
           // City
@@ -480,7 +480,7 @@ const ClientProfilePanel = defineComponent({
                 placeholder: 'Київ',
                 onInput: (e: Event) => { form.value.deliveryCity = (e.target as HTMLInputElement).value; },
               })
-            : h('span', { class: 'text-body-2' }, c?.deliveryCity || '—'),
+            : h('span', { class: 'text-body-2' }, c?.deliveryCity || '-'),
           ),
 
           // NP branch
@@ -493,7 +493,7 @@ const ClientProfilePanel = defineComponent({
               })
             : h('span', { class: 'text-body-2' }, c?.deliveryNpBranch
                 ? `${c.deliveryNpType === 'postamat' ? 'Поштомат' : 'Відділення'} ${c.deliveryNpBranch}`
-                : '—'),
+                : '-'),
           ),
 
           // Tags
@@ -526,7 +526,7 @@ const ClientProfilePanel = defineComponent({
                     }),
                     h('button', { class: 'tag-add-btn', onClick: addTag }, '+'),
                   ])
-                : displayTags.length === 0 ? h('span', { class: 'text-caption text-grey' }, '—') : null,
+                : displayTags.length === 0 ? h('span', { class: 'text-caption text-grey' }, '-') : null,
             ]),
           ]),
 
@@ -542,7 +542,7 @@ const ClientProfilePanel = defineComponent({
                   onInput: (e: Event) => { form.value.notes = (e.target as HTMLTextAreaElement).value; },
                 })
               : h('div', { class: 'text-body-2', style: 'white-space: pre-wrap; word-break: break-word;' },
-                  c?.notes || h('span', { class: 'text-grey' }, '—'),
+                  c?.notes || h('span', { class: 'text-grey' }, '-'),
                 ),
           ]),
 

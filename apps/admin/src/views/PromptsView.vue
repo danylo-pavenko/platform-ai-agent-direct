@@ -113,7 +113,7 @@
           <!-- Agent tab -->
           <div v-if="editTab === 'agent'" class="agent-tab">
             <div class="text-caption text-grey mb-3">
-              Опишіть що потрібно змінити — агент запропонує правки до промпту.
+              Опишіть що потрібно змінити - агент запропонує правки до промпту.
               Після застосування змін перейдіть на вкладку "Вручну" для перегляду та збереження.
             </div>
 
@@ -317,7 +317,7 @@ function showSnack(text: string, color = 'success') {
 }
 
 function formatDate(dateStr: string): string {
-  if (!dateStr) return '—';
+  if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 

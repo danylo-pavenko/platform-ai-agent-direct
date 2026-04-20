@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 
 export async function promptRoutes(app: FastifyInstance): Promise<void> {
-  // GET / — List all prompt versions
+  // GET / - List all prompt versions
   app.get('/', { onRequest: [app.authenticate] }, async () => {
     const data = await prisma.systemPrompt.findMany({
       orderBy: { version: 'desc' },
@@ -11,7 +11,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
     return { data };
   });
 
-  // GET /:id — Get single prompt by id
+  // GET /:id - Get single prompt by id
   app.get<{
     Params: { id: string };
   }>('/:id', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -26,7 +26,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
     return prompt;
   });
 
-  // POST / — Create new prompt version
+  // POST / - Create new prompt version
   app.post<{
     Body: { content: string; changeSummary: string };
   }>('/', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -60,7 +60,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(201).send(prompt);
   });
 
-  // POST /:id/activate — Activate a prompt
+  // POST /:id/activate - Activate a prompt
   app.post<{
     Params: { id: string };
   }>('/:id/activate', { onRequest: [app.authenticate] }, async (request, reply) => {

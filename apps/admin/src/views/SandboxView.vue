@@ -739,7 +739,7 @@ const PromptEditor = defineComponent({
                 h('option', { value: '' }, 'Активний промпт'),
                 ...prompts.value.map((p) =>
                   h('option', { value: p.id, key: p.id },
-                    `v${p.version}${p.isActive ? ' (активний)' : ''} — ${p.changeSummary || 'без опису'}`,
+                    `v${p.version}${p.isActive ? ' (активний)' : ''} - ${p.changeSummary || 'без опису'}`,
                   ),
                 ),
               ]),
@@ -780,7 +780,7 @@ const PromptEditor = defineComponent({
         promptAgentTab.value === 'agent'
           ? h('div', { class: 'flex-grow-1 d-flex flex-column px-3 pb-3', style: 'min-height: 0; overflow: hidden;' }, [
               h('div', { class: 'text-caption text-grey mb-2' },
-                'Опишіть що змінити — агент запропонує правки',
+                'Опишіть що змінити - агент запропонує правки',
               ),
               // Messages
               h('div', { class: 'prompt-agent-messages flex-grow-1 mb-2' },

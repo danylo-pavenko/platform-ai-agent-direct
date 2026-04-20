@@ -27,7 +27,7 @@
             <v-radio value="24_7">
               <template #label>
                 <div>
-                  <strong>24/7 — Агент відповідає завжди</strong>
+                  <strong>24/7 - Агент відповідає завжди</strong>
                   <div class="text-caption text-medium-emphasis">
                     Бот обробляє повідомлення цілодобово. Клієнти отримують відповідь миттєво в будь-який час.
                   </div>
@@ -37,10 +37,10 @@
             <v-radio value="schedule" class="mt-2">
               <template #label>
                 <div>
-                  <strong>За розкладом — Агент працює у робочі години</strong>
+                  <strong>За розкладом - Агент працює у робочі години</strong>
                   <div class="text-caption text-medium-emphasis">
                     Поза робочими годинами клієнти отримують шаблонне повідомлення.
-                    Якщо розмова вже активна (повідомлення за останні 30 хв) — бот продовжує відповідати.
+                    Якщо розмова вже активна (повідомлення за останні 30 хв) - бот продовжує відповідати.
                   </div>
                 </div>
               </template>
@@ -56,7 +56,7 @@
           Робочі години
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Графік, коли бот відповідає автоматично. Поза цими годинами — надсилає шаблон.
+          Графік, коли бот відповідає автоматично. Поза цими годинами - надсилає шаблон.
         </v-card-subtitle>
         <v-card-text>
           <v-row
@@ -89,7 +89,7 @@
                 :disabled="!workingHours[day.key].enabled"
               />
             </v-col>
-            <v-col cols="1" sm="1" class="text-center text-body-2">—</v-col>
+            <v-col cols="1" sm="1" class="text-center text-body-2">-</v-col>
             <v-col cols="3" sm="2">
               <v-text-field
                 v-model="workingHours[day.key].end"
@@ -241,16 +241,16 @@
                   Settings → Basic вашого застосунку.
                 </li>
                 <li>
-                  <strong>Page ID</strong> — числовий ідентифікатор Facebook-сторінки. Відкрийте сторінку →
-                  About → прокрутіть вниз — там буде "Page ID".
+                  <strong>Page ID</strong> - числовий ідентифікатор Facebook-сторінки. Відкрийте сторінку →
+                  About → прокрутіть вниз - там буде "Page ID".
                 </li>
                 <li>
-                  <strong>Page Access Token</strong> — отримайте через
+                  <strong>Page Access Token</strong> - отримайте через
                   <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>:
                   виберіть App → вашу сторінку → Generate Token. Для продакшн використовуйте довгостроковий або System User Token.
                 </li>
                 <li>
-                  <strong>Verify Token</strong> — довільний рядок (наприклад <code>my-webhook-2026</code>).
+                  <strong>Verify Token</strong> - довільний рядок (наприклад <code>my-webhook-2026</code>).
                   Задайте тут, потім вкажіть той самий рядок у Facebook Developers → Products → Webhooks при реєстрації URL
                   <code>https://api.your-domain.com/webhooks/instagram</code>.
                 </li>
@@ -377,11 +377,11 @@
                   Щоб отримати <strong>Manager Group ID</strong>:
                   напишіть будь-яке повідомлення в групу, потім відкрийте у браузері
                   <code>https://api.telegram.org/bot<strong>TOKEN</strong>/getUpdates</code>
-                  і знайдіть <code>"chat":&#123;"id": -1001234567890&#125;</code> —
+                  і знайдіть <code>"chat":&#123;"id": -1001234567890&#125;</code> -
                   це і є ID (від'ємне число).
                 </li>
                 <li>
-                  <strong>Admin Password</strong> — довільний пароль. Менеджер вводить
+                  <strong>Admin Password</strong> - довільний пароль. Менеджер вводить
                   <code>/login ВАШ_ПАРОЛЬ</code> у чаті з ботом, щоб отримати доступ до керування розмовами.
                 </li>
               </ol>
@@ -464,10 +464,10 @@
                   Перейдіть: <strong>Налаштування → Інтеграції → API</strong>.
                 </li>
                 <li>
-                  Якщо ключа ще немає — натисніть <strong>"Згенерувати"</strong>. Скопіюйте ключ та вставте сюди.
+                  Якщо ключа ще немає - натисніть <strong>"Згенерувати"</strong>. Скопіюйте ключ та вставте сюди.
                 </li>
                 <li>
-                  <strong>Інтервал синхронізації</strong> — як часто оновлювати каталог товарів із KeyCRM.
+                  <strong>Інтервал синхронізації</strong> - як часто оновлювати каталог товарів із KeyCRM.
                   Рекомендовано: <strong>30–60 хвилин</strong> (мінімум 5 хв).
                 </li>
               </ol>
@@ -508,6 +508,69 @@
         </v-card-text>
       </v-card>
 
+      <!-- Nova Poshta -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="red-darken-1">mdi-truck-fast</v-icon>
+          Нова Пошта
+        </v-card-title>
+        <v-card-subtitle class="pb-2">API ключ для розрахунку вартості доставки по Украъни</v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="7">
+              <v-text-field
+                v-model="integrations.novaposhta.apiKey"
+                label="API Key"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.npKey ? 'text' : 'password'"
+                :append-inner-icon="showSecrets.npKey ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.npKey = !showSecrets.npKey"
+                placeholder="Ключ з особистого кабінету НП"
+              />
+            </v-col>
+            <v-col cols="12" sm="5">
+              <div class="d-flex ga-2 align-center" style="height:100%;">
+                <v-text-field
+                  v-model="integrations.novaposhta.senderCity"
+                  label="Місто відправника"
+                  variant="outlined"
+                  density="compact"
+                  hide-details
+                  placeholder="Київ"
+                  style="flex:1;"
+                />
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  color="primary"
+                  :loading="npCityLoading"
+                  :disabled="!integrations.novaposhta.senderCity.trim()"
+                  @click="resolveNpSenderCity"
+                >
+                  OK
+                </v-btn>
+              </div>
+            </v-col>
+            <v-col v-if="integrations.novaposhta.senderCityRef" cols="12">
+              <v-alert type="success" variant="tonal" density="compact" class="text-caption">
+                Ref: {{ integrations.novaposhta.senderCityRef }}
+                ({{ integrations.novaposhta.senderCity }})
+              </v-alert>
+            </v-col>
+            <v-col v-if="npCityError" cols="12">
+              <v-alert type="error" variant="tonal" density="compact" class="text-caption">
+                {{ npCityError }}
+              </v-alert>
+            </v-col>
+          </v-row>
+          <div class="text-caption text-medium-emphasis mt-2">
+            Ключ отримайте в особистому кабінеті НП - Налаштування - API. Агент буде автоматично відповідати на питання про вартість доставки.
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- Save integrations -->
       <v-row class="mb-8">
         <v-col cols="auto">
@@ -528,7 +591,7 @@
             size="small"
             prepend-icon="mdi-check"
           >
-            Збережено — перезапустіть сервер
+            Збережено - перезапустіть сервер
           </v-chip>
         </v-col>
       </v-row>
@@ -627,6 +690,11 @@ const integrations = ref({
     apiKey: '',
     syncIntervalMin: 30,
   },
+  novaposhta: {
+    apiKey: '',
+    senderCity: 'Київ',
+    senderCityRef: '',
+  },
 });
 
 const showSecrets = ref({
@@ -635,7 +703,30 @@ const showSecrets = ref({
   tgToken: false,
   tgPassword: false,
   keycrmKey: false,
+  npKey: false,
 });
+
+const npCityLoading = ref(false);
+const npCityError = ref('');
+
+async function resolveNpSenderCity() {
+  const cityName = integrations.value.novaposhta.senderCity.trim();
+  if (!cityName || npCityLoading.value) return;
+
+  npCityLoading.value = true;
+  npCityError.value = '';
+
+  try {
+    const { data } = await api.post('/settings/nova-poshta/resolve-city', { cityName });
+    integrations.value.novaposhta.senderCityRef = data.ref;
+    integrations.value.novaposhta.senderCity = data.name;
+  } catch (e: any) {
+    npCityError.value = e.response?.data?.error ?? `Місто "${cityName}" не знайдено в НП`;
+    integrations.value.novaposhta.senderCityRef = '';
+  } finally {
+    npCityLoading.value = false;
+  }
+}
 
 const showMetaHelp = ref(false);
 const showTelegramHelp = ref(false);
@@ -849,6 +940,7 @@ async function fetchIntegrations() {
     const m = data.integration_meta ?? {};
     const t = data.integration_telegram ?? {};
     const k = data.integration_keycrm ?? {};
+    const np = data.integration_novaposhta ?? {};
 
     integrations.value.meta = {
       appId:            m.appId            ?? '',
@@ -866,6 +958,11 @@ async function fetchIntegrations() {
       apiKey:            k.apiKey            ?? '',
       syncIntervalMin:   k.syncIntervalMin   ?? 30,
     };
+    integrations.value.novaposhta = {
+      apiKey:         np.apiKey         ?? '',
+      senderCity:     np.senderCity     ?? 'Київ',
+      senderCityRef:  np.senderCityRef  ?? '',
+    };
   } catch {
     // Non-critical: integrations may just not be set yet
   }
@@ -877,9 +974,10 @@ async function saveIntegrations() {
   error.value = '';
   try {
     await api.put('/settings/integrations', {
-      integration_meta:     integrations.value.meta,
-      integration_telegram: integrations.value.telegram,
-      integration_keycrm:   integrations.value.keycrm,
+      integration_meta:        integrations.value.meta,
+      integration_telegram:    integrations.value.telegram,
+      integration_keycrm:      integrations.value.keycrm,
+      integration_novaposhta:  integrations.value.novaposhta,
     });
     integrationsSaved.value = true;
   } catch {

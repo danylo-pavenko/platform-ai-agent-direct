@@ -42,7 +42,7 @@ const INJECTION_PATTERNS = [
  * Detect obvious prompt-injection attempts.
  *
  * Returns `true` if any known injection pattern is found.
- * Intended for logging/alerting — messages are NOT blocked.
+ * Intended for logging/alerting - messages are NOT blocked.
  */
 export function detectInjection(text: string): boolean {
   return INJECTION_PATTERNS.some((re) => re.test(text));

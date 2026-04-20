@@ -18,6 +18,7 @@ import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
 } from './product-search.js';
+import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 
 const log = pino({ name: 'conversation' });
@@ -120,7 +121,7 @@ export async function handleIncomingMessage(
     conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
   };
 
-  // ── 2. Handoff state — skip bot response ──────────────────────────
+  // ── 2. Handoff state - skip bot response ──────────────────────────
   if (conversation.state === 'handoff') {
     log.info(
       { conversationId },
@@ -136,7 +137,7 @@ export async function handleIncomingMessage(
     return;
   }
 
-  // ── 3. Closed / paused — ignore ──────────────────────────────────
+  // ── 3. Closed / paused - ignore ──────────────────────────────────
   if (conversation.state === 'closed' || conversation.state === 'paused') {
     log.debug(
       { conversationId, state: conversation.state },
@@ -153,7 +154,7 @@ export async function handleIncomingMessage(
   if (outOfHours) {
     log.info(
       { conversationId },
-      'Outside working hours — bot will respond with out-of-hours context',
+      'Outside working hours - bot will respond with out-of-hours context',
     );
   }
 
@@ -196,20 +197,20 @@ export async function handleIncomingMessage(
       ? await downloadAllMedia(mediaUrls)
       : [];
 
-  // ── 7b. Shared post — product availability lookup ─────────────────
+  // ── 7b. Shared post - product availability lookup ─────────────────
   // When a user forwards an IG post, we search KeyCRM for matching active
   // products (non-archived, stock > 0) and inject the results into the
   // user message so Claude can answer availability questions accurately.
   //
   // Keywords come from the post caption. If the caption is empty or yields
-  // no matches we fall through gracefully — the image + catalog.txt context
+  // no matches we fall through gracefully - the image + catalog.txt context
   // is still available to Claude via its vision capability.
   let enrichedMessageText = messageText;
 
   if (sharedPost) {
     log.info(
       { conversationId, postUrl: sharedPost.postUrl },
-      'Shared post detected — enriching message with product availability',
+      'Shared post detected - enriching message with product availability',
     );
 
     // Prefix the message so Claude understands the user shared a post
@@ -226,7 +227,7 @@ export async function handleIncomingMessage(
         const { contextBlock } = await searchActiveProductsForContext(keywords);
         availabilityBlock = contextBlock;
       } catch (err) {
-        // Non-critical — Claude can still use the image to identify the product
+        // Non-critical - Claude can still use the image to identify the product
         log.warn({ err, keywords }, 'Product availability search failed (non-fatal)');
       }
     }
@@ -263,9 +264,11 @@ export async function handleIncomingMessage(
   });
 
   // ── 9. Handle tool calls ──────────────────────────────────────────
+  let responseText = response.text;
+
   if (response.toolCalls && response.toolCalls.length > 0) {
-    // update_client_info — save extracted customer data to their profile.
-    // This is a background write — we do NOT exit early so Claude's text
+    // update_client_info - save extracted customer data to their profile.
+    // This is a background write - we do NOT exit early so Claude's text
     // response (if any) is still delivered to the client.
     const updateInfo = response.toolCalls.find((tc) => tc.name === 'update_client_info');
     if (updateInfo) {
@@ -344,15 +347,60 @@ export async function handleIncomingMessage(
       );
       return;
     }
+
+    // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
+    const deliveryCostCall = response.toolCalls.find((tc) => tc.name === 'get_delivery_cost');
+    if (deliveryCostCall && !handoff && !collectOrder) {
+      const city = typeof deliveryCostCall.args.city === 'string' ? deliveryCostCall.args.city : '';
+      const weightKg = typeof deliveryCostCall.args.weight_kg === 'number'
+        ? deliveryCostCall.args.weight_kg
+        : 0.5;
+      const declaredValue = typeof deliveryCostCall.args.declared_value === 'number'
+        ? deliveryCostCall.args.declared_value
+        : 500;
+
+      let toolResultContent: string;
+      if (!city) {
+        toolResultContent = '[get_delivery_cost] ПОМИЛКА: місто не вказано';
+      } else {
+        try {
+          const npResult = await getDeliveryCost(city, weightKg, declaredValue);
+          if ('error' in npResult) {
+            toolResultContent = `[get_delivery_cost] ПОМИЛКА: ${npResult.error}`;
+          } else {
+            toolResultContent = `[get_delivery_cost] РЕЗУЛЬТАТ: Місто "${npResult.recipientCityName}", доставка НП (${npResult.serviceType}): ${npResult.cost} грн`;
+          }
+        } catch (npErr) {
+          log.error({ err: npErr, city }, 'Nova Poshta getDeliveryCost failed');
+          toolResultContent = '[get_delivery_cost] ПОМИЛКА: сервіс тимчасово недоступний';
+        }
+      }
+
+      // Second Claude call: inject tool result so Claude can reply to the client
+      const historyWithResult = [
+        ...history,
+        { role: 'user' as const, content: enrichedMessageText },
+        { role: 'assistant' as const, content: response.text || `[Перевіряю вартість доставки до ${city}]` },
+      ];
+
+      const response2 = await askClaude({
+        systemPrompt: prompt,
+        conversationHistory: historyWithResult,
+        userMessage: toolResultContent,
+        tools: salesAgentTools,
+      });
+
+      responseText = response2.text;
+      log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
+    }
   }
 
   // ── 10. Validate output ───────────────────────────────────────────
-  let responseText = response.text;
 
   if (LEAKED_INTERNALS_RE.test(responseText)) {
     log.warn(
       { conversationId, originalResponse: responseText },
-      'Bot response contained internal IDs — replacing with safe fallback',
+      'Bot response contained internal IDs - replacing with safe fallback',
     );
     responseText = 'Дякую за запитання! Зверніться до менеджера для деталей.';
   }
@@ -389,17 +437,17 @@ export async function handleIncomingMessage(
  * Persists customer contact / delivery data extracted by Claude.
  *
  * Called when Claude fires the `update_client_info` tool.
- * Only updates fields that are present in `args` — partial updates are safe.
+ * Only updates fields that are present in `args` - partial updates are safe.
  *
  * Claude calls this mid-conversation as soon as the client mentions any
- * personal data (name, phone, city, NP branch) — not just at order time.
+ * personal data (name, phone, city, NP branch) - not just at order time.
  * This way we build the profile incrementally and never ask again next session.
  */
 async function handleUpdateClientInfo(
   clientId: string,
   args: Record<string, unknown>,
 ): Promise<void> {
-  // Build a partial update — only set fields that Claude actually provided
+  // Build a partial update - only set fields that Claude actually provided
   const update: Record<string, string> = {};
 
   if (typeof args.full_name === 'string' && args.full_name.trim()) {
@@ -423,7 +471,7 @@ async function handleUpdateClientInfo(
   }
 
   if (Object.keys(update).length === 0) {
-    log.debug({ clientId }, 'update_client_info called with no usable fields — skipping DB write');
+    log.debug({ clientId }, 'update_client_info called with no usable fields - skipping DB write');
     return;
   }
 
@@ -438,7 +486,7 @@ async function handleUpdateClientInfo(
 /**
  * Appends tags and optional notes to a client profile.
  * Called when Claude fires the `tag_client` tool.
- * Tags are merged (deduplicated) with existing ones — never overwritten.
+ * Tags are merged (deduplicated) with existing ones - never overwritten.
  */
 async function handleTagClient(
   clientId: string,
@@ -453,7 +501,7 @@ async function handleTagClient(
     : null;
 
   if (newTags.length === 0 && !notes) {
-    log.debug({ clientId }, 'tag_client called with no usable data — skipping');
+    log.debug({ clientId }, 'tag_client called with no usable data - skipping');
     return;
   }
 
@@ -490,7 +538,7 @@ function buildSharedPostHeader(post: SharedPostData): string {
   const parts: string[] = ['[Клієнт поділився публікацією з Instagram]'];
 
   if (post.caption) {
-    // Truncate very long captions — we only need the descriptive part
+    // Truncate very long captions - we only need the descriptive part
     const truncated = post.caption.length > 200
       ? post.caption.slice(0, 200) + '…'
       : post.caption;

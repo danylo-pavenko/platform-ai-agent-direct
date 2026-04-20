@@ -9,8 +9,8 @@ import { getIntegrationConfig } from './integration-config.js';
  * recreated if the token changes.
  *
  * Used by:
- * - telegram-bot.ts (PM2: SB-bot) — starts long polling
- * - services/telegram-notify.ts (PM2: SB-api) — sends notifications
+ * - telegram-bot.ts (PM2: SB-bot) - starts long polling
+ * - services/telegram-notify.ts (PM2: SB-api) - sends notifications
  */
 
 let _bot: Bot | undefined;

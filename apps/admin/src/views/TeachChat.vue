@@ -4,7 +4,7 @@
     <div class="d-flex align-center ga-3 mb-3 px-1">
       <div class="flex-grow-1">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
-        <div class="page-subtitle d-none d-sm-block">Опишіть зміни — мета-агент запропонує правки до промпту</div>
+        <div class="page-subtitle d-none d-sm-block">Опишіть зміни - мета-агент запропонує правки до промпту</div>
       </div>
       <v-btn
         variant="tonal"
@@ -145,7 +145,7 @@
               <v-icon size="14" color="error" class="mr-1">mdi-minus-circle</v-icon>
               БУЛО
             </div>
-            <pre class="diff-block diff-before mb-2">{{ diff.before || '(порожньо — нове правило)' }}</pre>
+            <pre class="diff-block diff-before mb-2">{{ diff.before || '(порожньо - нове правило)' }}</pre>
 
             <div class="text-caption font-weight-bold mb-1 text-success d-flex align-center">
               <v-icon size="14" color="success" class="mr-1">mdi-plus-circle</v-icon>

@@ -23,7 +23,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 const log = pino({ name: 'ig-history' });
 
 const IG_API_BASE = 'https://graph.facebook.com/v21.0';
-const MAX_IMPORT_MESSAGES = 200; // Safety cap — avoid flooding DB
+const MAX_IMPORT_MESSAGES = 200; // Safety cap - avoid flooding DB
 
 interface IgApiMessage {
   id: string;

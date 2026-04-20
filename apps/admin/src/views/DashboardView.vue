@@ -58,28 +58,28 @@
         <v-col cols="12" sm="6" lg="3">
           <div class="kpi-card">
             <div class="kpi-label">Клієнти з повідомленнями</div>
-            <div class="kpi-value">{{ loading ? '—' : fmt(t?.clientsContacted) }}</div>
+            <div class="kpi-value">{{ loading ? '-' : fmt(t?.clientsContacted) }}</div>
             <div class="kpi-hint">Унікальні клієнти, які писали в обраний період</div>
           </div>
         </v-col>
         <v-col cols="12" sm="6" lg="3">
           <div class="kpi-card kpi-card--accent">
             <div class="kpi-label">Відповіді бота</div>
-            <div class="kpi-value">{{ loading ? '—' : fmt(t?.botReplies) }}</div>
+            <div class="kpi-value">{{ loading ? '-' : fmt(t?.botReplies) }}</div>
             <div class="kpi-hint">Повідомлення відправлені агентом</div>
           </div>
         </v-col>
         <v-col cols="12" sm="6" lg="3">
           <div class="kpi-card">
             <div class="kpi-label">Розмови з активністю</div>
-            <div class="kpi-value">{{ loading ? '—' : fmt(t?.conversationsActive) }}</div>
+            <div class="kpi-value">{{ loading ? '-' : fmt(t?.conversationsActive) }}</div>
             <div class="kpi-hint">Останнє повідомлення в межах періоду</div>
           </div>
         </v-col>
         <v-col cols="12" sm="6" lg="3">
           <div class="kpi-card">
             <div class="kpi-label">Усього розмов</div>
-            <div class="kpi-value">{{ loading ? '—' : fmt(t?.totalConversations) }}</div>
+            <div class="kpi-value">{{ loading ? '-' : fmt(t?.totalConversations) }}</div>
             <div class="kpi-hint">За весь час у базі</div>
           </div>
         </v-col>
@@ -94,47 +94,47 @@
         <v-row dense>
           <v-col cols="12" sm="6" md="4">
             <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersInPipeline) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersInPipeline) }}</span>
               <span class="funnel-l">До продажу</span>
               <span class="funnel-s">Submitted + підтверджені</span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="4">
             <div class="funnel-item funnel-item--success">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersConfirmed) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersConfirmed) }}</span>
               <span class="funnel-l">Оплата / підтверджені</span>
               <span class="funnel-s">Статус <code>confirmed</code></span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="4">
             <div class="funnel-item funnel-item--handoff">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.handoffConversations) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.handoffConversations) }}</span>
               <span class="funnel-l">На менеджера (розмови)</span>
               <span class="funnel-s">Статус handoff у періоді</span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="3">
             <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersSubmitted) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersSubmitted) }}</span>
               <span class="funnel-l">Замовлення submitted</span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="3">
             <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersDraft) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersDraft) }}</span>
               <span class="funnel-l">Чернетки</span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="3">
             <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersSentToManager) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersSentToManager) }}</span>
               <span class="funnel-l">Відправлено менеджеру</span>
               <span class="funnel-s">За датою <code>submitted_to_manager</code></span>
             </div>
           </v-col>
           <v-col cols="12" sm="6" md="3">
             <div class="funnel-item funnel-item--muted">
-              <span class="funnel-n">{{ loading ? '—' : fmt(t?.ordersCancelled) }}</span>
+              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersCancelled) }}</span>
               <span class="funnel-l">Скасовано</span>
             </div>
           </v-col>
