@@ -70,7 +70,7 @@
 
     <!-- New/Edit prompt dialog -->
     <v-dialog v-model="dialogOpen" max-width="1000" persistent>
-      <v-card>
+      <v-card style="display:flex;flex-direction:column;max-height:90vh;">
         <v-card-title class="d-flex align-center ga-2">
           Нова версія промпту
           <v-spacer />
@@ -91,7 +91,7 @@
 
         <v-divider />
 
-        <v-card-text style="min-height: 400px;">
+        <v-card-text style="flex:1 1 auto;overflow-y:auto;min-height:0;">
           <!-- Manual tab -->
           <div v-if="editTab === 'manual'">
             <v-textarea
@@ -99,6 +99,7 @@
               label="Зміст промпту"
               variant="outlined"
               rows="15"
+              max-rows="40"
               auto-grow
               class="mb-3"
             />
