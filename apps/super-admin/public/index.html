@@ -138,7 +138,11 @@
     .section-title { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-bottom: 14px; }
     .online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
     .online-dot.online { background: var(--success); }
-    .deploy-log { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 12px; font-family: monospace; font-size: 11px; color: var(--muted); max-height: 200px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
+    .deploy-log { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 12px; font-family: monospace; font-size: 11px; color: #a0ffb0; max-height: 380px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; min-height: 80px; }
+    .deploy-log .err-line { color: #ff8080; }
+    .deploy-log-wrap { position: relative; }
+    .deploy-running { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; margin-right: 6px; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
   </style>
 </head>
 <body>
@@ -401,12 +405,19 @@
   </div>
 
   <!-- Deploy log modal -->
-  <div class="modal-overlay" v-if="deployLog.open" @click.self="deployLog.open=false">
-    <div class="modal" style="width:600px">
-      <h2>🚀 Deploy: {{ deployLog.name }}</h2>
-      <div class="deploy-log">{{ deployLog.text || 'Running...' }}</div>
+  <div class="modal-overlay" v-if="deployLog.open" @click.self="!deployLog.running && (deployLog.open=false)">
+    <div class="modal" style="width:660px;max-width:96vw">
+      <h2>
+        <span v-if="deployLog.running" class="deploy-running"></span>
+        🚀 Deploy: {{ deployLog.name }}
+      </h2>
+      <div class="deploy-log-wrap">
+        <div class="deploy-log" ref="deployLogEl" v-html="deployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
+      </div>
       <div class="modal-actions">
-        <button class="btn btn-ghost" @click="deployLog.open=false">Close</button>
+        <button class="btn btn-ghost" @click="deployLog.open=false" :disabled="deployLog.running">
+          {{ deployLog.running ? 'Running...' : 'Close' }}
+        </button>
       </div>
     </div>
   </div>
@@ -425,8 +436,9 @@ createApp({
     const tenants = ref([]);
     const health = reactive({});
     const deploying = ref(null);
-    const deployLog = reactive({ open: false, name: '', text: '' });
+    const deployLog = reactive({ open: false, name: '', text: '', html: '', running: false });
     const chatMessages = ref(null);
+    const deployLogEl = ref(null);
 
     const chat = reactive({
       open: false, tenant: null, messages: [], input: '', typing: false,
@@ -529,16 +541,68 @@ createApp({
       await loadTenants();
     }
 
+    function escapeLine(line) {
+      return line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
     async function triggerDeploy(t) {
       deploying.value = t.id;
-      deployLog.open = true; deployLog.name = t.name; deployLog.text = 'Running deploy...';
+      deployLog.open = true;
+      deployLog.name = t.name;
+      deployLog.text = '';
+      deployLog.html = '';
+      deployLog.running = true;
+
+      function appendLine(line) {
+        const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
+        const isDone = line.startsWith('[✓') || line.startsWith('[✗');
+        const escaped = escapeLine(line);
+        let span;
+        if (isErr) span = `<span class="err-line">${escaped}</span>`;
+        else if (isDone) span = `<strong style="color:${line.startsWith('[✓') ? '#22c55e' : '#ef4444'}">${escaped}</strong>`;
+        else span = escaped;
+        deployLog.html += (deployLog.html ? '\n' : '') + span;
+        nextTick(() => {
+          if (deployLogEl.value) deployLogEl.value.scrollTop = deployLogEl.value.scrollHeight;
+        });
+      }
+
       try {
-        const r = await fetch(`${BASE}/tenants/${t.id}/deploy`, { method:'POST', headers: headers() });
-        const d = await r.json();
-        deployLog.text = d.stdout || d.error || JSON.stringify(d);
+        const r = await fetch(`${BASE}/tenants/${t.id}/deploy/stream`, {
+          headers: { Authorization: `Bearer ${auth.token}` },
+        });
+
+        if (!r.ok) {
+          appendLine(`[error] HTTP ${r.status} ${r.statusText}`);
+          return;
+        }
+
+        const reader = r.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop() ?? '';
+          for (const part of parts) {
+            if (part.startsWith('data: ')) {
+              appendLine(part.slice(6));
+            }
+          }
+        }
+        // flush remaining
+        if (buf.startsWith('data: ')) appendLine(buf.slice(6));
+
+      } catch (e) {
+        appendLine(`[error] ${e.message}`);
+      } finally {
+        deploying.value = null;
+        deployLog.running = false;
         await loadTenants();
-      } catch (e) { deployLog.text = e.message; }
-      finally { deploying.value = null; }
+      }
     }
 
     function openChat(t) {
@@ -585,7 +649,7 @@ createApp({
     });
 
     return {
-      auth, login, page, tenants, health, deploying, deployLog,
+      auth, login, page, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal,
       doLogin, logout, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat,
