@@ -14,7 +14,6 @@
     "build:backend": "npm run build -w apps/backend",
     "dev:admin": "npm run dev -w apps/admin",
     "build:admin": "npm run build -w apps/admin",
-    "deploy": "bash infra/scripts/deploy.sh",
     "db:seed": "cd apps/backend && npx tsx src/prisma/seed.ts",
     "db:migrate": "cd apps/backend && npx prisma migrate dev",
     "db:studio": "cd apps/backend && npx prisma studio"
