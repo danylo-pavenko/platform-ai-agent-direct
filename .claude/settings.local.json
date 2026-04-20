@@ -64,7 +64,12 @@
       "Bash(npx dotenvx run -- npx tsx --tsconfig tsconfig.json -e ' *)",
       "Bash(PGPASSWORD=sb_agent_dev psql *)",
       "Bash(COMMIT_MSG=\"Add setup instructions to integration settings\" /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
-      "Bash(COMMIT_MSG='Add Facebook OAuth flow for automatic Page Access Token retrieval' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)"
+      "Bash(COMMIT_MSG='Add Facebook OAuth flow for automatic Page Access Token retrieval' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
+      "Bash(./node_modules/.bin/tsc --project tsconfig.json --noEmit)",
+      "Bash(COMMIT_MSG='Redesign landing page with Nothing-style dot matrix aesthetic' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
+      "Bash(COMMIT_MSG='Add client CRM profile, IG history import, and repeat-customer context for agent' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
+      "Bash(node *)",
+      "Bash(echo \"Exit: $?\")"
     ]
   },
   "enabledMcpjsonServers": [
