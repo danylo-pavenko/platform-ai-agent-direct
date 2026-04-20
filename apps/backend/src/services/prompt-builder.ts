@@ -55,8 +55,10 @@ const CATALOG_PATH = path.resolve(
   __dirname, '..', '..', '..', 'workspace', 'knowledge', 'catalog.txt',
 );
 
-const MAX_PROMPT_CHARS = 12_000;
-const MAX_CATALOG_CHARS = 4_000;
+// Claude Code headless CLI handles 200k token context natively.
+// We only limit the live catalog snippet to keep it concise.
+const MAX_PROMPT_CHARS = 120_000; // generous ceiling - Claude handles it
+const MAX_CATALOG_CHARS = 6_000;  // live catalog injection cap
 
 const FALLBACK_PROMPT = 'Ти - AI-асистент магазину.';
 

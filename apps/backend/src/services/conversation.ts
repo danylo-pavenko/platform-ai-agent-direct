@@ -540,17 +540,24 @@ function buildSharedPostHeader(post: SharedPostData): string {
   if (post.caption) {
     // Truncate very long captions - we only need the descriptive part
     const truncated = post.caption.length > 200
-      ? post.caption.slice(0, 200) + '…'
+      ? post.caption.slice(0, 200) + '...'
       : post.caption;
-    parts.push(`Підпис публікації: "${truncated}"`);
+    parts.push(`Пiдпис публiкацiї: "${truncated}"`);
   }
 
   if (post.postUrl) {
     parts.push(`Посилання: ${post.postUrl}`);
   }
 
+  // Explicit identification task for Claude (vision + catalog matching)
   parts.push(
-    'Завдання: визнач, який товар зображено, та перевір наявність за даними нижче.',
+    'Завдання:\n' +
+    '1) Визнач ТИП ВИРОБУ з зображення/пiдпису (худi / футболка / лонгслiв / свiтшот / сорочка / кепка).\n' +
+    '2) Визнач КОЛIР виробу.\n' +
+    '3) Визнач ПРИНТ або НАПИС на виробi (це окрема позицiя в CRM).\n' +
+    '4) Знайди в каталозi нижче базовий виріб та принт окремо, порахуй загальну цiну.\n' +
+    '5) Повiдом клiєнту: назва + цiна виробу + орiєнтовна цiна нанесення = загалом.\n' +
+    '6) Запитай розмiр i надай розмiрну сiтку для цього типу виробу (є в системному промптi).',
   );
 
   return parts.join('\n');
