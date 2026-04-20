@@ -70,6 +70,17 @@ for domain in "${API_DOMAIN}" "${ADMIN_DOMAIN}"; do
   fi
 done
 
+# ── Remove conflicting configs (same domains, different filename) ──
+for conf in /etc/nginx/sites-enabled/*; do
+  [[ -f "$conf" ]] || continue
+  real="$(readlink -f "$conf")"
+  [[ "$real" == "${NGINX_CONF}" ]] && continue  # this is our target — skip
+  if grep -qE "server_name[^;]*(${API_DOMAIN}|${ADMIN_DOMAIN})" "$real" 2>/dev/null; then
+    echo "Removing conflicting config: $conf (→ $real)"
+    rm -f "$conf"
+  fi
+done
+
 # ── Backup existing config ──
 if [[ -f "${NGINX_CONF}" ]]; then
   BACKUP="${NGINX_CONF}.bak.$(date +%Y%m%d%H%M%S)"
