@@ -42,9 +42,9 @@
         <div class="health-text">
           <span class="health-title">{{ healthOk ? 'Агент активний' : 'Потрібна увага' }}</span>
           <span class="health-meta">
-            Остання відповідь бота: {{ formatRelative(summary?.health.lastBotReplyAt) }}
+            Остання відповідь бота: {{ formatRelative(summary?.health?.lastBotReplyAt) }}
             <span class="health-dot">·</span>
-            Каталог (sync): {{ formatRelative(summary?.health.lastCatalogSyncAt) }}
+            Каталог (sync): {{ formatRelative(summary?.health?.lastCatalogSyncAt) }}
           </span>
         </div>
       </div>
