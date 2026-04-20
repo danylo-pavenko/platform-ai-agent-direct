@@ -1,14 +1,14 @@
 <template>
   <v-app>
     <!-- Mobile app bar -->
-    <v-app-bar v-if="authStore.isAuthenticated && mobile" flat height="56">
+    <v-app-bar v-if="authStore.isAuthenticated && mobile && route.name !== 'login'" flat height="56">
       <v-app-bar-nav-icon @click="drawer = !drawer" />
       <v-app-bar-title>{{ brandName }}</v-app-bar-title>
     </v-app-bar>
 
     <!-- Navigation drawer -->
     <v-navigation-drawer
-      v-if="authStore.isAuthenticated"
+      v-if="authStore.isAuthenticated && route.name !== 'login'"
       v-model="drawer"
       :permanent="!mobile"
       :width="240"
@@ -118,10 +118,12 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useDisplay } from 'vuetify';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
 const { mobile } = useDisplay();
+const route = useRoute();
 const drawer = ref(true);
 const brandName = 'Status Blessed';
 

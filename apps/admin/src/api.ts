@@ -18,8 +18,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      router.push({ name: 'login' });
+      // Lazy import to avoid circular dependency auth store → api → auth store
+      import('@/stores/auth').then(({ useAuthStore }) => {
+        useAuthStore().logout();
+      }).catch(() => {
+        localStorage.removeItem('token');
+        router.push({ name: 'login' });
+      });
     }
     return Promise.reject(error);
   },
