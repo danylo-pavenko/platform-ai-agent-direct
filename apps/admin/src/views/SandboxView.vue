@@ -321,6 +321,9 @@ const replayMessages = ref<string[]>([]);
 const replayStep = ref(0);
 const replayWaitingResponse = ref(false);
 
+// Request cancellation
+const currentAbortController = ref<AbortController | null>(null);
+
 // Snackbar
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -386,6 +389,13 @@ function insertNewline() {
 // ---------------------------------------------------------------------------
 
 async function sendChatMessage(text: string) {
+  // Cancel any in-flight request before starting a new one
+  if (currentAbortController.value) {
+    currentAbortController.value.abort();
+  }
+  const controller = new AbortController();
+  currentAbortController.value = controller;
+
   chatMessages.value.push({
     role: 'user',
     content: text,
@@ -404,7 +414,7 @@ async function sendChatMessage(text: string) {
       payload.systemPromptId = selectedPromptId.value;
     }
 
-    const { data } = await api.post('/sandbox/chat', payload);
+    const { data } = await api.post('/sandbox/chat', payload, { signal: controller.signal });
 
     chatMessages.value.push({
       role: 'assistant',
@@ -412,6 +422,8 @@ async function sendChatMessage(text: string) {
       timestamp: new Date(),
     });
   } catch (e: any) {
+    // Silently ignore aborted requests (stop replay / switch scenario)
+    if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED' || e.name === 'AbortError') return;
     const errorMsg = e.response?.data?.error || 'Помилка зв\'язку';
     chatMessages.value.push({
       role: 'assistant',
@@ -420,6 +432,7 @@ async function sendChatMessage(text: string) {
     });
     showSnack(errorMsg, 'error');
   } finally {
+    currentAbortController.value = null;
     loading.value = false;
     await scrollToBottom();
   }
@@ -437,6 +450,12 @@ function sendQuickHint(text: string) {
 }
 
 function resetChat() {
+  // Abort any in-flight request
+  if (currentAbortController.value) {
+    currentAbortController.value.abort();
+    currentAbortController.value = null;
+  }
+  loading.value = false;
   chatMessages.value = [];
   replayMode.value = false;
   replayStep.value = 0;
@@ -485,6 +504,10 @@ async function deleteCase(id: string) {
 
 function loadCaseToChat(c: SandboxCase) {
   selectedCaseId.value = c.id;
+  // Populate chat input with the first message of the case
+  if (c.messages.length > 0) {
+    inputText.value = c.messages[0];
+  }
   if (mobile.value) showCasesDrawer.value = false;
 }
 
@@ -512,6 +535,12 @@ async function sendReplayStep() {
 }
 
 function stopReplay() {
+  // Abort any in-flight request
+  if (currentAbortController.value) {
+    currentAbortController.value.abort();
+    currentAbortController.value = null;
+  }
+  loading.value = false;
   replayMode.value = false;
   replayStep.value = 0;
   replayMessages.value = [];

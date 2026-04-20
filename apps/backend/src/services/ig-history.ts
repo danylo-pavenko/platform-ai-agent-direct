@@ -1,0 +1,233 @@
+/**
+ * ig-history.ts
+ *
+ * Imports historical Instagram conversation messages into our database
+ * via the Meta Graph API Conversations endpoint.
+ *
+ * API flow:
+ *   1. GET /{ig-page-id}/conversations?platform=instagram&user_id={igsid}
+ *      → returns conversation IDs for this user on our page
+ *   2. GET /{conversation-id}/messages?fields=id,message,from,to,created_time
+ *      → returns paginated messages
+ *
+ * All imported messages are stored with `igMessageId` set so re-importing
+ * is idempotent (duplicates are skipped via upsert).
+ *
+ * Requires: instagram_manage_messages permission on the Page Access Token.
+ */
+
+import pino from 'pino';
+import { prisma } from '../lib/prisma.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
+
+const log = pino({ name: 'ig-history' });
+
+const IG_API_BASE = 'https://graph.facebook.com/v21.0';
+const MAX_IMPORT_MESSAGES = 200; // Safety cap — avoid flooding DB
+
+interface IgApiMessage {
+  id: string;
+  message?: string;
+  from?: { id: string; name?: string };
+  to?: { data: Array<{ id: string; name?: string }> };
+  created_time: string; // ISO 8601
+}
+
+interface IgApiMessagesResponse {
+  data: IgApiMessage[];
+  paging?: {
+    cursors?: { before?: string; after?: string };
+    next?: string;
+  };
+}
+
+interface IgApiConversation {
+  id: string;
+}
+
+interface IgApiConversationsResponse {
+  data: IgApiConversation[];
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  total: number;
+}
+
+// ── Main export ──────────────────────────────────────────────────────────────
+
+/**
+ * Fetches IG conversation history for a client and imports into our DB.
+ * Returns counts of imported / skipped messages.
+ */
+export async function importIgConversationHistory(
+  conversationId: string,
+  igScopedUserId: string,
+): Promise<ImportResult> {
+  const { meta } = await getIntegrationConfig();
+  const pageToken = meta.pageAccessToken;
+
+  // 1. Find the IG conversation thread between our page and this user
+  const igConversationId = await findIgConversationId(igScopedUserId, pageToken);
+
+  if (!igConversationId) {
+    log.info({ igScopedUserId }, 'No IG conversation found for this user');
+    return { imported: 0, skipped: 0, total: 0 };
+  }
+
+  // 2. Fetch messages from the IG thread
+  const igMessages = await fetchIgMessages(igConversationId, pageToken);
+
+  log.info(
+    { conversationId, igConversationId, count: igMessages.length },
+    'Fetched IG messages for import',
+  );
+
+  // 3. Determine our page's own IG user id (to distinguish sent vs received)
+  const pageIgUserId = await getPageIgUserId(pageToken);
+
+  // 4. Import into DB (idempotent via igMessageId)
+  let imported = 0;
+  let skipped = 0;
+
+  // Process in chronological order (oldest first)
+  const sorted = [...igMessages].sort(
+    (a, b) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime(),
+  );
+
+  for (const msg of sorted) {
+    // Skip messages with no text content
+    if (!msg.message?.trim()) {
+      skipped++;
+      continue;
+    }
+
+    // Check if already imported
+    const existing = await prisma.message.findUnique({
+      where: { igMessageId: msg.id },
+      select: { id: true },
+    });
+
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    // Determine direction: was this message sent by our page or by the client?
+    const senderId = msg.from?.id ?? '';
+    const direction: 'in' | 'out' = senderId === pageIgUserId ? 'out' : 'in';
+    const sender = direction === 'out' ? 'bot' : 'client';
+
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction,
+        sender,
+        text: msg.message.trim(),
+        igMessageId: msg.id,
+        createdAt: new Date(msg.created_time),
+      },
+    });
+
+    imported++;
+  }
+
+  // Update conversation lastMessageAt to the oldest imported message if conversation has no messages yet
+  if (imported > 0 && sorted.length > 0) {
+    const oldestTs = new Date(sorted[0].created_time);
+    const newestTs = new Date(sorted[sorted.length - 1].created_time);
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: newestTs },
+    });
+    log.info(
+      { conversationId, imported, skipped, from: oldestTs, to: newestTs },
+      'IG history import complete',
+    );
+  }
+
+  return { imported, skipped, total: igMessages.length };
+}
+
+// ── Private helpers ──────────────────────────────────────────────────────────
+
+async function findIgConversationId(
+  igScopedUserId: string,
+  pageToken: string,
+): Promise<string | null> {
+  const url = new URL(`${IG_API_BASE}/me/conversations`);
+  url.searchParams.set('platform', 'instagram');
+  url.searchParams.set('user_id', igScopedUserId);
+  url.searchParams.set('fields', 'id');
+  url.searchParams.set('access_token', pageToken);
+
+  try {
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      log.warn({ status: res.status, body: body.slice(0, 300) }, 'IG conversations API error');
+      return null;
+    }
+
+    const data = (await res.json()) as IgApiConversationsResponse;
+    return data.data?.[0]?.id ?? null;
+  } catch (err) {
+    log.error({ err, igScopedUserId }, 'Failed to fetch IG conversation ID');
+    return null;
+  }
+}
+
+async function fetchIgMessages(
+  igConversationId: string,
+  pageToken: string,
+): Promise<IgApiMessage[]> {
+  const messages: IgApiMessage[] = [];
+  let nextUrl: string | null = buildMessagesUrl(igConversationId, pageToken);
+
+  while (nextUrl && messages.length < MAX_IMPORT_MESSAGES) {
+    const res = await fetch(nextUrl, { signal: AbortSignal.timeout(15_000) });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      log.warn({ status: res.status, body: body.slice(0, 300) }, 'IG messages API error');
+      break;
+    }
+
+    const page = (await res.json()) as IgApiMessagesResponse;
+    messages.push(...(page.data ?? []));
+
+    nextUrl = page.paging?.next ?? null;
+  }
+
+  return messages.slice(0, MAX_IMPORT_MESSAGES);
+}
+
+function buildMessagesUrl(igConversationId: string, pageToken: string): string {
+  const url = new URL(`${IG_API_BASE}/${igConversationId}/messages`);
+  url.searchParams.set('fields', 'id,message,from,to,created_time');
+  url.searchParams.set('limit', '50');
+  url.searchParams.set('access_token', pageToken);
+  return url.toString();
+}
+
+/**
+ * Gets the Instagram page user ID (used to distinguish our outgoing messages
+ * from the client's incoming messages when importing history).
+ */
+async function getPageIgUserId(pageToken: string): Promise<string> {
+  try {
+    const url = new URL(`${IG_API_BASE}/me`);
+    url.searchParams.set('fields', 'id');
+    url.searchParams.set('access_token', pageToken);
+
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
+    if (!res.ok) return '';
+
+    const data = (await res.json()) as { id?: string };
+    return data.id ?? '';
+  } catch {
+    return '';
+  }
+}

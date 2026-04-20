@@ -33,9 +33,33 @@ export const salesAgentTools: ToolDefinition[] = [
           enum: ['warehouse', 'postamat'],
           description: 'warehouse = відділення НП; postamat = поштомат НП',
         },
+        email: {
+          type: 'string',
+          description: 'Email-адреса клієнта',
+        },
       },
       // All fields are optional — Claude can call with just what it knows
       required: [],
+    },
+  },
+  {
+    name: 'tag_client',
+    description:
+      'Додати теги до профілю клієнта для майбутньої персоналізації та рекламних кампаній. Викликай в кінці розмови або коли стає зрозуміло хто клієнт. Теги допомагають у ретаргетингу.',
+    parameters: {
+      type: 'object',
+      properties: {
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Список тегів. Приклади: "vip", "repeat_buyer", "print_fan", "embroidery", "budget", "gifting", "wholesale_inquiry", "lost_lead"',
+        },
+        notes: {
+          type: 'string',
+          description: 'Корисна нотатка про клієнта для менеджера (необов\'язково). Наприклад: "Цікавиться принтами, але обирає довго. Підходять подарунки."',
+        },
+      },
+      required: ['tags'],
     },
   },
   {

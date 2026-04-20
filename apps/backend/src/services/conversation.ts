@@ -71,13 +71,53 @@ export async function handleIncomingMessage(
   // Build a typed profile object from the client record.
   // Claude uses this to address the customer by name and skip asking
   // for data it already has (phone, delivery details from prior sessions).
+
+  // Load previous orders for repeat-customer context
+  const previousOrders = await prisma.order.findMany({
+    where: {
+      clientId: client.id,
+      status: { not: 'draft' },
+      conversationId: { not: conversationId }, // exclude current conversation's orders
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+    select: { items: true, status: true },
+  });
+
+  const conversationsCount = await prisma.conversation.count({
+    where: { clientId: client.id },
+  });
+
+  // Build a short human-readable summary of past orders
+  let previousOrdersSummary: string | undefined;
+  if (previousOrders.length > 0) {
+    const itemNames = previousOrders.flatMap((o) => {
+      const items = Array.isArray(o.items) ? o.items : [];
+      return items.map((i) => (i && typeof i === 'object' && !Array.isArray(i) ? String((i as Record<string, unknown>).name ?? '') : '')).filter(Boolean);
+    });
+    // Deduplicate and count
+    const counts = itemNames.reduce<Record<string, number>>((acc, name) => {
+      acc[name] = (acc[name] ?? 0) + 1;
+      return acc;
+    }, {});
+    previousOrdersSummary = Object.entries(counts)
+      .map(([name, count]) => (count > 1 ? `${name} (×${count})` : name))
+      .join(', ');
+  }
+
   const clientProfile: ClientProfile = {
     igUsername: client.igUsername ?? undefined,
     igFullName: client.igFullName ?? undefined,
     phone: client.phone ?? undefined,
+    email: client.email ?? undefined,
     deliveryCity: client.deliveryCity ?? undefined,
     deliveryNpBranch: client.deliveryNpBranch ?? undefined,
     deliveryNpType: client.deliveryNpType ?? undefined,
+    notes: client.notes ?? undefined,
+    tags: client.tags.length > 0 ? client.tags : undefined,
+    previousOrdersCount: previousOrders.length > 0 ? previousOrders.length : undefined,
+    previousOrdersSummary,
+    conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
   };
 
   // ── 2. Handoff state — skip bot response ──────────────────────────
@@ -234,6 +274,13 @@ export async function handleIncomingMessage(
       });
     }
 
+    const tagClient = response.toolCalls.find((tc) => tc.name === 'tag_client');
+    if (tagClient) {
+      handleTagClient(client.id, tagClient.args).catch((err) => {
+        log.error({ err, conversationId, clientId: client.id }, 'Failed to tag client');
+      });
+    }
+
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
     if (handoff) {
       const reason =
@@ -371,6 +418,9 @@ async function handleUpdateClientInfo(
   if (typeof args.np_type === 'string' && ['warehouse', 'postamat'].includes(args.np_type)) {
     update.deliveryNpType = args.np_type;
   }
+  if (typeof args.email === 'string' && args.email.trim()) {
+    update.email = args.email.trim().toLowerCase();
+  }
 
   if (Object.keys(update).length === 0) {
     log.debug({ clientId }, 'update_client_info called with no usable fields — skipping DB write');
@@ -383,6 +433,48 @@ async function handleUpdateClientInfo(
   });
 
   log.info({ clientId, fields: Object.keys(update) }, 'Client profile updated from conversation');
+}
+
+/**
+ * Appends tags and optional notes to a client profile.
+ * Called when Claude fires the `tag_client` tool.
+ * Tags are merged (deduplicated) with existing ones — never overwritten.
+ */
+async function handleTagClient(
+  clientId: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const newTags = Array.isArray(args.tags)
+    ? args.tags.filter((t): t is string => typeof t === 'string' && t.trim().length > 0).map((t) => t.trim().toLowerCase())
+    : [];
+
+  const notes = typeof args.notes === 'string' && args.notes.trim()
+    ? args.notes.trim()
+    : null;
+
+  if (newTags.length === 0 && !notes) {
+    log.debug({ clientId }, 'tag_client called with no usable data — skipping');
+    return;
+  }
+
+  // Fetch current tags to merge (dedup)
+  const current = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { tags: true },
+  });
+
+  const existingTags = current?.tags ?? [];
+  const mergedTags = Array.from(new Set([...existingTags, ...newTags]));
+
+  const update: Record<string, unknown> = { tags: mergedTags };
+  if (notes) update.notes = notes;
+
+  await prisma.client.update({
+    where: { id: clientId },
+    data: update,
+  });
+
+  log.info({ clientId, tags: mergedTags, hasNotes: !!notes }, 'Client tagged from conversation');
 }
 
 // ---------------------------------------------------------------------------

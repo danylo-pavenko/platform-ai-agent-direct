@@ -18,9 +18,17 @@ export interface ClientProfile {
   igUsername?: string;   // @handle (without @)
   igFullName?: string;   // Display name from IG profile
   phone?: string;        // Previously confirmed phone
+  email?: string;
   deliveryCity?: string;
   deliveryNpBranch?: string;
   deliveryNpType?: string; // "warehouse" | "postamat"
+  // CRM context
+  notes?: string;        // Manual notes from admin or Claude
+  tags?: string[];       // Segmentation tags
+  // Repeat customer context
+  previousOrdersCount?: number;  // How many orders this client has placed
+  previousOrdersSummary?: string; // e.g. "Замовляв: Футболка з принтом (2), Худі"
+  conversationsCount?: number;    // Total conversations (incl. current)
 }
 
 export interface PromptBuildParams {
@@ -318,23 +326,52 @@ function buildClientIdentityLine(
 function buildClientDataBlock(profile: ClientProfile | undefined): string {
   if (!profile) return '';
 
-  const lines: string[] = [];
+  const knownLines: string[] = [];
 
   if (profile.phone) {
-    lines.push(`Телефон клієнта: ${profile.phone}`);
+    knownLines.push(`Телефон: ${profile.phone}`);
+  }
+  if (profile.email) {
+    knownLines.push(`Email: ${profile.email}`);
   }
   if (profile.deliveryCity) {
-    lines.push(`Місто доставки: ${profile.deliveryCity}`);
+    knownLines.push(`Місто доставки: ${profile.deliveryCity}`);
   }
   if (profile.deliveryNpBranch) {
     const typeLabel =
       profile.deliveryNpType === 'postamat' ? 'Поштомат НП' : 'Відділення НП';
-    lines.push(`${typeLabel}: ${profile.deliveryNpBranch}`);
+    knownLines.push(`${typeLabel}: ${profile.deliveryNpBranch}`);
   }
 
-  if (lines.length === 0) return '';
+  const historyLines: string[] = [];
 
-  return '\nВже відомо про клієнта (не питай знову):\n' + lines.join('\n');
+  // Repeat customer context
+  if (profile.conversationsCount && profile.conversationsCount > 1) {
+    historyLines.push(`Кількість розмов: ${profile.conversationsCount} (повторний клієнт)`);
+  }
+  if (profile.previousOrdersCount && profile.previousOrdersCount > 0) {
+    historyLines.push(`Попередніх замовлень: ${profile.previousOrdersCount}`);
+  }
+  if (profile.previousOrdersSummary) {
+    historyLines.push(`Раніше замовляв(ла): ${profile.previousOrdersSummary}`);
+  }
+  if (profile.notes) {
+    historyLines.push(`Нотатка: ${profile.notes}`);
+  }
+  if (profile.tags && profile.tags.length > 0) {
+    historyLines.push(`Теги: ${profile.tags.join(', ')}`);
+  }
+
+  const parts: string[] = [];
+
+  if (knownLines.length > 0) {
+    parts.push('\nВже відомо про клієнта (не питай знову):\n' + knownLines.join('\n'));
+  }
+  if (historyLines.length > 0) {
+    parts.push('\nКонтекст клієнта:\n' + historyLines.join('\n'));
+  }
+
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------

@@ -19,11 +19,16 @@ model Client {
   igUsername       String?        @map("ig_username")    // @handle (without @)
   igFullName       String?        @map("ig_full_name")   // Full name from IG profile
 
-  // Customer delivery profile — extracted from conversation by Claude
+  // Customer contact & delivery — extracted from conversation by Claude
   phone            String?                               // Confirmed phone number
+  email            String?                               // Customer email
   deliveryCity     String?        @map("delivery_city")  // City for Nova Poshta delivery
   deliveryNpBranch String?        @map("delivery_np_branch") // Branch number or address
   deliveryNpType   String?        @map("delivery_np_type")   // "warehouse" | "postamat"
+
+  // CRM / segmentation — set manually in admin or by Claude tags tool
+  notes            String?                               // Free-text notes about the client
+  tags             String[]       @default([]) @map("tags") // e.g. ["vip", "print", "repeat"]
 
   createdAt        DateTime       @default(now()) @map("created_at")
   lastActivityAt   DateTime       @default(now()) @map("last_activity_at")

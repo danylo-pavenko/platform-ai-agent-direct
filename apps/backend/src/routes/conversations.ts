@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from '../services/instagram.js';
+import { importIgConversationHistory } from '../services/ig-history.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
   // GET / — List conversations
@@ -113,5 +114,76 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return message;
+  });
+
+  // POST /:id/import-ig-history — Import historical IG messages from Graph API
+  app.post<{
+    Params: { id: string };
+  }>('/:id/import-ig-history', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: request.params.id },
+      include: { client: true },
+    });
+
+    if (!conversation) {
+      return reply.code(404).send({ error: 'Conversation not found' });
+    }
+
+    if (!conversation.client.igUserId) {
+      return reply.code(400).send({ error: 'Client has no Instagram user ID' });
+    }
+
+    const result = await importIgConversationHistory(
+      conversation.id,
+      conversation.client.igUserId,
+    );
+
+    return result;
+  });
+
+  // PUT /clients/:clientId — Manually update client profile from admin
+  app.put<{
+    Params: { clientId: string };
+    Body: {
+      displayName?: string;
+      phone?: string;
+      email?: string;
+      deliveryCity?: string;
+      deliveryNpBranch?: string;
+      deliveryNpType?: string;
+      notes?: string;
+      tags?: string[];
+    };
+  }>('/clients/:clientId', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { clientId } = request.params;
+    const body = request.body ?? {};
+
+    const allowedFields = ['displayName', 'phone', 'email', 'deliveryCity', 'deliveryNpBranch', 'deliveryNpType', 'notes', 'tags'];
+    const update: Record<string, unknown> = {};
+
+    for (const field of allowedFields) {
+      if (field in body) {
+        const val = (body as Record<string, unknown>)[field];
+        // Allow null to clear a field, skip undefined
+        if (val !== undefined) {
+          update[field] = val === '' ? null : val;
+        }
+      }
+    }
+
+    if (Object.keys(update).length === 0) {
+      return reply.code(400).send({ error: 'No fields to update' });
+    }
+
+    const client = await prisma.client.update({
+      where: { id: clientId },
+      data: update,
+    }).catch(() => null);
+
+    if (!client) {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
+
+    return client;
   });
 }
