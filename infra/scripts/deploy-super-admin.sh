@@ -28,34 +28,51 @@ fi
 set -a; source "${ENV_FILE}"; set +a
 
 # ── 1. Pull latest ──
-echo "[1/5] Pulling latest..."
+echo "[1/6] Pulling latest..."
 git pull --ff-only
 
 # ── 2. Install deps (include dev — потрібен tsc для build) ──
-echo "[2/5] Installing dependencies..."
+echo "[2/6] Installing dependencies..."
 NODE_ENV=development npm install --prefix "${APP_DIR}"
 
 # ── 3. Generate Prisma client ──
-echo "[3/5] Generating Prisma client..."
+echo "[3/6] Generating Prisma client..."
 cd "${APP_DIR}"
 DATABASE_URL="${DATABASE_URL}" npx prisma generate --schema=prisma/schema.prisma
+
+# ── 3b. Sync DB schema (db push = apply schema without migration history) ──
+# Uses --accept-data-loss because we manage schema via Prisma only (no manual ALTER).
+# Safe on a fresh or already-in-sync DB. Idempotent.
+echo "[3b/6] Syncing database schema (prisma db push)..."
+DATABASE_URL="${DATABASE_URL}" npx prisma db push --schema=prisma/schema.prisma --accept-data-loss || {
+  echo ""
+  echo "  ✗ prisma db push failed."
+  echo "  Likely cause: DB user lacks privileges on the schema."
+  echo "  Fix (run as postgres superuser):"
+  echo ""
+  # Extract user from DATABASE_URL: postgresql://USER:pass@host/db
+  DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
+  DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
+  echo "    sudo -u postgres psql ${DB_NAME} -c \\"
+  echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
+  echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
+  echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
+  echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
+  echo ""
+  echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
+  exit 1
+}
+
 cd "${PROJECT_ROOT}"
 
 # ── 4. Build TypeScript ──
-echo "[4/5] Building TypeScript..."
+echo "[4/6] Building TypeScript..."
 cd "${APP_DIR}"
 ./node_modules/.bin/tsc --project tsconfig.json
 cd "${PROJECT_ROOT}"
 
 # ── 5. Restart PM2 (inject env vars from .env.super-admin) ──
-echo "[5/5] Restarting PM2..."
-
-# Build env args to pass explicitly (PM2 env_file has path resolution issues)
-ENV_ARGS=""
-while IFS= read -r line; do
-  [[ "$line" =~ ^#.*$ || -z "$line" ]] && continue
-  ENV_ARGS="${ENV_ARGS} --env-${line%%=*}='${line#*=}'"
-done < "${ENV_FILE}"
+echo "[5/6] Restarting PM2..."
 
 if pm2 list 2>/dev/null | grep -q "SA-api"; then
   pm2 stop SA-api 2>/dev/null || true
@@ -68,7 +85,8 @@ env $(grep -v '^#' "${ENV_FILE}" | grep -v '^$' | xargs) \
 
 pm2 save
 
-# ── Health check ──
+# ── 6. Health check ──
+echo "[6/6] Health check..."
 sleep 2
 SA_PORT="${SA_API_PORT:-4000}"
 STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${SA_PORT}/api/health" 2>/dev/null || echo "000")
