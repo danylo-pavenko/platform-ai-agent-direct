@@ -47,7 +47,7 @@
       "Bash(curl -sf http://localhost:3100/health)",
       "Bash(curl -sf -o /dev/null -w \"%{http_code}\" http://localhost:3101/)",
       "Bash(npx prisma *)",
-      "Bash(COMMIT_MSG='redesign admin UI in Stripe/Notion style, add sandbox meta-agent, favicon, and prompt updates' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh)",
+      "Bash(COMMIT_MSG=* /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh*)",
       "Bash(pm2 restart *)",
       "Bash(pm2 list *)",
       "Bash(awk '{print $2, $11, $12}')",
@@ -63,13 +63,14 @@
       "Bash(kill 73502)",
       "Bash(npx dotenvx run -- npx tsx --tsconfig tsconfig.json -e ' *)",
       "Bash(PGPASSWORD=sb_agent_dev psql *)",
-      "Bash(COMMIT_MSG=\"Add setup instructions to integration settings\" /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
-      "Bash(COMMIT_MSG='Add Facebook OAuth flow for automatic Page Access Token retrieval' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
       "Bash(./node_modules/.bin/tsc --project tsconfig.json --noEmit)",
-      "Bash(COMMIT_MSG='Redesign landing page with Nothing-style dot matrix aesthetic' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
-      "Bash(COMMIT_MSG='Add client CRM profile, IG history import, and repeat-customer context for agent' /Users/danylopavenko/.claude/skills/commit-git/scripts/validate.sh *)",
       "Bash(node *)",
-      "Bash(echo \"Exit: $?\")"
+      "Bash(echo \"Exit: $?\")",
+      "Bash(xargs sed *)",
+      "Bash(psql postgresql://sb_agent:sb_agent_dev@localhost:5433/sb_agent -c \"SELECT content FROM system_prompts WHERE is_active = true;\" -t --no-align)",
+      "Read(//tmp/**)",
+      "Bash(xargs cat *)",
+      "Skill(update-config)"
     ]
   },
   "enabledMcpjsonServers": [
