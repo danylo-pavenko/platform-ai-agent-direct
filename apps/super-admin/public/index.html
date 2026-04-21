@@ -395,6 +395,20 @@
           <option value="suspended">Suspended</option>
         </select>
       </div>
+      <div class="field">
+        <label>Git Repo URL <span style="color:var(--warn)">*</span> <span style="color:var(--muted);font-weight:400">(for first deploy / clone)</span></label>
+        <input v-model="modal.form.gitRepo" placeholder="git@github.com:org/platform-ai-agent-direct.git" />
+      </div>
+      <div class="field">
+        <label>Extra .env vars <span style="color:var(--muted);font-weight:400">(DB, API keys, secrets — одна змінна на рядок)</span></label>
+        <textarea
+          v-model="modal.form.envExtra"
+          placeholder="DATABASE_URL=postgresql://...&#10;JWT_SECRET=...&#10;ANTHROPIC_API_KEY=...&#10;IG_PAGE_ID=...&#10;IG_ACCESS_TOKEN=...&#10;IG_APP_SECRET=...&#10;WEBHOOK_VERIFY_TOKEN=...&#10;KEYCRM_API_KEY=...&#10;DEFAULT_ADMIN_USERNAME=admin&#10;DEFAULT_ADMIN_PASSWORD=change-me"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:8px 12px;font-size:12px;font-family:monospace;resize:vertical;min-height:120px;outline:none"
+          @focus="$event.target.style.borderColor='var(--accent)'"
+          @blur="$event.target.style.borderColor='var(--border)'"
+        ></textarea>
+      </div>
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="modal.open=false">Cancel</button>
         <button class="btn btn-primary" @click="saveTenant" :disabled="modal.saving">
@@ -451,7 +465,7 @@ createApp({
     });
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'' };
     }
 
     function headers() {
@@ -519,6 +533,8 @@ createApp({
         linuxUser: t.linuxUser,
         appDir: t.appDir,
         status: t.status,
+        gitRepo: t.gitRepo || '',
+        envExtra: t.envExtra || '',
       };
       modal.open = true;
     }

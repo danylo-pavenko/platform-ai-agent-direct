@@ -1,0 +1,2 @@
+ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "git_repo" TEXT;
+ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "env_extra" TEXT;

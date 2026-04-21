@@ -17,6 +17,8 @@ const tenantSchema = z.object({
   linuxUser: z.string().min(1),
   appDir: z.string().min(1),
   status: z.enum(['provisioned', 'active', 'suspended']).default('provisioned'),
+  gitRepo: z.string().min(1).optional(),
+  envExtra: z.string().optional(),
 });
 
 export async function tenantsRoutes(app: FastifyInstance) {
@@ -100,13 +102,10 @@ export async function tenantsRoutes(app: FastifyInstance) {
     }
   });
 
-  // Stream deploy logs via SSE
+  // Stream deploy logs via SSE (with auto-provision on first deploy)
   app.get<{ Params: { id: string } }>('/api/tenants/:id/deploy/stream', auth, async (req, reply) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
-
-    const deployScript = `${tenant.appDir}/infra/scripts/deploy-client.sh`;
-    const cmd = ['bash', '-c', `sudo -u ${tenant.linuxUser} bash ${deployScript}`];
 
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -115,39 +114,133 @@ export async function tenantsRoutes(app: FastifyInstance) {
       'Connection': 'keep-alive',
     });
 
-    const send = (line: string) => {
-      reply.raw.write(`data: ${line}\n\n`);
-    };
-
+    const send = (line: string) => reply.raw.write(`data: ${line}\n\n`);
     send(`[deploy started] ${tenant.name} (${tenant.instanceId})`);
-    app.log.info({ cmd: cmd.join(' ') }, 'Streaming deploy');
 
-    const child = spawn(cmd[0], cmd.slice(1), { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    const pipeLines = (chunk: Buffer, prefix = '') => {
-      chunk.toString().split('\n').forEach((line) => {
-        if (line.trim()) send(prefix + line);
+    // Run a command, stream its output, return exit code
+    const runStream = (args: string[], stdin?: string): Promise<number> =>
+      new Promise((resolve) => {
+        const child = spawn(args[0], args.slice(1), {
+          stdio: stdin !== undefined ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+        });
+        if (stdin !== undefined) {
+          (child.stdin as NodeJS.WritableStream).write(stdin);
+          (child.stdin as NodeJS.WritableStream).end();
+        }
+        child.stdout?.on('data', (chunk: Buffer) => {
+          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(l); });
+        });
+        child.stderr?.on('data', (chunk: Buffer) => {
+          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(`[err] ${l}`); });
+        });
+        req.raw.on('close', () => child.kill());
+        child.on('close', resolve);
+        child.on('error', (err: Error) => { send(`[error] ${err.message}`); resolve(1); });
       });
-    };
 
-    child.stdout.on('data', (chunk: Buffer) => pipeLines(chunk));
-    child.stderr.on('data', (chunk: Buffer) => pipeLines(chunk, '[err] '));
+    const deployScript = `${tenant.appDir}/infra/scripts/deploy-client.sh`;
 
-    // Abort stream if client disconnects
-    req.raw.on('close', () => { child.kill(); });
+    // Check if project is already cloned
+    const checkCode = await runStream(
+      ['bash', '-c', `sudo -u ${tenant.linuxUser} test -f '${deployScript}'`],
+    );
 
-    await new Promise<void>((resolve) => {
-      child.on('close', (code) => {
-        send(code === 0 ? '[✓ deploy finished successfully]' : `[✗ deploy failed with exit code ${code}]`);
+    if (checkCode !== 0) {
+      // ── Auto-provision ──────────────────────────────────────────────────────
+      if (!tenant.gitRepo) {
+        send('[error] Git repo URL not configured. Edit the client and set Git Repo.');
+        send('[✗ provision failed]');
         reply.raw.end();
-        resolve();
-      });
-      child.on('error', (err: Error) => {
-        send(`[error] ${err.message}`);
+        return;
+      }
+
+      send('[provision] Project not found — running initial setup...');
+
+      // Build .env content from tenant fields + envExtra
+      const envLines = [
+        `INSTANCE_ID=${tenant.instanceId}`,
+        `INSTANCE_NAME=${tenant.name}`,
+        `API_DOMAIN=${tenant.apiDomain}`,
+        `ADMIN_DOMAIN=${tenant.adminDomain}`,
+        `API_PORT=${tenant.apiPort}`,
+        `ADMIN_PORT=${tenant.adminPort}`,
+        `APP_DIR=${tenant.appDir}`,
+        `LINUX_USER=${tenant.linuxUser}`,
+        tenant.envExtra?.trim() ?? '',
+      ].filter(Boolean).join('\n');
+
+      const envB64 = Buffer.from(envLines).toString('base64');
+
+      // Provision script runs as root (sudo bash -s)
+      const provisionScript = `
+set -euo pipefail
+
+TENANT_USER='${tenant.linuxUser}'
+APP_DIR='${tenant.appDir}'
+GIT_REPO='${tenant.gitRepo}'
+# Current user home (agentsadmin)
+CURRENT_HOME=$(eval echo "~$(whoami)")
+TENANT_HOME=$(eval echo "~$TENANT_USER")
+
+# ── SSH setup ──
+echo "[provision] Setting up .ssh for $TENANT_USER..."
+mkdir -p "$TENANT_HOME/.ssh"
+chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh"
+chmod 700 "$TENANT_HOME/.ssh"
+
+if [ ! -f "$TENANT_HOME/.ssh/id_rsa" ] && [ -f "$CURRENT_HOME/.ssh/id_rsa" ]; then
+  cp "$CURRENT_HOME/.ssh/id_rsa" "$TENANT_HOME/.ssh/id_rsa"
+  cp "$CURRENT_HOME/.ssh/id_rsa.pub" "$TENANT_HOME/.ssh/id_rsa.pub" 2>/dev/null || true
+  chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/id_rsa" "$TENANT_HOME/.ssh/id_rsa.pub" 2>/dev/null || true
+  chmod 600 "$TENANT_HOME/.ssh/id_rsa"
+  echo "[provision] SSH key copied from $(whoami)"
+else
+  echo "[provision] SSH key already exists or source not found — skipping"
+fi
+
+if [ -f "$CURRENT_HOME/.ssh/authorized_keys" ] && [ ! -f "$TENANT_HOME/.ssh/authorized_keys" ]; then
+  cp "$CURRENT_HOME/.ssh/authorized_keys" "$TENANT_HOME/.ssh/authorized_keys"
+  chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/authorized_keys"
+  chmod 600 "$TENANT_HOME/.ssh/authorized_keys"
+  echo "[provision] authorized_keys copied"
+fi
+
+# ── Clone repo ──
+echo "[provision] Cloning $GIT_REPO..."
+sudo -u "$TENANT_USER" bash -c "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git clone '$GIT_REPO' '$APP_DIR'"
+echo "[provision] Repository cloned to $APP_DIR"
+
+# ── Write .env (base64-encoded to avoid quoting issues) ──
+echo "[provision] Writing .env..."
+printf '%s' '${envB64}' | base64 -d > "$APP_DIR/.env"
+chown "$TENANT_USER:$TENANT_USER" "$APP_DIR/.env"
+chmod 600 "$APP_DIR/.env"
+echo "[provision] .env written"
+
+echo "[provision] ✓ Initial setup complete"
+`.trim();
+
+      app.log.info({ linuxUser: tenant.linuxUser }, 'Running provision script');
+      const provisionCode = await runStream(['sudo', 'bash', '-s'], provisionScript);
+
+      if (provisionCode !== 0) {
+        send('[✗ provision failed — check errors above]');
         reply.raw.end();
-        resolve();
-      });
-    });
+        return;
+      }
+      send('[provision] Starting deploy...');
+    }
+
+    // ── Deploy ──────────────────────────────────────────────────────────────
+    app.log.info({ deployScript }, 'Running deploy-client.sh');
+    const deployCode = await runStream([
+      'bash', '-c', `sudo -u ${tenant.linuxUser} bash '${deployScript}'`,
+    ]);
+
+    send(deployCode === 0
+      ? '[✓ deploy finished successfully]'
+      : `[✗ deploy failed with exit code ${deployCode}]`);
+    reply.raw.end();
   });
 
   // Proxy chat to tenant sandbox (for compact chat panel)

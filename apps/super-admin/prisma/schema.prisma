@@ -19,6 +19,8 @@ model Tenant {
   linuxUser   String   @map("linux_user")
   appDir      String   @map("app_dir")
   status      String   @default("provisioned")
+  gitRepo     String?  @map("git_repo")
+  envExtra    String?  @map("env_extra")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
