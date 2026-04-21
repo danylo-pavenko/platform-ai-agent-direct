@@ -71,7 +71,11 @@
       "Read(//tmp/**)",
       "Bash(xargs cat *)",
       "Skill(update-config)",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(pm2 logs *)",
+      "Bash(curl *)",
+      "Bash(pm2 show *)",
+      "Bash(git restore *)"
     ]
   },
   "enabledMcpjsonServers": [
