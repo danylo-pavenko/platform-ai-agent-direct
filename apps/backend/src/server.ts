@@ -16,6 +16,7 @@ import { metaOAuthRoutes } from './routes/meta-oauth.js';
 import { sandboxRoutes } from './routes/sandbox.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { supervisorRoutes } from './routes/supervisor.js';
+import { crmFieldsRoutes } from './routes/crm-fields.js';
 
 const app = Fastify({
   logger: {
@@ -59,6 +60,7 @@ await app.register(metaOAuthRoutes, { prefix: '/settings' });
 await app.register(sandboxRoutes, { prefix: '/sandbox' });
 await app.register(dashboardRoutes, { prefix: '/dashboard' });
 await app.register(supervisorRoutes, { prefix: '/supervisor' });
+await app.register(crmFieldsRoutes, { prefix: '/crm-fields' });
 
 // Health check
 app.get('/health', async () => {

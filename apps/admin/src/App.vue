@@ -85,6 +85,12 @@
           @click="onNavClick"
         />
         <v-list-item
+          prepend-icon="mdi-format-list-bulleted-type"
+          title="CRM-поля клієнта"
+          :to="{ name: 'crm-fields' }"
+          @click="onNavClick"
+        />
+        <v-list-item
           prepend-icon="mdi-cog-outline"
           title="Налаштування"
           :to="{ name: 'settings' }"

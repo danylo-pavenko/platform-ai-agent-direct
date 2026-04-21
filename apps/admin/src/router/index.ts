@@ -59,6 +59,11 @@ const router = createRouter({
       name: 'sandbox',
       component: () => import('@/views/SandboxView.vue'),
     },
+    {
+      path: '/crm-fields',
+      name: 'crm-fields',
+      component: () => import('@/views/CrmFieldsView.vue'),
+    },
   ],
 });
 
