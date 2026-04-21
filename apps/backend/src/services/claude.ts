@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { resolve as resolvePath } from 'node:path';
+import { homedir } from 'node:os';
 import pino from 'pino';
 import { config } from '../config.js';
 import { Semaphore } from '../lib/queue.js';
@@ -163,7 +165,8 @@ function spawnClaude(
     let child: ChildProcess;
 
     try {
-      child = spawn('claude', args, {
+      const claudePath = resolvePath(homedir(), '.local', 'bin', 'claude');
+      child = spawn(claudePath, args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
       });
