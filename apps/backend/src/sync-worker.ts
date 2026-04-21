@@ -9,11 +9,11 @@ import './config.js';
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 
 import { config } from './config.js';
 import { prisma } from './lib/prisma.js';
+import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
 import {
   fetchCategories,
   fetchProducts,
@@ -25,10 +25,8 @@ import {
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = resolve(__dirname, '..', '..', '..');
-const DATA_DIR = resolve(PROJECT_ROOT, 'data');
-const CATALOG_PATH = resolve(PROJECT_ROOT, 'apps', 'workspace', 'knowledge', 'catalog.txt');
+const DATA_DIR = resolve(REPO_ROOT, 'data');
+const CATALOG_PATH = getCatalogPath();
 
 // ── Logger ─────────────────────────────────────────────────────────────────
 

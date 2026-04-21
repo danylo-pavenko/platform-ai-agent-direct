@@ -15,11 +15,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `../IMPLEMENTATION.md` — **головний документ**. Покрокові задачі (34 шт, блоки A–H), .env reference, PM2 config, nginx, промпти, tool definitions, regression tests, захисти, multi-instance playbook. Реалізація іде саме за ним.
 - `../PLAN.md` — архітектура верхнього рівня, модель даних (Prisma-схема), потоки (webhook → Claude → IG send), ризики. Дивись для загального контексту, але конкретні задачі — в IMPLEMENTATION.md.
 - `../chatbase/00_system_prompt.txt` — повний системний промпт агента продажів (Version 3, українською). Це стартова seed-версія для таблиці `system_prompts`.
-- `../chatbase/01_brand_and_voice.txt` — бренд, tone of voice, цінності → `apps/workspace/knowledge/brand.txt`.
-- `../chatbase/02_contacts_and_hours.txt` — контакти, графік → `apps/workspace/knowledge/contacts.txt`.
-- `../chatbase/03_delivery_and_payment.txt` — доставка, оплата → `apps/workspace/knowledge/delivery.txt`.
-- `../chatbase/06_faq.txt` — FAQ → `apps/workspace/knowledge/faq.txt`.
-- `../chatbase/04_categories.txt`, `../chatbase/05_catalog.txt` — каталог (генерується sync-воркером, не копіювати вручну).
+- `../chatbase/01_brand_and_voice.txt` — бренд, tone of voice, цінності → `apps/workspace/templates/knowledge/brand.txt`.
+- `../chatbase/02_contacts_and_hours.txt` — контакти, графік → `apps/workspace/templates/knowledge/contacts.txt`.
+- `../chatbase/03_delivery_and_payment.txt` — доставка, оплата → `apps/workspace/templates/knowledge/delivery.txt`.
+- `../chatbase/06_faq.txt` — FAQ → `apps/workspace/templates/knowledge/faq.txt`.
+- `../chatbase/04_categories.txt`, `../chatbase/05_catalog.txt` — каталог (генерується sync-воркером у `$HOME/tenant_knowledge/knowledge/catalog.txt`, не копіювати вручну).
+
+**Важливо:** `apps/workspace/templates/` — це seed-набір, який шериться між усіма тенантами. Runtime-копію кожен тенант тримає у `$HOME/tenant_knowledge/` (або `TENANT_KNOWLEDGE_DIR` з `.env`). `deploy-client.sh` копіює відсутні файли templates → tenant dir, але ніколи не перезаписує існуючі.
 - `../keycrm-openapi.yml` — OpenAPI spec KeyCRM (reference для написання KeyCRM client).
 - `../data/` — JSON-дампи з KeyCRM (categories, products, offers). Git-ignored, для локальної розробки.
 - `../products.csv` — повний експорт (788 варіантів). Для reference, не для коду.

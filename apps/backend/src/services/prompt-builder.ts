@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
+import { getCatalogPath } from '../lib/paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,12 +47,6 @@ export interface PromptBuildParams {
 // ---------------------------------------------------------------------------
 
 const log = pino({ name: 'prompt-builder' });
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const CATALOG_PATH = path.resolve(
-  __dirname, '..', '..', '..', 'workspace', 'knowledge', 'catalog.txt',
-);
 
 // Claude Code headless CLI handles 200k token context natively.
 // We only limit the live catalog snippet to keep it concise.
@@ -385,12 +378,12 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
  * Returns empty string if the file does not exist yet (sync worker generates it).
  */
 export async function loadCatalogSnippet(): Promise<string> {
+  const catalogPath = getCatalogPath();
   try {
-    const content = await readFile(CATALOG_PATH, 'utf-8');
+    const content = await readFile(catalogPath, 'utf-8');
     return content;
   } catch {
-    // File not found or unreadable - this is expected before first sync
-    log.debug({ path: CATALOG_PATH }, 'Catalog file not found, returning empty snippet');
+    log.debug({ path: catalogPath }, 'Catalog file not found, returning empty snippet');
     return '';
   }
 }

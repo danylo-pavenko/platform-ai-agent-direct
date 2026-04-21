@@ -58,6 +58,10 @@ const envSchema = z.object({
   // File storage
   UPLOADS_DIR: z.string().default('./uploads'),
 
+  // Per-tenant knowledge & prompts dir. When empty, resolves to
+  // <os.homedir()>/tenant_knowledge at runtime (see lib/paths.ts).
+  TENANT_KNOWLEDGE_DIR: z.string().default(''),
+
   // Logging
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });

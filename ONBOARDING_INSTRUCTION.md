@@ -250,12 +250,18 @@ curl https://api.status-blessed.com/health
 ### Крок 11 — Knowledge Base і перший вхід в адмінку
 
 **Knowledge base:**
+
+Knowledge files live OUTSIDE the repo, under `$HOME/tenant_knowledge/`
+(configurable via `TENANT_KNOWLEDGE_DIR` in `.env`). The first deploy
+seeds them from `apps/workspace/templates/`; subsequent deploys never
+overwrite tenant edits.
+
 ```bash
 su - agent_sb
-nano /opt/agents/sb/apps/workspace/knowledge/brand.txt
-nano /opt/agents/sb/apps/workspace/knowledge/contacts.txt
-nano /opt/agents/sb/apps/workspace/knowledge/delivery.txt
-nano /opt/agents/sb/apps/workspace/knowledge/faq.txt
+nano ~/tenant_knowledge/knowledge/brand.txt
+nano ~/tenant_knowledge/knowledge/contacts.txt
+nano ~/tenant_knowledge/knowledge/delivery.txt
+nano ~/tenant_knowledge/knowledge/faq.txt
 ```
 
 **Адмінка:**
