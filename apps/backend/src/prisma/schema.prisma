@@ -242,6 +242,60 @@ model SandboxCase {
   @@map("sandbox_cases")
 }
 
+// ── CRM Field Mappings ──
+//
+// Per-tenant: maps a local agent-side slug (e.g. "birthday") to a CRM
+// provider custom-field id. Lets the shop owner extend what the bot
+// collects without code changes — they add the field in their CRM,
+// then register the mapping here with a prompt hint, and Phase 4
+// dynamically injects it into the system prompt and update_client_info
+// tool schema.
+
+enum CrmFieldScope {
+  buyer
+  order
+
+  @@map("crm_field_scope")
+}
+
+model CrmFieldMapping {
+  id            String        @id @default(uuid()) @db.Uuid
+
+  // Local slug the agent uses in its tool JSON output (lowercase
+  // snake_case, stable across renames). e.g. "clothing_size".
+  localKey      String        @unique @map("local_key")
+
+  // CRM-side reference. For KeyCRM this is the field's uuid (e.g. LD_1021).
+  crmFieldKey   String        @map("crm_field_key")
+
+  // Where the value lives in the CRM — drives which write method the
+  // value flows into (buyer upsert vs order create).
+  scope         CrmFieldScope @default(buyer)
+
+  // Human-readable name shown in the admin UI (e.g. "Улюблений колір").
+  label         String
+
+  // Optional instruction injected into the agent's system prompt —
+  // tells Claude how to extract this field from the conversation.
+  // e.g. "Запитай розмір одягу клієнта (XS/S/M/L/XL)."
+  promptHint    String?       @map("prompt_hint")
+
+  // Type hint for validation & prompt formatting.
+  // Mirrors KeyCRM types: text | textarea | number | float | select |
+  // switcher | date | datetime | link.
+  extractType   String        @default("text") @map("extract_type")
+
+  // Allowed values for select/multi-select — seeded from the CRM's
+  // custom-field options, editable by the admin.
+  options       String[]      @default([])
+
+  isActive      Boolean       @default(true) @map("is_active")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  @@map("crm_field_mappings")
+}
+
 // ── Audit Log ──
 
 model AuditLog {
