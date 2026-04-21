@@ -1,0 +1,156 @@
+/**
+ * CRM adapter interface — abstracts the CRM backend (KeyCRM, future providers)
+ * behind a single contract so consumers (sync-worker, product-search, order
+ * submission) are decoupled from vendor-specific HTTP.
+ *
+ * Read methods are mandatory. Write methods are optional — a provider that
+ * cannot support them (e.g. a read-only ETL export) simply omits them, and
+ * the caller falls back to local-DB-only behaviour.
+ */
+
+// ── Shared entity types ────────────────────────────────────────────────────
+
+export interface CrmCategory {
+  id: number;
+  name: string;
+  parentId: number | null;
+}
+
+export interface CrmProduct {
+  id: number;
+  name: string;
+  description: string | null;
+  thumbnailUrl: string | null;
+  attachmentsData: string[];
+  quantity: number;
+  currencyCode: string;
+  minPrice: number | null;
+  maxPrice: number | null;
+  hasOffers: boolean;
+  isArchived: boolean;
+  categoryId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CrmOffer {
+  id: number;
+  productId: number;
+  sku: string | null;
+  barcode: string | null;
+  thumbnailUrl: string | null;
+  price: number;
+  purchasedPrice: number;
+  quantity: number;
+  inReserve: number;
+  properties: Array<{ name: string; value: string }>;
+  isArchived: boolean;
+  product?: CrmProduct;
+}
+
+// ── Search / filter params ─────────────────────────────────────────────────
+
+export interface ProductSearchParams {
+  /** Substring match on product name (CRM-provider-specific search). */
+  nameQuery?: string;
+  /** Exclude archived products (default true). */
+  activeOnly?: boolean;
+  /** Max number of products to return (default 5). */
+  limit?: number;
+}
+
+export interface OfferSearchParams {
+  productId?: number;
+  activeOnly?: boolean;
+  limit?: number;
+}
+
+// ── Client / order write types (used in Phase 2) ───────────────────────────
+
+export interface CrmClientMatch {
+  crmBuyerId?: string;
+  phone?: string;
+  email?: string;
+  /** Instagram handle without @, used for custom-field match or note search. */
+  instagramUsername?: string;
+}
+
+export interface CrmClientInput {
+  fullName: string;
+  phone?: string;
+  email?: string;
+  note?: string;
+  instagramUsername?: string;
+  shipping?: {
+    city?: string;
+    address?: string;
+    warehouseRef?: string;
+  };
+  /**
+   * Provider-specific custom field values, keyed by field UUID/key
+   * (see listCustomFields). Used for extensibility — shop owner maps
+   * local attribute → CRM custom field.
+   */
+  customFields?: Array<{ key: string; value: string }>;
+}
+
+export interface CrmOrderItem {
+  name: string;
+  variant?: string;
+  price: number;
+  qty: number;
+  /** CRM-side offer ID, if we could resolve it from local DB. */
+  offerId?: number;
+}
+
+export interface CrmOrderInput {
+  crmBuyerId: string;
+  items: CrmOrderItem[];
+  note?: string;
+  paymentMethod?: 'card' | 'transfer' | 'cod';
+  shipping?: {
+    city: string;
+    npBranch: string;
+  };
+  source?: string;
+  customFields?: Array<{ key: string; value: string }>;
+}
+
+export interface CrmCustomFieldDef {
+  /** Provider key/UUID used in write calls. */
+  key: string;
+  /** Human-readable field name. */
+  name: string;
+  /** Where this field lives (buyer, order, etc.). */
+  scope: 'buyer' | 'order';
+  /** Field type hint (text, number, select, multi-select, date...). */
+  type: string;
+  /** Allowed values for select/multi-select. */
+  options?: string[];
+}
+
+// ── The adapter itself ─────────────────────────────────────────────────────
+
+export interface CrmAdapter {
+  readonly name: string;
+
+  // Reads (mandatory)
+  fetchCategories(): Promise<CrmCategory[]>;
+  fetchProducts(): Promise<CrmProduct[]>;
+  fetchOffers(): Promise<CrmOffer[]>;
+
+  // Runtime search (mandatory — used by product-search on IG shared posts)
+  searchProducts(params: ProductSearchParams): Promise<CrmProduct[]>;
+  searchOffers(params: OfferSearchParams): Promise<CrmOffer[]>;
+
+  // Writes (optional — Phase 2)
+  findClient?(match: CrmClientMatch): Promise<{ crmBuyerId: string } | null>;
+  upsertClient?(
+    crmBuyerId: string | null,
+    input: CrmClientInput,
+  ): Promise<{ crmBuyerId: string }>;
+  createOrder?(input: CrmOrderInput): Promise<{ crmOrderId: string }>;
+
+  // Custom fields discovery (optional — Phase 3)
+  listCustomFields?(scope: 'buyer' | 'order'): Promise<CrmCustomFieldDef[]>;
+}

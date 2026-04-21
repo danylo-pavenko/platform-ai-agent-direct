@@ -14,14 +14,8 @@ import pino from 'pino';
 import { config } from './config.js';
 import { prisma } from './lib/prisma.js';
 import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
-import {
-  fetchCategories,
-  fetchProducts,
-  fetchOffers,
-  type KeycrmCategory,
-  type KeycrmProduct,
-  type KeycrmOffer,
-} from './services/keycrm.js';
+import { getCrmAdapter } from './services/crm/index.js';
+import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +74,7 @@ const DISPLAY_ORDER = [
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function categorizeProduct(product: KeycrmProduct): string {
+function categorizeProduct(product: CrmProduct): string {
   const name = (product.name ?? '').toLowerCase();
   for (const [key, label] of NAME_HEURISTIC) {
     if (name.includes(key)) {
@@ -128,7 +122,7 @@ function variantLabel(properties: Array<{ name: string; value: string }> | undef
 /**
  * Order categories: first by DISPLAY_ORDER, then alphabetically for any extra.
  */
-function orderedCategories(groups: Map<string, KeycrmProduct[]>): string[] {
+function orderedCategories(groups: Map<string, CrmProduct[]>): string[] {
   const inOrder = DISPLAY_ORDER.filter((c) => groups.has(c));
   const extra = [...groups.keys()]
     .filter((c) => !DISPLAY_ORDER.includes(c))
@@ -142,7 +136,7 @@ function orderedCategories(groups: Map<string, KeycrmProduct[]>): string[] {
  * Check if a product is a "service" item (custom print/embroidery).
  * These have price 1₴ and should be listed separately.
  */
-function isServiceItem(product: KeycrmProduct): boolean {
+function isServiceItem(product: CrmProduct): boolean {
   const name = (product.name ?? '').toLowerCase();
   return (
     name.startsWith('принт ') ||
@@ -155,7 +149,7 @@ function isServiceItem(product: KeycrmProduct): boolean {
 /**
  * Check if a product has ANY variant in stock.
  */
-function hasAnyStock(productId: number, offersByPid: Map<number, KeycrmOffer[]>): boolean {
+function hasAnyStock(productId: number, offersByPid: Map<number, CrmOffer[]>): boolean {
   const po = offersByPid.get(productId) ?? [];
   return po.some((o) => (o.quantity ?? 0) > 0);
 }
@@ -169,23 +163,23 @@ function extractColor(name: string): string | null {
 }
 
 function buildCatalog(
-  products: KeycrmProduct[],
-  offers: KeycrmOffer[],
-  _categories: KeycrmCategory[],
+  products: CrmProduct[],
+  offers: CrmOffer[],
+  _categories: CrmCategory[],
 ): string {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
   // Filter: non-archived only
-  const live = products.filter((p) => !p.is_archived);
+  const live = products.filter((p) => !p.isArchived);
   const liveIds = new Set(live.map((p) => p.id));
 
   // Group offers by product_id (only for live products)
-  const offersByPid = new Map<number, KeycrmOffer[]>();
+  const offersByPid = new Map<number, CrmOffer[]>();
   for (const o of offers) {
-    if (liveIds.has(o.product_id)) {
-      const arr = offersByPid.get(o.product_id);
+    if (liveIds.has(o.productId)) {
+      const arr = offersByPid.get(o.productId);
       if (arr) arr.push(o);
-      else offersByPid.set(o.product_id, [o]);
+      else offersByPid.set(o.productId, [o]);
     }
   }
 
@@ -198,7 +192,7 @@ function buildCatalog(
   const oosProducts = realProducts.filter((p) => !hasAnyStock(p.id, offersByPid));
 
   // Group in-stock by category
-  const groups = new Map<string, KeycrmProduct[]>();
+  const groups = new Map<string, CrmProduct[]>();
   for (const p of inStockProducts) {
     const cat = categorizeProduct(p);
     const arr = groups.get(cat);
@@ -241,7 +235,7 @@ function buildCatalog(
       const name = (p.name ?? '').trim() || `#${p.id}`;
       const po = offersByPid.get(p.id) ?? [];
       const inStockOffers = po.filter((o) => (o.quantity ?? 0) > 0);
-      const price = fmtPriceRange(p.min_price, p.max_price);
+      const price = fmtPriceRange(p.minPrice, p.maxPrice);
 
       lines.push(`### ${name} - ${price}`);
 
@@ -349,12 +343,13 @@ export async function runSync(): Promise<void> {
   });
 
   try {
-    // Fetch all data from KeyCRM
-    log.info('Fetching data from KeyCRM...');
+    // Fetch all data from the active CRM provider
+    const crm = getCrmAdapter();
+    log.info({ provider: crm.name }, 'Fetching data from CRM...');
     const [categories, products, offers] = await Promise.all([
-      fetchCategories(),
-      fetchProducts(),
-      fetchOffers(),
+      crm.fetchCategories(),
+      crm.fetchProducts(),
+      crm.fetchOffers(),
     ]);
 
     log.info(

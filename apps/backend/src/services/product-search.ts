@@ -1,13 +1,13 @@
 /**
  * product-search.ts
  *
- * Real-time product availability lookup via KeyCRM API.
+ * Real-time product availability lookup, built on top of the CrmAdapter.
  *
  * Used when a client shares an Instagram post with a product photo -
- * we extract keywords from the post caption and search KeyCRM for
+ * we extract keywords from the post caption and search the CRM for
  * matching ACTIVE products (not archived) that have stock > 0.
  *
- * Why query KeyCRM directly instead of the local catalog.txt?
+ * Why query the CRM directly instead of the local catalog.txt?
  * catalog.txt is a snapshot for prompt context (text only, no quantities).
  * For availability checks we need live quantity data, so we hit the API.
  *
@@ -16,108 +16,26 @@
  */
 
 import pino from 'pino';
-import { getIntegrationConfig } from '../lib/integration-config.js';
+import { getCrmAdapter } from './crm/index.js';
+import type { CrmOffer } from './crm/index.js';
 
 const log = pino({ name: 'product-search' });
 
-const BASE_URL = 'https://openapi.keycrm.app/v1';
-
-// How many products to fetch from KeyCRM search results.
+// How many products to fetch from CRM search results.
 // Keeps the context injected into Claude's prompt concise.
 const MAX_PRODUCT_RESULTS = 5;
 
 // Max offers (variants) to show per product.
 const MAX_OFFERS_PER_PRODUCT = 10;
 
-// ── Types (subset of KeyCRM API response) ──────────────────────────────────
-
-interface KeycrmProductSearchItem {
-  id: number;
-  name: string;
-  description: string | null;
-  quantity: number;       // Total across all offers
-  min_price: number | null;
-  max_price: number | null;
-  is_archived: boolean;
-  category_id: number | null;
-  thumbnail_url: string | null;
-}
-
-interface KeycrmOffer {
-  id: number;
-  product_id: number;
-  price: number;
-  quantity: number;       // Available stock for this specific variant
-  in_reserve: number;     // Reserved (don't count as available)
-  properties: Array<{ name: string; value: string }>;
-  is_archived: boolean;
-}
-
-interface PaginatedResponse<T> {
-  data: T[];
-  total: number;
-  next_page_url: string | null;
-}
-
-// ── Internal helpers ───────────────────────────────────────────────────────
-
-async function keycrmGet<T>(
-  path: string,
-  params: Record<string, string>,
-): Promise<T> {
-  const { keycrm } = await getIntegrationConfig();
-  const url = new URL(`${BASE_URL}${path}`);
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v);
-  }
-
-  const response = await fetch(url.toString(), {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${keycrm.apiKey}`,
-      Accept: 'application/json',
-    },
-    signal: AbortSignal.timeout(8_000),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`KeyCRM ${response.status} on ${path}: ${body.slice(0, 200)}`);
-  }
-
-  return (await response.json()) as T;
-}
-
-/**
- * Fetches offers for a specific product and returns only available variants
- * (not archived, quantity > in_reserve).
- */
-async function fetchActiveOffersForProduct(productId: number): Promise<KeycrmOffer[]> {
-  try {
-    const result = await keycrmGet<PaginatedResponse<KeycrmOffer>>('/offers', {
-      'filter[product_id]': String(productId),
-      'filter[is_archived]': '0',
-      limit: String(MAX_OFFERS_PER_PRODUCT),
-      page: '1',
-    });
-
-    // Only return offers where actual available stock > 0
-    // available = quantity - in_reserve
-    return result.data.filter(
-      (offer) => !offer.is_archived && (offer.quantity - offer.in_reserve) > 0,
-    );
-  } catch (err) {
-    log.warn({ err, productId }, 'Failed to fetch offers for product - skipping');
-    return [];
-  }
-}
+// ── Formatting helpers ─────────────────────────────────────────────────────
 
 /**
  * Formats offer properties (size, color, etc.) into a human-readable string.
  * e.g. [{ name: "Розмір", value: "M" }, { name: "Колір", value: "Чорний" }]
  * → "Розмір: M, Колір: Чорний"
  */
-function formatVariantProps(properties: KeycrmOffer['properties']): string {
+function formatVariantProps(properties: CrmOffer['properties']): string {
   if (!properties || properties.length === 0) return '';
   return properties.map((p) => `${p.name}: ${p.value}`).join(', ');
 }
@@ -144,11 +62,11 @@ export interface ProductAvailabilityResult {
 }
 
 /**
- * Searches KeyCRM for active products matching the given keywords
+ * Searches the active CRM for products matching the given keywords
  * and returns a formatted availability block for Claude's context.
  *
  * Filters applied:
- *   1. Server-side: is_archived=0, name search
+ *   1. CRM-side: is_archived=0, name search
  *   2. Client-side: only products whose offers have available stock > 0
  *
  * The returned `contextBlock` is injected into the user message when
@@ -167,20 +85,18 @@ export async function searchActiveProductsForContext(
     return { contextBlock: '', matchCount: 0 };
   }
 
-  log.info({ keywords: cleanKeywords }, 'Searching active products in KeyCRM');
+  const crm = getCrmAdapter();
+  log.info({ keywords: cleanKeywords, provider: crm.name }, 'Searching active products');
 
-  let products: KeycrmProductSearchItem[];
-
+  let products;
   try {
-    const result = await keycrmGet<PaginatedResponse<KeycrmProductSearchItem>>('/products', {
-      'filter[name]': cleanKeywords,
-      'filter[is_archived]': '0',
-      limit: String(MAX_PRODUCT_RESULTS),
-      page: '1',
+    products = await crm.searchProducts({
+      nameQuery: cleanKeywords,
+      activeOnly: true,
+      limit: MAX_PRODUCT_RESULTS,
     });
-    products = result.data;
   } catch (err) {
-    log.error({ err, keywords: cleanKeywords }, 'KeyCRM product search failed');
+    log.error({ err, keywords: cleanKeywords }, 'CRM product search failed');
     return { contextBlock: '', matchCount: 0 };
   }
 
@@ -195,7 +111,15 @@ export async function searchActiveProductsForContext(
 
   const offerResults = await Promise.allSettled(
     products.map(async (product) => {
-      const activeOffers = await fetchActiveOffersForProduct(product.id);
+      const offers = await crm.searchOffers({
+        productId: product.id,
+        activeOnly: true,
+        limit: MAX_OFFERS_PER_PRODUCT,
+      }).catch((err) => {
+        log.warn({ err, productId: product.id }, 'Failed to fetch offers for product - skipping');
+        return [] as CrmOffer[];
+      });
+      const activeOffers = offers.filter((o) => !o.isArchived && (o.quantity - o.inReserve) > 0);
       return { product, activeOffers };
     }),
   );
@@ -213,7 +137,7 @@ export async function searchActiveProductsForContext(
       continue;
     }
 
-    const priceStr = formatPrice(product.min_price, product.max_price);
+    const priceStr = formatPrice(product.minPrice, product.maxPrice);
 
     if (activeOffers.length === 0) {
       // Product has quantity but no offer details (simple product, no variants)
@@ -224,7 +148,7 @@ export async function searchActiveProductsForContext(
       // Product has variants - list available sizes/colors
       const variantLines = activeOffers.map((offer) => {
         const variantDesc = formatVariantProps(offer.properties);
-        const available = offer.quantity - offer.in_reserve;
+        const available = offer.quantity - offer.inReserve;
         return `  – ${variantDesc || 'без варіанту'} | ${offer.price}₴ | ${available} шт`;
       });
 
@@ -256,7 +180,7 @@ export async function searchActiveProductsForContext(
  * Extracts meaningful keywords from an Instagram post caption.
  *
  * Strips hashtags, emojis, and links - keeps only the descriptive words
- * that are likely to match a product name in KeyCRM.
+ * that are likely to match a product name in the CRM.
  *
  * @example
  * extractKeywordsFromCaption("Nike Air Max 90 🔥 #кросівки #nike")
