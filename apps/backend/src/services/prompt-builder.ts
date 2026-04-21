@@ -30,6 +30,20 @@ export interface ClientProfile {
   conversationsCount?: number;    // Total conversations (incl. current)
 }
 
+/**
+ * One entry per active CRM custom-field mapping (buyer scope). Injected
+ * into the prompt as an "extra fields to extract" block so the agent
+ * knows *what* to ask about and *which* slug to use when calling
+ * update_client_info.custom_fields. Without this, the dynamic tool
+ * schema would be silent — Claude would have the schema but no reason
+ * to populate it.
+ */
+export interface CustomFieldHint {
+  localKey: string;
+  label: string;
+  promptHint?: string | null;
+}
+
 export interface PromptBuildParams {
   activePromptContent: string;
   catalogSnippet: string;
@@ -40,6 +54,7 @@ export interface PromptBuildParams {
   clientProfile?: ClientProfile;
   conversationIdShort?: string;
   isOutOfHours?: boolean;
+  customFieldHints?: CustomFieldHint[];
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +150,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     clientProfile,
     conversationIdShort,
     isOutOfHours = false,
+    customFieldHints,
   } = params;
 
   // ── Format date/time ────────────────────────────────────────────────
@@ -173,6 +189,12 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
   // Claude can use this without asking the client again.
   const clientDataBlock = buildClientDataBlock(clientProfile);
 
+  // ── Custom-field extraction hints ───────────────────────────────────
+  // Per-tenant CRM extensions: shop admin registers a local slug +
+  // prompt hint, and we tell the agent *what* to extract and *how* to
+  // return it via update_client_info.custom_fields.{local_key}.
+  const customFieldsBlock = buildCustomFieldsBlock(customFieldHints);
+
   // ── Session context block ───────────────────────────────────────────
   const sessionBlock = `════════════════════════════════════════
 ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ
@@ -184,7 +206,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
 
 Клієнт: ${clientIdentityLine}, розмова #${conversationIdShort ?? '--------'}
 Стан розмови: ${stateLabel}
-${clientDataBlock}
+${clientDataBlock}${customFieldsBlock}
 
 Каталог (живий знімок):
 {CATALOG_PLACEHOLDER}
@@ -312,6 +334,28 @@ function buildClientIdentityLine(
   }
 
   return parts.join(' / ');
+}
+
+/**
+ * Builds the "extra fields to extract" block from active CRM field
+ * mappings. Returns an empty string when there are no active mappings —
+ * the prompt should look unchanged for tenants that haven't configured
+ * any custom fields yet.
+ */
+function buildCustomFieldsBlock(hints: CustomFieldHint[] | undefined): string {
+  if (!hints || hints.length === 0) return '';
+
+  const lines: string[] = [];
+  for (const h of hints) {
+    const hint = h.promptHint?.trim();
+    lines.push(`- ${h.label} (key: ${h.localKey})${hint ? ` — ${hint}` : ''}`);
+  }
+
+  return (
+    '\n\nДодаткові поля для уточнення (заповнюй тільки коли клієнт сам сказав, не випитуй окремо):\n' +
+    lines.join('\n') +
+    '\nКоли щось з цього вдалося витягнути, передай значення через update_client_info у полі custom_fields: { <key>: <value> }.'
+  );
 }
 
 /**

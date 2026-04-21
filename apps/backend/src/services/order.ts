@@ -2,6 +2,7 @@ import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from './instagram.js';
 import { notifyOrder } from './telegram-notify.js';
+import { mirrorOrderToCrm } from './crm-sync.js';
 
 const log = pino({ name: 'order' });
 
@@ -92,6 +93,13 @@ export async function handleCollectOrder(
     city,
     npBranch,
     paymentMethod,
+  });
+
+  // 5. Mirror into CRM asynchronously — manager group has already
+  // been notified locally, so a CRM outage must not delay or fail
+  // the customer flow. No-op when CRM_WRITE_ENABLED=false.
+  mirrorOrderToCrm(order.id).catch((err) => {
+    log.error({ err, orderId: order.id }, 'Failed to mirror order to CRM');
   });
 
   log.info(

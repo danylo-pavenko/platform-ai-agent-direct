@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from './claude.js';
 import { sendText } from './instagram.js';
@@ -12,8 +13,10 @@ import {
 } from './prompt-builder.js';
 import { downloadAllMedia } from './media.js';
 import { notifyHandoff } from './telegram-notify.js';
-import { salesAgentTools } from '../lib/tool-definitions.js';
+import { buildSalesAgentTools } from '../lib/tool-definitions.js';
+import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { handleCollectOrder } from './order.js';
+import { mirrorClientToCrm } from './crm-sync.js';
 import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
@@ -162,6 +165,18 @@ export async function handleIncomingMessage(
   const activePrompt = await getActivePrompt();
   const catalog = await loadCatalogSnippet();
 
+  // Per-tenant CRM field mappings — shapes both the prompt (extra-fields
+  // hints) and the tool schema (update_client_info.custom_fields). Cache
+  // TTL inside the module keeps this at ~0 cost on hot paths.
+  //
+  // Gated on CRM_WRITE_ENABLED so the extended surface only appears when
+  // we can actually persist what Claude extracts. Keeping hints off when
+  // writes are off avoids teasing the bot with fields whose values would
+  // be silently discarded.
+  const crmMappings = config.CRM_WRITE_ENABLED
+    ? await getActiveCrmFieldMappings()
+    : null;
+
   const prompt = buildRuntimePrompt({
     activePromptContent: activePrompt,
     catalogSnippet: catalog,
@@ -172,7 +187,14 @@ export async function handleIncomingMessage(
     clientProfile,
     conversationIdShort: conversation.id.slice(0, 8),
     isOutOfHours: outOfHours,
+    customFieldHints: crmMappings?.buyer.map((m) => ({
+      localKey: m.localKey,
+      label: m.label,
+      promptHint: m.promptHint,
+    })),
   });
+
+  const tools = buildSalesAgentTools(crmMappings?.buyer ?? []);
 
   // ── 6. Build conversation history (last 30 messages) ──────────────
   const rawMessages = await prisma.message.findMany({
@@ -260,7 +282,7 @@ export async function handleIncomingMessage(
     conversationHistory: history,
     userMessage: enrichedMessageText,
     images: localPaths.length > 0 ? localPaths : undefined,
-    tools: salesAgentTools,
+    tools,
   });
 
   // ── 9. Handle tool calls ──────────────────────────────────────────
@@ -272,9 +294,26 @@ export async function handleIncomingMessage(
     // response (if any) is still delivered to the client.
     const updateInfo = response.toolCalls.find((tc) => tc.name === 'update_client_info');
     if (updateInfo) {
-      handleUpdateClientInfo(client.id, updateInfo.args).catch((err) => {
-        log.error({ err, conversationId, clientId: client.id }, 'Failed to save client info');
-      });
+      // Extract the dynamic custom_fields payload (if any) so we can push
+      // it to the CRM alongside the mirror of the core contact fields.
+      // Local DB stays simple: we don't persist custom field values yet,
+      // only core ones (phone/email/city/NP). CRM owns the custom-field
+      // snapshot.
+      const extractedCustomFields: Record<string, unknown> =
+        typeof updateInfo.args.custom_fields === 'object' &&
+        updateInfo.args.custom_fields !== null &&
+        !Array.isArray(updateInfo.args.custom_fields)
+          ? (updateInfo.args.custom_fields as Record<string, unknown>)
+          : {};
+
+      handleUpdateClientInfo(client.id, updateInfo.args)
+        .then(() => mirrorClientToCrm(client.id, extractedCustomFields))
+        .catch((err) => {
+          log.error(
+            { err, conversationId, clientId: client.id },
+            'Failed to save/mirror client info',
+          );
+        });
     }
 
     const tagClient = response.toolCalls.find((tc) => tc.name === 'tag_client');
@@ -387,7 +426,7 @@ export async function handleIncomingMessage(
         systemPrompt: prompt,
         conversationHistory: historyWithResult,
         userMessage: toolResultContent,
-        tools: salesAgentTools,
+        tools,
       });
 
       responseText = response2.text;
