@@ -249,6 +249,9 @@
                   <td>
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI у Linux-користувача цього тенанта">
+                        {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
+                      </button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id">
                         {{ deploying===t.id ? '...' : '🚀 Deploy' }}
@@ -427,6 +430,38 @@
     </div>
   </div>
 
+  <!-- Claude health modal -->
+  <div class="modal-overlay" v-if="claudeHealth.open" @click.self="claudeHealth.open=false">
+    <div class="modal">
+      <h2>🤖 Claude CLI — {{ claudeHealth.tenantName }}</h2>
+      <div v-if="claudeHealth.result">
+        <div class="field">
+          <label>Status</label>
+          <div>
+            <span v-if="claudeHealth.result.ok" class="badge badge-active">OK</span>
+            <span v-else class="badge badge-suspended">FAIL</span>
+          </div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.path">
+          <label>Binary path</label>
+          <div style="font-family:monospace;font-size:12px;word-break:break-all">{{ claudeHealth.result.path }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.version">
+          <label>Version</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.version }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.error">
+          <label>Error</label>
+          <div style="font-family:monospace;font-size:12px;color:var(--danger);white-space:pre-wrap;word-break:break-all">{{ claudeHealth.result.error }}</div>
+        </div>
+      </div>
+      <div v-else style="color:var(--muted);font-size:13px">Loading...</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="claudeHealth.open=false">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Deploy log modal -->
   <div class="modal-overlay" v-if="deployLog.open" @click.self="!deployLog.running && (deployLog.open=false)">
     <div class="modal" style="width:660px;max-width:96vw">
@@ -460,6 +495,7 @@ createApp({
     const health = reactive({});
     const deploying = ref(null);
     const deployLog = reactive({ open: false, name: '', text: '', html: '', running: false });
+    const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
     const chatMessages = ref(null);
     const deployLogEl = ref(null);
 
@@ -630,6 +666,26 @@ createApp({
       }
     }
 
+    async function checkClaudeHealth(t) {
+      claudeHealth.loading = t.id;
+      claudeHealth.tenantName = t.name;
+      claudeHealth.result = null;
+      claudeHealth.open = true;
+      try {
+        const r = await fetch(`${BASE}/tenants/${t.id}/claude-health`, { headers: headers() });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          claudeHealth.result = { ok: false, path: '', version: '', error: d.error || `HTTP ${r.status}` };
+        } else {
+          claudeHealth.result = d;
+        }
+      } catch (e) {
+        claudeHealth.result = { ok: false, path: '', version: '', error: e.message };
+      } finally {
+        claudeHealth.loading = null;
+      }
+    }
+
     function openChat(t) {
       chat.tenant = t;
       chat.messages = [];
@@ -675,9 +731,9 @@ createApp({
 
     return {
       auth, login, page, tenants, health, deploying, deployLog, deployLogEl,
-      chat, chatMessages, modal,
+      chat, chatMessages, modal, claudeHealth,
       doLogin, logout, openAddModal, openEditModal, saveTenant, deleteTenant,
-      triggerDeploy, openChat, sendChat,
+      triggerDeploy, openChat, sendChat, checkClaudeHealth,
     };
   }
 }).mount('#app');
