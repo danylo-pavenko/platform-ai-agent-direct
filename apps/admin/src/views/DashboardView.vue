@@ -149,6 +149,82 @@
         </div>
       </section>
 
+      <!-- Agent health (LLM latency + success rate) -->
+      <section class="section-card">
+        <div class="section-head">
+          <h2 class="section-title">Здоровʼя агента</h2>
+          <p class="section-desc">Латентність відповіді Claude і частка успішних викликів</p>
+        </div>
+
+        <v-row dense>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card" :class="agentHealthClass">
+              <div class="kpi-label">Успішні відповіді</div>
+              <div class="kpi-value">{{ agentLoading ? '-' : formatPct(agent?.totals?.successRate) }}</div>
+              <div class="kpi-hint">
+                {{ agentLoading ? '&nbsp;' : `${fmt(agent?.totals?.successes)} з ${fmt(agent?.totals?.total)}` }}
+              </div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">Медіанна латентність</div>
+              <div class="kpi-value">{{ agentLoading ? '-' : formatMs(agent?.totals?.latencyMs?.p50) }}</div>
+              <div class="kpi-hint">p50 успішних викликів</div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">p95 латентність</div>
+              <div class="kpi-value">{{ agentLoading ? '-' : formatMs(agent?.totals?.latencyMs?.p95) }}</div>
+              <div class="kpi-hint">Хвіст повільних 5%</div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">Fallback-відповіді</div>
+              <div class="kpi-value">{{ agentLoading ? '-' : fmt((agent?.totals?.busy ?? 0) + (agent?.totals?.timeout ?? 0)) }}</div>
+              <div class="kpi-hint">
+                busy: {{ fmt(agent?.totals?.busy) }} · timeout: {{ fmt(agent?.totals?.timeout) }}
+              </div>
+            </div>
+          </v-col>
+        </v-row>
+
+        <div v-if="!agentLoading && (agent?.byChannel?.length ?? 0) > 0" class="agent-channels">
+          <div class="agent-channels-head">По каналах</div>
+          <div class="agent-channel-row agent-channel-row--header">
+            <span class="agent-ch-name">Канал</span>
+            <span class="agent-ch-num">Викликів</span>
+            <span class="agent-ch-num">Успіх</span>
+            <span class="agent-ch-num">p50</span>
+            <span class="agent-ch-num">p95</span>
+          </div>
+          <div
+            v-for="row in agent?.byChannel ?? []"
+            :key="row.channel"
+            class="agent-channel-row"
+          >
+            <span class="agent-ch-name">
+              <span class="agent-ch-dot" :class="`agent-ch-dot--${row.channel}`" />
+              {{ channelLabel(row.channel) }}
+            </span>
+            <span class="agent-ch-num">{{ fmt(row.total) }}</span>
+            <span class="agent-ch-num">{{ formatPct(row.successRate) }}</span>
+            <span class="agent-ch-num">{{ formatMs(row.latencyMs?.p50) }}</span>
+            <span class="agent-ch-num">{{ formatMs(row.latencyMs?.p95) }}</span>
+          </div>
+        </div>
+
+        <div v-if="!agentLoading && (agent?.totals?.total ?? 0) === 0" class="agent-empty">
+          За обраний період немає викликів агента
+        </div>
+
+        <v-alert v-if="agentError" type="error" variant="tonal" density="compact" class="mt-3" rounded="lg">
+          {{ agentError }}
+        </v-alert>
+      </section>
+
       <!-- Activity chart -->
       <section class="section-card chart-card">
         <div class="section-head">
@@ -218,6 +294,42 @@ interface Summary {
   series: Array<{ date: string; botReplies: number; clientMessages: number }>;
 }
 
+type AgentChannel = 'ig' | 'tg' | 'sandbox' | 'meta_agent' | 'supervisor';
+
+interface AgentLatency {
+  p50: number | null;
+  p95: number | null;
+  p99?: number | null;
+  avg?: number | null;
+}
+
+interface AgentAnalytics {
+  period: string;
+  totals: {
+    total: number;
+    successes: number;
+    failures: number;
+    busy: number;
+    timeout: number;
+    successRate: number | null;
+    latencyMs: AgentLatency;
+  };
+  byChannel: Array<{
+    channel: AgentChannel;
+    total: number;
+    successes: number;
+    successRate: number | null;
+    latencyMs: AgentLatency;
+  }>;
+  series: Array<{
+    date: string;
+    total: number;
+    successes: number;
+    successRate: number | null;
+    latencyMs: AgentLatency;
+  }>;
+}
+
 const period = ref('7d');
 const periodOptions = [
   { title: '24 год', value: '24h' },
@@ -230,6 +342,10 @@ const periodOptions = [
 const summary = ref<Summary | null>(null);
 const loading = ref(true);
 const error = ref('');
+
+const agent = ref<AgentAnalytics | null>(null);
+const agentLoading = ref(true);
+const agentError = ref('');
 
 const t = computed(() => summary.value?.totals);
 
@@ -267,10 +383,40 @@ function shortDate(iso: string): string {
   return `${d}.${m}`;
 }
 
-function fmt(n: number | undefined): string {
-  if (n === undefined) return '0';
+function fmt(n: number | undefined | null): string {
+  if (n === undefined || n === null) return '0';
   return new Intl.NumberFormat('uk-UA').format(n);
 }
+
+function formatPct(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  return `${(v * 100).toFixed(v >= 0.995 ? 0 : 1)}%`;
+}
+
+function formatMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 1000) return `${ms} мс`;
+  return `${(ms / 1000).toFixed(1)} с`;
+}
+
+function channelLabel(ch: AgentChannel): string {
+  switch (ch) {
+    case 'ig': return 'Instagram';
+    case 'tg': return 'Telegram';
+    case 'sandbox': return 'Sandbox';
+    case 'meta_agent': return 'Meta-агент';
+    case 'supervisor': return 'Supervisor';
+    default: return ch;
+  }
+}
+
+const agentHealthClass = computed(() => {
+  const rate = agent.value?.totals?.successRate;
+  if (rate === null || rate === undefined) return '';
+  if (rate >= 0.98) return 'kpi-card--accent';
+  if (rate < 0.9) return 'kpi-card--warn';
+  return '';
+});
 
 function formatRelative(iso: string | null | undefined): string {
   if (!iso) return 'немає даних';
@@ -301,11 +447,31 @@ async function load() {
   }
 }
 
-function onPeriodChange() {
-  void load();
+async function loadAgent() {
+  agentLoading.value = true;
+  agentError.value = '';
+  try {
+    const { data } = await api.get<AgentAnalytics>('/analytics/agent', {
+      params: { period: period.value },
+    });
+    agent.value = data;
+  } catch {
+    agentError.value = 'Не вдалося завантажити аналітику агента';
+    agent.value = null;
+  } finally {
+    agentLoading.value = false;
+  }
 }
 
-onMounted(load);
+function onPeriodChange() {
+  void load();
+  void loadAgent();
+}
+
+onMounted(() => {
+  void load();
+  void loadAgent();
+});
 </script>
 
 <style scoped>
@@ -451,6 +617,15 @@ onMounted(load);
   background: linear-gradient(180deg, #fafaff 0%, #fff 100%);
 }
 
+.kpi-card--warn {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fff5f5 0%, #fff 100%);
+}
+
+.kpi-card--warn .kpi-value {
+  color: #b91c1c;
+}
+
 .kpi-label {
   font-size: 12px;
   font-weight: 600;
@@ -562,6 +737,96 @@ onMounted(load);
 
 .chart-card {
   margin-bottom: 8px;
+}
+
+.agent-channels {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid #eef2f6;
+}
+
+.agent-channels-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6c7688;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+}
+
+.agent-channel-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  align-items: center;
+}
+
+.agent-channel-row:nth-child(even) {
+  background: #f8fafc;
+}
+
+.agent-channel-row--header {
+  font-size: 11px;
+  font-weight: 600;
+  color: #8898a7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: transparent !important;
+  padding-bottom: 6px;
+  padding-top: 2px;
+}
+
+.agent-ch-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0a2540;
+  font-weight: 500;
+}
+
+.agent-ch-num {
+  text-align: right;
+  color: #3d4d5d;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-ch-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: #94a3b8;
+}
+
+.agent-ch-dot--ig { background: #e1306c; }
+.agent-ch-dot--tg { background: #229ed9; }
+.agent-ch-dot--sandbox { background: #8b5cf6; }
+.agent-ch-dot--meta_agent { background: #f59e0b; }
+.agent-ch-dot--supervisor { background: #10b981; }
+
+.agent-empty {
+  margin-top: 12px;
+  padding: 16px;
+  text-align: center;
+  color: #8898a7;
+  font-size: 13px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+
+@media (max-width: 600px) {
+  .agent-channel-row {
+    grid-template-columns: 1.6fr 1fr 1fr;
+    font-size: 12px;
+  }
+
+  .agent-channel-row > :nth-child(4),
+  .agent-channel-row > :nth-child(5) {
+    display: none;
+  }
 }
 
 .chart-loading {

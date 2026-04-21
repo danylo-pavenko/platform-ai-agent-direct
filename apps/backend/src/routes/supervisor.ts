@@ -319,11 +319,14 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
       content: m.content,
     }));
 
-    const response = await askClaude({
-      systemPrompt,
-      conversationHistory: history,
-      userMessage: lastMessage.content,
-    });
+    const response = await askClaude(
+      {
+        systemPrompt,
+        conversationHistory: history,
+        userMessage: lastMessage.content,
+      },
+      { channel: 'supervisor' },
+    );
 
     return { reply: response.text, snapshotAt: snapshot.generatedAt };
   });

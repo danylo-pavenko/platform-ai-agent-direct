@@ -249,11 +249,14 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       const metaAgentPrompt = buildMetaAgentSystemPrompt(promptContent);
 
       // 3. Call Claude
-      const response = await askClaude({
-        systemPrompt: metaAgentPrompt,
-        conversationHistory: history ?? [],
-        userMessage: message.trim(),
-      });
+      const response = await askClaude(
+        {
+          systemPrompt: metaAgentPrompt,
+          conversationHistory: history ?? [],
+          userMessage: message.trim(),
+        },
+        { channel: 'meta_agent' },
+      );
 
       app.log.info(
         { responseLength: response.text.length },

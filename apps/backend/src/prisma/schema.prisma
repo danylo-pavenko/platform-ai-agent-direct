@@ -297,6 +297,46 @@ model CrmFieldMapping {
   @@map("crm_field_mappings")
 }
 
+// ── Agent Invocations (LLM latency / success analytics) ──
+//
+// One row per askClaude() call. Written fire-and-forget after the response
+// so client latency isn't affected. Used by /analytics/agent to expose
+// health metrics on the dashboard (p50/p95 latency, success rate, counts).
+//
+// `success = true` means we got a real model reply. `success = false` means
+// we returned a canned fallback (semaphore overload, spawn error, timeout).
+
+enum AgentChannel {
+  ig
+  tg
+  sandbox
+  meta_agent
+  supervisor
+
+  @@map("agent_channel")
+}
+
+model AgentInvocation {
+  id              String        @id @default(uuid()) @db.Uuid
+  channel         AgentChannel
+  conversationId  String?       @map("conversation_id") @db.Uuid
+  clientId        String?       @map("client_id") @db.Uuid
+
+  startedAt       DateTime      @default(now()) @map("started_at")
+  durationMs      Int           @map("duration_ms")
+
+  success         Boolean
+  fallbackReason  String?       @map("fallback_reason") // 'busy' | 'timeout' | null
+  errorMessage    String?       @map("error_message")
+
+  inputChars      Int           @map("input_chars")
+  outputChars     Int           @map("output_chars")
+
+  @@index([startedAt])
+  @@index([channel, startedAt])
+  @@map("agent_invocations")
+}
+
 // ── Audit Log ──
 
 model AuditLog {

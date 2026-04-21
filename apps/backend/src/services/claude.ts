@@ -5,6 +5,8 @@ import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
 import { Semaphore } from '../lib/queue.js';
+import { prisma } from '../lib/prisma.js';
+import type { AgentChannel } from '../generated/prisma/enums.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +31,18 @@ export interface ToolDefinition {
 export interface ClaudeResponse {
   text: string;
   toolCalls?: { name: string; args: Record<string, unknown> }[];
+  /**
+   * Set when we returned a canned fallback instead of a real model reply.
+   * `busy` = semaphore queue overloaded. `timeout` = spawn error, process
+   * timeout, or non-zero exit code. Absent when the response is genuine.
+   */
+  fallback?: 'busy' | 'timeout';
+}
+
+export interface ClaudeCallContext {
+  channel: AgentChannel;
+  conversationId?: string;
+  clientId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,10 +55,12 @@ const semaphore = new Semaphore(config.CLAUDE_MAX_CONCURRENCY);
 
 const FALLBACK_BUSY: ClaudeResponse = {
   text: 'Дякуємо за повідомлення! Менеджер відпише трохи пізніше.',
+  fallback: 'busy',
 };
 
 const FALLBACK_TIMEOUT: ClaudeResponse = {
   text: 'Одну хвилинку, менеджер відпише трохи пізніше.',
+  fallback: 'timeout',
 };
 
 const MAX_PENDING = 10;
@@ -247,24 +263,79 @@ function spawnClaude(
 // ---------------------------------------------------------------------------
 
 /**
+ * Fire-and-forget: persist one analytics row per invocation. Any failure is
+ * swallowed — analytics must never block or crash the bot response path.
+ */
+function recordInvocation(row: {
+  channel: AgentChannel;
+  conversationId?: string;
+  clientId?: string;
+  durationMs: number;
+  success: boolean;
+  fallbackReason: string | null;
+  errorMessage: string | null;
+  inputChars: number;
+  outputChars: number;
+}): void {
+  prisma.agentInvocation
+    .create({
+      data: {
+        channel: row.channel,
+        conversationId: row.conversationId,
+        clientId: row.clientId,
+        durationMs: row.durationMs,
+        success: row.success,
+        fallbackReason: row.fallbackReason,
+        errorMessage: row.errorMessage,
+        inputChars: row.inputChars,
+        outputChars: row.outputChars,
+      },
+    })
+    .catch((err: unknown) => {
+      log.warn({ err }, 'Failed to record agent invocation (non-fatal)');
+    });
+}
+
+/**
  * Send a request to Claude via the headless CLI.
  *
  * - Respects concurrency limits via the shared semaphore.
  * - Returns a fallback message on overload, timeout, or error (never throws).
+ * - If `context` is provided, one row is recorded in `agent_invocations`
+ *   with measured latency and success/fallback state (fire-and-forget).
  */
-export async function askClaude(req: ClaudeRequest): Promise<ClaudeResponse> {
+export async function askClaude(
+  req: ClaudeRequest,
+  context?: ClaudeCallContext,
+): Promise<ClaudeResponse> {
+  const prompt = buildPrompt(req);
+  const args = buildArgs(req);
+  const startMs = Date.now();
+
+  const record = (response: ClaudeResponse, errorMessage: string | null = null) => {
+    if (!context) return;
+    recordInvocation({
+      channel: context.channel,
+      conversationId: context.conversationId,
+      clientId: context.clientId,
+      durationMs: Date.now() - startMs,
+      success: !response.fallback,
+      fallbackReason: response.fallback ?? null,
+      errorMessage,
+      inputChars: prompt.length,
+      outputChars: response.text.length,
+    });
+  };
+
   // Back-pressure: reject early if too many requests are already queued
   if (semaphore.pending > MAX_PENDING) {
     log.warn(
       { pending: semaphore.pending, active: semaphore.active },
       'Claude queue overloaded - returning fallback',
     );
+    record(FALLBACK_BUSY);
     return FALLBACK_BUSY;
   }
-
-  const startMs = Date.now();
-  const prompt = buildPrompt(req);
-  const args = buildArgs(req);
 
   let release: (() => void) | undefined;
 
@@ -280,13 +351,17 @@ export async function askClaude(req: ClaudeRequest): Promise<ClaudeResponse> {
         inputChars: prompt.length,
         outputChars: response.text.length,
         toolCalls: response.toolCalls?.length ?? 0,
+        fallback: response.fallback ?? null,
+        channel: context?.channel ?? null,
       },
       'Claude invocation complete',
     );
 
+    record(response);
     return response;
   } catch (err) {
     log.error({ err }, 'Unexpected error in askClaude');
+    record(FALLBACK_TIMEOUT, err instanceof Error ? err.message : String(err));
     return FALLBACK_TIMEOUT;
   } finally {
     release?.();

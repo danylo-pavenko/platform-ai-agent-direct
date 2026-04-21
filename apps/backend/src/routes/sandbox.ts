@@ -85,11 +85,14 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
       }));
 
       // 4. Call Claude
-      const response = await askClaude({
-        systemPrompt,
-        conversationHistory: history,
-        userMessage: lastMessage.content,
-      });
+      const response = await askClaude(
+        {
+          systemPrompt,
+          conversationHistory: history,
+          userMessage: lastMessage.content,
+        },
+        { channel: 'sandbox' },
+      );
 
       return { reply: response.text };
     },

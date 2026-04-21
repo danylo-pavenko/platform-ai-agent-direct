@@ -17,6 +17,7 @@ import { sandboxRoutes } from './routes/sandbox.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { supervisorRoutes } from './routes/supervisor.js';
 import { crmFieldsRoutes } from './routes/crm-fields.js';
+import { analyticsRoutes } from './routes/analytics.js';
 
 const app = Fastify({
   logger: {
@@ -61,6 +62,7 @@ await app.register(sandboxRoutes, { prefix: '/sandbox' });
 await app.register(dashboardRoutes, { prefix: '/dashboard' });
 await app.register(supervisorRoutes, { prefix: '/supervisor' });
 await app.register(crmFieldsRoutes, { prefix: '/crm-fields' });
+await app.register(analyticsRoutes, { prefix: '/analytics' });
 
 // Health check
 app.get('/health', async () => {

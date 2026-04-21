@@ -277,13 +277,20 @@ export async function handleIncomingMessage(
   }
 
   // ── 8. Call Claude ────────────────────────────────────────────────
-  const response = await askClaude({
-    systemPrompt: prompt,
-    conversationHistory: history,
-    userMessage: enrichedMessageText,
-    images: localPaths.length > 0 ? localPaths : undefined,
-    tools,
-  });
+  const response = await askClaude(
+    {
+      systemPrompt: prompt,
+      conversationHistory: history,
+      userMessage: enrichedMessageText,
+      images: localPaths.length > 0 ? localPaths : undefined,
+      tools,
+    },
+    {
+      channel: conversation.channel,
+      conversationId,
+      clientId: client.id,
+    },
+  );
 
   // ── 9. Handle tool calls ──────────────────────────────────────────
   let responseText = response.text;
@@ -422,12 +429,19 @@ export async function handleIncomingMessage(
         { role: 'assistant' as const, content: response.text || `[Перевіряю вартість доставки до ${city}]` },
       ];
 
-      const response2 = await askClaude({
-        systemPrompt: prompt,
-        conversationHistory: historyWithResult,
-        userMessage: toolResultContent,
-        tools,
-      });
+      const response2 = await askClaude(
+        {
+          systemPrompt: prompt,
+          conversationHistory: historyWithResult,
+          userMessage: toolResultContent,
+          tools,
+        },
+        {
+          channel: conversation.channel,
+          conversationId,
+          clientId: client.id,
+        },
+      );
 
       responseText = response2.text;
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
