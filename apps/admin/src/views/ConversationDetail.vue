@@ -44,6 +44,57 @@
 
         <v-divider v-if="!mobile" />
 
+        <!-- Quality rating bar (B.2 — manager rates the lead) -->
+        <div class="quality-bar d-flex align-center ga-2 px-3 py-2" v-if="conversation">
+          <span class="text-caption text-grey">Якість ліда:</span>
+          <v-rating
+            :model-value="qualityDraft ?? 0"
+            :length="5"
+            size="small"
+            color="amber"
+            active-color="amber"
+            hover
+            clearable
+            density="compact"
+            :disabled="qualitySaving"
+            @update:model-value="onQualityChange"
+          />
+          <span v-if="qualityDraft != null" class="text-caption font-weight-medium">{{ qualityDraft }} / 5</span>
+          <v-spacer />
+          <v-btn
+            size="x-small"
+            variant="text"
+            density="compact"
+            :prepend-icon="showQualityNote ? 'mdi-chevron-up' : 'mdi-note-text-outline'"
+            @click="showQualityNote = !showQualityNote"
+          >
+            Нотатка
+          </v-btn>
+        </div>
+        <div v-if="showQualityNote" class="px-3 pb-2 d-flex ga-2 align-end">
+          <v-textarea
+            v-model="qualityNoteDraft"
+            placeholder="Чому така оцінка? (опційно)"
+            variant="outlined"
+            density="compact"
+            rows="1"
+            auto-grow
+            hide-details
+            :disabled="qualitySaving"
+          />
+          <v-btn
+            size="small"
+            color="primary"
+            variant="tonal"
+            :loading="qualitySaving"
+            :disabled="qualityNoteDraft === (conversation?.briefQualityNote ?? '')"
+            @click="saveQualityNote"
+          >
+            Зберегти
+          </v-btn>
+        </div>
+        <v-divider />
+
         <!-- Messages -->
         <div
           v-if="loading"
@@ -189,6 +240,8 @@ interface ConversationData {
   state: string;
   messages: Message[];
   orders?: Array<{ id: string; status: string; items: unknown[] }>;
+  briefQuality?: number | null;
+  briefQualityNote?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +262,12 @@ const showProfile = ref(true);
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
+
+// Quality rating local state (B.2)
+const qualityDraft = ref<number | null>(null);
+const qualityNoteDraft = ref('');
+const qualitySaving = ref(false);
+const showQualityNote = ref(false);
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -283,12 +342,50 @@ async function fetchConversation() {
     const { data } = await api.get(`/conversations/${props.id}`);
     conversation.value = data;
     messages.value = data.messages || [];
+    qualityDraft.value = data.briefQuality ?? null;
+    qualityNoteDraft.value = data.briefQualityNote ?? '';
+    showQualityNote.value = !!data.briefQualityNote;
     await scrollToBottom();
   } catch {
     router.push({ name: 'conversations' });
   } finally {
     loading.value = false;
   }
+}
+
+async function persistQuality(quality: number | null, note: string | null) {
+  qualitySaving.value = true;
+  try {
+    const { data } = await api.post(`/conversations/${props.id}/brief-quality`, {
+      quality,
+      note,
+    });
+    if (conversation.value) {
+      conversation.value.briefQuality = data.briefQuality;
+      conversation.value.briefQualityNote = data.briefQualityNote;
+    }
+    showSnack('Оцінку збережено');
+  } catch (e: any) {
+    showSnack(e.response?.data?.error || 'Не вдалося зберегти оцінку', 'error');
+    // Roll back optimistic state to last persisted value
+    qualityDraft.value = conversation.value?.briefQuality ?? null;
+    qualityNoteDraft.value = conversation.value?.briefQualityNote ?? '';
+  } finally {
+    qualitySaving.value = false;
+  }
+}
+
+function onQualityChange(val: string | number) {
+  const n = typeof val === 'string' ? Number(val) : val;
+  const q = Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  qualityDraft.value = q;
+  const note = qualityNoteDraft.value.trim() ? qualityNoteDraft.value.trim() : null;
+  persistQuality(q, note);
+}
+
+function saveQualityNote() {
+  const note = qualityNoteDraft.value.trim() ? qualityNoteDraft.value.trim() : null;
+  persistQuality(qualityDraft.value, note);
 }
 
 async function sendReply() {
@@ -639,6 +736,12 @@ const clientProfilePanel = ClientProfilePanel;
 
 .messages-area {
   background: #fafafa;
+}
+
+.quality-bar {
+  background: #fafafa;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
 }
 
 /* Profile panel styles */

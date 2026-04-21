@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from '../services/instagram.js';
 import { importIgConversationHistory } from '../services/ig-history.js';
+import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
   // GET / - List conversations
@@ -118,10 +119,14 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    // Update conversation lastMessageAt
+    // Update conversation lastMessageAt (+ firstOutboundAt on first ever reply)
+    const now = new Date();
     await prisma.conversation.update({
       where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
+      data: {
+        lastMessageAt: now,
+        ...(conversation.firstOutboundAt ? {} : { firstOutboundAt: now }),
+      },
     });
 
     return message;
@@ -150,6 +155,51 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     );
 
     return result;
+  });
+
+  // POST /:id/brief-quality - Manager rates the lead / conversation quality
+  //
+  // Rating is 1–5 (or null to clear), with an optional free-form note.
+  // Persisted on the Conversation row so B.3's context-carry-over gate
+  // (R6: briefQuality ≥ 3) has something real to check against, and the
+  // dashboard can expose avg lead quality per period.
+  app.post<{
+    Params: { id: string };
+    Body: { quality: number | null; note?: string | null };
+  }>('/:id/brief-quality', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { quality, note } = request.body ?? { quality: null };
+
+    if (quality !== null && quality !== undefined) {
+      if (typeof quality !== 'number' || !Number.isInteger(quality) || quality < 1 || quality > 5) {
+        return reply.code(400).send({ error: 'quality must be an integer between 1 and 5, or null' });
+      }
+    }
+
+    const trimmedNote =
+      typeof note === 'string' && note.trim().length > 0 ? note.trim() : null;
+
+    const existing = await prisma.conversation.findUnique({
+      where: { id: request.params.id },
+      select: { id: true },
+    });
+    if (!existing) {
+      return reply.code(404).send({ error: 'Conversation not found' });
+    }
+
+    const updated = await prisma.conversation.update({
+      where: { id: request.params.id },
+      data: {
+        briefQuality: quality ?? null,
+        briefQualityNote: trimmedNote,
+      },
+      select: {
+        id: true,
+        briefQuality: true,
+        briefQualityNote: true,
+      },
+    });
+
+    return updated;
   });
 
   // PUT /clients/:clientId - Manually update client profile from admin

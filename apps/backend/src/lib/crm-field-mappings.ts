@@ -23,6 +23,7 @@ export interface CrmFieldMappingsSnapshot {
   all: CrmFieldMapping[];
   buyer: CrmFieldMapping[];
   order: CrmFieldMapping[];
+  lead: CrmFieldMapping[];
   byLocalKey: Map<string, CrmFieldMapping>;
 }
 
@@ -34,6 +35,7 @@ const EMPTY: CrmFieldMappingsSnapshot = {
   all: [],
   buyer: [],
   order: [],
+  lead: [],
   byLocalKey: new Map(),
 };
 
@@ -55,15 +57,17 @@ export async function getActiveCrmFieldMappings(): Promise<CrmFieldMappingsSnaps
 
   const buyer: CrmFieldMapping[] = [];
   const order: CrmFieldMapping[] = [];
+  const lead: CrmFieldMapping[] = [];
   const byLocalKey = new Map<string, CrmFieldMapping>();
 
   for (const row of rows) {
     byLocalKey.set(row.localKey, row);
     if (row.scope === 'buyer') buyer.push(row);
-    else order.push(row);
+    else if (row.scope === 'order') order.push(row);
+    else if (row.scope === 'lead') lead.push(row);
   }
 
-  _cache = { all: rows, buyer, order, byLocalKey };
+  _cache = { all: rows, buyer, order, lead, byLocalKey };
   _cacheAt = Date.now();
   return _cache;
 }

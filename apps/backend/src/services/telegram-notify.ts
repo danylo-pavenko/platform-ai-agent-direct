@@ -138,6 +138,105 @@ export async function notifyOrder(params: {
 }
 
 /**
+ * Sends a presale-brief card to the manager group when the leadgen agent
+ * submits a brief for a new lead. Lightweight shape — full brief lives in
+ * the DB + CRM; the notification is the "you have a warm lead" nudge.
+ */
+export async function notifyBrief(params: {
+  briefId: string;
+  conversationId: string;
+  clientIgUserId: string;
+  businessName?: string | null;
+  niche?: string | null;
+  services?: string[];
+  budgetRange?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  preferredChannel?: string | null;
+  priority?: string | null;
+  completenessPct?: number | null;
+}): Promise<void> {
+  const {
+    briefId,
+    conversationId,
+    clientIgUserId,
+    businessName,
+    niche,
+    services,
+    budgetRange,
+    phone,
+    email,
+    preferredChannel,
+    priority,
+    completenessPct,
+  } = params;
+  const shortBrief = briefId.slice(0, 8);
+  const shortConv = conversationId.slice(0, 8);
+
+  const lines: string[] = [];
+  lines.push(`📋 <b>Новий пресейл-бриф #${escapeHtml(shortBrief)}</b>`);
+  lines.push('');
+  lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
+  lines.push(`Розмова: <code>#${escapeHtml(shortConv)}</code>`);
+  if (priority) lines.push(`Пріоритет: ${escapeHtml(priority)}`);
+  if (completenessPct != null) {
+    lines.push(`Повнота брифу: ${completenessPct}%`);
+  }
+  lines.push('');
+  if (businessName) lines.push(`Бізнес: ${escapeHtml(businessName)}`);
+  if (niche) lines.push(`Ніша: ${escapeHtml(niche)}`);
+  if (services && services.length > 0) {
+    lines.push(`Послуги: ${services.map((s) => escapeHtml(s)).join(', ')}`);
+  }
+  if (budgetRange) lines.push(`Бюджет: ${escapeHtml(budgetRange)}`);
+  if (phone) lines.push(`Телефон: ${escapeHtml(phone)}`);
+  if (email) lines.push(`Email: ${escapeHtml(email)}`);
+  if (preferredChannel) lines.push(`Канал: ${escapeHtml(preferredChannel)}`);
+
+  const keyboard = new InlineKeyboard()
+    .text('👤 Взяти', `takeover:${conversationId}`)
+    .text('📌 Позначити hot', `brief_hot:${briefId}`);
+
+  await sendToManagerGroup(lines.join('\n'), keyboard);
+}
+
+/**
+ * Fallback alert when CRM write fails — the brief / order is already safe
+ * in our DB, but the manager needs the full snapshot here so they can
+ * re-enter the record in the CRM by hand if it stays down.
+ */
+export async function notifyCrmFallback(params: {
+  kind: 'brief' | 'order';
+  entityId: string;
+  reason: string;
+  snapshot: Array<{ label: string; value: string | number | null | undefined }>;
+  clientIgUserId?: string | null;
+}): Promise<void> {
+  const { kind, entityId, reason, snapshot, clientIgUserId } = params;
+  const shortId = entityId.slice(0, 8);
+  const titleRu =
+    kind === 'brief'
+      ? `бриф #${escapeHtml(shortId)}`
+      : `замовлення #${escapeHtml(shortId)}`;
+
+  const lines: string[] = [];
+  lines.push(`⚠️ <b>CRM недоступна — ${titleRu} не записано</b>`);
+  lines.push(`<i>Переношу повний снепшот для ручного введення.</i>`);
+  lines.push('');
+  if (clientIgUserId) {
+    lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
+  }
+  lines.push(`Причина: <code>${escapeHtml(reason)}</code>`);
+  lines.push('');
+  for (const { label, value } of snapshot) {
+    if (value === null || value === undefined || value === '') continue;
+    lines.push(`<b>${escapeHtml(label)}:</b> ${escapeHtml(String(value))}`);
+  }
+
+  await sendToManagerGroup(lines.join('\n'));
+}
+
+/**
  * Sends a technical error alert to the manager group.
  */
 export async function notifyError(error: Error | string): Promise<void> {

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendText } from './instagram.js';
 import { notifyOrder } from './telegram-notify.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
+import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 
 const log = pino({ name: 'order' });
 
@@ -81,6 +82,9 @@ export async function handleCollectOrder(
       text: confirmationText,
     },
   });
+  markFirstOutboundAt(conversationId).catch((err) =>
+    log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+  );
 
   // 4. Send Telegram notification to manager group
   await notifyOrder({

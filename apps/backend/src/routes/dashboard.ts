@@ -94,7 +94,78 @@ async function countOrdersSubmittedToManager(from: Date | null): Promise<number>
   });
 }
 
+type QualityStatsRow = {
+  rated: bigint;
+  avg_quality: number | null;
+};
+
+/**
+ * Average manager-assigned brief quality over the window. Only counts
+ * conversations that actually have `brief_quality` set — unrated threads
+ * are excluded so a low sample size doesn't drag the mean artificially.
+ */
+async function loadQualityStats(from: Date | null): Promise<QualityStatsRow> {
+  const rows = from
+    ? await prisma.$queryRaw<QualityStatsRow[]>`
+        SELECT
+          COUNT(*)::bigint AS rated,
+          AVG(brief_quality)::float8 AS avg_quality
+        FROM conversations
+        WHERE brief_quality IS NOT NULL
+          AND last_message_at >= ${from}
+      `
+    : await prisma.$queryRaw<QualityStatsRow[]>`
+        SELECT
+          COUNT(*)::bigint AS rated,
+          AVG(brief_quality)::float8 AS avg_quality
+        FROM conversations
+        WHERE brief_quality IS NOT NULL
+      `;
+  return rows[0] ?? { rated: 0n, avg_quality: null };
+}
+
 type DayRow = { day: Date; bot_out: bigint; client_in: bigint };
+
+type BriefStatsRow = {
+  total: bigint;
+  high_completeness: bigint;
+  avg_completeness: number | null;
+  avg_confidence: number | null;
+};
+
+async function loadBriefStats(from: Date | null): Promise<BriefStatsRow> {
+  // Count briefs submitted in the window and summarise completeness /
+  // confidence. `completeness_pct` is always set on submit (B.1 computes
+  // it synchronously in handleSubmitBrief), but we still coalesce against
+  // NULL historic rows that pre-date the B.1 migration.
+  const rows = from
+    ? await prisma.$queryRaw<BriefStatsRow[]>`
+        SELECT
+          COUNT(*)::bigint AS total,
+          COUNT(*) FILTER (WHERE completeness_pct >= 80)::bigint AS high_completeness,
+          AVG(completeness_pct) AS avg_completeness,
+          AVG(confidence) AS avg_confidence
+        FROM presale_briefs
+        WHERE status IN ('submitted', 'synced')
+          AND created_at >= ${from}
+      `
+    : await prisma.$queryRaw<BriefStatsRow[]>`
+        SELECT
+          COUNT(*)::bigint AS total,
+          COUNT(*) FILTER (WHERE completeness_pct >= 80)::bigint AS high_completeness,
+          AVG(completeness_pct) AS avg_completeness,
+          AVG(confidence) AS avg_confidence
+        FROM presale_briefs
+        WHERE status IN ('submitted', 'synced')
+      `;
+
+  return rows[0] ?? {
+    total: 0n,
+    high_completeness: 0n,
+    avg_completeness: null,
+    avg_confidence: null,
+  };
+}
 
 async function loadDailySeries(seriesFrom: Date): Promise<DayRow[]> {
   return prisma.$queryRaw<DayRow[]>`
@@ -133,6 +204,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       lastSyncOk,
       totalConversations,
       dailyRows,
+      briefStats,
+      qualityStats,
     ] = await Promise.all([
       countClientsContacted(from),
       countBotOutbound(from),
@@ -155,6 +228,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       }),
       prisma.conversation.count(),
       loadDailySeries(seriesFrom),
+      loadBriefStats(from),
+      loadQualityStats(from),
     ]);
 
     const ordersInPipeline = ordersSubmitted + ordersConfirmed;
@@ -164,6 +239,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       botReplies: Number(r.bot_out),
       clientMessages: Number(r.client_in),
     }));
+
+    const briefsTotal = Number(briefStats.total);
+    const briefsHighCompleteness = Number(briefStats.high_completeness);
 
     return {
       period,
@@ -181,6 +259,23 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         ordersCancelled,
         ordersSentToManager,
         totalConversations,
+      },
+      briefs: {
+        total: briefsTotal,
+        highCompleteness: briefsHighCompleteness,
+        highCompletenessRate: briefsTotal > 0 ? briefsHighCompleteness / briefsTotal : null,
+        avgCompletenessPct: briefStats.avg_completeness !== null
+          ? Math.round(briefStats.avg_completeness)
+          : null,
+        avgConfidence: briefStats.avg_confidence !== null
+          ? Number(briefStats.avg_confidence.toFixed(2))
+          : null,
+      },
+      quality: {
+        rated: Number(qualityStats.rated),
+        avgQuality: qualityStats.avg_quality !== null
+          ? Number(qualityStats.avg_quality.toFixed(2))
+          : null,
       },
       health: {
         lastBotReplyAt: lastBotMessage?.createdAt.toISOString() ?? null,

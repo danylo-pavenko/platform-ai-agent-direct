@@ -30,6 +30,10 @@ const envSchema = z.object({
   // has its own sources list — 1 is the safe default (usually "Manual" /
   // "Default"). Can be overridden per-instance via env.
   KEYCRM_DEFAULT_SOURCE_ID: z.coerce.number().default(1),
+  // Optional: pipeline id for leadgen-mode brief cards. When 0 (default)
+  // KeyCRM picks the first pipeline in the account — fine for single-pipeline
+  // setups but should be set explicitly for tenants with multiple pipelines.
+  KEYCRM_LEAD_PIPELINE_ID: z.coerce.number().default(0),
   // Feature flag — when false (default), CRM writes are disabled and the
   // bot operates in local-DB-only mode. Flip to true once credentials are
   // verified and the mapping is reviewed.

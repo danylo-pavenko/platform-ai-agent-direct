@@ -19,6 +19,7 @@ import type {
   CrmClientMatch,
   CrmClientInput,
   CrmOrderInput,
+  CrmLeadInput,
   CrmCustomFieldDef,
   ProductSearchParams,
   OfferSearchParams,
@@ -459,9 +460,47 @@ export const keycrmAdapter: CrmAdapter = {
     return { crmOrderId: String(res.id) };
   },
 
-  async listCustomFields(scope: 'buyer' | 'order'): Promise<CrmCustomFieldDef[]> {
+  async createLead(input: CrmLeadInput) {
+    // KeyCRM /pipelines/cards returns 400 "Leads are not enabled" if the
+    // workspace doesn't have pipelines activated. Caller should catch &
+    // fall back to createOrder (or Telegram-only notification) in that case.
+    const contact: Record<string, unknown> = {};
+    if (input.crmBuyerId) contact.client_id = Number(input.crmBuyerId);
+    if (input.contact.fullName) contact.full_name = input.contact.fullName;
+    if (input.contact.phone) contact.phone = input.contact.phone;
+    if (input.contact.email) contact.email = input.contact.email;
+
+    const body: Record<string, unknown> = {
+      source_id: input.sourceId ?? config.KEYCRM_DEFAULT_SOURCE_ID,
+      contact,
+    };
+    if (input.title) body.title = input.title;
+    if (input.managerComment) body.manager_comment = input.managerComment;
+    const pipelineId = input.pipelineId ?? config.KEYCRM_LEAD_PIPELINE_ID;
+    if (pipelineId > 0) body.pipeline_id = pipelineId;
+
+    if (input.customFields && input.customFields.length > 0) {
+      body.custom_fields = input.customFields.map((f) => ({
+        uuid: f.key,
+        value: f.value,
+      }));
+    }
+
+    log.info(
+      { pipelineId, hasBuyer: !!input.crmBuyerId, customFields: input.customFields?.length ?? 0 },
+      'KeyCRM createLead',
+    );
+    const res = await keycrmJson<{ id: number }>('POST', '/pipelines/cards', body);
+    return { crmLeadId: String(res.id) };
+  },
+
+  async listCustomFields(
+    scope: 'buyer' | 'order' | 'lead',
+  ): Promise<CrmCustomFieldDef[]> {
     // KeyCRM calls the buyer entity "client" in the custom-fields endpoint.
-    const model = scope === 'buyer' ? 'client' : 'order';
+    // Pipeline-card custom fields are filed under the "lead" model.
+    const model =
+      scope === 'buyer' ? 'client' : scope === 'lead' ? 'lead' : 'order';
 
     const raw = await keycrmGet<RawCustomField[]>(
       '/custom-fields',

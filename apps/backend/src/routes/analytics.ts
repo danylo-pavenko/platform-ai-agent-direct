@@ -58,6 +58,19 @@ type ByDayRow = {
   p95: number | null;
 };
 
+type TtfrTotalsRow = {
+  samples: bigint;
+  p50: number | null;
+  p95: number | null;
+  avg: number | null;
+};
+
+type TtfrByDayRow = {
+  day: Date;
+  samples: bigint;
+  p50: number | null;
+};
+
 // ── Handler ──────────────────────────────────────────────────────────
 
 export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
@@ -205,6 +218,86 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
           },
         };
       }),
+    };
+  });
+
+  // ── /analytics/ttfr — time-to-first-response KPI (B.4) ────────────────
+  //
+  // Samples a conversation only if both `first_inbound_at` and
+  // `first_outbound_at` are set and the outbound is after the inbound
+  // (defensive — historic rows or data-migration anomalies otherwise
+  // produce negative deltas). Reports median / p95 / average seconds.
+  app.get<{
+    Querystring: { period?: string };
+  }>('/ttfr', { onRequest: [app.authenticate] }, async (request) => {
+    const period = parsePeriod(request.query.period);
+    const from = periodStart(period);
+    const now = new Date();
+
+    const totalsRows = from
+      ? await prisma.$queryRaw<TtfrTotalsRow[]>`
+          SELECT
+            COUNT(*)::bigint AS samples,
+            percentile_cont(0.5)  WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS p50,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS p95,
+            AVG(EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS avg
+          FROM conversations
+          WHERE first_inbound_at IS NOT NULL
+            AND first_outbound_at IS NOT NULL
+            AND first_outbound_at > first_inbound_at
+            AND first_inbound_at >= ${from}
+        `
+      : await prisma.$queryRaw<TtfrTotalsRow[]>`
+          SELECT
+            COUNT(*)::bigint AS samples,
+            percentile_cont(0.5)  WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS p50,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS p95,
+            AVG(EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS avg
+          FROM conversations
+          WHERE first_inbound_at IS NOT NULL
+            AND first_outbound_at IS NOT NULL
+            AND first_outbound_at > first_inbound_at
+        `;
+
+    const totals = totalsRows[0] ?? { samples: 0n, p50: null, p95: null, avg: null };
+
+    const seriesDays =
+      period === 'all' ? 90 : period === '24h' ? 2 : period === '7d' ? 7 : period === '30d' ? 30 : 90;
+    const seriesFrom = new Date(now.getTime() - seriesDays * 86400000);
+
+    const byDayRows = await prisma.$queryRaw<TtfrByDayRow[]>`
+      SELECT
+        date_trunc('day', first_inbound_at AT TIME ZONE 'UTC') AS day,
+        COUNT(*)::bigint AS samples,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))) AS p50
+      FROM conversations
+      WHERE first_inbound_at IS NOT NULL
+        AND first_outbound_at IS NOT NULL
+        AND first_outbound_at > first_inbound_at
+        AND first_inbound_at >= ${seriesFrom}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `;
+
+    return {
+      period,
+      from: from?.toISOString() ?? null,
+      to: now.toISOString(),
+      totals: {
+        samples: Number(totals.samples),
+        seconds: {
+          p50: totals.p50 !== null ? Math.round(totals.p50) : null,
+          p95: totals.p95 !== null ? Math.round(totals.p95) : null,
+          avg: totals.avg !== null ? Math.round(totals.avg) : null,
+        },
+      },
+      series: byDayRows.map((r) => ({
+        date: (r.day instanceof Date ? r.day : new Date(r.day)).toISOString().slice(0, 10),
+        samples: Number(r.samples),
+        seconds: {
+          p50: r.p50 !== null ? Math.round(r.p50) : null,
+        },
+      })),
     };
   });
 }

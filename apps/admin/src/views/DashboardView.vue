@@ -149,6 +149,52 @@
         </div>
       </section>
 
+      <!-- Leadgen quality & brief KPIs (only when tenant has leadgen data) -->
+      <section v-if="showLeadgenSection" class="section-card">
+        <div class="section-head">
+          <h2 class="section-title">Leadgen — якість брифів і лідів</h2>
+          <p class="section-desc">Повнота брифу від агента та ручна оцінка ліда менеджером</p>
+        </div>
+        <v-row dense>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">Брифів у періоді</div>
+              <div class="kpi-value">{{ loading ? '-' : fmt(summary?.briefs?.total) }}</div>
+              <div class="kpi-hint">Статус submitted або synced</div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">Повних брифів (≥ 80%)</div>
+              <div class="kpi-value">{{ loading ? '-' : formatPct(summary?.briefs?.highCompletenessRate) }}</div>
+              <div class="kpi-hint">
+                {{ fmt(summary?.briefs?.highCompleteness) }} з {{ fmt(summary?.briefs?.total) }}
+              </div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card">
+              <div class="kpi-label">Сер. повнота брифу</div>
+              <div class="kpi-value">{{ loading ? '-' : (summary?.briefs?.avgCompletenessPct != null ? `${summary.briefs.avgCompletenessPct}%` : '—') }}</div>
+              <div class="kpi-hint">
+                Сер. впевненість: {{ summary?.briefs?.avgConfidence ?? '—' }}
+              </div>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <div class="kpi-card kpi-card--accent">
+              <div class="kpi-label">Сер. якість ліда</div>
+              <div class="kpi-value">
+                {{ loading ? '-' : (summary?.quality?.avgQuality != null ? `${summary.quality.avgQuality} / 5` : '—') }}
+              </div>
+              <div class="kpi-hint">
+                Оцінено менеджером: {{ fmt(summary?.quality?.rated) }} розмов
+              </div>
+            </div>
+          </v-col>
+        </v-row>
+      </section>
+
       <!-- Agent health (LLM latency + success rate) -->
       <section class="section-card">
         <div class="section-head">
@@ -285,6 +331,17 @@ interface Summary {
   from: string | null;
   to: string;
   totals: Totals;
+  briefs: {
+    total: number;
+    highCompleteness: number;
+    highCompletenessRate: number | null;
+    avgCompletenessPct: number | null;
+    avgConfidence: number | null;
+  };
+  quality: {
+    rated: number;
+    avgQuality: number | null;
+  };
   health: {
     lastBotReplyAt: string | null;
     lastCatalogSyncAt: string | null;
@@ -348,6 +405,12 @@ const agentLoading = ref(true);
 const agentError = ref('');
 
 const t = computed(() => summary.value?.totals);
+
+const showLeadgenSection = computed(() => {
+  const s = summary.value;
+  if (!s) return false;
+  return (s.briefs?.total ?? 0) > 0 || (s.quality?.rated ?? 0) > 0;
+});
 
 const healthOk = computed(() => {
   const h = summary.value?.health;

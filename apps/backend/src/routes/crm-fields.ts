@@ -20,8 +20,9 @@ import { prisma } from '../lib/prisma.js';
 import { invalidateCrmFieldMappingsCache } from '../lib/crm-field-mappings.js';
 import { getCrmAdapter } from '../services/crm/index.js';
 
-const VALID_SCOPES = ['buyer', 'order'] as const;
+const VALID_SCOPES = ['buyer', 'order', 'lead'] as const;
 type Scope = (typeof VALID_SCOPES)[number];
+const SCOPE_ERROR = 'scope must be "buyer", "order" or "lead"';
 
 interface CreateBody {
   localKey?: string;
@@ -55,7 +56,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   }>('/available', { onRequest: [app.authenticate] }, async (request, reply) => {
     const scope = request.query.scope;
     if (!isScope(scope)) {
-      return reply.code(400).send({ error: 'scope must be "buyer" or "order"' });
+      return reply.code(400).send({ error: SCOPE_ERROR });
     }
 
     const crm = getCrmAdapter();
@@ -96,7 +97,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
       if (!crmFieldKey) return reply.code(400).send({ error: 'crmFieldKey is required' });
       if (!label) return reply.code(400).send({ error: 'label is required' });
       if (!isScope(b.scope)) {
-        return reply.code(400).send({ error: 'scope must be "buyer" or "order"' });
+        return reply.code(400).send({ error: SCOPE_ERROR });
       }
 
       // Reject keys that would break the tool schema — Claude uses these as
@@ -145,7 +146,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
       }
       if (b.scope !== undefined) {
         if (!isScope(b.scope)) {
-          return reply.code(400).send({ error: 'scope must be "buyer" or "order"' });
+          return reply.code(400).send({ error: SCOPE_ERROR });
         }
         data.scope = b.scope;
       }

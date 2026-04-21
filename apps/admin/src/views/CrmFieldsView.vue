@@ -42,7 +42,7 @@
         </template>
 
         <template #item.scope="{ item }">
-          <v-chip size="small" :color="item.scope === 'buyer' ? 'blue' : 'purple'" label>
+          <v-chip size="small" :color="scopeChipColor(item.scope)" label>
             {{ item.scope }}
           </v-chip>
         </template>
@@ -105,6 +105,7 @@
                 :items="[
                   { title: 'Клієнт (buyer)', value: 'buyer' },
                   { title: 'Замовлення (order)', value: 'order' },
+                  { title: 'Лід (lead)', value: 'lead' },
                 ]"
                 item-title="title"
                 item-value="value"
@@ -256,11 +257,13 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '@/api';
 
+type FieldScope = 'buyer' | 'order' | 'lead';
+
 interface Mapping {
   id: string;
   localKey: string;
   crmFieldKey: string;
-  scope: 'buyer' | 'order';
+  scope: FieldScope;
   label: string;
   promptHint: string | null;
   extractType: string;
@@ -273,7 +276,7 @@ interface Mapping {
 interface AvailableField {
   key: string;
   name: string;
-  scope: 'buyer' | 'order';
+  scope: FieldScope;
   type: string;
   options?: string[];
 }
@@ -282,10 +285,17 @@ const mappings = ref<Mapping[]>([]);
 const loading = ref(false);
 const error = ref('');
 
-const availableByScope = ref<Record<'buyer' | 'order', AvailableField[]>>({
+const availableByScope = ref<Record<FieldScope, AvailableField[]>>({
   buyer: [],
   order: [],
+  lead: [],
 });
+
+function scopeChipColor(scope: FieldScope): string {
+  if (scope === 'buyer') return 'blue';
+  if (scope === 'order') return 'purple';
+  return 'teal';
+}
 const loadingAvailable = ref(false);
 
 const dialogOpen = ref(false);
@@ -306,7 +316,7 @@ const writeEnabledHint = ref(true); // Info banner stays visible; we don't read 
 const form = ref({
   localKey: '',
   crmFieldKey: '',
-  scope: 'buyer' as 'buyer' | 'order',
+  scope: 'buyer' as FieldScope,
   label: '',
   promptHint: '',
   extractType: 'text',
@@ -363,14 +373,16 @@ async function fetchAvailable(force = false) {
   if (!force && availableByScope.value[form.value.scope].length > 0) return;
   loadingAvailable.value = true;
   try {
-    // Fetch both scopes so switching the radio doesn't re-hit the CRM.
-    const [buyer, order] = await Promise.all([
+    // Fetch all scopes so switching the radio doesn't re-hit the CRM.
+    const [buyer, order, lead] = await Promise.all([
       api.get('/crm-fields/available', { params: { scope: 'buyer' } }),
       api.get('/crm-fields/available', { params: { scope: 'order' } }),
+      api.get('/crm-fields/available', { params: { scope: 'lead' } }),
     ]);
     availableByScope.value = {
       buyer: Array.isArray(buyer.data?.data) ? buyer.data.data : [],
       order: Array.isArray(order.data?.data) ? order.data.data : [],
+      lead: Array.isArray(lead.data?.data) ? lead.data.data : [],
     };
     if (force) showSnack('Список полів CRM оновлено');
   } catch (e: any) {

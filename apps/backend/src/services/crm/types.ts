@@ -134,12 +134,37 @@ export interface CrmCustomFieldDef {
   key: string;
   /** Human-readable field name. */
   name: string;
-  /** Where this field lives (buyer, order, etc.). */
-  scope: 'buyer' | 'order';
+  /** Where this field lives (buyer, order, lead/pipeline card, etc.). */
+  scope: 'buyer' | 'order' | 'lead';
   /** Field type hint (text, number, select, multi-select, date...). */
   type: string;
   /** Allowed values for select/multi-select. */
   options?: string[];
+}
+
+/**
+ * Inputs for creating a presale lead (pipeline card in KeyCRM).
+ * Kept separate from CrmOrderInput because a lead is pre-sale context
+ * (brief / intent / segment) rather than a confirmed transaction.
+ */
+export interface CrmLeadInput {
+  /** Short title for the card (fallback: card id). */
+  title?: string;
+  /** Optional pipeline id — omit to let the CRM pick the default pipeline. */
+  pipelineId?: number;
+  /** Source id (defaults to KEYCRM_DEFAULT_SOURCE_ID when absent). */
+  sourceId?: number;
+  /** Free-text summary the manager will read first. */
+  managerComment?: string;
+  /** Existing CRM buyer id, if the client has already been mirrored. */
+  crmBuyerId?: string;
+  /** Buyer contact snapshot used when crmBuyerId is not yet known. */
+  contact: {
+    fullName?: string;
+    phone?: string;
+    email?: string;
+  };
+  customFields?: Array<{ key: string; value: string }>;
 }
 
 // ── The adapter itself ─────────────────────────────────────────────────────
@@ -164,6 +189,16 @@ export interface CrmAdapter {
   ): Promise<{ crmBuyerId: string }>;
   createOrder?(input: CrmOrderInput): Promise<{ crmOrderId: string }>;
 
+  /**
+   * Creates a lead / pipeline card (leadgen mode).
+   * Providers that don't have a native pipeline concept may alias this to
+   * createOrder with a draft status, but should return a distinct lead id
+   * so the brief mirror is idempotent.
+   */
+  createLead?(input: CrmLeadInput): Promise<{ crmLeadId: string }>;
+
   // Custom fields discovery (optional — Phase 3)
-  listCustomFields?(scope: 'buyer' | 'order'): Promise<CrmCustomFieldDef[]>;
+  listCustomFields?(
+    scope: 'buyer' | 'order' | 'lead',
+  ): Promise<CrmCustomFieldDef[]>;
 }

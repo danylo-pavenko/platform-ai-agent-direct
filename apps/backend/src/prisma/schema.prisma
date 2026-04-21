@@ -41,6 +41,7 @@ model Client {
 
   conversations    Conversation[]
   orders           Order[]
+  briefs           PresaleBrief[]
 
   @@map("clients")
 }
@@ -71,11 +72,29 @@ model Conversation {
   lastMessageAt   DateTime?           @map("last_message_at")
   handoffReason   String?             @map("handoff_reason")
   handedOffTo     String?             @map("handed_off_to")
+  // Set by `classify_intent` tool on first classification. Free-form string
+  // for forward-compat (new intents without a migration), but values come
+  // from a closed enum in the tool schema:
+  //   new_lead | service_question | complaint | partnership | jobs | spam
+  intent          String?
+  // B.4 — time-to-first-response. `firstInboundAt` is set the first time
+  // the client writes; `firstOutboundAt` the first time the bot (or a
+  // manager) actually sends anything back. Difference is the per-convo
+  // TTFR sample. Nullable because historic rows won't have them.
+  firstInboundAt  DateTime?           @map("first_inbound_at")
+  firstOutboundAt DateTime?           @map("first_outbound_at")
+  // B.2 — manager-assigned quality of the lead / conversation, 1–5.
+  // Drives R6 (context carry-over gate in B.3) and a dashboard KPI
+  // (avg quality over the selected period). `briefQualityNote` is a
+  // free-form rationale the manager can leave alongside the rating.
+  briefQuality    Int?                @map("brief_quality")
+  briefQualityNote String?            @map("brief_quality_note")
   createdAt       DateTime            @default(now()) @map("created_at")
 
   client          Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
   messages        Message[]
   orders          Order[]
+  briefs          PresaleBrief[]
 
   @@map("conversations")
 }
@@ -255,6 +274,7 @@ model SandboxCase {
 enum CrmFieldScope {
   buyer
   order
+  lead
 
   @@map("crm_field_scope")
 }
@@ -295,6 +315,100 @@ model CrmFieldMapping {
   updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at")
 
   @@map("crm_field_mappings")
+}
+
+// ── Presale Briefs (leadgen-mode deal surface) ──
+//
+// Structured qualification brief for the `leadgen` agent mode. One brief
+// per successful `submit_brief` tool call; mirrored into the CRM as a
+// lead / pipeline card (optional — callers fire mirrorBriefToCrm
+// fire-and-forget). Sales-mode tenants never touch this table.
+//
+// All descriptive fields are nullable because the agent may submit a
+// partial brief when the client cannot (or won't) share everything.
+// `rawPayload` keeps any extra fields the agent extracted that aren't
+// first-class columns yet — useful for per-tenant custom-field extension.
+
+enum PresaleBriefStatus {
+  draft
+  submitted
+  synced
+  failed
+
+  @@map("presale_brief_status")
+}
+
+model PresaleBrief {
+  id                  String             @id @default(uuid()) @db.Uuid
+  conversationId      String             @map("conversation_id") @db.Uuid
+  clientId            String             @map("client_id") @db.Uuid
+
+  // Identification
+  businessName        String?            @map("business_name")
+  niche               String?
+  role                String?
+  clientType          String?            @map("client_type")
+
+  // Request
+  services            String[]           @default([])
+  goal                String?
+  desiredResult       String?            @map("desired_result")
+  kpi                 String?
+
+  // Current situation
+  currentActivity     String?            @map("current_activity")
+  previousContractors String?            @map("previous_contractors")
+  painPoints          String?            @map("pain_points")
+
+  // Business
+  size                String?
+  geo                 String?
+
+  // Channels / assets
+  websiteUrl          String?            @map("website_url")
+  instagramUrl        String?            @map("instagram_url")
+  otherChannels       String?            @map("other_channels")
+
+  // Budget
+  budgetRange         String?            @map("budget_range")
+  budgetPeriod        String?            @map("budget_period")
+
+  // Timing
+  desiredStart        String?            @map("desired_start")
+  deadlines           String?
+
+  // Contacts
+  phone               String?
+  email               String?
+  preferredChannel    String?            @map("preferred_channel")
+  preferredTime       String?            @map("preferred_time")
+
+  // Classification / service fields
+  segment             String?
+  priority            String?
+  source              String?
+
+  // Quality (Phase B.1 — starts null, filled by backend compute)
+  completenessPct     Int?               @map("completeness_pct")
+  confidence          Float?
+
+  // Catch-all for extra fields the agent returned that are not typed above
+  rawPayload          Json?              @map("raw_payload") @db.JsonB
+
+  // CRM link (idempotency key for mirrorBriefToCrm)
+  keycrmLeadId        String?            @map("keycrm_lead_id")
+  status              PresaleBriefStatus @default(draft)
+
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @default(now()) @updatedAt @map("updated_at")
+
+  conversation        Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  client              Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("presale_briefs")
 }
 
 // ── Agent Invocations (LLM latency / success analytics) ──

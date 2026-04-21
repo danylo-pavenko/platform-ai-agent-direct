@@ -5,6 +5,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { handleIncomingMessage } from '../services/conversation.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
+import { getAgentConfig } from '../lib/agent-config.js';
 
 // ── Meta webhook payload types (subset we care about) ──
 
@@ -285,6 +286,12 @@ async function processMessageEvent(
   }
 
   // ── Find or create conversation ──
+  // B.3: if the active bot-state conversation is older than the tenant's
+  // session-freshness window, close it and start fresh. A new session
+  // lets the agent greet properly and keeps analytics (TTFR, brief
+  // completeness, future quality rating) scoped per-sales-cycle rather
+  // than smeared across months of idle chat. Handoff-state threads are
+  // left alone — someone (or the manager queue) is owning that flow.
   let conversation = await prisma.conversation.findFirst({
     where: {
       clientId: client.id,
@@ -293,6 +300,29 @@ async function processMessageEvent(
     },
     orderBy: { createdAt: 'desc' },
   });
+
+  if (conversation && conversation.state === 'bot' && conversation.lastMessageAt) {
+    const { sessionFreshnessDays } = await getAgentConfig();
+    const staleMs = sessionFreshnessDays * 86400000;
+    if (Date.now() - conversation.lastMessageAt.getTime() > staleMs) {
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: { state: 'closed' },
+      });
+      app.log.info(
+        {
+          conversationId: conversation.id,
+          igUserId,
+          ageDays: Math.round(
+            (Date.now() - conversation.lastMessageAt.getTime()) / 86400000,
+          ),
+          sessionFreshnessDays,
+        },
+        'Closed stale conversation — starting fresh session',
+      );
+      conversation = null;
+    }
+  }
 
   if (!conversation) {
     conversation = await prisma.conversation.create({
@@ -326,10 +356,17 @@ async function processMessageEvent(
     },
   });
 
-  // ── Update conversation lastMessageAt ──
+  // ── Update conversation lastMessageAt (+ firstInboundAt on first ever inbound) ──
+  // Prisma has no "coalesce on null" shorthand, so we branch in JS: set
+  // firstInboundAt only when it's currently unset. Extra roundtrip is
+  // already implicit in the surrounding flow (no hot loop here).
+  const now = new Date();
   await prisma.conversation.update({
     where: { id: conversation.id },
-    data: { lastMessageAt: new Date() },
+    data: {
+      lastMessageAt: now,
+      ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
+    },
   });
 
   app.log.info(

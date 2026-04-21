@@ -23,7 +23,7 @@
             чи відповідає бот автоматично, чи надсилає шаблон "ми зараз не працюємо".
           </v-alert>
 
-          <v-radio-group v-model="agentMode" @update:model-value="onModeChange">
+          <v-radio-group v-model="scheduleMode" @update:model-value="onScheduleModeChange">
             <v-radio value="24_7">
               <template #label>
                 <div>
@@ -49,8 +49,89 @@
         </v-card-text>
       </v-card>
 
+      <!-- Agent type & SLA (agent_config) -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="deep-purple">mdi-account-tie</v-icon>
+          Тип агента та SLA
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Визначає, які інструменти має агент та як поводиться поза робочими годинами.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="agentConfig.mode"
+                :items="[
+                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
+                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
+                ]"
+                item-title="title"
+                item-value="value"
+                label="Режим агента"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                <strong>sales</strong>: collect_order + get_delivery_cost; leadgen: classify_intent + submit_brief.
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="agentConfig.outOfHoursStrategy"
+                :items="[
+                  { title: 'Попередити одразу (warn_early)', value: 'warn_early' },
+                  { title: 'Повідомити в кінці розмови (defer_to_end)', value: 'defer_to_end' },
+                ]"
+                item-title="title"
+                item-value="value"
+                label="Поведінка поза годинами"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                <strong>warn_early</strong> для продажів, <strong>defer_to_end</strong> для лідгену (не переривати бриф).
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.managerSlaHoursBusiness"
+                type="number"
+                min="1"
+                max="48"
+                label="SLA відповіді менеджера (робочих годин)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Використовується в промпті як <code>{{ '{{MANAGER_SLA_HOURS}}' }}</code>.
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.sessionFreshnessDays"
+                type="number"
+                min="1"
+                max="90"
+                label="Свіжість розмови (днів)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Після стількох днів тиші розмова вважається закритою (для брифів / метрик).
+              </div>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
       <!-- Working hours (shown only in schedule mode) -->
-      <v-card v-if="agentMode === 'schedule'" class="mb-4">
+      <v-card v-if="scheduleMode === 'schedule'" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start>mdi-clock-outline</v-icon>
           Робочі години
@@ -109,7 +190,7 @@
       </v-card>
 
       <!-- Out-of-hours template -->
-      <v-card v-if="agentMode === 'schedule'" class="mb-4">
+      <v-card v-if="scheduleMode === 'schedule'" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start>mdi-message-text-clock</v-icon>
           Повідомлення поза робочим часом
@@ -978,7 +1059,24 @@ function selectOAuthPage(page: OAuthPage) {
   showOAuthSnackbar(`Сторінку "${page.name}" вибрано. Натисніть "Зберегти інтеграції".`);
 }
 
-const agentMode = ref<'24_7' | 'schedule'>('schedule');
+const scheduleMode = ref<'24_7' | 'schedule'>('schedule');
+
+type AgentModeValue = 'sales' | 'leadgen';
+type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
+
+interface AgentConfigShape {
+  mode: AgentModeValue;
+  outOfHoursStrategy: OutOfHoursStrategyValue;
+  managerSlaHoursBusiness: number;
+  sessionFreshnessDays: number;
+}
+
+const agentConfig = ref<AgentConfigShape>({
+  mode: 'sales',
+  outOfHoursStrategy: 'warn_early',
+  managerSlaHoursBusiness: 2,
+  sessionFreshnessDays: 14,
+});
 
 const workingHours = ref<WorkingHoursMap>({
   mon: { start: '09:00', end: '20:00', enabled: true },
@@ -1010,7 +1108,7 @@ function hoursPerDay(day: DaySchedule): string {
   return m > 0 ? `${h} год ${m} хв` : `${h} год`;
 }
 
-function onModeChange(mode: '24_7' | 'schedule' | null) {
+function onScheduleModeChange(mode: '24_7' | 'schedule' | null) {
   if (!mode) return;
   if (mode === '24_7') {
     // Enable all days, 00:00–23:59
@@ -1034,7 +1132,7 @@ async function fetchSettings() {
         const h = workingHours.value[d.key];
         return h && h.enabled && h.start === '00:00' && h.end === '23:59';
       });
-      agentMode.value = all247 ? '24_7' : 'schedule';
+      scheduleMode.value = all247 ? '24_7' : 'schedule';
     }
 
     if (typeof data.out_of_hours_template === 'string') {
@@ -1049,6 +1147,23 @@ async function fetchSettings() {
 
     if (data.feature_flags && typeof data.feature_flags === 'object') {
       featureFlags.value = { ...featureFlags.value, ...data.feature_flags };
+    }
+
+    if (data.agent_config && typeof data.agent_config === 'object') {
+      const raw = data.agent_config as Partial<AgentConfigShape>;
+      agentConfig.value = {
+        mode: raw.mode === 'leadgen' ? 'leadgen' : 'sales',
+        outOfHoursStrategy:
+          raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
+        managerSlaHoursBusiness:
+          typeof raw.managerSlaHoursBusiness === 'number' && raw.managerSlaHoursBusiness > 0
+            ? raw.managerSlaHoursBusiness
+            : 2,
+        sessionFreshnessDays:
+          typeof raw.sessionFreshnessDays === 'number' && raw.sessionFreshnessDays > 0
+            ? raw.sessionFreshnessDays
+            : 14,
+      };
     }
   } catch {
     error.value = 'Не вдалося завантажити налаштування';
@@ -1070,6 +1185,7 @@ async function saveSettings() {
         .map((k: string) => k.trim())
         .filter(Boolean),
       feature_flags: featureFlags.value,
+      agent_config: agentConfig.value,
     });
     success.value = true;
   } catch {

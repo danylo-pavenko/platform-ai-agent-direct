@@ -13,10 +13,13 @@ import {
 } from './prompt-builder.js';
 import { downloadAllMedia } from './media.js';
 import { notifyHandoff } from './telegram-notify.js';
-import { buildSalesAgentTools } from '../lib/tool-definitions.js';
+import { buildAgentTools } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
+import { getAgentConfig } from '../lib/agent-config.js';
 import { handleCollectOrder } from './order.js';
+import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
+import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
@@ -177,6 +180,20 @@ export async function handleIncomingMessage(
     ? await getActiveCrmFieldMappings()
     : null;
 
+  const agentCfg = await getAgentConfig();
+
+  // B.3 — returning-lead context: surface a recap of the most recent
+  // finalized brief so the agent doesn't re-ask qualification questions.
+  // Gate R6 (per FEATURE_AGENT_MODE_PLAN): prior brief must still be
+  // "fresh enough" (≤ sessionFreshnessDays × 3) AND of decent quality.
+  // Quality proxy = completenessPct ≥ 60 until B.2 ships manager star
+  // ratings; swap the proxy for `briefQuality ≥ 3` once that lands.
+  const previousBriefSummary = await loadPreviousBriefSummary(
+    client.id,
+    conversationId,
+    agentCfg.sessionFreshnessDays,
+  );
+
   const prompt = buildRuntimePrompt({
     activePromptContent: activePrompt,
     catalogSnippet: catalog,
@@ -192,9 +209,16 @@ export async function handleIncomingMessage(
       label: m.label,
       promptHint: m.promptHint,
     })),
+    agentMode: agentCfg.mode,
+    outOfHoursStrategy: agentCfg.outOfHoursStrategy,
+    managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
+    previousBriefSummary,
   });
 
-  const tools = buildSalesAgentTools(crmMappings?.buyer ?? []);
+  const tools = buildAgentTools(agentCfg.mode, {
+    buyerScopeMappings: crmMappings?.buyer ?? [],
+    leadScopeMappings: crmMappings?.lead ?? [],
+  });
 
   // ── 6. Build conversation history (last 30 messages) ──────────────
   const rawMessages = await prisma.message.findMany({
@@ -330,6 +354,16 @@ export async function handleIncomingMessage(
       });
     }
 
+    // classify_intent — fires on the first message of a conversation;
+    // fire-and-forget so the bot reply is never delayed by a DB write
+    // to the conversation row.
+    const classifyIntent = response.toolCalls.find((tc) => tc.name === 'classify_intent');
+    if (classifyIntent) {
+      handleClassifyIntent(conversationId, classifyIntent.args).catch((err) => {
+        log.error({ err, conversationId }, 'Failed to classify intent');
+      });
+    }
+
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
     if (handoff) {
       const reason =
@@ -361,6 +395,9 @@ export async function handleIncomingMessage(
           text: handoffMessage,
         },
       });
+      markFirstOutboundAt(conversationId).catch((err) =>
+        log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+      );
 
       log.info({ conversationId, reason }, 'Conversation handed off to manager');
 
@@ -384,7 +421,7 @@ export async function handleIncomingMessage(
     }
 
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
-    if (collectOrder) {
+    if (collectOrder && agentCfg.mode === 'sales') {
       await handleCollectOrder(
         conversationId,
         client.id,
@@ -392,6 +429,20 @@ export async function handleIncomingMessage(
         collectOrder.args,
       );
       return;
+    }
+
+    // submit_brief — leadgen-mode terminal tool. After persisting the
+    // brief and firing notifications, we still let the bot's text reply
+    // fall through so the client sees the closing message (with SLA /
+    // out-of-hours copy from the prompt-builder).
+    const submitBrief = response.toolCalls.find((tc) => tc.name === 'submit_brief');
+    if (submitBrief && agentCfg.mode === 'leadgen') {
+      await handleSubmitBrief(
+        conversationId,
+        client.id,
+        client.igUserId!,
+        submitBrief.args,
+      );
     }
 
     // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
@@ -475,6 +526,9 @@ export async function handleIncomingMessage(
       text: responseText,
     },
   });
+  markFirstOutboundAt(conversationId).catch((err) =>
+    log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+  );
 
   log.info(
     { conversationId, responseLength: responseText.length },
@@ -576,6 +630,84 @@ async function handleTagClient(
   });
 
   log.info({ clientId, tags: mergedTags, hasNotes: !!notes }, 'Client tagged from conversation');
+}
+
+// ---------------------------------------------------------------------------
+// Returning-lead recap (B.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads the most recent finalized brief for this client (from an earlier
+ * session) and renders it as a short human-readable recap for the prompt.
+ *
+ * Returns undefined when there is no usable prior brief — either because
+ * there are none, or the freshest one fails the quality / age gates.
+ *
+ * Gates (FEATURE_AGENT_MODE_PLAN R6):
+ *   - Must belong to a *different* conversation (this is the returning-
+ *     lead case, not the same-session echo).
+ *   - Status in (submitted, synced) — drafts / failed don't count.
+ *   - Quality gate: prefer `Conversation.briefQuality ≥ 3` (B.2 — manager
+ *     rating). If unrated yet, fall back to `completenessPct ≥ 60` as a
+ *     crude proxy so the feature still works before every lead is rated.
+ *   - Age ≤ sessionFreshnessDays × 3 — beyond that, the prior context
+ *     is stale enough that the agent should re-qualify from scratch.
+ */
+async function loadPreviousBriefSummary(
+  clientId: string,
+  currentConversationId: string,
+  sessionFreshnessDays: number,
+): Promise<string | undefined> {
+  const maxAgeMs = sessionFreshnessDays * 3 * 86400000;
+  const cutoff = new Date(Date.now() - maxAgeMs);
+
+  const brief = await prisma.presaleBrief.findFirst({
+    where: {
+      clientId,
+      conversationId: { not: currentConversationId },
+      status: { in: ['submitted', 'synced'] },
+      createdAt: { gte: cutoff },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      businessName: true,
+      niche: true,
+      services: true,
+      budgetRange: true,
+      desiredStart: true,
+      preferredChannel: true,
+      priority: true,
+      completenessPct: true,
+      createdAt: true,
+      conversation: { select: { briefQuality: true } },
+    },
+  });
+
+  if (!brief) return undefined;
+
+  const rated = brief.conversation?.briefQuality ?? null;
+  if (rated !== null) {
+    if (rated < 3) return undefined;
+  } else if ((brief.completenessPct ?? 0) < 60) {
+    return undefined;
+  }
+
+  const parts: string[] = [];
+  if (brief.businessName) parts.push(`Бізнес: ${brief.businessName}`);
+  if (brief.niche) parts.push(`Ніша: ${brief.niche}`);
+  if (brief.services && brief.services.length > 0) {
+    parts.push(`Послуги: ${brief.services.slice(0, 4).join(', ')}`);
+  }
+  if (brief.budgetRange) parts.push(`Бюджет: ${brief.budgetRange}`);
+  if (brief.desiredStart) parts.push(`Старт: ${brief.desiredStart}`);
+  if (brief.preferredChannel) parts.push(`Зручний канал: ${brief.preferredChannel}`);
+  if (brief.priority) parts.push(`Пріоритет: ${brief.priority}`);
+
+  if (parts.length === 0) return undefined;
+
+  const ageDays = Math.round((Date.now() - brief.createdAt.getTime()) / 86400000);
+  parts.unshift(`Попередній бриф (~${ageDays} дн. тому):`);
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------
