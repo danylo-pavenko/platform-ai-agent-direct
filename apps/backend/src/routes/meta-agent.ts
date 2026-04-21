@@ -10,12 +10,25 @@ import { config } from '../config.js';
 interface ChatBody {
   message: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  // Optional working copy the caller is editing (Sandbox override, PromptsView
+  // draft). When provided, the meta-agent reasons about THIS text instead of
+  // the DB-active prompt. Falls back to active when omitted/empty.
+  currentPromptContent?: string;
 }
 
 interface ApplyBody {
   before: string;
   after: string;
   summary: string;
+  // When true, the new version becomes active immediately (deactivating all
+  // others). When false/omitted, it's created as a draft (isActive: false) —
+  // user must explicitly activate via /prompts/:id/activate. Safe default.
+  activate?: boolean;
+  // Optimistic concurrency token: the id of the active prompt the user saw
+  // when the diff was generated. If someone else activated a new version in
+  // the meantime, we return 409 so the UI can refresh and the user can retry
+  // against the up-to-date prompt.
+  basePromptId?: string;
 }
 
 interface SuggestedDiff {
@@ -210,23 +223,30 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/chat',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { message, history } = request.body ?? {};
+      const { message, history, currentPromptContent } = request.body ?? {};
 
       if (!message || typeof message !== 'string' || message.trim().length === 0) {
         return reply.code(400).send({ error: 'Message is required' });
       }
 
-      // 1. Fetch the current active system prompt
-      const activePrompt = await prisma.systemPrompt.findFirst({
-        where: { isActive: true },
-      });
-
-      if (!activePrompt) {
-        return reply.code(400).send({ error: 'No active prompt found' });
+      // 1. Resolve which prompt the agent should reason about.
+      //    If the caller passed a working copy (Sandbox override / edit-dialog
+      //    draft), use it verbatim. Otherwise fall back to the DB-active one.
+      let promptContent: string;
+      if (typeof currentPromptContent === 'string' && currentPromptContent.trim()) {
+        promptContent = currentPromptContent;
+      } else {
+        const activePrompt = await prisma.systemPrompt.findFirst({
+          where: { isActive: true },
+        });
+        if (!activePrompt) {
+          return reply.code(400).send({ error: 'No active prompt found' });
+        }
+        promptContent = activePrompt.content;
       }
 
       // 2. Build meta-agent system prompt
-      const metaAgentPrompt = buildMetaAgentSystemPrompt(activePrompt.content);
+      const metaAgentPrompt = buildMetaAgentSystemPrompt(promptContent);
 
       // 3. Call Claude
       const response = await askClaude({
@@ -260,7 +280,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/apply',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { before, after, summary } = request.body ?? {};
+      const { before, after, summary, activate, basePromptId } = request.body ?? {};
 
       if (!after || typeof after !== 'string' || after.trim().length === 0) {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
@@ -271,6 +291,8 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         ? summary.trim()
         : 'Зміна через мета-агент (без опису)';
 
+      const shouldActivate = activate === true;
+
       // 1. Fetch current active prompt
       const activePrompt = await prisma.systemPrompt.findFirst({
         where: { isActive: true },
@@ -278,6 +300,22 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
 
       if (!activePrompt) {
         return reply.code(400).send({ error: 'No active prompt found' });
+      }
+
+      // 1a. Optimistic concurrency: if the caller remembers which prompt id
+      //     was active when they generated the diff, make sure nothing has
+      //     been activated since. Prevents two admins racing through
+      //     meta-agent and silently stepping on each other's changes.
+      if (basePromptId && typeof basePromptId === 'string' && basePromptId !== activePrompt.id) {
+        app.log.warn(
+          { basePromptId, activeId: activePrompt.id, activeVersion: activePrompt.version },
+          'Meta-agent apply: basePromptId is stale — active prompt changed since diff was generated',
+        );
+        return reply.code(409).send({
+          error: 'Активний промпт змінився з моменту генерації діфа. Оновіть сторінку та повторіть запит.',
+          currentActiveId: activePrompt.id,
+          currentActiveVersion: activePrompt.version,
+        });
       }
 
       // 2. Apply the diff to the full prompt content.
@@ -311,20 +349,35 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         newContent = activePrompt.content.trimEnd() + '\n\n' + after.trim();
       }
 
+      // 2a. No-op guard: if the apply didn't change anything (duplicate click,
+      //     LLM suggested the same text back), don't pollute history with an
+      //     identical version row.
+      if (newContent.trim() === activePrompt.content.trim()) {
+        app.log.warn(
+          { activeId: activePrompt.id },
+          'Meta-agent apply: resulting content identical to active — nothing to save',
+        );
+        return reply.code(400).send({
+          error: 'Зміни відсутні — новий контент ідентичний до активного промпту.',
+        });
+      }
+
       // 3. Get max version
       const maxVersion = await prisma.systemPrompt.aggregate({
         _max: { version: true },
       });
       const nextVersion = (maxVersion._max.version ?? 0) + 1;
 
-      // 4. Transaction: deactivate all, create new, audit log
+      // 4. Transaction: optionally deactivate, create new, audit log
       const newPrompt = await prisma.$transaction(async (tx) => {
-        // Deactivate all existing prompts
-        await tx.systemPrompt.updateMany({
-          data: { isActive: false },
-        });
+        if (shouldActivate) {
+          // Only touch isActive when the user explicitly asked for activation.
+          // Drafts coexist with the current active version.
+          await tx.systemPrompt.updateMany({
+            data: { isActive: false },
+          });
+        }
 
-        // Create new prompt version with the full updated content
         const created = await tx.systemPrompt.create({
           data: {
             version: nextVersion,
@@ -332,20 +385,23 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
             author: 'meta_agent',
             authorUserId: request.user.id,
             changeSummary: effectiveSummary,
-            isActive: true,
+            isActive: shouldActivate,
           },
         });
 
-        // Create audit log
         await tx.auditLog.create({
           data: {
             actor: request.user.username,
-            action: 'prompt_activated_via_meta_agent',
+            action: shouldActivate
+              ? 'prompt_activated_via_meta_agent'
+              : 'prompt_draft_via_meta_agent',
             entityType: 'system_prompt',
             entityId: created.id,
             payload: {
               summary: effectiveSummary,
               version: created.version,
+              basedOn: activePrompt.id,
+              basedOnVersion: activePrompt.version,
             },
           },
         });
@@ -354,8 +410,10 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       });
 
       app.log.info(
-        { promptId: newPrompt.id, version: newPrompt.version },
-        'Meta-agent applied prompt change',
+        { promptId: newPrompt.id, version: newPrompt.version, activated: shouldActivate },
+        shouldActivate
+          ? 'Meta-agent applied prompt change (activated)'
+          : 'Meta-agent created draft prompt',
       );
 
       return reply.code(201).send(newPrompt);

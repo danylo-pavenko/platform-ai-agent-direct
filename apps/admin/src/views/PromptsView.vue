@@ -420,10 +420,17 @@ async function sendToAgent() {
   await scrollAgentMessages();
 
   try {
-    const { data } = await api.post('/meta-agent/chat', {
+    // Send the draft currently being edited so the agent proposes diffs
+    // against the visible text, not the stale DB-active prompt.
+    const payload: Record<string, unknown> = {
       message: text,
       history: agentMessages.value.slice(0, -1),
-    });
+    };
+    if (newContent.value.trim()) {
+      payload.currentPromptContent = newContent.value;
+    }
+
+    const { data } = await api.post('/meta-agent/chat', payload);
 
     agentMessages.value.push({ role: 'assistant', content: data.reply });
 

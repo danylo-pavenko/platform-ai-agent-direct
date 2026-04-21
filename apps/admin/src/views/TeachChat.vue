@@ -125,15 +125,30 @@
             v-for="(diff, idx) in currentDiffs"
             :key="idx"
             class="diff-item mb-4"
-            :class="{ 'diff-item-applied': appliedIndexes.has(idx) }"
+            :class="{ 'diff-item-applied': appliedResults.has(idx) }"
           >
             <!-- Зміна N / Applied badge -->
             <div class="d-flex align-center ga-2 mb-2">
               <span class="text-caption font-weight-bold text-grey">
                 {{ currentDiffs.length > 1 ? `ЗМІНА ${idx + 1}` : 'ЗМІНА' }}
               </span>
-              <v-chip v-if="appliedIndexes.has(idx)" size="x-small" color="success" variant="flat">
-                <v-icon start size="10">mdi-check</v-icon>застосовано
+              <v-chip
+                v-if="appliedResults.get(idx)?.activated"
+                size="x-small"
+                color="success"
+                variant="flat"
+              >
+                <v-icon start size="10">mdi-check</v-icon>
+                v{{ appliedResults.get(idx)?.version }} активна
+              </v-chip>
+              <v-chip
+                v-else-if="appliedResults.has(idx)"
+                size="x-small"
+                color="info"
+                variant="tonal"
+              >
+                <v-icon start size="10">mdi-file-document-edit-outline</v-icon>
+                чернетка v{{ appliedResults.get(idx)?.version }}
               </v-chip>
             </div>
 
@@ -153,43 +168,100 @@
             </div>
             <pre class="diff-block diff-after mb-2">{{ diff.after }}</pre>
 
-            <!-- Per-diff apply button -->
-            <div class="d-flex justify-end">
+            <!-- Per-diff action row: default is safe draft, activation opt-in -->
+            <div class="d-flex justify-end ga-2 flex-wrap">
+              <template v-if="!appliedResults.has(idx)">
+                <v-btn
+                  color="primary"
+                  size="x-small"
+                  variant="tonal"
+                  :loading="applyingIndex === idx"
+                  :disabled="applyingIndex !== null && applyingIndex !== idx"
+                  @click="applyDiffAt(idx, { activate: false })"
+                >
+                  <v-icon start size="14">mdi-file-document-edit-outline</v-icon>
+                  Зберегти як чернетку
+                </v-btn>
+                <v-btn
+                  color="warning"
+                  size="x-small"
+                  variant="outlined"
+                  :disabled="applyingIndex !== null"
+                  @click="openActivateConfirm(idx)"
+                >
+                  <v-icon start size="14">mdi-flash</v-icon>
+                  Зберегти і активувати
+                </v-btn>
+              </template>
               <v-btn
-                v-if="!appliedIndexes.has(idx)"
-                color="primary"
+                v-else-if="!appliedResults.get(idx)?.activated"
+                color="warning"
                 size="x-small"
-                variant="tonal"
-                :loading="applyingIndex === idx"
-                :disabled="applyingIndex !== null && applyingIndex !== idx"
-                @click="applyDiffAt(idx)"
+                variant="outlined"
+                :loading="activatingPromptId === appliedResults.get(idx)?.promptId"
+                :disabled="activatingPromptId !== null"
+                @click="openActivateConfirm(idx)"
               >
-                <v-icon start size="14">mdi-check</v-icon>
-                Застосувати
+                <v-icon start size="14">mdi-flash</v-icon>
+                Активувати зараз
               </v-btn>
             </div>
           </div>
         </div>
 
         <v-divider />
-        <div class="pa-3 d-flex ga-2">
-          <v-btn variant="outlined" size="small" :disabled="applyingIndex !== null" @click="rejectDiff">
-            {{ appliedIndexes.size > 0 ? 'Закрити' : 'Відхилити всі' }}
-          </v-btn>
-          <v-spacer />
-          <v-btn
-            v-if="unappliedDiffs.length > 1"
-            color="primary"
-            size="small"
-            :loading="applyingIndex !== null"
-            @click="applyAllDiffs"
+        <div class="pa-3">
+          <div
+            v-if="activeBaseVersion !== null"
+            class="text-caption text-grey mb-2"
           >
-            <v-icon start size="16">mdi-check-all</v-icon>
-            Застосувати всі ({{ unappliedDiffs.length }})
-          </v-btn>
+            Зміни застосовуються до активної v{{ activeBaseVersion }}. Чернетки не впливають на прод — активуйте явно.
+          </div>
+          <div class="d-flex ga-2 align-center">
+            <v-btn variant="outlined" size="small" :disabled="applyingIndex !== null" @click="rejectDiff">
+              {{ appliedResults.size > 0 ? 'Закрити' : 'Відхилити всі' }}
+            </v-btn>
+            <v-spacer />
+            <v-btn
+              v-if="unappliedDiffs.length > 1"
+              color="primary"
+              size="small"
+              variant="tonal"
+              :loading="applyingIndex !== null"
+              @click="applyAllDiffs"
+            >
+              <v-icon start size="16">mdi-check-all</v-icon>
+              Зберегти всі як чернетки ({{ unappliedDiffs.length }})
+            </v-btn>
+          </div>
         </div>
       </v-card>
     </div>
+
+    <!-- Activate confirmation -->
+    <v-dialog v-model="activateDialogOpen" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="text-subtitle-1">
+          Активувати зміну одразу?
+        </v-card-title>
+        <v-card-text class="text-body-2">
+          Активна версія промпту буде змінена миттєво — бот почне використовувати новий текст з наступного повідомлення клієнта.
+          Попередня активна версія залишиться в історії як неактивна, її можна буде повернути.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="confirmActivate = null">Скасувати</v-btn>
+          <v-btn
+            color="warning"
+            variant="flat"
+            :loading="applyingIndex !== null || activatingPromptId !== null"
+            @click="confirmActivateNow"
+          >
+            Так, активувати
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
@@ -198,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 
@@ -215,21 +287,45 @@ interface SuggestedDiff {
   summary: string;
 }
 
+interface AppliedResult {
+  promptId: string;
+  version: number;
+  activated: boolean;
+}
+
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref('');
 const loading = ref(false);
 const currentDiffs = ref<SuggestedDiff[]>([]);
-const appliedIndexes = ref<Set<number>>(new Set());
+// Maps diff index → what was created when the user applied it.
+// Used to render "v{N} • чернетка" badge and the "Активувати зараз" button.
+const appliedResults = ref<Map<number, AppliedResult>>(new Map());
 const applyingIndex = ref<number | null>(null);
+const activatingPromptId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
+
+// Optimistic concurrency: the id of the active prompt at the moment the
+// user's diff was generated. Sent with /apply so a stale diff (another admin
+// activated something in between) is rejected with 409 instead of silently
+// rebasing onto the new active.
+const activeBasePromptId = ref<string | null>(null);
+const activeBaseVersion = ref<number | null>(null);
+
+// Confirmation dialog for direct activation.
+const confirmActivate = ref<{ diffIdx: number } | null>(null);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 const unappliedDiffs = computed(() =>
-  currentDiffs.value.filter((_, i) => !appliedIndexes.value.has(i)),
+  currentDiffs.value.filter((_, i) => !appliedResults.value.has(i)),
 );
+
+const activateDialogOpen = computed({
+  get: () => confirmActivate.value !== null,
+  set: (v) => { if (!v) confirmActivate.value = null; },
+});
 
 function showSnackbar(text: string, color = 'success') {
   snackbarText.value = text;
@@ -261,6 +357,26 @@ async function scrollToBottom() {
   }
 }
 
+/** Fetch currently active prompt id/version for optimistic concurrency. */
+async function loadActiveBase() {
+  try {
+    const { data } = await api.get('/prompts');
+    const raw = Array.isArray(data?.data) ? data.data : [];
+    const active = raw.find((p: { isActive: boolean }) => p.isActive);
+    if (active) {
+      activeBasePromptId.value = active.id;
+      activeBaseVersion.value = active.version;
+    } else {
+      activeBasePromptId.value = null;
+      activeBaseVersion.value = null;
+    }
+  } catch {
+    // Non-fatal: we'll just skip concurrency check if we couldn't load.
+    activeBasePromptId.value = null;
+    activeBaseVersion.value = null;
+  }
+}
+
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || loading.value) return;
@@ -269,8 +385,11 @@ async function sendMessage() {
   inputText.value = '';
   loading.value = true;
   currentDiffs.value = [];
-  appliedIndexes.value = new Set();
+  appliedResults.value = new Map();
   await scrollToBottom();
+
+  // Refresh base-id on every new chat turn so 409s track the actual live state.
+  await loadActiveBase();
 
   try {
     const { data } = await api.post('/meta-agent/chat', {
@@ -295,25 +414,59 @@ async function sendMessage() {
   }
 }
 
-async function applyDiffAt(idx: number) {
+async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
   const diff = currentDiffs.value[idx];
   if (!diff || applyingIndex.value !== null) return;
 
+  const activate = opts.activate === true;
   applyingIndex.value = idx;
   try {
-    await api.post('/meta-agent/apply', {
+    const { data } = await api.post('/meta-agent/apply', {
       before: diff.before,
       after: diff.after,
       summary: diff.summary,
+      activate,
+      basePromptId: activeBasePromptId.value,
     });
-    appliedIndexes.value = new Set([...appliedIndexes.value, idx]);
+
+    const next = new Map(appliedResults.value);
+    next.set(idx, {
+      promptId: data.id,
+      version: data.version,
+      activated: data.isActive === true,
+    });
+    appliedResults.value = next;
+
+    // If we just activated, this version is now the base for any follow-ups.
+    if (data.isActive) {
+      activeBasePromptId.value = data.id;
+      activeBaseVersion.value = data.version;
+    }
+
     showSnackbar(
-      currentDiffs.value.length > 1
-        ? `Зміна ${idx + 1} застосована!`
-        : 'Промпт оновлено!',
+      activate
+        ? `v${data.version} активовано`
+        : `Чернетку v${data.version} створено`,
     );
   } catch (e: any) {
-    showSnackbar(e.response?.data?.error || 'Не вдалося застосувати', 'error');
+    const status = e.response?.status;
+    const errorMsg = e.response?.data?.error || 'Не вдалося застосувати';
+    if (status === 409) {
+      // Someone else activated a new version in the meantime. Clear diffs,
+      // refresh base, tell the user to restate the request.
+      const newActive = e.response?.data?.currentActiveVersion;
+      currentDiffs.value = [];
+      appliedResults.value = new Map();
+      await loadActiveBase();
+      showSnackbar(
+        newActive
+          ? `Активний промпт змінився на v${newActive}. Переформулюйте запит.`
+          : errorMsg,
+        'warning',
+      );
+    } else {
+      showSnackbar(errorMsg, 'error');
+    }
   } finally {
     applyingIndex.value = null;
   }
@@ -321,24 +474,74 @@ async function applyDiffAt(idx: number) {
 
 async function applyAllDiffs() {
   for (let i = 0; i < currentDiffs.value.length; i++) {
-    if (!appliedIndexes.value.has(i)) {
-      await applyDiffAt(i);
+    if (!appliedResults.value.has(i)) {
+      // Bail out of the loop if one apply failed (409 clears diffs entirely).
+      if (currentDiffs.value.length === 0) return;
+      await applyDiffAt(i, { activate: false });
     }
   }
-  showSnackbar('Всі зміни застосовано!');
+  showSnackbar('Всі зміни збережено як чернетки');
+}
+
+function openActivateConfirm(idx: number) {
+  confirmActivate.value = { diffIdx: idx };
+}
+
+async function confirmActivateNow() {
+  if (!confirmActivate.value) return;
+  const idx = confirmActivate.value.diffIdx;
+  confirmActivate.value = null;
+
+  // If this diff was already saved as a draft, just activate that row
+  // instead of creating yet another version with identical content.
+  const existing = appliedResults.value.get(idx);
+  if (existing && !existing.activated) {
+    await activateExistingDraft(existing.promptId);
+    return;
+  }
+
+  await applyDiffAt(idx, { activate: true });
+}
+
+async function activateExistingDraft(promptId: string) {
+  if (activatingPromptId.value) return;
+  activatingPromptId.value = promptId;
+  try {
+    await api.post(`/prompts/${promptId}/activate`);
+    // Mark the local entry as activated so the UI hides the "активувати" button.
+    const next = new Map(appliedResults.value);
+    for (const [idx, r] of next.entries()) {
+      if (r.promptId === promptId) {
+        next.set(idx, { ...r, activated: true });
+      }
+    }
+    appliedResults.value = next;
+    activeBasePromptId.value = promptId;
+    const justActivated = [...appliedResults.value.values()].find((r) => r.promptId === promptId);
+    if (justActivated) activeBaseVersion.value = justActivated.version;
+    showSnackbar('Версію активовано');
+  } catch (e: any) {
+    showSnackbar(e.response?.data?.error || 'Не вдалося активувати', 'error');
+  } finally {
+    activatingPromptId.value = null;
+  }
 }
 
 function rejectDiff() {
   currentDiffs.value = [];
-  appliedIndexes.value = new Set();
+  appliedResults.value = new Map();
 }
 
 function clearChat() {
   messages.value = [];
   currentDiffs.value = [];
-  appliedIndexes.value = new Set();
+  appliedResults.value = new Map();
   inputText.value = '';
 }
+
+onMounted(() => {
+  loadActiveBase();
+});
 </script>
 
 <style scoped>

@@ -247,6 +247,39 @@
       </v-card>
     </v-dialog>
 
+    <!-- Save prompt override as a new version dialog -->
+    <v-dialog v-model="showSaveVersionDialog" max-width="480" persistent>
+      <v-card>
+        <v-card-title class="text-subtitle-1">Зберегти як нову версію промпту</v-card-title>
+        <v-card-text>
+          <div class="text-caption text-grey mb-3">
+            Поточний текст буде збережено як <strong>чернетку</strong>. Активувати її потрібно вручну у розділі "Промпти".
+          </div>
+          <v-text-field
+            v-model="saveVersionSummary"
+            label="Опис змін"
+            variant="outlined"
+            density="compact"
+            autofocus
+            placeholder="напр. Додав правило про безкоштовну доставку"
+            @keydown.enter="saveOverrideAsVersion"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" :disabled="savingVersion" @click="showSaveVersionDialog = false">Скасувати</v-btn>
+          <v-btn
+            color="primary"
+            :loading="savingVersion"
+            :disabled="!saveVersionSummary.trim()"
+            @click="saveOverrideAsVersion"
+          >
+            Зберегти чернетку
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
@@ -314,6 +347,12 @@ const promptAgentInput = ref('');
 const promptAgentLoading = ref(false);
 const promptAgentDiff = ref<{ before: string; after: string; summary: string } | null>(null);
 const promptAgentTab = ref<'edit' | 'agent'>('edit');
+
+// Save-as-version dialog state (for persisting the edited override to DB
+// as a draft prompt version that can later be activated from /prompts).
+const showSaveVersionDialog = ref(false);
+const saveVersionSummary = ref('');
+const savingVersion = ref(false);
 
 // Replay
 const replayMode = ref(false);
@@ -585,10 +624,17 @@ async function sendToPromptAgent() {
   promptAgentDiff.value = null;
 
   try {
-    const { data } = await api.post('/meta-agent/chat', {
+    // When the user has an edited override, reason over THAT — not the DB-active
+    // prompt — so suggestions reference fragments the user actually sees.
+    const payload: Record<string, unknown> = {
       message: text,
       history: promptAgentMessages.value.slice(0, -1),
-    });
+    };
+    if (useCustomPrompt.value && promptOverride.value.trim()) {
+      payload.currentPromptContent = promptOverride.value;
+    }
+
+    const { data } = await api.post('/meta-agent/chat', payload);
 
     promptAgentMessages.value.push({ role: 'assistant', content: data.reply });
 
@@ -600,6 +646,40 @@ async function sendToPromptAgent() {
     promptAgentMessages.value.push({ role: 'assistant', content: `Помилка: ${errorMsg}` });
   } finally {
     promptAgentLoading.value = false;
+  }
+}
+
+function openSaveVersionDialog() {
+  if (!promptOverride.value.trim()) {
+    showSnack('Порожній промпт — нема чого зберігати', 'error');
+    return;
+  }
+  saveVersionSummary.value = '';
+  showSaveVersionDialog.value = true;
+}
+
+async function saveOverrideAsVersion() {
+  const summary = saveVersionSummary.value.trim();
+  if (!summary || !promptOverride.value.trim()) return;
+
+  savingVersion.value = true;
+  try {
+    // Creates a draft (isActive: false) — explicit activation still happens
+    // on the Prompts page. Sandbox is for editing and verifying, not for
+    // silent prod rollouts.
+    const { data } = await api.post('/prompts', {
+      content: promptOverride.value,
+      changeSummary: summary,
+    });
+    showSaveVersionDialog.value = false;
+    saveVersionSummary.value = '';
+    await loadPrompts();
+    selectedPromptId.value = data.id;
+    showSnack(`Чернетку v${data.version} збережено. Активуйте у розділі "Промпти".`);
+  } catch (e: any) {
+    showSnack(e.response?.data?.error || 'Не вдалося зберегти', 'error');
+  } finally {
+    savingVersion.value = false;
   }
 }
 
@@ -743,7 +823,7 @@ const PromptEditor = defineComponent({
                   ),
                 ),
               ]),
-              h('div', { class: 'mb-2 d-flex ga-2' }, [
+              h('div', { class: 'mb-2 d-flex ga-2 flex-wrap' }, [
                 h('button', {
                   class: 'text-caption text-primary cursor-pointer prompt-action-link',
                   onClick: () => {
@@ -751,6 +831,12 @@ const PromptEditor = defineComponent({
                     if (id) loadPromptContent(id);
                   },
                 }, 'Редагувати копію'),
+                useCustomPrompt.value && promptOverride.value.trim()
+                  ? h('button', {
+                      class: 'text-caption text-primary cursor-pointer prompt-action-link',
+                      onClick: () => openSaveVersionDialog(),
+                    }, 'Зберегти як нову версію')
+                  : null,
                 useCustomPrompt.value
                   ? h('button', {
                       class: 'text-caption text-grey cursor-pointer prompt-action-link',
