@@ -143,6 +143,111 @@
     .deploy-log-wrap { position: relative; }
     .deploy-running { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; margin-right: 6px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* ── Burger (hidden on desktop) ── */
+    .burger { display: none; background: none; border: none; color: var(--text); font-size: 20px; line-height: 1; cursor: pointer; padding: 8px; margin-right: 4px; border-radius: 7px; }
+    .burger:hover { background: var(--surface2); }
+    .sidebar-backdrop { display: none; }
+
+    /* ── Mobile (<=900px) ── */
+    @media (max-width: 900px) {
+      html, body { font-size: 15px; }
+      .layout { position: relative; }
+
+      /* Sidebar → off-canvas drawer */
+      .sidebar {
+        position: fixed; top: 0; bottom: 0; left: 0;
+        width: 240px; max-width: 85vw;
+        z-index: 150;
+        transform: translateX(-100%);
+        transition: transform .22s cubic-bezier(.4,0,.2,1);
+        box-shadow: 4px 0 20px rgba(0,0,0,.4);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .sidebar-backdrop {
+        display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55);
+        z-index: 140; opacity: 0; pointer-events: none; transition: opacity .22s;
+      }
+      .sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+      .nav-item { padding: 12px 12px; font-size: 15px; }
+      .logout-btn { padding: 12px; font-size: 15px; }
+
+      /* Topbar */
+      .burger { display: inline-flex; align-items: center; justify-content: center; }
+      .topbar { padding: 0 12px; height: 56px; gap: 8px; }
+      .topbar h1 { font-size: 16px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .topbar-actions .btn { padding: 8px 12px; font-size: 13px; }
+
+      /* Content */
+      .content { padding: 14px; }
+      .stats { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+      .stat-card { padding: 12px 14px; }
+      .stat-value { font-size: 22px; }
+      .section-title { margin-bottom: 10px; }
+
+      /* Tables → stacked cards */
+      .table-wrap { overflow-x: visible; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      thead { display: none; }
+      .card.table-wrap { background: transparent; border: none; }
+      tr {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 14px;
+        margin-bottom: 10px;
+      }
+      tr:hover td { background: transparent; }
+      td {
+        border: none !important;
+        padding: 4px 0 !important;
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        flex-wrap: wrap;
+      }
+      td[data-label]::before {
+        content: attr(data-label);
+        font-size: 10px; font-weight: 600; color: var(--muted);
+        text-transform: uppercase; letter-spacing: .7px;
+        flex-shrink: 0;
+      }
+      td.cell-primary { display: block; padding-bottom: 8px !important; border-bottom: 1px solid var(--border) !important; margin-bottom: 6px; }
+      td.cell-primary::before { display: none; }
+      .actions-cell { flex-wrap: wrap; gap: 6px; padding-top: 4px; justify-content: flex-start; width: 100%; }
+      .actions-cell .btn { flex: 1 1 auto; min-width: 0; justify-content: center; padding: 9px 10px; }
+      .empty-row td { text-align: center; padding: 28px 10px !important; display: block; }
+      .empty-row td::before { display: none; }
+      .empty-row { background: var(--surface); border: 1px dashed var(--border); }
+
+      /* Modal */
+      .modal { padding: 20px 18px !important; width: 100% !important; max-width: 100vw !important; max-height: 100vh !important; border-radius: 0 !important; display: flex; flex-direction: column; overflow-y: auto; }
+      .modal-overlay { align-items: stretch; justify-content: stretch; padding: 0; }
+      .modal h2 { font-size: 17px; margin-bottom: 16px; }
+      .form-row { grid-template-columns: 1fr; gap: 0; }
+      .field input, .field select, .field textarea { font-size: 16px; padding: 10px 12px; }
+      .modal-actions { padding-top: 8px; gap: 10px; }
+      .modal-actions .btn { flex: 1; padding: 11px 14px; font-size: 14px; justify-content: center; }
+      .deploy-log { max-height: 55vh; font-size: 12px; }
+      .modal textarea { font-size: 16px !important; }
+
+      /* Login */
+      .login-wrap { padding: 16px; }
+      .login-box { width: 100%; max-width: 400px; padding: 28px 22px; }
+      .login-box .field input { font-size: 16px; padding: 10px 12px; }
+
+      /* Chat panel → fullscreen sheet */
+      .chat-panel { width: 100%; }
+      .chat-header { padding: 14px; height: 56px; }
+      .chat-close { font-size: 22px; padding: 8px; }
+      .chat-input { font-size: 16px; padding: 10px 12px; height: 42px; }
+      .chat-send { padding: 0 18px; font-size: 18px; }
+    }
+
+    /* ── Very narrow (<=420px) ── */
+    @media (max-width: 420px) {
+      .stats { grid-template-columns: 1fr; }
+      .topbar-actions .btn { padding: 7px 10px; font-size: 12px; }
+      .topbar-actions .btn span.btn-text { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -172,16 +277,16 @@
   <div class="layout" v-else>
 
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{open: sidebarOpen}">
       <div class="sidebar-logo">
         <span>Direct<em>AI</em> Agents</span>
         <small>Super Admin</small>
       </div>
       <nav class="nav">
-        <div class="nav-item" :class="{active: page==='dashboard'}" @click="page='dashboard'">
+        <div class="nav-item" :class="{active: page==='dashboard'}" @click="goPage('dashboard')">
           <span class="icon">⬡</span> Dashboard
         </div>
-        <div class="nav-item" :class="{active: page==='tenants'}" @click="page='tenants'">
+        <div class="nav-item" :class="{active: page==='tenants'}" @click="goPage('tenants')">
           <span class="icon">◈</span> Clients
         </div>
       </nav>
@@ -191,6 +296,7 @@
         </button>
       </div>
     </aside>
+    <div class="sidebar-backdrop" :class="{show: sidebarOpen}" @click="sidebarOpen=false"></div>
 
     <!-- Main -->
     <div class="main">
@@ -198,9 +304,10 @@
       <!-- Dashboard -->
       <template v-if="page==='dashboard'">
         <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
           <h1>Dashboard</h1>
           <div class="topbar-actions">
-            <button class="btn btn-primary" @click="openAddModal">+ Add Client</button>
+            <button class="btn btn-primary" @click="openAddModal"><span>+</span><span class="btn-text"> Add Client</span></button>
           </div>
         </div>
         <div class="content">
@@ -232,19 +339,21 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="tenants.length===0">
-                  <td colspan="5" class="empty-row">No clients yet. Add your first client.</td>
+                <tr v-if="tenants.length===0" class="empty-row">
+                  <td colspan="5">No clients yet. Add your first client.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
-                  <td>
+                  <td class="cell-primary">
                     <div style="font-weight:600">{{ t.name }}</div>
                     <div style="font-size:11px;color:var(--muted)">{{ t.instanceId.toUpperCase() }}</div>
                   </td>
-                  <td style="color:var(--muted);font-size:12px">{{ t.apiDomain }}</td>
-                  <td><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
-                  <td>
-                    <span class="online-dot" :class="{online: health[t.id]}"></span>
-                    {{ health[t.id] ? 'Online' : 'Offline' }}
+                  <td data-label="API Domain" style="color:var(--muted);font-size:12px;word-break:break-all">{{ t.apiDomain }}</td>
+                  <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="Health">
+                    <span>
+                      <span class="online-dot" :class="{online: health[t.id]}"></span>
+                      {{ health[t.id] ? 'Online' : 'Offline' }}
+                    </span>
                   </td>
                   <td>
                     <div class="actions-cell">
@@ -268,9 +377,10 @@
       <!-- Tenants page -->
       <template v-if="page==='tenants'">
         <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
           <h1>Clients</h1>
           <div class="topbar-actions">
-            <button class="btn btn-primary" @click="openAddModal">+ Add Client</button>
+            <button class="btn btn-primary" @click="openAddModal"><span>+</span><span class="btn-text"> Add Client</span></button>
           </div>
         </div>
         <div class="content">
@@ -283,16 +393,16 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="tenants.length===0">
-                  <td colspan="7" class="empty-row">No clients yet.</td>
+                <tr v-if="tenants.length===0" class="empty-row">
+                  <td colspan="7">No clients yet.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
-                  <td><code style="font-size:12px;color:var(--accent2)">{{ t.instanceId }}</code></td>
-                  <td style="font-weight:600">{{ t.name }}</td>
-                  <td style="font-size:12px;color:var(--muted)">{{ t.apiDomain }}</td>
-                  <td style="font-size:12px;color:var(--muted)">{{ t.adminDomain }}</td>
-                  <td style="font-size:12px;color:var(--muted)">{{ t.apiPort }} / {{ t.adminPort }}</td>
-                  <td><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="ID"><code style="font-size:12px;color:var(--accent2)">{{ t.instanceId }}</code></td>
+                  <td class="cell-primary" style="font-weight:600">{{ t.name }}</td>
+                  <td data-label="API Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.apiDomain }}</td>
+                  <td data-label="Admin Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.adminDomain }}</td>
+                  <td data-label="Ports" style="font-size:12px;color:var(--muted)">{{ t.apiPort }} / {{ t.adminPort }}</td>
+                  <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
                   <td>
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот">🩺</button>
@@ -491,6 +601,7 @@ createApp({
     const auth = reactive({ token: localStorage.getItem('sa_token') || '' });
     const login = reactive({ username: '', password: '', loading: false, error: '' });
     const page = ref('dashboard');
+    const sidebarOpen = ref(false);
     const tenants = ref([]);
     const health = reactive({});
     const deploying = ref(null);
@@ -535,6 +646,11 @@ createApp({
 
     function logout() {
       auth.token = ''; localStorage.removeItem('sa_token');
+    }
+
+    function goPage(p) {
+      page.value = p;
+      sidebarOpen.value = false;
     }
 
     async function loadTenants() {
@@ -730,9 +846,9 @@ createApp({
     });
 
     return {
-      auth, login, page, tenants, health, deploying, deployLog, deployLogEl,
+      auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth,
-      doLogin, logout, openAddModal, openEditModal, saveTenant, deleteTenant,
+      doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth,
     };
   }
