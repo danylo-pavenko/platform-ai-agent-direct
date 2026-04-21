@@ -1,9 +1,12 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
+import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
 import { Semaphore } from '../lib/queue.js';
+
+const execFileAsync = promisify(execFile);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -155,6 +158,16 @@ function parseResponse(raw: string): ClaudeResponse {
   return { text: '' };
 }
 
+/**
+ * Path to the Claude CLI binary used by the runtime spawn.
+ *
+ * Anthropic's official install script places it here. The healthcheck
+ * endpoint probes this exact path so diagnostics match runtime behaviour.
+ */
+export function getClaudeBinaryPath(): string {
+  return resolvePath(homedir(), '.local', 'bin', 'claude');
+}
+
 /** Spawn the Claude CLI and return a promise with collected output. */
 function spawnClaude(
   prompt: string,
@@ -165,8 +178,7 @@ function spawnClaude(
     let child: ChildProcess;
 
     try {
-      const claudePath = resolvePath(homedir(), '.local', 'bin', 'claude');
-      child = spawn(claudePath, args, {
+      child = spawn(getClaudeBinaryPath(), args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
       });
@@ -278,5 +290,36 @@ export async function askClaude(req: ClaudeRequest): Promise<ClaudeResponse> {
     return FALLBACK_TIMEOUT;
   } finally {
     release?.();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Health check
+// ---------------------------------------------------------------------------
+
+export interface ClaudeHealth {
+  ok: boolean;
+  path: string;
+  version: string | null;
+  error: string | null;
+}
+
+/**
+ * Verify the Claude CLI is reachable and responds to `--version`.
+ * Used by the supervisor `/claude-health` endpoint so super-admin can see
+ * whether the tenant's Claude auth + binary are actually usable, rather
+ * than relying on the silent fallback in spawnClaude.
+ */
+export async function claudeHealthCheck(timeoutMs = 5000): Promise<ClaudeHealth> {
+  const path = getClaudeBinaryPath();
+  try {
+    const { stdout } = await execFileAsync(path, ['--version'], {
+      timeout: timeoutMs,
+      env: { ...process.env },
+    });
+    return { ok: true, path, version: stdout.trim(), error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, path, version: null, error: message };
   }
 }

@@ -300,4 +300,45 @@ echo "[provision] ✓ Initial setup complete"
       return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
     }
   });
+
+  // Proxy Claude CLI health probe to tenant backend.
+  // Returns { ok, path, version, error } — lets super-admin see whether
+  // the tenant's `claude` binary is reachable and authenticated, instead
+  // of discovering it only through the silent fallback in askClaude().
+  app.get<{ Params: { id: string } }>(
+    '/api/tenants/:id/claude-health',
+    auth,
+    async (req, reply) => {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+      if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+      if (!config.SUPERVISOR_SHARED_SECRET) {
+        return reply.status(503).send({
+          error: 'SUPERVISOR_SHARED_SECRET is not set in super-admin .env',
+        });
+      }
+
+      try {
+        const res = await fetch(
+          `http://localhost:${tenant.apiPort}/supervisor/claude-health`,
+          {
+            headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
+            signal: AbortSignal.timeout(10_000),
+          },
+        );
+
+        const data: any = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          return reply.status(res.status).send({
+            error: data?.error || `Tenant returned ${res.status}`,
+          });
+        }
+
+        return data;
+      } catch (err: any) {
+        return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
+      }
+    },
+  );
 }
