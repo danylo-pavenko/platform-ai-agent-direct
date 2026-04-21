@@ -75,7 +75,8 @@
       "Bash(pm2 logs *)",
       "Bash(curl *)",
       "Bash(pm2 show *)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(git rm *)"
     ]
   },
   "enabledMcpjsonServers": [
