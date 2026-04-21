@@ -53,6 +53,11 @@ const envSchema = z.object({
   // Claude
   CLAUDE_MAX_CONCURRENCY: z.coerce.number().default(2),
   CLAUDE_TIMEOUT_MS: z.coerce.number().default(30000),
+  // Admin-facing channels (meta_agent, sandbox, supervisor) work with much
+  // larger inputs (full system prompt, diagnostic snapshots) and expect
+  // structured multi-section output. The 30s customer timeout is too tight
+  // and triggers spurious "менеджер відпише" fallbacks in the admin UI.
+  CLAUDE_ADMIN_TIMEOUT_MS: z.coerce.number().default(120000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
 
   // Auth

@@ -59,15 +59,42 @@ const log = pino({ name: 'claude' });
 
 const semaphore = new Semaphore(config.CLAUDE_MAX_CONCURRENCY);
 
-const FALLBACK_BUSY: ClaudeResponse = {
-  text: 'Дякуємо за повідомлення! Менеджер відпише трохи пізніше.',
-  fallback: 'busy',
-};
+// Admin channels talk to a human operator inside the admin UI, not to a
+// customer in IG/TG. A "менеджер відпише" reply there is misleading — the
+// admin *is* the manager. We keep the customer-friendly fallback for IG/TG
+// and show a technical error in admin channels instead.
+const ADMIN_CHANNELS = new Set<AgentChannel>(['meta_agent', 'sandbox', 'supervisor']);
 
-const FALLBACK_TIMEOUT: ClaudeResponse = {
-  text: 'Одну хвилинку, менеджер відпише трохи пізніше.',
-  fallback: 'timeout',
-};
+const CUSTOMER_FALLBACK_BUSY = 'Дякуємо за повідомлення! Менеджер відпише трохи пізніше.';
+const CUSTOMER_FALLBACK_TIMEOUT = 'Одну хвилинку, менеджер відпише трохи пізніше.';
+const ADMIN_FALLBACK_BUSY =
+  'Агент зараз перевантажений (забагато одночасних запитів). Спробуйте за хвилину.';
+const ADMIN_FALLBACK_TIMEOUT =
+  'Агент не встиг відповісти за відведений час. Спробуйте скоротити запит або повторити ще раз.';
+
+function fallbackFor(
+  reason: 'busy' | 'timeout',
+  context?: ClaudeCallContext,
+  errorDetail?: string,
+): ClaudeResponse {
+  const isAdmin = context ? ADMIN_CHANNELS.has(context.channel) : false;
+  const text =
+    reason === 'busy'
+      ? isAdmin
+        ? ADMIN_FALLBACK_BUSY
+        : CUSTOMER_FALLBACK_BUSY
+      : isAdmin
+        ? ADMIN_FALLBACK_TIMEOUT
+        : CUSTOMER_FALLBACK_TIMEOUT;
+  return { text, fallback: reason, ...(errorDetail ? { errorDetail } : {}) };
+}
+
+function timeoutFor(context?: ClaudeCallContext): number {
+  if (context && ADMIN_CHANNELS.has(context.channel)) {
+    return config.CLAUDE_ADMIN_TIMEOUT_MS;
+  }
+  return config.CLAUDE_TIMEOUT_MS;
+}
 
 const MAX_PENDING = 10;
 
@@ -195,6 +222,7 @@ function spawnClaude(
   prompt: string,
   args: string[],
   timeoutMs: number,
+  context?: ClaudeCallContext,
 ): Promise<ClaudeResponse> {
   return new Promise<ClaudeResponse>((resolve) => {
     let child: ChildProcess;
@@ -207,7 +235,7 @@ function spawnClaude(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Failed to spawn claude CLI');
-      resolve({ ...FALLBACK_TIMEOUT, errorDetail: `spawn failed: ${message}` });
+      resolve(fallbackFor('timeout', context, `spawn failed: ${message}`));
       return;
     }
 
@@ -224,9 +252,9 @@ function spawnClaude(
     // Timeout handling
     const timer = setTimeout(() => {
       if (!settled) {
-        log.warn({ timeoutMs }, 'Claude CLI timed out - killing process');
+        log.warn({ timeoutMs, channel: context?.channel ?? null }, 'Claude CLI timed out - killing process');
         child.kill('SIGKILL');
-        settle({ ...FALLBACK_TIMEOUT, errorDetail: `timed out after ${timeoutMs}ms` });
+        settle(fallbackFor('timeout', context, `timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
 
@@ -242,7 +270,7 @@ function spawnClaude(
       clearTimeout(timer);
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Claude CLI process error');
-      settle({ ...FALLBACK_TIMEOUT, errorDetail: `process error: ${message}` });
+      settle(fallbackFor('timeout', context, `process error: ${message}`));
     });
 
     child.on('close', (code) => {
@@ -251,10 +279,13 @@ function spawnClaude(
       if (code !== 0 && !settled) {
         const stderrPreview = stderr.slice(0, 500);
         log.error({ code, stderr: stderrPreview }, 'Claude CLI exited with non-zero code');
-        settle({
-          ...FALLBACK_TIMEOUT,
-          errorDetail: `exit ${code}${stderrPreview ? `: ${stderrPreview}` : ''}`,
-        });
+        settle(
+          fallbackFor(
+            'timeout',
+            context,
+            `exit ${code}${stderrPreview ? `: ${stderrPreview}` : ''}`,
+          ),
+        );
         return;
       }
 
@@ -368,13 +399,14 @@ export async function askClaude(
   // Back-pressure: reject early if too many requests are already queued
   if (semaphore.pending > MAX_PENDING) {
     log.warn(
-      { pending: semaphore.pending, active: semaphore.active },
+      { pending: semaphore.pending, active: semaphore.active, channel: context?.channel ?? null },
       'Claude queue overloaded - returning fallback',
     );
-    const busy: ClaudeResponse = {
-      ...FALLBACK_BUSY,
-      errorDetail: `queue overloaded (pending=${semaphore.pending}, active=${semaphore.active})`,
-    };
+    const busy = fallbackFor(
+      'busy',
+      context,
+      `queue overloaded (pending=${semaphore.pending}, active=${semaphore.active})`,
+    );
     logFallback(busy, Date.now() - startMs);
     record(busy);
     return busy;
@@ -385,7 +417,7 @@ export async function askClaude(
   try {
     release = await semaphore.acquire();
 
-    const response = await spawnClaude(prompt, args, config.CLAUDE_TIMEOUT_MS);
+    const response = await spawnClaude(prompt, args, timeoutFor(context), context);
 
     const durationMs = Date.now() - startMs;
     log.info(
@@ -406,10 +438,7 @@ export async function askClaude(
   } catch (err) {
     log.error({ err }, 'Unexpected error in askClaude');
     const message = err instanceof Error ? err.message : String(err);
-    const fallback: ClaudeResponse = {
-      ...FALLBACK_TIMEOUT,
-      errorDetail: `askClaude unexpected error: ${message}`,
-    };
+    const fallback = fallbackFor('timeout', context, `askClaude unexpected error: ${message}`);
     logFallback(fallback, Date.now() - startMs);
     record(fallback, message);
     return fallback;
