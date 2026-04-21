@@ -70,7 +70,10 @@
       "Bash(psql postgresql://sb_agent:sb_agent_dev@localhost:5433/sb_agent -c \"SELECT content FROM system_prompts WHERE is_active = true;\" -t --no-align)",
       "Read(//tmp/**)",
       "Bash(xargs cat *)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(pm2 logs *)",
+      "Bash(curl *)",
+      "Bash(pm2 show *)"
     ]
   },
   "enabledMcpjsonServers": [
