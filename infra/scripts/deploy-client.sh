@@ -49,15 +49,6 @@ cd apps/backend
 npx prisma migrate deploy
 cd "${PROJECT_ROOT}"
 
-# ── 4b. Migrate super-admin DB (if present in this repo) ──
-if [ -f apps/super-admin/prisma/schema.prisma ]; then
-  echo "[4b/7] Migrating super-admin DB..."
-  cd apps/super-admin
-  npx prisma migrate deploy --schema=prisma/schema.prisma 2>/dev/null || \
-    npx prisma db push --schema=prisma/schema.prisma --accept-data-loss
-  cd "${PROJECT_ROOT}"
-fi
-
 # ── 5. Build backend ──
 echo "[5/7] Building backend..."
 npm run build:backend 2>&1 | tail -5
