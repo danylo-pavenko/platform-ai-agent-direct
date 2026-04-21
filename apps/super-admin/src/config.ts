@@ -9,6 +9,9 @@ const schema = z.object({
   JWT_EXPIRES_IN: z.string().default('7d'),
   SA_ADMIN_USERNAME: z.string().default('superadmin'),
   SA_ADMIN_PASSWORD: z.string().min(6),
+  // Shared secret forwarded to tenant backends as X-Supervisor-Token.
+  // Must match each tenant's own SUPERVISOR_SHARED_SECRET for chat to work.
+  SUPERVISOR_SHARED_SECRET: z.string().default(''),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

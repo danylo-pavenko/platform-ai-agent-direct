@@ -248,7 +248,7 @@
                   </td>
                   <td>
                     <div class="actions-cell">
-                      <button class="btn btn-ghost btn-sm" @click="openChat(t)">💬 Chat</button>
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id">
                         {{ deploying===t.id ? '...' : '🚀 Deploy' }}
@@ -292,7 +292,7 @@
                   <td><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
                   <td>
                     <div class="actions-cell">
-                      <button class="btn btn-ghost btn-sm" @click="openChat(t)">💬</button>
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот">🩺</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️</button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
@@ -318,8 +318,17 @@
     </div>
     <div class="chat-messages" ref="chatMessages">
       <div class="chat-empty" v-if="chat.messages.length===0">
-        <span>🤖</span>
-        Напишіть повідомлення щоб протестувати агента
+        <span>🩺</span>
+        <div style="text-align:center;max-width:280px">
+          <div style="font-weight:600;color:var(--text);margin-bottom:6px">Supervisor-бот цього клієнта</div>
+          <div style="font-size:12px;margin-bottom:10px">Клод бачить DB-зведення по інстансу. Запитай, наприклад:</div>
+          <div style="font-size:11px;text-align:left;line-height:1.5">
+            • Чи користується клієнт агентом?<br>
+            • Яка активність у діалогах за тиждень?<br>
+            • Скільки разів менеджер втручався?<br>
+            • Чи є застарілі діалоги в стані bot?
+          </div>
+        </div>
       </div>
       <div v-for="(m,i) in chat.messages" :key="i" class="msg" :class="m.role">
         <div class="msg-bubble">{{ m.content }}</div>
@@ -335,7 +344,7 @@
       <textarea
         class="chat-input"
         v-model="chat.input"
-        placeholder="Написати повідомлення..."
+        placeholder="Запитати про інстанс..."
         @keydown.enter.exact.prevent="sendChat"
         rows="1"
       ></textarea>

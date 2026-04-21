@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { config } from '../config.js';
 
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
@@ -243,19 +244,57 @@ echo "[provision] ✓ Initial setup complete"
     reply.raw.end();
   });
 
-  // Proxy chat to tenant sandbox (for compact chat panel)
-  app.post<{ Params: { id: string } }>('/api/tenants/:id/chat', auth, async (req, reply) => {
+  // Proxy supervisor chat to tenant backend.
+  // Accepts { message, history } from the UI and forwards as
+  // { messages: [...] } to /supervisor/chat. Authenticated to the
+  // tenant via the shared SUPERVISOR_SHARED_SECRET, never via a
+  // tenant-admin JWT (super-admin does not own one).
+  app.post<{
+    Params: { id: string };
+    Body: {
+      message?: string;
+      history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    };
+  }>('/api/tenants/:id/chat', auth, async (req, reply) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
 
-    try {
-      const res = await fetch(`http://localhost:${tenant.apiPort}/sandbox/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
-        signal: AbortSignal.timeout(35_000),
+    if (!config.SUPERVISOR_SHARED_SECRET) {
+      return reply.status(503).send({
+        error: 'SUPERVISOR_SHARED_SECRET is not set in super-admin .env',
       });
-      const data = await res.json();
+    }
+
+    const { message, history } = req.body ?? {};
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return reply.status(400).send({ error: 'message is required' });
+    }
+
+    const priorHistory = Array.isArray(history) ? history : [];
+    const messages = [
+      ...priorHistory,
+      { role: 'user' as const, content: message },
+    ];
+
+    try {
+      const res = await fetch(`http://localhost:${tenant.apiPort}/supervisor/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET,
+        },
+        body: JSON.stringify({ messages }),
+        signal: AbortSignal.timeout(60_000),
+      });
+
+      const data: any = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        return reply.status(res.status).send({
+          error: data?.error || `Tenant returned ${res.status}`,
+        });
+      }
+
       return data;
     } catch (err: any) {
       return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });

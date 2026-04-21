@@ -48,6 +48,10 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('7d'),
 
+  // Supervisor (super-admin → tenant) shared secret.
+  // If unset, /supervisor/* endpoints are disabled.
+  SUPERVISOR_SHARED_SECRET: z.string().default(''),
+
   // Nova Poshta
   NOVA_POSHTA_API_KEY: z.string().default(''),
 
