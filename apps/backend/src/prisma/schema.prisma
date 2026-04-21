@@ -213,6 +213,7 @@ model Setting {
 // ── KeyCRM Sync Runs ──
 
 enum SyncStatus {
+  running
   ok
   error
 

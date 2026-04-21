@@ -7,11 +7,12 @@
       <v-col cols="auto">
         <v-btn
           color="primary"
-          prepend-icon="mdi-sync"
+          :prepend-icon="isRunning ? 'mdi-progress-clock' : 'mdi-sync'"
           :loading="triggering"
+          :disabled="isRunning"
           @click="triggerSync"
         >
-          Синхронізувати зараз
+          {{ isRunning ? 'Виконується…' : 'Синхронізувати зараз' }}
         </v-btn>
       </v-col>
     </v-row>
@@ -21,6 +22,12 @@
     </v-alert>
     <v-alert v-if="error" type="error" density="compact" class="mb-4" closable>
       {{ error }}
+    </v-alert>
+    <v-alert v-if="isRunning" type="info" density="compact" class="mb-4" variant="tonal">
+      <div class="d-flex align-center ga-2">
+        <v-progress-circular indeterminate size="16" width="2" />
+        <span>Синхронізація триває з {{ formatDate(latestRun?.startedAt) }}. Сторінка оновлюється автоматично.</span>
+      </div>
     </v-alert>
 
     <v-card>
@@ -33,11 +40,18 @@
       >
         <template #item.status="{ item }">
           <v-chip
-            :color="item.status === 'ok' ? 'green' : 'red'"
+            :color="statusColor(item.status)"
             size="small"
             label
           >
-            {{ item.status === 'ok' ? 'Успішно' : 'Помилка' }}
+            <v-progress-circular
+              v-if="item.status === 'running'"
+              indeterminate
+              size="12"
+              width="2"
+              class="mr-2"
+            />
+            {{ statusLabel(item.status) }}
           </v-chip>
         </template>
 
@@ -80,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 
 interface SyncCounts {
@@ -91,11 +105,11 @@ interface SyncCounts {
 
 interface SyncRun {
   id: string;
-  status: 'ok' | 'error';
+  status: 'running' | 'ok' | 'error';
   startedAt: string;
-  finishedAt?: string;
+  finishedAt?: string | null;
   counts?: SyncCounts;
-  errorMessage?: string;
+  errorMessage?: string | null;
 }
 
 const runs = ref<SyncRun[]>([]);
@@ -104,8 +118,11 @@ const triggering = ref(false);
 const error = ref('');
 const triggerSuccess = ref('');
 
+const POLL_INTERVAL_MS = 3_000;
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+
 const headers = [
-  { title: 'Статус', key: 'status', width: '110px', sortable: false },
+  { title: 'Статус', key: 'status', width: '130px', sortable: false },
   { title: 'Початок', key: 'startedAt', width: '180px', sortable: false },
   { title: 'Завершення', key: 'finishedAt', width: '180px', sortable: false },
   { title: 'Тривалість', key: 'duration', width: '120px', sortable: false },
@@ -113,12 +130,15 @@ const headers = [
   { title: 'Помилка', key: 'errorMessage', sortable: false },
 ];
 
-function formatDate(dateStr?: string): string {
+const latestRun = computed<SyncRun | null>(() => runs.value[0] ?? null);
+const isRunning = computed(() => latestRun.value?.status === 'running');
+
+function formatDate(dateStr?: string | null): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 
-function calcDuration(start?: string, end?: string): string {
+function calcDuration(start?: string | null, end?: string | null): string {
   if (!start || !end) return '-';
   const ms = new Date(end).getTime() - new Date(start).getTime();
   if (ms < 1000) return `${ms} мс`;
@@ -129,16 +149,34 @@ function calcDuration(start?: string, end?: string): string {
   return `${minutes} хв ${remainingSeconds} с`;
 }
 
-async function fetchSyncStatus() {
-  loading.value = true;
+function statusLabel(status: SyncRun['status']): string {
+  switch (status) {
+    case 'running': return 'В процесі';
+    case 'ok':      return 'Успішно';
+    case 'error':   return 'Помилка';
+    default:        return status;
+  }
+}
+
+function statusColor(status: SyncRun['status']): string {
+  switch (status) {
+    case 'running': return 'blue';
+    case 'ok':      return 'green';
+    case 'error':   return 'red';
+    default:        return 'grey';
+  }
+}
+
+async function fetchSyncStatus(showLoader = true) {
+  if (showLoader) loading.value = true;
   error.value = '';
   try {
     const { data } = await api.get('/sync/status');
-    runs.value = (data.runs || []).slice(0, 20);
-  } catch (e) {
+    runs.value = Array.isArray(data?.runs) ? data.runs : [];
+  } catch {
     error.value = 'Не вдалося завантажити статус синхронізації';
   } finally {
-    loading.value = false;
+    if (showLoader) loading.value = false;
   }
 }
 
@@ -149,18 +187,46 @@ async function triggerSync() {
   try {
     const { data } = await api.post('/sync/trigger');
     triggerSuccess.value = data.message || 'Синхронізацію запущено';
-    // Refresh the list after a short delay to let the sync start
-    setTimeout(() => {
-      fetchSyncStatus();
-    }, 2000);
-  } catch (e) {
-    error.value = 'Не вдалося запустити синхронізацію';
+    await fetchSyncStatus(false);
+  } catch (e: any) {
+    if (e.response?.status === 409) {
+      error.value = `Синхронізація вже виконується (з ${formatDate(e.response.data?.startedAt)})`;
+      await fetchSyncStatus(false);
+    } else {
+      error.value = 'Не вдалося запустити синхронізацію';
+    }
   } finally {
     triggering.value = false;
   }
 }
 
+// ── Polling ────────────────────────────────────────────────────────────────
+// Only poll while the latest run is still 'running'. Once it flips to
+// ok/error we stop, so the tab goes quiet when nothing's happening.
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(() => {
+    fetchSyncStatus(false);
+  }, POLL_INTERVAL_MS);
+}
+
+function stopPolling() {
+  if (!pollTimer) return;
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+watch(isRunning, (running) => {
+  if (running) startPolling();
+  else stopPolling();
+});
+
 onMounted(() => {
   fetchSyncStatus();
+});
+
+onUnmounted(() => {
+  stopPolling();
 });
 </script>

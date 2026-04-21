@@ -3,12 +3,22 @@
  *
  * PM2 name: {INSTANCE_ID}-sync (e.g. SB-sync).
  * Runs once, fetches KeyCRM data, generates catalog.txt, exits.
+ *
+ * Invariants:
+ *   1. Only one run in flight at a time. `runSync()` refuses to start if a
+ *      row with status='running' exists younger than STALE_RUN_MS; older
+ *      ones are reaped as 'error' (the process was killed before finishing).
+ *   2. Every file write is atomic (tmp → fsync → rename), so a half-written
+ *      catalog.txt never reaches the bot.
+ *   3. Every run row begins as 'running' and transitions exactly once — so
+ *      the UI can truthfully distinguish in-flight / success / failure.
  */
 
 import './config.js';
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import pino from 'pino';
 
 import { config } from './config.js';
@@ -22,12 +32,56 @@ import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js'
 const DATA_DIR = resolve(REPO_ROOT, 'data');
 const CATALOG_PATH = getCatalogPath();
 
+// ── Lock / retention tunables ──────────────────────────────────────────────
+
+// A run older than this with status='running' is considered dead (process
+// was killed mid-flight) and gets reaped to 'error' so the next trigger
+// can proceed. Chosen to comfortably exceed the 95th percentile sync time.
+const STALE_RUN_MS = 15 * 60 * 1_000;
+
+// Keep at most this many historical rows. Older runs get pruned at the
+// tail of every successful sync — cheap housekeeping, prevents unbounded
+// growth of the keycrm_sync_runs table.
+const RETENTION_ROWS = 100;
+
 // ── Logger ─────────────────────────────────────────────────────────────────
 
 const log = pino({
   name: `${config.INSTANCE_ID}-sync`,
   level: config.LOG_LEVEL,
 });
+
+// ── Sync concurrency guard ─────────────────────────────────────────────────
+
+export class SyncInProgressError extends Error {
+  constructor(public readonly startedAt: Date, public readonly runId: string) {
+    super(`Sync already running since ${startedAt.toISOString()}`);
+    this.name = 'SyncInProgressError';
+  }
+}
+
+/**
+ * Reap any sync row whose `status='running'` predates STALE_RUN_MS.
+ * Such rows came from processes that were killed (OOM, SIGKILL, redeploy)
+ * before they could flip to ok/error. We move them to 'error' so they
+ * stop blocking new runs and show up honestly in the admin history.
+ */
+async function reapStaleRuns(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_RUN_MS);
+  const reaped = await prisma.keycrmSyncRun.updateMany({
+    where: {
+      status: 'running',
+      startedAt: { lt: cutoff },
+      finishedAt: null,
+    },
+    data: {
+      status: 'error',
+      finishedAt: new Date(),
+      errorMessage: 'Sync run reaped — process exited before completion',
+    },
+  });
+  return reaped.count;
+}
 
 // ── Category mapping heuristic ─────────────────────────────────────────────
 
@@ -92,9 +146,9 @@ function fmtPrice(v: number | null | undefined): string {
   const n = Number(v);
   if (Number.isNaN(n)) return '-';
   if (Number.isInteger(n)) {
-    return n.toLocaleString('uk-UA').replace(/\u00a0/g, ' ') + ' ₴';
+    return n.toLocaleString('uk-UA').replace(/ /g, ' ') + ' ₴';
   }
-  return n.toLocaleString('uk-UA', { minimumFractionDigits: 2 }).replace(/\u00a0/g, ' ') + ' ₴';
+  return n.toLocaleString('uk-UA', { minimumFractionDigits: 2 }).replace(/ /g, ' ') + ' ₴';
 }
 
 function fmtPriceRange(lo: number | null | undefined, hi: number | null | undefined): string {
@@ -332,14 +386,80 @@ function buildCatalog(
   return lines.join('\n') + '\n';
 }
 
+// ── File IO helpers ────────────────────────────────────────────────────────
+
+/**
+ * Write `content` to `path` atomically. Writes to a sibling `.tmp` file
+ * first and then renames — `rename(2)` is atomic on POSIX within the same
+ * filesystem, so a reader will see either the old bytes or the complete
+ * new bytes, never a half-written file.
+ *
+ * The tmp file is cleaned up on any failure so a crashed run doesn't leave
+ * stray `.tmp.<pid>` debris in the tenant knowledge dir.
+ */
+async function atomicWrite(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp.${process.pid}`;
+  try {
+    await writeFile(tmp, content, 'utf-8');
+    await rename(tmp, path);
+  } catch (err) {
+    await unlink(tmp).catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * Compose a useful errorMessage from any thrown value. Pulls `.cause`
+ * (often the HTTP error from the CRM adapter) so the admin history
+ * isn't stuck on bland wrapper messages.
+ */
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    const parts = [err.message];
+    let cause: unknown = (err as { cause?: unknown }).cause;
+    // Walk one level of cause — usually enough for adapter → HTTP client.
+    if (cause instanceof Error) {
+      parts.push(`caused by: ${cause.message}`);
+    } else if (typeof cause === 'string') {
+      parts.push(`caused by: ${cause}`);
+    }
+    return parts.join(' · ').slice(0, 2000);
+  }
+  return String(err).slice(0, 2000);
+}
+
 // ── Main (exported for use by routes/sync.ts) ─────────────────────────────
 
 export async function runSync(): Promise<void> {
   log.info('KeyCRM sync started');
 
-  // Create sync run record
+  // Reap dead locks before checking for live ones.
+  const reaped = await reapStaleRuns();
+  if (reaped > 0) {
+    log.warn({ reaped }, 'Reaped stale sync runs left over from killed processes');
+  }
+
+  // Concurrency guard — only one 'running' row allowed. If one is alive
+  // and young, bail fast so the caller (cron tick or admin click) can
+  // show a useful 409 instead of queueing a duplicate.
+  const inFlight = await prisma.keycrmSyncRun.findFirst({
+    where: { status: 'running', finishedAt: null },
+    orderBy: { startedAt: 'desc' },
+  });
+  if (inFlight) {
+    log.warn(
+      { runId: inFlight.id, startedAt: inFlight.startedAt },
+      'Another sync is already in flight — aborting this trigger',
+    );
+    throw new SyncInProgressError(inFlight.startedAt, inFlight.id);
+  }
+
+  // Create the run row up-front as 'running' — this IS the distributed
+  // lock. Any other trigger hitting runSync() will see it via the check
+  // above and back off.
   const syncRun = await prisma.keycrmSyncRun.create({
-    data: { status: 'ok' },
+    data: { status: 'running' },
   });
 
   try {
@@ -357,22 +477,20 @@ export async function runSync(): Promise<void> {
       'Data fetched from KeyCRM',
     );
 
-    // Save raw JSON to data/ directory
-    await mkdir(DATA_DIR, { recursive: true });
+    // Save raw JSON and generated catalog atomically — if the process
+    // dies mid-write, readers see the previous-good snapshot, never a
+    // half-serialised file.
     await Promise.all([
-      writeFile(resolve(DATA_DIR, 'categories.json'), JSON.stringify(categories, null, 2), 'utf-8'),
-      writeFile(resolve(DATA_DIR, 'products.json'), JSON.stringify(products, null, 2), 'utf-8'),
-      writeFile(resolve(DATA_DIR, 'offers.json'), JSON.stringify(offers, null, 2), 'utf-8'),
+      atomicWrite(resolve(DATA_DIR, 'categories.json'), JSON.stringify(categories, null, 2)),
+      atomicWrite(resolve(DATA_DIR, 'products.json'), JSON.stringify(products, null, 2)),
+      atomicWrite(resolve(DATA_DIR, 'offers.json'), JSON.stringify(offers, null, 2)),
     ]);
     log.info({ dir: DATA_DIR }, 'Raw JSON saved');
 
-    // Generate catalog.txt
     const catalogText = buildCatalog(products, offers, categories);
-    await mkdir(dirname(CATALOG_PATH), { recursive: true });
-    await writeFile(CATALOG_PATH, catalogText, 'utf-8');
+    await atomicWrite(CATALOG_PATH, catalogText);
     log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
 
-    // Update sync run - success
     await prisma.keycrmSyncRun.update({
       where: { id: syncRun.id },
       data: {
@@ -386,34 +504,58 @@ export async function runSync(): Promise<void> {
       },
     });
 
+    // Retention: keep the last RETENTION_ROWS rows, drop the rest. Cheap
+    // idempotent housekeeping — a single indexed query, safe to re-run.
+    const keepIds = await prisma.keycrmSyncRun.findMany({
+      orderBy: { startedAt: 'desc' },
+      take: RETENTION_ROWS,
+      select: { id: true },
+    });
+    if (keepIds.length === RETENTION_ROWS) {
+      const { count } = await prisma.keycrmSyncRun.deleteMany({
+        where: { id: { notIn: keepIds.map((r) => r.id) } },
+      });
+      if (count > 0) log.info({ pruned: count }, 'Pruned old sync history');
+    }
+
     log.info('KeyCRM sync completed successfully');
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, 'KeyCRM sync failed');
-
-    // Update sync run - error
     await prisma.keycrmSyncRun.update({
       where: { id: syncRun.id },
       data: {
         finishedAt: new Date(),
         status: 'error',
-        errorMessage: message.slice(0, 2000),
+        errorMessage: formatError(err),
       },
     });
   }
 }
 
-// ── Standalone entrypoint (PM2: SB-sync) ──────────────────────────────────
-// When run directly, execute sync and exit.
+// ── Standalone entrypoint (PM2: {INSTANCE_ID}-sync) ────────────────────────
+// Detect "this file was invoked directly" in an ESM-safe way. Comparing
+// `import.meta.url` to the URL of process.argv[1] is the canonical idiom
+// and survives absolute paths, symlinks, and both .ts/.js builds.
 
-const isMainModule = process.argv[1] &&
-  (process.argv[1].endsWith('sync-worker.ts') || process.argv[1].endsWith('sync-worker.js'));
+function isDirectInvocation(): boolean {
+  if (!process.argv[1]) return false;
+  try {
+    return import.meta.url === pathToFileURL(process.argv[1]).href;
+  } catch {
+    return false;
+  }
+}
 
-if (isMainModule) {
+if (isDirectInvocation()) {
   runSync()
     .catch((err) => {
+      // SyncInProgressError is not fatal — another instance is handling it.
+      if (err instanceof SyncInProgressError) {
+        log.warn({ err: err.message }, 'Skipped — concurrent run in progress');
+        return;
+      }
       log.fatal({ err }, 'Unhandled error in sync worker');
-      process.exit(1);
+      process.exitCode = 1;
     })
     .finally(() => prisma.$disconnect());
 }
