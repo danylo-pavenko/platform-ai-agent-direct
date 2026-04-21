@@ -26,6 +26,17 @@ const envSchema = z.object({
   CRM_PROVIDER: z.string().default('keycrm'),
   KEYCRM_API_KEY: z.string().default(''),
   KEYCRM_SYNC_INTERVAL_MIN: z.coerce.number().default(30),
+  // Default order source_id for KeyCRM /order creation. Each KeyCRM tenant
+  // has its own sources list — 1 is the safe default (usually "Manual" /
+  // "Default"). Can be overridden per-instance via env.
+  KEYCRM_DEFAULT_SOURCE_ID: z.coerce.number().default(1),
+  // Feature flag — when false (default), CRM writes are disabled and the
+  // bot operates in local-DB-only mode. Flip to true once credentials are
+  // verified and the mapping is reviewed.
+  CRM_WRITE_ENABLED: z
+    .string()
+    .default('false')
+    .transform((v) => v.toLowerCase() === 'true'),
 
   // Meta / Instagram
   META_APP_ID: z.string().default(''),

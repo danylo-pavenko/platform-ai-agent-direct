@@ -30,6 +30,12 @@ model Client {
   notes            String?                               // Free-text notes about the client
   tags             String[]       @default([]) @map("tags") // e.g. ["vip", "print", "repeat"]
 
+  // Cross-reference to the matching buyer record in the active CRM provider.
+  // Populated on first successful upsert into the CRM — gives O(1) lookup on
+  // subsequent updates, and acts as our IG-handle → CRM-buyer link (KeyCRM
+  // itself has no native Instagram filter on /buyer).
+  crmBuyerId       String?        @unique @map("crm_buyer_id")
+
   createdAt        DateTime       @default(now()) @map("created_at")
   lastActivityAt   DateTime       @default(now()) @map("last_activity_at")
 

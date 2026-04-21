@@ -9,12 +9,17 @@
  */
 
 import pino from 'pino';
+import { config } from '../../config.js';
 import { getIntegrationConfig } from '../../lib/integration-config.js';
 import type {
   CrmAdapter,
   CrmCategory,
   CrmProduct,
   CrmOffer,
+  CrmClientMatch,
+  CrmClientInput,
+  CrmOrderInput,
+  CrmCustomFieldDef,
   ProductSearchParams,
   OfferSearchParams,
 } from './types.js';
@@ -73,6 +78,25 @@ interface PaginatedResponse<T> {
   per_page: number;
   next_page_url: string | null;
   data: T[];
+}
+
+interface RawBuyer {
+  id: number;
+  full_name: string;
+  email: string[] | null;
+  phone: string[] | null;
+  note: string | null;
+}
+
+interface RawCustomField {
+  id: number;
+  uuid: string;
+  name: string;
+  model: string;  // "order" | "lead" | "client" | "crm_product"
+  type: string;   // "text" | "textarea" | "select" | "switcher" | "number" | "float" | "date" | "datetime" | "link"
+  is_multiple?: boolean;
+  required?: boolean;
+  options?: Array<{ id: number; value: string }>;
 }
 
 // ── Mappers ─────────────────────────────────────────────────────────────────
@@ -179,6 +203,41 @@ async function keycrmGet<T>(
 }
 
 /**
+ * POST/PUT helper with JSON body. Writes are *not* retried by default —
+ * KeyCRM can return a 2xx after a 5xx on its side, and replaying a write
+ * risks creating duplicate buyers/orders. Caller decides idempotency.
+ */
+async function keycrmJson<T>(
+  method: 'POST' | 'PUT',
+  path: string,
+  body: Record<string, unknown>,
+  opts: { timeoutMs?: number } = {},
+): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const timeoutMs = opts.timeoutMs ?? RUNTIME_TIMEOUT_MS;
+
+  const { keycrm } = await getIntegrationConfig();
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${keycrm.apiKey}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (response.ok) {
+    return (await response.json()) as T;
+  }
+
+  const status = response.status;
+  const text = await response.text();
+  throw new Error(`KeyCRM ${method} ${status} on ${path}: ${text.slice(0, 500)}`);
+}
+
+/**
  * Auto-paginate a list endpoint for full-catalog sync.
  */
 async function paginate<Raw>(
@@ -270,7 +329,152 @@ export const keycrmAdapter: CrmAdapter = {
     return result.data.map(mapOffer);
   },
 
-  // Phase 2: findClient / upsertClient / createOrder / listCustomFields
-  // will be filled in a follow-up commit. Left undefined for now so
-  // consumers can feature-detect with `if (adapter.upsertClient)`.
+  async findClient(match: CrmClientMatch) {
+    // 1) Trusted local cross-ref — return immediately, don't pay a round-trip.
+    //    The cache is invalidated by the caller if a subsequent PUT 404s.
+    if (match.crmBuyerId) {
+      return { crmBuyerId: match.crmBuyerId };
+    }
+
+    // 2) Phone — KeyCRM stores multiple phones per buyer and allows filter
+    //    by any of them. Most reliable match after local crmBuyerId.
+    if (match.phone) {
+      const phone = match.phone.trim();
+      if (phone) {
+        try {
+          const r = await keycrmGet<PaginatedResponse<RawBuyer>>(
+            '/buyer',
+            { limit: '1', page: '1', 'filter[buyer_phone]': phone },
+            { retry: false },
+          );
+          if (r.data.length > 0) {
+            return { crmBuyerId: String(r.data[0].id) };
+          }
+        } catch (err) {
+          log.warn({ err, phone }, 'KeyCRM findClient by phone failed — falling through');
+        }
+      }
+    }
+
+    // 3) Email fallback.
+    if (match.email) {
+      const email = match.email.trim().toLowerCase();
+      if (email) {
+        try {
+          const r = await keycrmGet<PaginatedResponse<RawBuyer>>(
+            '/buyer',
+            { limit: '1', page: '1', 'filter[buyer_email]': email },
+            { retry: false },
+          );
+          if (r.data.length > 0) {
+            return { crmBuyerId: String(r.data[0].id) };
+          }
+        } catch (err) {
+          log.warn({ err, email }, 'KeyCRM findClient by email failed — falling through');
+        }
+      }
+    }
+
+    // Instagram handle match: KeyCRM has no native filter on /buyer for IG.
+    // The bot keeps the crmBuyerId ↔ igUsername link in its own Client table,
+    // so if we get here with only an instagramUsername we haven't seen before,
+    // the correct behaviour is to return null (→ caller will create a new
+    // buyer and persist the crmBuyerId locally, closing the loop next time).
+    return null;
+  },
+
+  async upsertClient(crmBuyerId: string | null, input: CrmClientInput) {
+    const body: Record<string, unknown> = {
+      full_name: input.fullName,
+    };
+    if (input.email) body.email = [input.email];
+    if (input.phone) body.phone = [input.phone];
+
+    // IG handle fallback: if the shop hasn't configured a dedicated custom
+    // field for Instagram, stash it in the buyer note so managers can still
+    // see it. Opt-in via a distinct marker line that's easy to grep out
+    // later if migrating to a real custom field.
+    const noteParts: string[] = [];
+    if (input.note) noteParts.push(input.note);
+    if (input.instagramUsername) {
+      noteParts.push(`Instagram: @${input.instagramUsername.replace(/^@/, '')}`);
+    }
+    if (noteParts.length > 0) body.note = noteParts.join('\n\n');
+
+    if (input.shipping) {
+      const s: Record<string, unknown> = {};
+      if (input.shipping.city) s.city = input.shipping.city;
+      if (input.shipping.address) s.address = input.shipping.address;
+      if (input.shipping.warehouseRef) s.warehouse_ref = input.shipping.warehouseRef;
+      if (Object.keys(s).length > 0) body.shipping = [s];
+    }
+
+    if (input.customFields && input.customFields.length > 0) {
+      body.custom_fields = input.customFields.map((f) => ({ uuid: f.key, value: f.value }));
+    }
+
+    const path = crmBuyerId ? `/buyer/${crmBuyerId}` : '/buyer';
+    const method = crmBuyerId ? 'PUT' : 'POST';
+
+    log.info({ method, path, hasIg: !!input.instagramUsername }, 'KeyCRM upsertClient');
+    const res = await keycrmJson<RawBuyer>(method, path, body);
+    return { crmBuyerId: String(res.id) };
+  },
+
+  async createOrder(input: CrmOrderInput) {
+    const body: Record<string, unknown> = {
+      source_id: input.sourceId ?? config.KEYCRM_DEFAULT_SOURCE_ID,
+      buyer: {
+        full_name: input.buyer.fullName,
+        ...(input.buyer.phone ? { phone: input.buyer.phone } : {}),
+        ...(input.buyer.email ? { email: input.buyer.email } : {}),
+      },
+      products: input.items.map((item) => ({
+        name: item.name,
+        price: item.price,
+        quantity: item.qty,
+        ...(item.variant ? { properties: [{ name: 'variant', value: item.variant }] } : {}),
+      })),
+    };
+
+    if (input.shipping) {
+      body.shipping = {
+        shipping_address_city: input.shipping.city,
+        shipping_receive_point: input.shipping.npBranch,
+        shipping_service: 'Нова Пошта',
+      };
+    }
+
+    if (input.note) body.manager_comment = input.note;
+
+    if (input.customFields && input.customFields.length > 0) {
+      body.custom_fields = input.customFields.map((f) => ({ uuid: f.key, value: f.value }));
+    }
+
+    log.info(
+      { sourceId: body.source_id, items: input.items.length },
+      'KeyCRM createOrder',
+    );
+    const res = await keycrmJson<{ id: number }>('POST', '/order', body);
+    return { crmOrderId: String(res.id) };
+  },
+
+  async listCustomFields(scope: 'buyer' | 'order'): Promise<CrmCustomFieldDef[]> {
+    // KeyCRM calls the buyer entity "client" in the custom-fields endpoint.
+    const model = scope === 'buyer' ? 'client' : 'order';
+
+    const raw = await keycrmGet<RawCustomField[]>(
+      '/custom-fields',
+      { 'filter[model]': model, include: 'options' },
+      { retry: false },
+    );
+
+    return raw.map((f) => ({
+      key: f.uuid,
+      name: f.name,
+      scope,
+      type: f.type,
+      options: (f.options ?? []).map((o) => o.value),
+    }));
+  },
 };

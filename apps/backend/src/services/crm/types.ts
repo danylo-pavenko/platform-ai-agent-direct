@@ -104,7 +104,19 @@ export interface CrmOrderItem {
 }
 
 export interface CrmOrderInput {
-  crmBuyerId: string;
+  /**
+   * CRM buyer reference. KeyCRM /order does not accept buyer_id in the
+   * request body and always resolves the buyer by phone/email/name, so
+   * this is kept here for adapters that do support it (future providers)
+   * — our KeyCRM adapter falls back to `buyer` nested contacts below.
+   */
+  crmBuyerId?: string;
+  /** Buyer contact snapshot — KeyCRM uses this to match/create a buyer. */
+  buyer: {
+    fullName: string;
+    phone?: string;
+    email?: string;
+  };
   items: CrmOrderItem[];
   note?: string;
   paymentMethod?: 'card' | 'transfer' | 'cod';
@@ -112,7 +124,8 @@ export interface CrmOrderInput {
     city: string;
     npBranch: string;
   };
-  source?: string;
+  /** CRM-provider source id (KeyCRM: source_id; defaults to config). */
+  sourceId?: number;
   customFields?: Array<{ key: string; value: string }>;
 }
 
