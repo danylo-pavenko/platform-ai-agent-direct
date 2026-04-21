@@ -37,6 +37,12 @@ export interface ClaudeResponse {
    * timeout, or non-zero exit code. Absent when the response is genuine.
    */
   fallback?: 'busy' | 'timeout';
+  /**
+   * Human-readable detail about why the fallback was produced (e.g. "spawn
+   * failed: ENOENT", "timed out after 60000ms", "exit 1: <stderr>"). Internal
+   * field used for logging — callers should not surface this to end users.
+   */
+  errorDetail?: string;
 }
 
 export interface ClaudeCallContext {
@@ -199,8 +205,9 @@ function spawnClaude(
         env: { ...process.env },
       });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Failed to spawn claude CLI');
-      resolve(FALLBACK_TIMEOUT);
+      resolve({ ...FALLBACK_TIMEOUT, errorDetail: `spawn failed: ${message}` });
       return;
     }
 
@@ -219,7 +226,7 @@ function spawnClaude(
       if (!settled) {
         log.warn({ timeoutMs }, 'Claude CLI timed out - killing process');
         child.kill('SIGKILL');
-        settle(FALLBACK_TIMEOUT);
+        settle({ ...FALLBACK_TIMEOUT, errorDetail: `timed out after ${timeoutMs}ms` });
       }
     }, timeoutMs);
 
@@ -233,16 +240,21 @@ function spawnClaude(
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Claude CLI process error');
-      settle(FALLBACK_TIMEOUT);
+      settle({ ...FALLBACK_TIMEOUT, errorDetail: `process error: ${message}` });
     });
 
     child.on('close', (code) => {
       clearTimeout(timer);
 
       if (code !== 0 && !settled) {
-        log.error({ code, stderr: stderr.slice(0, 500) }, 'Claude CLI exited with non-zero code');
-        settle(FALLBACK_TIMEOUT);
+        const stderrPreview = stderr.slice(0, 500);
+        log.error({ code, stderr: stderrPreview }, 'Claude CLI exited with non-zero code');
+        settle({
+          ...FALLBACK_TIMEOUT,
+          errorDetail: `exit ${code}${stderrPreview ? `: ${stderrPreview}` : ''}`,
+        });
         return;
       }
 
@@ -312,6 +324,32 @@ export async function askClaude(
   const args = buildArgs(req);
   const startMs = Date.now();
 
+  /**
+   * Emit a dedicated warn-level log whenever the user actually receives a
+   * canned "менеджер відпише" reply instead of a real model answer. Separate
+   * from the site-specific error logs in spawnClaude so ops can grep a single
+   * `event=agent_fallback` across all failure modes.
+   */
+  const logFallback = (response: ClaudeResponse, durationMs: number) => {
+    if (!response.fallback) return;
+    log.warn(
+      {
+        event: 'agent_fallback',
+        fallbackReason: response.fallback,
+        fallbackText: response.text,
+        errorDetail: response.errorDetail ?? null,
+        channel: context?.channel ?? null,
+        conversationId: context?.conversationId ?? null,
+        clientId: context?.clientId ?? null,
+        durationMs,
+        historyLength: req.conversationHistory.length,
+        inputChars: prompt.length,
+        userMessagePreview: req.userMessage.slice(0, 200),
+      },
+      'Agent fallback — user received canned manager-handoff reply',
+    );
+  };
+
   const record = (response: ClaudeResponse, errorMessage: string | null = null) => {
     if (!context) return;
     recordInvocation({
@@ -321,7 +359,7 @@ export async function askClaude(
       durationMs: Date.now() - startMs,
       success: !response.fallback,
       fallbackReason: response.fallback ?? null,
-      errorMessage,
+      errorMessage: errorMessage ?? response.errorDetail ?? null,
       inputChars: prompt.length,
       outputChars: response.text.length,
     });
@@ -333,8 +371,13 @@ export async function askClaude(
       { pending: semaphore.pending, active: semaphore.active },
       'Claude queue overloaded - returning fallback',
     );
-    record(FALLBACK_BUSY);
-    return FALLBACK_BUSY;
+    const busy: ClaudeResponse = {
+      ...FALLBACK_BUSY,
+      errorDetail: `queue overloaded (pending=${semaphore.pending}, active=${semaphore.active})`,
+    };
+    logFallback(busy, Date.now() - startMs);
+    record(busy);
+    return busy;
   }
 
   let release: (() => void) | undefined;
@@ -357,12 +400,19 @@ export async function askClaude(
       'Claude invocation complete',
     );
 
+    logFallback(response, durationMs);
     record(response);
     return response;
   } catch (err) {
     log.error({ err }, 'Unexpected error in askClaude');
-    record(FALLBACK_TIMEOUT, err instanceof Error ? err.message : String(err));
-    return FALLBACK_TIMEOUT;
+    const message = err instanceof Error ? err.message : String(err);
+    const fallback: ClaudeResponse = {
+      ...FALLBACK_TIMEOUT,
+      errorDetail: `askClaude unexpected error: ${message}`,
+    };
+    logFallback(fallback, Date.now() - startMs);
+    record(fallback, message);
+    return fallback;
   } finally {
     release?.();
   }

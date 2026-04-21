@@ -93,10 +93,16 @@ fi
 echo "[8/8] Restarting PM2 processes..."
 PM2_PREFIX="${INSTANCE_ID_UPPER}"
 
-# startOrReload handles both the first-time start and subsequent graceful
-# reloads — avoids the race where `pm2 reload` runs before the process list
-# has been initialised.
-pm2 startOrReload ecosystem.config.cjs --update-env
+# Use full restart (not graceful reload): cluster-mode reload performs a
+# rolling handoff that static-file apps like the admin don't handle cleanly —
+# new worker goes online but the port socket isn't re-bound, so nginx gets
+# 502 until a manual `pm2 restart all`. Brief downtime during deploy is
+# acceptable; correctness is not.
+if pm2 describe "${PM2_PREFIX}-api" > /dev/null 2>&1; then
+  pm2 restart ecosystem.config.cjs --update-env
+else
+  pm2 start ecosystem.config.cjs
+fi
 
 # ── Health check ──
 echo ""
@@ -106,9 +112,13 @@ wait_for_port() {
   local port="$1"
   local label="$2"
   local attempts=30
+  local status
   for ((i = 1; i <= attempts; i++)); do
-    local status
-    status=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${port}/" 2>/dev/null || echo "000")
+    # On connection failure curl writes "000" to stdout *and* exits non-zero.
+    # The `|| printf '000'` fallback used to append a second "000", making
+    # the check see "000000" and falsely pass. Keep only the first 3 chars.
+    status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${port}/" 2>/dev/null || printf '000')
+    status="${status:0:3}"
     # Admin returns 200 on /, API returns 404 on / but 200 on /health.
     if [ "${status}" != "000" ]; then
       echo "  ${label} reachable on :${port} (HTTP ${status})"
@@ -125,7 +135,8 @@ ADMIN_OK=0
 
 # API-specific /health check with retry.
 for ((i = 1; i <= 30; i++)); do
-  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${API_PORT}/health" 2>/dev/null || echo "000")
+  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${API_PORT}/health" 2>/dev/null || printf '000')
+  HTTP_STATUS="${HTTP_STATUS:0:3}"
   if [ "${HTTP_STATUS}" = "200" ]; then
     echo "  API /health OK on :${API_PORT} (HTTP 200)"
     API_OK=1
@@ -160,7 +171,7 @@ echo "  Deploy complete: ${INSTANCE_NAME:-${INSTANCE_ID_UPPER}} — health: ${HE
 echo "══════════════════════════════════════════════"
 echo ""
 echo "  Processes:"
-pm2 list 2>/dev/null | grep "${PM2_PREFIX}-" || echo "  (pm2 list failed)"
+pm2 list 2>/dev/null || echo "  (pm2 list failed)"
 echo ""
 echo "  Admin:  https://${ADMIN_DOMAIN}"
 echo "  API:    https://${API_DOMAIN}"
