@@ -108,7 +108,7 @@
                 hide-details
               />
               <div class="text-caption text-medium-emphasis mt-1">
-                Використовується в промпті як <code>{{ '{{MANAGER_SLA_HOURS}}' }}</code>.
+                Використовується в промпті як <code v-pre>{{MANAGER_SLA_HOURS}}</code>.
               </div>
             </v-col>
             <v-col cols="12" sm="6">
