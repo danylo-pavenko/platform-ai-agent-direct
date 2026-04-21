@@ -53,6 +53,7 @@ export interface ImportResult {
   imported: number;
   skipped: number;
   total: number;
+  managerReplies: number;
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -60,10 +61,15 @@ export interface ImportResult {
 /**
  * Fetches IG conversation history for a client and imports into our DB.
  * Returns counts of imported / skipped messages.
+ *
+ * Outgoing messages ('out') are classified as:
+ *   - 'bot'     if this conversation already has bot-authored messages in DB
+ *   - 'manager' otherwise (replies sent manually from IG app before bot was active)
  */
 export async function importIgConversationHistory(
   conversationId: string,
   igScopedUserId: string,
+  opts: { pageIgUserId?: string } = {},
 ): Promise<ImportResult> {
   const { meta } = await getIntegrationConfig();
   const pageToken = meta.pageAccessToken;
@@ -73,7 +79,7 @@ export async function importIgConversationHistory(
 
   if (!igConversationId) {
     log.info({ igScopedUserId }, 'No IG conversation found for this user');
-    return { imported: 0, skipped: 0, total: 0 };
+    return { imported: 0, skipped: 0, total: 0, managerReplies: 0 };
   }
 
   // 2. Fetch messages from the IG thread
@@ -85,11 +91,19 @@ export async function importIgConversationHistory(
   );
 
   // 3. Determine our page's own IG user id (to distinguish sent vs received)
-  const pageIgUserId = await getPageIgUserId(pageToken);
+  const pageIgUserId = opts.pageIgUserId ?? (await getPageIgUserId(pageToken));
+
+  // 3b. Does this conversation already have bot-authored messages?
+  //     Used to classify 'out' messages: no bot history → treat as manager reply.
+  const botMessageCount = await prisma.message.count({
+    where: { conversationId, sender: 'bot' },
+  });
+  const hasBotHistory = botMessageCount > 0;
 
   // 4. Import into DB (idempotent via igMessageId)
   let imported = 0;
   let skipped = 0;
+  let managerReplies = 0;
 
   // Process in chronological order (oldest first)
   const sorted = [...igMessages].sort(
@@ -117,7 +131,10 @@ export async function importIgConversationHistory(
     // Determine direction: was this message sent by our page or by the client?
     const senderId = msg.from?.id ?? '';
     const direction: 'in' | 'out' = senderId === pageIgUserId ? 'out' : 'in';
-    const sender = direction === 'out' ? 'bot' : 'client';
+    const sender =
+      direction === 'out' ? (hasBotHistory ? 'bot' : 'manager') : 'client';
+
+    if (sender === 'manager') managerReplies++;
 
     await prisma.message.create({
       data: {
@@ -147,7 +164,7 @@ export async function importIgConversationHistory(
     );
   }
 
-  return { imported, skipped, total: igMessages.length };
+  return { imported, skipped, total: igMessages.length, managerReplies };
 }
 
 // ── Private helpers ──────────────────────────────────────────────────────────
@@ -216,7 +233,7 @@ function buildMessagesUrl(igConversationId: string, pageToken: string): string {
  * Gets the Instagram page user ID (used to distinguish our outgoing messages
  * from the client's incoming messages when importing history).
  */
-async function getPageIgUserId(pageToken: string): Promise<string> {
+export async function getPageIgUserId(pageToken: string): Promise<string> {
   try {
     const url = new URL(`${IG_API_BASE}/me`);
     url.searchParams.set('fields', 'id');

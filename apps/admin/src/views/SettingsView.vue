@@ -338,6 +338,95 @@
               />
             </v-col>
           </v-row>
+
+          <v-divider class="my-4" />
+
+          <!-- Connection check + bulk import -->
+          <div class="text-subtitle-2 mb-2">Статус підключення</div>
+          <div class="d-flex flex-wrap align-center ga-2 mb-2">
+            <v-btn
+              size="small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-lan-check"
+              :loading="igStatusLoading"
+              @click="checkIgStatus"
+            >
+              Перевірити підключення
+            </v-btn>
+            <v-btn
+              size="small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-download"
+              :loading="igImportLoading"
+              :disabled="igStatus?.connected === false"
+              @click="importRecentConversations"
+            >
+              Завантажити останні 20 діалогів
+            </v-btn>
+
+            <v-chip
+              v-if="igStatus?.connected"
+              color="success"
+              size="small"
+              prepend-icon="mdi-check-circle"
+            >
+              Підключено{{ igStatus.igAccount?.username ? `: @${igStatus.igAccount.username}` : '' }}
+            </v-chip>
+            <v-chip
+              v-else-if="igStatus && !igStatus.connected"
+              color="error"
+              size="small"
+              prepend-icon="mdi-close-circle"
+            >
+              Не підключено
+            </v-chip>
+          </div>
+
+          <v-alert
+            v-if="igStatus?.connected"
+            type="success"
+            variant="tonal"
+            density="compact"
+            class="text-body-2"
+          >
+            <div><strong>Facebook Page:</strong> {{ igStatus.pageName || '—' }} (ID {{ igStatus.pageId }})</div>
+            <div v-if="igStatus.igAccount">
+              <strong>Instagram:</strong>
+              {{ igStatus.igAccount.name || igStatus.igAccount.username || igStatus.igAccount.id }}
+              <span v-if="igStatus.igAccount.username">(@{{ igStatus.igAccount.username }})</span>
+            </div>
+            <div v-else class="text-warning">
+              Instagram Business-аккаунт не знайдено в цієї сторінки.
+            </div>
+          </v-alert>
+
+          <v-alert
+            v-if="igStatus && !igStatus.connected"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="text-body-2"
+          >
+            {{ igStatus.error || 'Помилка перевірки підключення' }}
+          </v-alert>
+
+          <v-alert
+            v-if="igImportResult"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            Імпортовано: <strong>{{ igImportResult.conversationsImported }}</strong> нових розмов,
+            оновлено: <strong>{{ igImportResult.conversationsSkipped }}</strong>.
+            Повідомлень: {{ igImportResult.messagesImported }} додано,
+            {{ igImportResult.messagesSkipped }} пропущено.
+            <span v-if="igImportResult.managerReplies > 0">
+              Знайдено відповідей менеджера: <strong>{{ igImportResult.managerReplies }}</strong>.
+            </span>
+          </v-alert>
         </v-card-text>
       </v-card>
 
@@ -731,6 +820,63 @@ async function resolveNpSenderCity() {
 const showMetaHelp = ref(false);
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
+
+// ── Instagram connection status + bulk import ───────────────────────────────
+
+interface IgStatus {
+  connected: boolean;
+  pageId?: string;
+  pageName?: string;
+  igAccount?: { id: string; username?: string; name?: string };
+  error?: string;
+}
+
+interface ImportRecentResult {
+  conversationsImported: number;
+  conversationsSkipped: number;
+  messagesImported: number;
+  messagesSkipped: number;
+  managerReplies: number;
+}
+
+const igStatus = ref<IgStatus | null>(null);
+const igStatusLoading = ref(false);
+const igImportLoading = ref(false);
+const igImportResult = ref<ImportRecentResult | null>(null);
+
+async function checkIgStatus() {
+  igStatusLoading.value = true;
+  try {
+    const { data } = await api.get<IgStatus>('/settings/meta/status');
+    igStatus.value = data;
+  } catch (e: any) {
+    igStatus.value = {
+      connected: false,
+      error: e.response?.data?.error ?? 'Не вдалося перевірити підключення',
+    };
+  } finally {
+    igStatusLoading.value = false;
+  }
+}
+
+async function importRecentConversations() {
+  igImportLoading.value = true;
+  igImportResult.value = null;
+  try {
+    const { data } = await api.post<ImportRecentResult>(
+      '/settings/meta/import-recent-conversations',
+      { limit: 20 },
+    );
+    igImportResult.value = data;
+  } catch (e: any) {
+    showOAuthSnackbar(
+      e.response?.data?.error ?? 'Не вдалося завантажити розмови',
+      'error',
+    );
+  } finally {
+    igImportLoading.value = false;
+  }
+}
 
 // ── Facebook OAuth ──────────────────────────────────────────────────────────
 

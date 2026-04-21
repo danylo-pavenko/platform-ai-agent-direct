@@ -53,7 +53,18 @@
           </template>
 
           <template #item.client="{ item }">
-            {{ item.client?.displayName || item.client?.igUserId || '-' }}
+            <div class="d-flex align-center ga-2">
+              <span>{{ item.client?.displayName || item.client?.igUserId || '-' }}</span>
+              <v-chip
+                v-if="item.hasManagerReply"
+                color="orange"
+                size="x-small"
+                variant="tonal"
+                prepend-icon="mdi-account-voice"
+              >
+                Менеджер відповів
+              </v-chip>
+            </div>
           </template>
 
           <template #item.state="{ item }">
@@ -91,6 +102,7 @@ interface Conversation {
   channel: string;
   state: string;
   lastMessageAt: string;
+  hasManagerReply?: boolean;
 }
 
 const router = useRouter();

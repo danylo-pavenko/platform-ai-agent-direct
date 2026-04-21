@@ -34,11 +34,17 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       };
     }
 
-    const [data, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       prisma.conversation.findMany({
         where,
         include: {
           client: { select: { id: true, igUserId: true, displayName: true } },
+          // Fetch just one manager message (if any) to flag "manager already replied"
+          messages: {
+            where: { sender: 'manager' },
+            select: { id: true },
+            take: 1,
+          },
         },
         orderBy: { lastMessageAt: 'desc' },
         skip,
@@ -46,6 +52,11 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       }),
       prisma.conversation.count({ where }),
     ]);
+
+    const data = rows.map((c) => {
+      const { messages, ...rest } = c;
+      return { ...rest, hasManagerReply: messages.length > 0 };
+    });
 
     return { data, total, page, limit };
   });

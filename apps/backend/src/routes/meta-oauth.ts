@@ -2,6 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import crypto from 'node:crypto';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
+import {
+  checkIgConnectionStatus,
+  importRecentIgConversations,
+} from '../services/ig-connection.js';
 
 // ── State store (in-memory, expires in 10 min) ───────────────────────────────
 const pendingStates = new Map<string, { expiresAt: number }>();
@@ -195,6 +199,42 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         return reply.send(
           buildPopupHtml({ type: 'meta_oauth_error', error: err.message ?? 'OAuth failed' }),
         );
+      }
+    },
+  );
+
+  /**
+   * GET /settings/meta/status
+   * Verifies the saved Page Access Token is valid and returns the linked
+   * Facebook Page + Instagram Business account info.
+   */
+  app.get(
+    '/meta/status',
+    { onRequest: [app.authenticate] },
+    async () => {
+      return checkIgConnectionStatus();
+    },
+  );
+
+  /**
+   * POST /settings/meta/import-recent-conversations
+   * Bulk-imports the last N Instagram conversations (default 20) into our DB.
+   * Outgoing messages in threads with no bot history are classified as manager replies.
+   */
+  app.post<{ Body: { limit?: number } }>(
+    '/meta/import-recent-conversations',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const limit = Math.max(1, Math.min(50, Number(request.body?.limit) || 20));
+
+      try {
+        const result = await importRecentIgConversations(limit);
+        return result;
+      } catch (err: any) {
+        app.log.error({ err }, 'Failed to import recent IG conversations');
+        return reply
+          .code(500)
+          .send({ error: err.message ?? 'Не вдалося завантажити розмови' });
       }
     },
   );
