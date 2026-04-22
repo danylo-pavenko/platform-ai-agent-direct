@@ -172,8 +172,14 @@ export async function importRecentIgConversations(
 
   let nextUrl: string | null = firstUrl.toString();
   let pageCount = 0;
+  // Safety cap: Meta's /me/conversations can return paging.next cursors
+  // that yield empty pages forever (e.g. when all threads sit in Message
+  // Requests and aren't visible via the API). Stop after 20 pages or the
+  // first empty page, whichever comes first.
+  const MAX_PAGES = 20;
+  let emptyStreakDetected = false;
 
-  while (nextUrl && threads.length < target) {
+  while (nextUrl && threads.length < target && pageCount < MAX_PAGES) {
     const pageRes: Response = await fetch(nextUrl, {
       signal: AbortSignal.timeout(15_000),
     });
@@ -191,26 +197,46 @@ export async function importRecentIgConversations(
 
     const pageData = (await pageRes.json()) as IgConversationListResponse;
     pageCount++;
-    threads.push(...(pageData.data ?? []));
-    // Log the first page in detail so we can diagnose "0 conversations"
-    // (empty mailbox vs participants shape mismatch vs pending requests).
+    const pageItems = pageData.data ?? [];
+    threads.push(...pageItems);
+
     if (pageCount === 1) {
       log.info(
         {
-          returned: pageData.data?.length ?? 0,
+          returned: pageItems.length,
           hasNext: !!pageData.paging?.next,
-          sample: pageData.data?.slice(0, 2),
+          sample: pageItems.slice(0, 2),
         },
         'IG conversations first page',
       );
     }
+
+    // If a page returns zero items, the remaining pages (if any) will almost
+    // certainly also be empty — Instagram's conversation API is known to
+    // emit phantom `next` cursors for accounts with only Message Requests.
+    // Break rather than following them to the timeout.
+    if (pageItems.length === 0) {
+      emptyStreakDetected = true;
+      log.info(
+        { pageCount, hasNext: !!pageData.paging?.next },
+        'IG conversations page returned empty — stopping pagination',
+      );
+      break;
+    }
+
     nextUrl = pageData.paging?.next ?? null;
   }
 
   if (threads.length > target) threads.length = target;
 
   log.info(
-    { count: threads.length, target, pageCount },
+    {
+      count: threads.length,
+      target,
+      pageCount,
+      emptyStreakDetected,
+      reachedCap: pageCount >= MAX_PAGES,
+    },
     'Fetched recent IG conversations',
   );
 

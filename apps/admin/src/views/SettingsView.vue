@@ -715,7 +715,21 @@
           </v-alert>
 
           <v-alert
-            v-if="igImportResult"
+            v-if="igImportResult && igImportIsEmpty"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            Instagram повернув <strong>0 діалогів</strong>. Найчастіше — через:
+            <ul class="pl-4 mt-1" style="line-height:1.7;">
+              <li>Усі DM сидять у <strong>Message Requests</strong> і не видимі API, поки їх не прийняти в Instagram-додатку.</li>
+              <li>Акаунт не Business/Creator, або OAuth без <code>instagram_business_manage_messages</code> scope — повторіть авторизацію.</li>
+            </ul>
+          </v-alert>
+
+          <v-alert
+            v-else-if="igImportResult"
             type="info"
             variant="tonal"
             density="compact"
@@ -1118,6 +1132,12 @@ const igStatus = ref<IgStatus | null>(null);
 const igStatusLoading = ref(false);
 const igImportLoading = ref(false);
 const igImportResult = ref<ImportRecentResult | null>(null);
+const igImportIsEmpty = computed(
+  () =>
+    !!igImportResult.value &&
+    igImportResult.value.conversationsImported === 0 &&
+    igImportResult.value.conversationsSkipped === 0,
+);
 
 async function checkIgStatus() {
   igStatusLoading.value = true;
