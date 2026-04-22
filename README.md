@@ -89,7 +89,7 @@ server
 - **System Prompts** — versioned prompt management, activate/rollback
 - **Meta-Agent (Teach Chat)** — describe changes in natural language, AI proposes prompt edits
 - **Sandbox** — Instagram DM-style test chat, save up to 15 test cases, step-by-step replay
-- **Settings** — working hours, handoff keywords, integrations (KeyCRM, Nova Poshta), feature flags
+- **Settings** — working hours, handoff keywords, integrations (KeyCRM, Nova Poshta), feature flags, runtime mode (Public / Debug)
 - **Orders** — list with status filters, manager actions
 - **Sync** — manual trigger, run history, status monitoring
 
@@ -98,6 +98,42 @@ server
 - **Deploy control** — trigger deploy per client
 - **Health overview** — PM2 status across all instances
 - **Test chat** — built-in chat panel to test any client's agent
+
+---
+
+## Runtime mode: Public vs Debug
+
+Each instance has a **runtime mode** that gates how the bot reacts to incoming Instagram DMs. It lives in the `runtime_mode` setting (admin UI: **Settings → Режим роботи бота**) and applies to live webhook traffic.
+
+| Mode | Behavior |
+|------|----------|
+| **Public** (default) | Bot processes every incoming DM from any IG user. Backfill of older threads is allowed from the same screen. |
+| **Debug** | Bot processes DMs **only from whitelisted Instagram handles**. Messages from any other user are dropped at the webhook boundary — no DB write, no Claude call, no reply. Fail-closed: unknown handles are never answered. |
+
+### Debug whitelist format
+
+- Comma or newline separated handles.
+- Leading `@` is stripped, everything is lowercased.
+- Example: `@test_user, another_handle` → matches `test_user` and `another_handle`.
+
+Use Debug mode on production **after** IG is connected, when you want to test real webhook flow with a known set of accounts before switching to Public.
+
+### Historical backfill
+
+Also on the same card — **"Завантажити останні N розмов"** triggers `POST /settings/meta/import-recent-conversations` with a configurable limit (default 200, max 500). Old threads without bot history have their outgoing messages classified as manager replies, so we can analyse existing support quality from day one.
+
+### Storage shape
+
+```jsonc
+// Setting key: runtime_mode
+{
+  "mode": "public" | "debug",
+  "debugWhitelist": ["username1", "username2"],
+  "backfillLimit": 200
+}
+```
+
+The backend caches this setting for 30 s; the cache is invalidated automatically on `PUT /settings`.
 
 ---
 

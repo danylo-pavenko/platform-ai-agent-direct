@@ -225,7 +225,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     '/meta/import-recent-conversations',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const limit = Math.max(1, Math.min(50, Number(request.body?.limit) || 20));
+      const limit = Math.max(1, Math.min(500, Number(request.body?.limit) || 20));
 
       try {
         const result = await importRecentIgConversations(limit);

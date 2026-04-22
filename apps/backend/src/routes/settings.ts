@@ -5,6 +5,7 @@ import {
   SENSITIVE_FIELDS,
 } from '../lib/integration-config.js';
 import { invalidateAgentConfigCache } from '../lib/agent-config.js';
+import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
@@ -55,6 +56,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if ('agent_config' in filtered) {
       invalidateAgentConfigCache();
+    }
+    if ('runtime_mode' in filtered) {
+      invalidateRuntimeConfigCache();
     }
 
     const settings = await prisma.setting.findMany({

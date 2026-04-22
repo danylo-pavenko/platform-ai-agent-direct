@@ -159,28 +159,42 @@ export async function importRecentIgConversations(
 
   const pageIgUserId = await getPageIgUserId(pageToken);
 
-  // Fetch recent IG conversations
-  const listUrl = new URL(`${IG_API_BASE}/me/conversations`);
-  listUrl.searchParams.set('platform', 'instagram');
-  listUrl.searchParams.set('fields', 'id,updated_time,participants');
-  listUrl.searchParams.set('limit', String(Math.max(1, Math.min(50, limit))));
-  listUrl.searchParams.set('access_token', pageToken);
+  // Meta Graph caps a single page at 50, but the caller may ask for more
+  // (e.g. the 200-conversation Public-mode backfill). Paginate via `next`
+  // cursor until we have enough threads or run out of history.
+  const target = Math.max(1, Math.min(500, limit));
+  const pageSize = Math.min(50, target);
 
-  const res = await fetch(listUrl.toString(), {
-    signal: AbortSignal.timeout(15_000),
-  });
+  const threads: IgConversationListItem[] = [];
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `Meta API conversations list failed: ${res.status} ${body.slice(0, 200)}`,
-    );
+  const firstUrl = new URL(`${IG_API_BASE}/me/conversations`);
+  firstUrl.searchParams.set('platform', 'instagram');
+  firstUrl.searchParams.set('fields', 'id,updated_time,participants');
+  firstUrl.searchParams.set('limit', String(pageSize));
+  firstUrl.searchParams.set('access_token', pageToken);
+
+  let nextUrl: string | null = firstUrl.toString();
+
+  while (nextUrl && threads.length < target) {
+    const pageRes: Response = await fetch(nextUrl, {
+      signal: AbortSignal.timeout(15_000),
+    });
+
+    if (!pageRes.ok) {
+      const body = await pageRes.text().catch(() => '');
+      throw new Error(
+        `Meta API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
+      );
+    }
+
+    const pageData = (await pageRes.json()) as IgConversationListResponse;
+    threads.push(...(pageData.data ?? []));
+    nextUrl = pageData.paging?.next ?? null;
   }
 
-  const list = (await res.json()) as IgConversationListResponse;
-  const threads = list.data ?? [];
+  if (threads.length > target) threads.length = target;
 
-  log.info({ count: threads.length }, 'Fetched recent IG conversations');
+  log.info({ count: threads.length, target }, 'Fetched recent IG conversations');
 
   const result: ImportRecentResult = {
     conversationsImported: 0,

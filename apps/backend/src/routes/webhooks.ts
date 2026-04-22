@@ -6,6 +6,10 @@ import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/saniti
 import { handleIncomingMessage } from '../services/conversation.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import {
+  getRuntimeConfig,
+  shouldProcessIncoming,
+} from '../lib/runtime-config.js';
 
 // ── Meta webhook payload types (subset we care about) ──
 
@@ -198,6 +202,43 @@ async function processMessageEvent(
   if (existingMessage) {
     app.log.debug({ igMessageId }, 'Duplicate message - skipping');
     return;
+  }
+
+  // ── Runtime mode gate (debug whitelist) ──
+  // In `debug` mode we intentionally drop messages from anyone who isn't on
+  // the production-testing allowlist. The drop happens BEFORE any DB write
+  // or Claude call so unwanted senders don't pollute conversations/metrics
+  // and aren't billed in tokens. Username is resolved from DB first (cheap);
+  // only on cache miss do we hit the Graph API.
+  const runtime = await getRuntimeConfig();
+  if (runtime.mode === 'debug') {
+    const cachedClient = await prisma.client.findUnique({
+      where: { igUserId },
+      select: { igUsername: true },
+    });
+
+    let username = cachedClient?.igUsername ?? null;
+    if (!username) {
+      const profile = await fetchIgUserProfile(igUserId).catch(() => null);
+      username = profile?.username ?? null;
+    }
+
+    if (!shouldProcessIncoming(runtime, username)) {
+      app.log.info(
+        {
+          igUserId,
+          igUsername: username,
+          whitelistSize: runtime.debugWhitelist.length,
+        },
+        'Debug mode: ignoring message from non-whitelisted IG user',
+      );
+      return;
+    }
+
+    app.log.info(
+      { igUserId, igUsername: username },
+      'Debug mode: processing message from whitelisted IG user',
+    );
   }
 
   // ── Sanitize & redact ──

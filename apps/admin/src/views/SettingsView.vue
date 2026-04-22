@@ -11,6 +11,147 @@
     </div>
 
     <template v-else>
+      <!-- Runtime mode (Public / Debug) -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center ga-2 flex-wrap">
+          <v-icon start :color="runtimeMode === 'public' ? 'success' : 'warning'">
+            {{ runtimeMode === 'public' ? 'mdi-earth' : 'mdi-bug-outline' }}
+          </v-icon>
+          <span>Режим роботи бота</span>
+          <v-chip
+            size="small"
+            :color="runtimeMode === 'public' ? 'success' : 'warning'"
+            variant="tonal"
+            class="ml-2"
+          >
+            {{ runtimeMode === 'public' ? 'Public — відповідає всім' : 'Debug — лише whitelist' }}
+          </v-chip>
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Керує тим, з ким бот спілкуватиметься в реальному Instagram.
+          В Debug повідомлення від усіх, хто не у списку, ігноруються ще до запису в БД.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-radio-group
+            v-model="runtimeMode"
+            inline
+            hide-details
+            class="mb-3"
+          >
+            <v-radio value="public">
+              <template #label>
+                <div>
+                  <strong>Public</strong>
+                  <div class="text-caption text-medium-emphasis">
+                    Бот відповідає усім клієнтам. Історичні діалоги без відповіді можна дотягнути кнопкою нижче.
+                  </div>
+                </div>
+              </template>
+            </v-radio>
+            <v-radio value="debug" class="ml-4">
+              <template #label>
+                <div>
+                  <strong>Debug</strong>
+                  <div class="text-caption text-medium-emphasis">
+                    Бот відповідає лише @нікнеймам з переліку нижче — для тестування на підключеному Instagram.
+                  </div>
+                </div>
+              </template>
+            </v-radio>
+          </v-radio-group>
+
+          <v-expand-transition>
+            <div v-if="runtimeMode === 'debug'" class="mb-1">
+              <v-textarea
+                v-model="debugWhitelistRaw"
+                label="Whitelist @нікнеймів (через кому)"
+                variant="outlined"
+                density="compact"
+                rows="2"
+                auto-grow
+                hide-details
+                placeholder="@olena.kovalenko, @dev_test, your_qa_handle"
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Регістр не важливий, «@» можна залишати або опускати. Повідомлення від інших користувачів ігноруватимуться (не зберігаються в БД, Claude не викликається).
+              </div>
+              <div v-if="debugWhitelistParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
+                <v-chip
+                  v-for="tag in debugWhitelistParsed"
+                  :key="tag"
+                  size="x-small"
+                  color="warning"
+                  variant="tonal"
+                  prepend-icon="mdi-at"
+                >
+                  {{ tag }}
+                </v-chip>
+              </div>
+              <v-alert
+                v-else
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="text-caption mt-2"
+              >
+                Список порожній — у Debug-режимі бот не відповідатиме нікому.
+              </v-alert>
+            </div>
+          </v-expand-transition>
+
+          <v-divider class="my-4" />
+
+          <div class="text-subtitle-2 mb-2 d-flex align-center ga-2">
+            <v-icon size="18">mdi-database-import</v-icon>
+            Історичний імпорт IG-розмов
+          </div>
+          <div class="d-flex flex-wrap align-center ga-2">
+            <v-text-field
+              v-model.number="runtimeBackfillLimit"
+              type="number"
+              min="10"
+              max="500"
+              label="Скільки останніх розмов дотягнути"
+              variant="outlined"
+              density="compact"
+              hide-details
+              style="max-width: 260px;"
+            />
+            <v-btn
+              size="small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-download"
+              :loading="runtimeBackfillLoading"
+              :disabled="igStatus?.connected === false"
+              @click="runRuntimeBackfill"
+            >
+              Завантажити останні {{ runtimeBackfillLimit || 200 }} розмов
+            </v-btn>
+          </div>
+          <div class="text-caption text-medium-emphasis mt-1">
+            Імпортує останні <strong>N</strong> IG-тредів (включно з тими, де раніше не було відповіді) — саме це потрібно перед першим перемиканням у Public.
+            Перевірте спочатку статус підключення в блоці «Meta / Instagram» нижче.
+          </div>
+
+          <v-alert
+            v-if="runtimeBackfillResult"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            Імпортовано: <strong>{{ runtimeBackfillResult.conversationsImported }}</strong> нових розмов,
+            оновлено: <strong>{{ runtimeBackfillResult.conversationsSkipped }}</strong>.
+            Повідомлень: {{ runtimeBackfillResult.messagesImported }} додано,
+            {{ runtimeBackfillResult.messagesSkipped }} пропущено.
+            <span v-if="runtimeBackfillResult.managerReplies > 0">
+              Знайдено відповідей менеджера: <strong>{{ runtimeBackfillResult.managerReplies }}</strong>.
+            </span>
+          </v-alert>
+        </v-card-text>
+      </v-card>
+
       <!-- AI Agent mode -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -813,7 +954,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import api from '@/api';
 
 interface DaySchedule {
@@ -1061,6 +1202,46 @@ function selectOAuthPage(page: OAuthPage) {
 
 const scheduleMode = ref<'24_7' | 'schedule'>('schedule');
 
+// ── Runtime mode (Public / Debug) ───────────────────────────────────────────
+
+type RuntimeModeValue = 'public' | 'debug';
+
+const runtimeMode = ref<RuntimeModeValue>('public');
+const debugWhitelistRaw = ref('');
+const runtimeBackfillLimit = ref<number>(200);
+const runtimeBackfillLoading = ref(false);
+const runtimeBackfillResult = ref<ImportRecentResult | null>(null);
+
+const debugWhitelistParsed = computed<string[]>(() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of debugWhitelistRaw.value.split(/[,\n]/)) {
+    const h = part.trim().replace(/^@+/, '').toLowerCase();
+    if (h && !seen.has(h)) {
+      seen.add(h);
+      out.push(h);
+    }
+  }
+  return out;
+});
+
+async function runRuntimeBackfill() {
+  const limit = Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200));
+  runtimeBackfillLoading.value = true;
+  runtimeBackfillResult.value = null;
+  try {
+    const { data } = await api.post<ImportRecentResult>(
+      '/settings/meta/import-recent-conversations',
+      { limit },
+    );
+    runtimeBackfillResult.value = data;
+  } catch (e: any) {
+    error.value = e.response?.data?.error ?? 'Не вдалося завантажити розмови';
+  } finally {
+    runtimeBackfillLoading.value = false;
+  }
+}
+
 type AgentModeValue = 'sales' | 'leadgen';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
 
@@ -1165,6 +1346,23 @@ async function fetchSettings() {
             : 14,
       };
     }
+
+    if (data.runtime_mode && typeof data.runtime_mode === 'object') {
+      const raw = data.runtime_mode as {
+        mode?: string;
+        debugWhitelist?: unknown;
+        backfillLimit?: number;
+      };
+      runtimeMode.value = raw.mode === 'debug' ? 'debug' : 'public';
+      const list = Array.isArray(raw.debugWhitelist)
+        ? raw.debugWhitelist.filter((v): v is string => typeof v === 'string')
+        : [];
+      debugWhitelistRaw.value = list.join(', ');
+      runtimeBackfillLimit.value =
+        typeof raw.backfillLimit === 'number' && raw.backfillLimit > 0
+          ? Math.min(500, Math.floor(raw.backfillLimit))
+          : 200;
+    }
   } catch {
     error.value = 'Не вдалося завантажити налаштування';
   } finally {
@@ -1186,6 +1384,11 @@ async function saveSettings() {
         .filter(Boolean),
       feature_flags: featureFlags.value,
       agent_config: agentConfig.value,
+      runtime_mode: {
+        mode: runtimeMode.value,
+        debugWhitelist: debugWhitelistParsed.value,
+        backfillLimit: Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200)),
+      },
     });
     success.value = true;
   } catch {
