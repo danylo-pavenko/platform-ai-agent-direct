@@ -430,13 +430,13 @@
       <!-- ── Integrations ── -->
       <div class="page-title mb-1" style="font-size:16px;">Інтеграції</div>
 
-      <!-- Meta / Instagram -->
+      <!-- Instagram -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
-          <v-icon start color="blue-darken-1">mdi-instagram</v-icon>
-          Meta / Instagram
+          <v-icon start color="pink-darken-2">mdi-instagram</v-icon>
+          Instagram
         </v-card-title>
-        <v-card-subtitle class="pb-2">Facebook App та Instagram Page для Messenger API</v-card-subtitle>
+        <v-card-subtitle class="pb-2">API with Instagram Login — прямий звʼязок з IG Business/Creator без Facebook Page</v-card-subtitle>
         <v-card-text>
           <!-- Instructions -->
           <v-btn
@@ -456,30 +456,36 @@
                 <li>
                   Відкрийте
                   <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a>
-                  → <strong>Create App</strong> → тип <strong>Business</strong>.
+                  → <strong>Create App</strong> → use case <strong>Other</strong> → тип <strong>Business</strong>.
                 </li>
                 <li>
-                  <strong>App ID</strong> та <strong>App Secret</strong> знаходяться у
-                  Settings → Basic вашого застосунку.
+                  Додайте продукт <strong>Instagram → API setup with Instagram login</strong>.
                 </li>
                 <li>
-                  <strong>Page ID</strong> - числовий ідентифікатор Facebook-сторінки. Відкрийте сторінку →
-                  About → прокрутіть вниз - там буде "Page ID".
+                  В секції <strong>3. Generate access tokens → Configure</strong> скопіюйте
+                  <strong>Instagram App ID</strong> і <strong>Instagram App Secret</strong>
+                  (це окремі значення, не Facebook App ID/Secret).
                 </li>
                 <li>
-                  <strong>Page Access Token</strong> - отримайте через
-                  <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Graph API Explorer</a>:
-                  виберіть App → вашу сторінку → Generate Token. Для продакшн використовуйте довгостроковий або System User Token.
+                  В <strong>4. Set up Instagram business login → Business login settings</strong> додайте Redirect URL:
+                  <code>{{ redirectUrl }}</code>
                 </li>
                 <li>
-                  <strong>Verify Token</strong> - довільний рядок (наприклад <code>my-webhook-2026</code>).
-                  Задайте тут, потім вкажіть той самий рядок у Facebook Developers → Products → Webhooks при реєстрації URL
-                  <code>https://api.your-domain.com/webhooks/instagram</code>.
+                  В <strong>Products → Webhooks → Instagram</strong> вкажіть Callback URL <code>{{ webhookUrl }}</code>
+                  і той самий Verify Token, що нижче.
+                </li>
+                <li>
+                  IG-акаунт має бути <strong>Business або Creator</strong> і доданий як Tester у застосунку
+                  (прийняти інвайт в Instagram → Settings → Apps and Websites → Tester Invites).
+                </li>
+                <li>
+                  Натисніть «Авторизуватись через Instagram» — User ID та Access Token заповняться автоматично,
+                  webhook теж підпишеться без ручних Graph API викликів.
                 </li>
               </ol>
               <div class="mt-2">
-                <a href="https://developers.facebook.com/docs/messenger-platform/getting-started/app-setup" target="_blank" rel="noopener">
-                  Офіційна документація Meta Messenger Platform →
+                <a href="https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login" target="_blank" rel="noopener">
+                  Документація: Instagram API with Instagram Login →
                 </a>
               </div>
             </v-alert>
@@ -488,18 +494,18 @@
           <v-row dense>
             <v-col cols="12" sm="6">
               <v-text-field
-                v-model="integrations.meta.appId"
-                label="App ID"
+                v-model="integrations.meta.instagramAppId"
+                label="Instagram App ID"
                 variant="outlined"
                 density="compact"
                 hide-details
-                placeholder="123456789"
+                placeholder="1653252955997185"
               />
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field
-                v-model="integrations.meta.appSecret"
-                label="App Secret"
+                v-model="integrations.meta.instagramAppSecret"
+                label="Instagram App Secret"
                 variant="outlined"
                 density="compact"
                 hide-details
@@ -509,44 +515,59 @@
               />
             </v-col>
 
-            <!-- Facebook OAuth button -->
+            <!-- Instagram OAuth button -->
             <v-col cols="12" class="pt-1 pb-0">
               <v-btn
-                color="blue-darken-2"
+                color="pink-darken-2"
                 variant="tonal"
                 size="small"
-                prepend-icon="mdi-facebook"
+                prepend-icon="mdi-instagram"
                 :loading="oauthLoading"
-                :disabled="!integrations.meta.appId || oauthLoading"
+                :disabled="!integrations.meta.instagramAppId || !integrations.meta.instagramAppSecret || oauthLoading"
                 @click="startMetaOAuth"
               >
-                Авторизуватись через Facebook
+                Авторизуватись через Instagram
               </v-btn>
               <span class="text-caption text-medium-emphasis ml-2">
-                Автоматично заповнить Page ID та Page Access Token
+                Автоматично заповнить User ID + Access Token і підпише webhook
               </span>
             </v-col>
 
             <v-col cols="12" sm="6">
               <v-text-field
-                v-model="integrations.meta.pageId"
-                label="Page ID"
+                v-model="integrations.meta.igUserId"
+                label="Instagram User ID"
                 variant="outlined"
                 density="compact"
                 hide-details
-                placeholder="ID сторінки Facebook/Instagram"
+                readonly
+                placeholder="Заповниться після OAuth"
               />
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field
-                v-model="integrations.meta.pageAccessToken"
-                label="Page Access Token"
+                v-model="integrations.meta.igUsername"
+                label="Instagram Username"
+                variant="outlined"
+                density="compact"
+                hide-details
+                readonly
+                placeholder="Заповниться після OAuth"
+                prefix="@"
+              />
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.igAccessToken"
+                label="Instagram Access Token"
                 variant="outlined"
                 density="compact"
                 hide-details
                 :type="showSecrets.metaToken ? 'text' : 'password'"
                 :append-inner-icon="showSecrets.metaToken ? 'mdi-eye-off' : 'mdi-eye'"
                 @click:append-inner="showSecrets.metaToken = !showSecrets.metaToken"
+                readonly
+                placeholder="Заповниться після OAuth"
               />
             </v-col>
             <v-col cols="12" sm="6">
@@ -558,6 +579,12 @@
                 hide-details
                 placeholder="sb-verify-2026"
               />
+            </v-col>
+            <v-col v-if="integrations.meta.igTokenExpiresAt" cols="12">
+              <v-alert type="info" variant="tonal" density="compact" class="text-caption">
+                Термін дії токена: {{ formatExpiresAt(integrations.meta.igTokenExpiresAt) }}
+                (long-lived токен Instagram діє ~60 днів — оновіть авторизацію до закінчення).
+              </v-alert>
             </v-col>
           </v-row>
 
@@ -607,21 +634,21 @@
           </div>
 
           <v-alert
-            v-if="igStatus?.connected"
+            v-if="igStatus?.connected && igStatus.igAccount"
             type="success"
             variant="tonal"
             density="compact"
             class="text-body-2"
           >
-            <div><strong>Facebook Page:</strong> {{ igStatus.pageName || '—' }} (ID {{ igStatus.pageId }})</div>
-            <div v-if="igStatus.igAccount">
+            <div>
               <strong>Instagram:</strong>
               {{ igStatus.igAccount.name || igStatus.igAccount.username || igStatus.igAccount.id }}
               <span v-if="igStatus.igAccount.username">(@{{ igStatus.igAccount.username }})</span>
             </div>
-            <div v-else class="text-warning">
-              Instagram Business-аккаунт не знайдено в цієї сторінки.
+            <div v-if="igStatus.igAccount.accountType">
+              <strong>Тип:</strong> {{ igStatus.igAccount.accountType }}
             </div>
+            <div><strong>User ID:</strong> {{ igStatus.igAccount.id }}</div>
           </v-alert>
 
           <v-alert
@@ -919,38 +946,6 @@
     </template>
   </v-container>
 
-  <!-- Facebook Page Picker dialog -->
-  <v-dialog v-model="showPagePicker" max-width="440" persistent>
-    <v-card>
-      <v-card-title class="d-flex align-center ga-2">
-        <v-icon color="blue-darken-2">mdi-facebook</v-icon>
-        Виберіть Facebook-сторінку
-      </v-card-title>
-      <v-card-subtitle class="pb-2 px-4">
-        Знайдено кілька сторінок. Виберіть ту, до якої підключено Instagram.
-      </v-card-subtitle>
-      <v-list>
-        <v-list-item
-          v-for="page in oauthPages"
-          :key="page.id"
-          :title="page.name"
-          :subtitle="`ID: ${page.id}`"
-          prepend-icon="mdi-page-layout-header"
-          rounded="lg"
-          class="mx-2"
-          @click="selectOAuthPage(page)"
-        >
-          <template #append>
-            <v-icon size="18" color="primary">mdi-chevron-right</v-icon>
-          </template>
-        </v-list-item>
-      </v-list>
-      <v-card-actions>
-        <v-spacer />
-        <v-btn variant="text" @click="showPagePicker = false">Скасувати</v-btn>
-      </v-card-actions>
-    </v-card>
-  </v-dialog>
 </template>
 
 <script setup lang="ts">
@@ -986,10 +981,12 @@ const success = ref(false);
 
 const integrations = ref({
   meta: {
-    appId: '',
-    appSecret: '',
-    pageId: '',
-    pageAccessToken: '',
+    instagramAppId: '',
+    instagramAppSecret: '',
+    igUserId: '',
+    igUsername: '',
+    igAccessToken: '',
+    igTokenExpiresAt: '',
     verifyToken: '',
   },
   telegram: {
@@ -1047,9 +1044,12 @@ const showKeycrmHelp = ref(false);
 
 interface IgStatus {
   connected: boolean;
-  pageId?: string;
-  pageName?: string;
-  igAccount?: { id: string; username?: string; name?: string };
+  igAccount?: {
+    id: string;
+    username?: string;
+    name?: string;
+    accountType?: string;
+  };
   error?: string;
 }
 
@@ -1100,20 +1100,40 @@ async function importRecentConversations() {
   }
 }
 
-// ── Facebook OAuth ──────────────────────────────────────────────────────────
+// ── Instagram OAuth ─────────────────────────────────────────────────────────
 
-interface OAuthPage {
-  id: string;
-  name: string;
-  access_token: string;
+interface OAuthAccount {
+  igUserId: string;
+  igUsername?: string;
+  name?: string;
+  accountType?: string;
+  expiresAt?: string;
 }
 
 const oauthLoading = ref(false);
-const oauthPages = ref<OAuthPage[]>([]);
-const showPagePicker = ref(false);
 const oauthSnackbar = ref(false);
 const oauthSnackbarText = ref('');
 const oauthSnackbarColor = ref('success');
+
+// Derived URLs to display in the setup instructions. The admin is served from
+// `agent.status-blessed.com`; the API counterpart lives at `api.status-blessed.com`.
+// If the admin host doesn't start with `agent.`, fall back to the current origin.
+const redirectUrl = computed(() => {
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://localhost:3000/settings/meta/oauth-callback';
+  }
+  const apiHost = host.startsWith('agent.') ? host.replace(/^agent\./, 'api.') : host;
+  return `https://${apiHost}/settings/meta/oauth-callback`;
+});
+const webhookUrl = computed(() => {
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') {
+    return 'http://localhost:3000/webhooks/instagram';
+  }
+  const apiHost = host.startsWith('agent.') ? host.replace(/^agent\./, 'api.') : host;
+  return `https://${apiHost}/webhooks/instagram`;
+});
 
 function showOAuthSnackbar(text: string, color = 'success') {
   oauthSnackbarText.value = text;
@@ -1121,30 +1141,42 @@ function showOAuthSnackbar(text: string, color = 'success') {
   oauthSnackbar.value = true;
 }
 
+function formatExpiresAt(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('uk-UA', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 async function startMetaOAuth() {
-  const appId = integrations.value.meta.appId.trim();
-  if (!appId || oauthLoading.value) return;
+  const appId = integrations.value.meta.instagramAppId.trim();
+  const appSecret = integrations.value.meta.instagramAppSecret.trim();
+  if (!appId || !appSecret || oauthLoading.value) return;
 
   oauthLoading.value = true;
 
   try {
-    // Save App ID + App Secret to DB first so backend can use them in the callback
+    // Save App ID + Secret to DB first so backend can use them in the callback
     await api.put('/settings/integrations', {
       integration_meta: {
-        appId: integrations.value.meta.appId,
-        appSecret: integrations.value.meta.appSecret,
+        instagramAppId: appId,
+        instagramAppSecret: appSecret,
+        verifyToken: integrations.value.meta.verifyToken,
       },
     });
 
     // Get OAuth URL from backend
-    const { data } = await api.get('/settings/meta/oauth-init', {
-      params: { appId },
-    });
+    const { data } = await api.get('/settings/meta/oauth-init');
 
-    // Open Facebook OAuth popup
     const popup = window.open(
       data.authUrl,
-      'meta_oauth',
+      'instagram_oauth',
       'width=640,height=720,scrollbars=yes,resizable=yes',
     );
 
@@ -1164,15 +1196,9 @@ async function startMetaOAuth() {
       oauthLoading.value = false;
 
       if (msg.type === 'meta_oauth_success') {
-        const pages = msg.pages as OAuthPage[];
-        if (pages.length === 1) {
-          selectOAuthPage(pages[0]);
-        } else {
-          oauthPages.value = pages;
-          showPagePicker.value = true;
-        }
+        applyOAuthAccount(msg.account as OAuthAccount);
       } else {
-        showOAuthSnackbar(msg.error ?? 'Помилка авторизації Facebook', 'error');
+        showOAuthSnackbar(msg.error ?? 'Помилка авторизації Instagram', 'error');
       }
     };
 
@@ -1193,11 +1219,16 @@ async function startMetaOAuth() {
   }
 }
 
-function selectOAuthPage(page: OAuthPage) {
-  integrations.value.meta.pageId = page.id;
-  integrations.value.meta.pageAccessToken = page.access_token;
-  showPagePicker.value = false;
-  showOAuthSnackbar(`Сторінку "${page.name}" вибрано. Натисніть "Зберегти інтеграції".`);
+function applyOAuthAccount(account: OAuthAccount) {
+  integrations.value.meta.igUserId = account.igUserId;
+  integrations.value.meta.igUsername = account.igUsername ?? '';
+  integrations.value.meta.igTokenExpiresAt = account.expiresAt ?? '';
+  // The access token itself was saved to DB by the backend callback.
+  // Reload integrations to pick up the masked token value for display.
+  fetchIntegrations();
+  showOAuthSnackbar(
+    `Підключено @${account.igUsername || account.igUserId}. Webhook підписано автоматично.`,
+  );
 }
 
 const scheduleMode = ref<'24_7' | 'schedule'>('schedule');
@@ -1408,11 +1439,13 @@ async function fetchIntegrations() {
     const np = data.integration_novaposhta ?? {};
 
     integrations.value.meta = {
-      appId:            m.appId            ?? '',
-      appSecret:        m.appSecret        ?? '',
-      pageId:           m.pageId           ?? '',
-      pageAccessToken:  m.pageAccessToken  ?? '',
-      verifyToken:      m.verifyToken      ?? '',
+      instagramAppId:     m.instagramAppId     ?? '',
+      instagramAppSecret: m.instagramAppSecret ?? '',
+      igUserId:           m.igUserId           ?? '',
+      igUsername:         m.igUsername         ?? '',
+      igAccessToken:      m.igAccessToken      ?? '',
+      igTokenExpiresAt:   m.igTokenExpiresAt   ?? '',
+      verifyToken:        m.verifyToken        ?? '',
     };
     integrations.value.telegram = {
       botToken:        t.botToken        ?? '',

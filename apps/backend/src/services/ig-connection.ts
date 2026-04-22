@@ -9,23 +9,22 @@
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
-import { importIgConversationHistory, getPageIgUserId } from './ig-history.js';
+import { importIgConversationHistory, getOwnIgUserId } from './ig-history.js';
 import { fetchIgUserProfile } from './ig-profile.js';
 
 const log = pino({ name: 'ig-connection' });
 
-const IG_API_BASE = 'https://graph.facebook.com/v21.0';
+const IG_API_BASE = 'https://graph.instagram.com/v21.0';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface IgConnectionStatus {
   connected: boolean;
-  pageId?: string;
-  pageName?: string;
   igAccount?: {
     id: string;
     username?: string;
     name?: string;
+    accountType?: string;
   };
   error?: string;
 }
@@ -49,25 +48,22 @@ export interface ImportRecentResult {
 // ── Connection status ────────────────────────────────────────────────────────
 
 /**
- * Verifies the configured Meta Page Access Token is valid and returns
- * the linked Instagram Business account info.
+ * Verifies the configured IG access token is still valid and returns
+ * the Instagram Business/Creator account info.
  *
- * Calls: GET /me?fields=id,name,instagram_business_account{id,username,name}
+ * Calls: GET /me?fields=id,username,name,account_type
  */
 export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
   const { meta } = await getIntegrationConfig();
 
-  if (!meta.pageAccessToken) {
-    return { connected: false, error: 'Page Access Token не налаштовано' };
+  if (!meta.igAccessToken) {
+    return { connected: false, error: 'Instagram access token не налаштовано' };
   }
 
   try {
     const url = new URL(`${IG_API_BASE}/me`);
-    url.searchParams.set(
-      'fields',
-      'id,name,instagram_business_account{id,username,name}',
-    );
-    url.searchParams.set('access_token', meta.pageAccessToken);
+    url.searchParams.set('fields', 'id,username,name,account_type');
+    url.searchParams.set('access_token', meta.igAccessToken);
 
     const res = await fetch(url.toString(), {
       signal: AbortSignal.timeout(8_000),
@@ -81,33 +77,29 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       );
       return {
         connected: false,
-        error: `Meta API: ${res.status} — ${body.slice(0, 160) || 'помилка'}`,
+        error: `Instagram API: ${res.status} — ${body.slice(0, 160) || 'помилка'}`,
       };
     }
 
     const data = (await res.json()) as {
       id?: string;
+      username?: string;
       name?: string;
-      instagram_business_account?: {
-        id?: string;
-        username?: string;
-        name?: string;
-      };
+      account_type?: string;
     };
 
-    const ig = data.instagram_business_account;
+    if (!data.id) {
+      return { connected: false, error: 'Не вдалося отримати IG user id' };
+    }
 
     return {
       connected: true,
-      pageId: data.id,
-      pageName: data.name,
-      igAccount: ig?.id
-        ? {
-            id: ig.id,
-            username: ig.username,
-            name: ig.name,
-          }
-        : undefined,
+      igAccount: {
+        id: data.id,
+        username: data.username,
+        name: data.name,
+        accountType: data.account_type,
+      },
     };
   } catch (err) {
     const msg =
@@ -151,15 +143,15 @@ export async function importRecentIgConversations(
   limit: number = 20,
 ): Promise<ImportRecentResult> {
   const { meta } = await getIntegrationConfig();
-  const pageToken = meta.pageAccessToken;
+  const accessToken = meta.igAccessToken;
 
-  if (!pageToken) {
-    throw new Error('Page Access Token не налаштовано');
+  if (!accessToken) {
+    throw new Error('Instagram access token не налаштовано');
   }
 
-  const pageIgUserId = await getPageIgUserId(pageToken);
+  const ownIgUserId = await getOwnIgUserId(accessToken);
 
-  // Meta Graph caps a single page at 50, but the caller may ask for more
+  // IG Graph caps a single page at 50, but the caller may ask for more
   // (e.g. the 200-conversation Public-mode backfill). Paginate via `next`
   // cursor until we have enough threads or run out of history.
   const target = Math.max(1, Math.min(500, limit));
@@ -171,7 +163,7 @@ export async function importRecentIgConversations(
   firstUrl.searchParams.set('platform', 'instagram');
   firstUrl.searchParams.set('fields', 'id,updated_time,participants');
   firstUrl.searchParams.set('limit', String(pageSize));
-  firstUrl.searchParams.set('access_token', pageToken);
+  firstUrl.searchParams.set('access_token', accessToken);
 
   let nextUrl: string | null = firstUrl.toString();
 
@@ -183,7 +175,7 @@ export async function importRecentIgConversations(
     if (!pageRes.ok) {
       const body = await pageRes.text().catch(() => '');
       throw new Error(
-        `Meta API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
+        `Instagram API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
       );
     }
 
@@ -208,8 +200,8 @@ export async function importRecentIgConversations(
   for (const thread of threads) {
     const participants = thread.participants?.data ?? [];
 
-    // Counterparty = first participant whose id != our page IG id
-    const counterparty = participants.find((p) => p.id !== pageIgUserId);
+    // Counterparty = first participant whose id != our own IG id
+    const counterparty = participants.find((p) => p.id !== ownIgUserId);
     if (!counterparty?.id) {
       log.warn({ threadId: thread.id }, 'No counterparty found, skipping');
       result.conversationsSkipped++;
@@ -281,7 +273,7 @@ export async function importRecentIgConversations(
       const imp = await importIgConversationHistory(
         conversation.id,
         igUserId,
-        { pageIgUserId },
+        { ownIgUserId },
       );
 
       result.messagesImported += imp.imported;

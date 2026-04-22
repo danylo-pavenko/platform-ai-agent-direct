@@ -1,14 +1,18 @@
 /**
  * Integration config - reads from DB settings with .env fallback.
  *
- * Stored in the `settings` table under three keys:
- *   integration_meta      → { appId, appSecret, pageId, pageAccessToken, verifyToken }
+ * Stored in the `settings` table:
+ *   integration_meta      → { instagramAppId, instagramAppSecret, igUserId,
+ *                             igUsername, igAccessToken, igTokenExpiresAt,
+ *                             verifyToken }
  *   integration_telegram  → { botToken, managerGroupId, adminPassword }
  *   integration_keycrm    → { apiKey, syncIntervalMin }
+ *   integration_novaposhta→ { apiKey, senderCity, senderCityRef }
  *
- * If a DB key is not set (or a field within it is empty), the corresponding
- * env-var value is used. This lets you start fresh with only .env and
- * gradually migrate to DB-stored credentials via the admin UI.
+ * The Meta shape matches the "Instagram API with Instagram Login" flow:
+ * tokens come directly from the IG Business/Creator account, not via a
+ * Facebook Page. instagramAppSecret is used both for token exchange and
+ * for webhook HMAC signature verification.
  *
  * The result is cached for 60 seconds to avoid DB hits on every request.
  * Call invalidateIntegrationConfigCache() after a PUT /settings/integrations.
@@ -18,10 +22,12 @@ import { prisma } from './prisma.js';
 import { config } from '../config.js';
 
 export interface IntegrationMeta {
-  appId: string;
-  appSecret: string;
-  pageId: string;
-  pageAccessToken: string;
+  instagramAppId: string;
+  instagramAppSecret: string;
+  igUserId: string;
+  igUsername: string;
+  igAccessToken: string;
+  igTokenExpiresAt: string;
   verifyToken: string;
 }
 
@@ -78,11 +84,13 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
 
   _cache = {
     meta: {
-      appId:           m.appId            || config.META_APP_ID,
-      appSecret:       m.appSecret        || config.META_APP_SECRET,
-      pageId:          m.pageId           || config.IG_PAGE_ID,
-      pageAccessToken: m.pageAccessToken  || config.IG_PAGE_ACCESS_TOKEN,
-      verifyToken:     m.verifyToken      || config.IG_WEBHOOK_VERIFY_TOKEN,
+      instagramAppId:     m.instagramAppId     || config.INSTAGRAM_APP_ID,
+      instagramAppSecret: m.instagramAppSecret || config.INSTAGRAM_APP_SECRET,
+      igUserId:           m.igUserId           || config.IG_USER_ID,
+      igUsername:         m.igUsername         || '',
+      igAccessToken:      m.igAccessToken      || config.IG_ACCESS_TOKEN,
+      igTokenExpiresAt:   m.igTokenExpiresAt   || '',
+      verifyToken:        m.verifyToken        || config.IG_WEBHOOK_VERIFY_TOKEN,
     },
     telegram: {
       botToken:        t.botToken         || config.TELEGRAM_BOT_TOKEN,
@@ -111,7 +119,7 @@ export function invalidateIntegrationConfigCache(): void {
 
 /** Sensitive field names - masked as "••••••" in GET responses */
 export const SENSITIVE_FIELDS: Record<string, string[]> = {
-  integration_meta:        ['appSecret', 'pageAccessToken'],
+  integration_meta:        ['instagramAppSecret', 'igAccessToken'],
   integration_telegram:    ['botToken', 'adminPassword'],
   integration_keycrm:      ['apiKey'],
   integration_novaposhta:  ['apiKey'],

@@ -2,18 +2,18 @@
  * ig-history.ts
  *
  * Imports historical Instagram conversation messages into our database
- * via the Meta Graph API Conversations endpoint.
+ * via the IG Graph API Conversations endpoint.
  *
  * API flow:
- *   1. GET /{ig-page-id}/conversations?platform=instagram&user_id={igsid}
- *      → returns conversation IDs for this user on our page
+ *   1. GET /me/conversations?platform=instagram&user_id={igsid}
+ *      → returns conversation IDs for this user
  *   2. GET /{conversation-id}/messages?fields=id,message,from,to,created_time
  *      → returns paginated messages
  *
  * All imported messages are stored with `igMessageId` set so re-importing
  * is idempotent (duplicates are skipped via upsert).
  *
- * Requires: instagram_manage_messages permission on the Page Access Token.
+ * Requires: instagram_business_manage_messages scope on the access token.
  */
 
 import pino from 'pino';
@@ -22,7 +22,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-history' });
 
-const IG_API_BASE = 'https://graph.facebook.com/v21.0';
+const IG_API_BASE = 'https://graph.instagram.com/v21.0';
 const MAX_IMPORT_MESSAGES = 200; // Safety cap - avoid flooding DB
 
 interface IgApiMessage {
@@ -69,13 +69,13 @@ export interface ImportResult {
 export async function importIgConversationHistory(
   conversationId: string,
   igScopedUserId: string,
-  opts: { pageIgUserId?: string } = {},
+  opts: { ownIgUserId?: string } = {},
 ): Promise<ImportResult> {
   const { meta } = await getIntegrationConfig();
-  const pageToken = meta.pageAccessToken;
+  const accessToken = meta.igAccessToken;
 
-  // 1. Find the IG conversation thread between our page and this user
-  const igConversationId = await findIgConversationId(igScopedUserId, pageToken);
+  // 1. Find the IG conversation thread between our account and this user
+  const igConversationId = await findIgConversationId(igScopedUserId, accessToken);
 
   if (!igConversationId) {
     log.info({ igScopedUserId }, 'No IG conversation found for this user');
@@ -83,15 +83,15 @@ export async function importIgConversationHistory(
   }
 
   // 2. Fetch messages from the IG thread
-  const igMessages = await fetchIgMessages(igConversationId, pageToken);
+  const igMessages = await fetchIgMessages(igConversationId, accessToken);
 
   log.info(
     { conversationId, igConversationId, count: igMessages.length },
     'Fetched IG messages for import',
   );
 
-  // 3. Determine our page's own IG user id (to distinguish sent vs received)
-  const pageIgUserId = opts.pageIgUserId ?? (await getPageIgUserId(pageToken));
+  // 3. Determine our own IG user id (to distinguish sent vs received)
+  const ownIgUserId = opts.ownIgUserId ?? (await getOwnIgUserId(accessToken));
 
   // 3b. Does this conversation already have bot-authored messages?
   //     Used to classify 'out' messages: no bot history → treat as manager reply.
@@ -128,9 +128,9 @@ export async function importIgConversationHistory(
       continue;
     }
 
-    // Determine direction: was this message sent by our page or by the client?
+    // Determine direction: was this message sent by us or by the client?
     const senderId = msg.from?.id ?? '';
-    const direction: 'in' | 'out' = senderId === pageIgUserId ? 'out' : 'in';
+    const direction: 'in' | 'out' = senderId === ownIgUserId ? 'out' : 'in';
     const sender =
       direction === 'out' ? (hasBotHistory ? 'bot' : 'manager') : 'client';
 
@@ -171,13 +171,13 @@ export async function importIgConversationHistory(
 
 async function findIgConversationId(
   igScopedUserId: string,
-  pageToken: string,
+  accessToken: string,
 ): Promise<string | null> {
   const url = new URL(`${IG_API_BASE}/me/conversations`);
   url.searchParams.set('platform', 'instagram');
   url.searchParams.set('user_id', igScopedUserId);
   url.searchParams.set('fields', 'id');
-  url.searchParams.set('access_token', pageToken);
+  url.searchParams.set('access_token', accessToken);
 
   try {
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
@@ -198,10 +198,10 @@ async function findIgConversationId(
 
 async function fetchIgMessages(
   igConversationId: string,
-  pageToken: string,
+  accessToken: string,
 ): Promise<IgApiMessage[]> {
   const messages: IgApiMessage[] = [];
-  let nextUrl: string | null = buildMessagesUrl(igConversationId, pageToken);
+  let nextUrl: string | null = buildMessagesUrl(igConversationId, accessToken);
 
   while (nextUrl && messages.length < MAX_IMPORT_MESSAGES) {
     const res = await fetch(nextUrl, { signal: AbortSignal.timeout(15_000) });
@@ -221,23 +221,23 @@ async function fetchIgMessages(
   return messages.slice(0, MAX_IMPORT_MESSAGES);
 }
 
-function buildMessagesUrl(igConversationId: string, pageToken: string): string {
+function buildMessagesUrl(igConversationId: string, accessToken: string): string {
   const url = new URL(`${IG_API_BASE}/${igConversationId}/messages`);
   url.searchParams.set('fields', 'id,message,from,to,created_time');
   url.searchParams.set('limit', '50');
-  url.searchParams.set('access_token', pageToken);
+  url.searchParams.set('access_token', accessToken);
   return url.toString();
 }
 
 /**
- * Gets the Instagram page user ID (used to distinguish our outgoing messages
+ * Gets our own Instagram user ID (used to distinguish our outgoing messages
  * from the client's incoming messages when importing history).
  */
-export async function getPageIgUserId(pageToken: string): Promise<string> {
+export async function getOwnIgUserId(accessToken: string): Promise<string> {
   try {
     const url = new URL(`${IG_API_BASE}/me`);
     url.searchParams.set('fields', 'id');
-    url.searchParams.set('access_token', pageToken);
+    url.searchParams.set('access_token', accessToken);
 
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return '';

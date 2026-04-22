@@ -1,12 +1,11 @@
 /**
  * ig-profile.ts
  *
- * Fetches Instagram user profile information via the Meta Graph API.
+ * Fetches Instagram user profile information via the IG Graph API.
  * Called once when a new client first contacts us - gives us their
  * real name and @handle so Claude can address them properly.
  *
- * Endpoint: GET /{igsid}?fields=name,username&access_token={page_token}
- * Docs: https://developers.facebook.com/docs/messenger-platform/identity/user-profile
+ * Endpoint: GET /{igsid}?fields=name,username&access_token={ig_access_token}
  */
 
 import pino from 'pino';
@@ -14,7 +13,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-profile' });
 
-const IG_GRAPH_BASE = 'https://graph.facebook.com/v21.0';
+const IG_GRAPH_BASE = 'https://graph.instagram.com/v21.0';
 
 // Fields we want from the user profile.
 // "name" = display name, "username" = @handle (without @).
@@ -41,7 +40,7 @@ export async function fetchIgUserProfile(
     const { meta } = await getIntegrationConfig();
     const url = new URL(`${IG_GRAPH_BASE}/${igScopedUserId}`);
     url.searchParams.set('fields', PROFILE_FIELDS);
-    url.searchParams.set('access_token', meta.pageAccessToken);
+    url.searchParams.set('access_token', meta.igAccessToken);
 
     const response = await fetch(url.toString(), {
       method: 'GET',

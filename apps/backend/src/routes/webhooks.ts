@@ -132,7 +132,7 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { meta: igMeta } = await getIntegrationConfig();
-    if (!verifyIgSignature(rawBody, signature, igMeta.appSecret)) {
+    if (!verifyIgSignature(rawBody, signature, igMeta.instagramAppSecret)) {
       app.log.warn('Invalid Instagram webhook signature');
       return reply.code(401).send({ error: 'Unauthorized' });
     }
