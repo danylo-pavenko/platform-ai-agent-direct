@@ -185,10 +185,12 @@ async function findIgConversationId(
   url.searchParams.set('platform', 'instagram');
   url.searchParams.set('user_id', igScopedUserId);
   url.searchParams.set('fields', 'id');
-  url.searchParams.set('access_token', accessToken);
 
   try {
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(10_000) });
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -212,7 +214,13 @@ async function fetchIgMessages(
   let nextUrl: string | null = buildMessagesUrl(igConversationId, accessToken);
 
   while (nextUrl && messages.length < MAX_IMPORT_MESSAGES) {
-    const res = await fetch(nextUrl, { signal: AbortSignal.timeout(15_000) });
+    // Strip leaked token from Meta's paging.next URL and pass via Bearer
+    const stripped = new URL(nextUrl);
+    stripped.searchParams.delete('access_token');
+    const res = await fetch(stripped.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15_000),
+    });
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
@@ -229,11 +237,11 @@ async function fetchIgMessages(
   return messages.slice(0, MAX_IMPORT_MESSAGES);
 }
 
-function buildMessagesUrl(igConversationId: string, accessToken: string): string {
+function buildMessagesUrl(igConversationId: string, _accessToken: string): string {
   const url = new URL(`${IG_API_BASE}/${igConversationId}/messages`);
   url.searchParams.set('fields', 'id,message,from,to,created_time');
   url.searchParams.set('limit', '50');
-  url.searchParams.set('access_token', accessToken);
+  // Auth via Bearer header, not query — see callers.
   return url.toString();
 }
 
@@ -247,9 +255,11 @@ export async function getOwnIgUserId(accessToken: string): Promise<string> {
   try {
     const url = new URL(`${IG_API_BASE}/me`);
     url.searchParams.set('fields', 'user_id');
-    url.searchParams.set('access_token', accessToken);
 
-    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!res.ok) return '';
 
     const data = (await res.json()) as { user_id?: string; id?: string };

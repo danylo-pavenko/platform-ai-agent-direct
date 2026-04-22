@@ -40,11 +40,13 @@ export async function fetchIgUserProfile(
     const { meta } = await getIntegrationConfig();
     const url = new URL(`${IG_GRAPH_BASE}/${igScopedUserId}`);
     url.searchParams.set('fields', PROFILE_FIELDS);
-    url.searchParams.set('access_token', meta.igAccessToken);
 
     const response = await fetch(url.toString(), {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${meta.igAccessToken}`,
+      },
       // Short timeout - profile fetch is best-effort, don't block message processing
       signal: AbortSignal.timeout(5_000),
     });

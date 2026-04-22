@@ -92,7 +92,9 @@
       "mcp__context7__query-docs",
       "Bash(echo \"BE=$?\")",
       "Bash(echo \"AD=$?\")",
-      "Bash(echo \"BUILD=$?\")"
+      "Bash(echo \"BUILD=$?\")",
+      "WebFetch(domain:www.postman.com)",
+      "WebSearch"
     ]
   },
   "enabledMcpjsonServers": [

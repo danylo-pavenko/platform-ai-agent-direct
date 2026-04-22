@@ -12,7 +12,9 @@ const SPLIT_DELAY_MS = 200;
 
 async function callIgApi(body: object): Promise<unknown> {
   const { meta } = await getIntegrationConfig();
-  const url = `${IG_API_URL}?access_token=${encodeURIComponent(meta.igAccessToken)}`;
+  // Auth via Authorization: Bearer header per Meta's official Postman
+  // collection — the same format that works for sending messages with curl.
+  const url = IG_API_URL;
 
   let lastError: Error | undefined;
 
@@ -27,7 +29,10 @@ async function callIgApi(body: object): Promise<unknown> {
     try {
       res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${meta.igAccessToken}`,
+        },
         body: JSON.stringify(body),
       });
     } catch (err) {

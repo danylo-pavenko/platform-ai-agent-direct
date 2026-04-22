@@ -65,9 +65,9 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
     // Request both id (app-scoped) and user_id (IG Professional Account ID).
     // Webhook payloads use user_id, so that's the one we surface as "id".
     url.searchParams.set('fields', 'id,user_id,username,name,account_type');
-    url.searchParams.set('access_token', meta.igAccessToken);
 
     const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${meta.igAccessToken}` },
       signal: AbortSignal.timeout(8_000),
     });
 
@@ -176,7 +176,6 @@ export async function importRecentIgConversations(
   firstUrl.searchParams.set('platform', 'instagram');
   firstUrl.searchParams.set('fields', 'id,updated_time,participants');
   firstUrl.searchParams.set('limit', String(pageSize));
-  firstUrl.searchParams.set('access_token', accessToken);
 
   log.info(
     { ownIgUserId, target, pageSize, endpoint: `${ownIgUserId}/conversations` },
@@ -193,7 +192,14 @@ export async function importRecentIgConversations(
   let emptyStreakDetected = false;
 
   while (nextUrl && threads.length < target && pageCount < MAX_PAGES) {
-    const pageRes: Response = await fetch(nextUrl, {
+    // Meta's paging.next URL embeds access_token in the query, but when we
+    // originate the request ourselves we pass Bearer. For follow-up pages
+    // from paging.next we strip the leaked token param (safer) and fall
+    // back to Bearer.
+    const stripped = new URL(nextUrl);
+    stripped.searchParams.delete('access_token');
+    const pageRes: Response = await fetch(stripped.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(15_000),
     });
 

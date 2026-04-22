@@ -220,9 +220,10 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       // MUST use `user_id`. We still read `id` as a debug fallback.
       const meUrl = new URL(`${IG_GRAPH_BASE}/me`);
       meUrl.searchParams.set('fields', 'id,user_id,username,name,account_type');
-      meUrl.searchParams.set('access_token', longToken);
 
-      const meRes = await fetch(meUrl.toString());
+      const meRes = await fetch(meUrl.toString(), {
+        headers: { Authorization: `Bearer ${longToken}` },
+      });
       const meData = (await meRes.json()) as {
         id?: string;
         user_id?: string;
@@ -259,9 +260,11 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       try {
         const subUrl = new URL(`${IG_GRAPH_BASE}/me/subscribed_apps`);
         subUrl.searchParams.set('subscribed_fields', WEBHOOK_FIELDS);
-        subUrl.searchParams.set('access_token', longToken);
 
-        const subRes = await fetch(subUrl.toString(), { method: 'POST' });
+        const subRes = await fetch(subUrl.toString(), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${longToken}` },
+        });
         if (!subRes.ok) {
           const body = await subRes.text().catch(() => '');
           app.log.warn(
@@ -343,9 +346,28 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       return { error: 'Instagram access token не налаштовано' };
     }
 
-    const probe = async (label: string, url: string) => {
+    const token = meta.igAccessToken;
+    const ig = meta.igUserId;
+
+    const probe = async (
+      label: string,
+      url: string,
+      opts: { auth?: 'query' | 'bearer' } = {},
+    ) => {
+      const auth = opts.auth ?? 'bearer';
+      const finalUrl = new URL(url);
+      if (auth === 'query') {
+        finalUrl.searchParams.set('access_token', token);
+      }
+      const headers: Record<string, string> = {};
+      if (auth === 'bearer') {
+        headers.Authorization = `Bearer ${token}`;
+      }
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        const res = await fetch(finalUrl.toString(), {
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
         const text = await res.text();
         let parsed: unknown = null;
         try {
@@ -366,7 +388,8 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         }
         return {
           label,
-          url: url.replace(meta.igAccessToken, '«TOKEN»'),
+          auth,
+          url: finalUrl.toString().replace(token, '«TOKEN»'),
           status: res.status,
           headers: hdrs,
           body: parsed ?? text.slice(0, 2000),
@@ -374,41 +397,98 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       } catch (e: any) {
         return {
           label,
-          url: url.replace(meta.igAccessToken, '«TOKEN»'),
+          auth,
+          url: finalUrl.toString().replace(token, '«TOKEN»'),
           error: e.message ?? String(e),
         };
       }
     };
 
-    const token = meta.igAccessToken;
-    const ig = meta.igUserId;
+    // Request the app-scoped id from /me?fields=id so we can probe
+    // /{app_scoped_id}/conversations — Meta may resolve `me` differently
+    // than an explicit id.
+    let appScopedId = '';
+    try {
+      const meRes = await fetch(
+        `${IG_GRAPH_BASE}/me?fields=id`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (meRes.ok) {
+        const meJson = (await meRes.json()) as { id?: string };
+        appScopedId = meJson.id ?? '';
+      }
+    } catch {
+      /* ignore */
+    }
 
-    const results = await Promise.all([
+    const probes = await Promise.all([
+      // /me — identity
       probe(
-        '/me?fields=id,user_id,username,name,account_type',
-        `${IG_GRAPH_BASE}/me?fields=id,user_id,username,name,account_type&access_token=${encodeURIComponent(token)}`,
+        '/me?fields=id,user_id,username,name,account_type (Bearer)',
+        `${IG_GRAPH_BASE}/me?fields=id,user_id,username,name,account_type`,
+      ),
+      // /me/conversations — all 3 auth/id variations
+      probe(
+        '/me/conversations?platform=instagram (Bearer)',
+        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
       ),
       probe(
-        '/me/conversations?platform=instagram&limit=3',
-        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants&access_token=${encodeURIComponent(token)}`,
+        '/me/conversations?platform=instagram (query token)',
+        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
+        { auth: 'query' },
       ),
+      probe(
+        '/me/conversations WITHOUT platform (Bearer)',
+        `${IG_GRAPH_BASE}/me/conversations?limit=3&fields=id,updated_time,participants`,
+      ),
+      // /{professional_id}/conversations (17841…)
       ig
         ? probe(
-            `/${ig}/conversations?platform=instagram&limit=3`,
-            `${IG_GRAPH_BASE}/${ig}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants&access_token=${encodeURIComponent(token)}`,
+            `/${ig}/conversations?platform=instagram (Bearer, professional id)`,
+            `${IG_GRAPH_BASE}/${ig}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
           )
-        : Promise.resolve({ label: `/{igUserId}/conversations`, error: 'igUserId missing' }),
+        : Promise.resolve({ label: '/{professional_id}/conversations', error: 'igUserId missing' }),
+      // /{app_scoped_id}/conversations (27103…)
+      appScopedId
+        ? probe(
+            `/${appScopedId}/conversations?platform=instagram (Bearer, app-scoped id)`,
+            `${IG_GRAPH_BASE}/${appScopedId}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
+          )
+        : Promise.resolve({ label: '/{app_scoped_id}/conversations', error: 'appScopedId missing' }),
+      // webhook subscriptions
       probe(
-        '/me/subscribed_apps',
-        `${IG_GRAPH_BASE}/me/subscribed_apps?access_token=${encodeURIComponent(token)}`,
+        '/me/subscribed_apps (Bearer)',
+        `${IG_GRAPH_BASE}/me/subscribed_apps`,
       ),
     ]);
 
+    // debug_token — shows actual scopes on the token
+    let tokenDebug: unknown = null;
+    if (meta.instagramAppId && meta.instagramAppSecret) {
+      try {
+        const appToken = `${meta.instagramAppId}|${meta.instagramAppSecret}`;
+        const debugUrl = new URL('https://graph.facebook.com/v25.0/debug_token');
+        debugUrl.searchParams.set('input_token', token);
+        debugUrl.searchParams.set('access_token', appToken);
+        const dtRes = await fetch(debugUrl.toString());
+        const dtText = await dtRes.text();
+        try {
+          tokenDebug = JSON.parse(dtText);
+        } catch {
+          tokenDebug = dtText.slice(0, 2000);
+        }
+      } catch (e: any) {
+        tokenDebug = { error: e.message ?? String(e) };
+      }
+    }
+
     return {
       igUserId: meta.igUserId,
+      appScopedId,
       igUsername: meta.igUsername,
       apiVersion: 'v25.0',
-      probes: results,
+      tokenDebug,
+      probes,
     };
   });
 
