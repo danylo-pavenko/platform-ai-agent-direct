@@ -115,7 +115,7 @@
           </div>
 
           <!-- Chat messages -->
-          <div class="messages-list pa-3">
+          <div v-if="chatMessages.length > 0 || loading" class="messages-list pa-3">
             <template v-for="(msg, idx) in chatMessages" :key="idx">
               <!-- Date separator (first message) -->
               <div v-if="idx === 0" class="date-separator text-center mb-3">
@@ -208,7 +208,7 @@
 
       <!-- Right: Prompt panel (desktop only, or mobile bottom sheet) -->
       <v-bottom-sheet v-if="mobile" v-model="showPromptPanel" inset>
-        <v-card class="pa-3">
+        <v-card class="pa-3 prompt-mobile-sheet">
           <prompt-editor />
         </v-card>
       </v-bottom-sheet>
@@ -400,16 +400,61 @@ function formatTime(date: Date): string {
 }
 
 function formatMessage(text: string): string {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const escape = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\n/g, '<br>');
+  const inline = (s: string) => {
+    let out = escape(s);
+    out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+    out = out.replace(
+      /(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g,
+      '<a href="$1" target="_blank" rel="noopener">$1</a>',
+    );
+    return out;
+  };
 
-  return html;
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const html: string[] = [];
+  let listOpen = false;
+  let paraBuf: string[] = [];
+
+  const flushPara = () => {
+    if (paraBuf.length === 0) return;
+    html.push(`<p>${paraBuf.join('<br>')}</p>`);
+    paraBuf = [];
+  };
+  const closeList = () => {
+    if (listOpen) {
+      html.push('</ul>');
+      listOpen = false;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const bullet = /^\s*(?:[-*•]|\d+[.)])\s+(.*)$/.exec(line);
+    if (bullet) {
+      flushPara();
+      if (!listOpen) {
+        html.push('<ul>');
+        listOpen = true;
+      }
+      html.push(`<li>${inline(bullet[1])}</li>`);
+      continue;
+    }
+    if (line.trim() === '') {
+      flushPara();
+      closeList();
+      continue;
+    }
+    closeList();
+    paraBuf.push(inline(line));
+  }
+  flushPara();
+  closeList();
+
+  return html.join('');
 }
 
 async function scrollToBottom() {
@@ -946,21 +991,23 @@ onMounted(async () => {
 
 <style scoped>
 .sandbox-root {
-  height: calc(100vh - 64px);
+  height: 100dvh;
   overflow: hidden;
 }
 .sandbox-root.mobile {
-  height: calc(100vh - 56px);
+  height: calc(100dvh - 56px);
 }
 
 .sandbox-mobile-header {
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  flex: 0 0 auto;
 }
 
 .sandbox-layout {
   display: flex;
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 .sandbox-root.mobile .sandbox-layout {
@@ -968,25 +1015,39 @@ onMounted(async () => {
 }
 
 .cases-sidebar {
-  width: 260px;
-  min-width: 260px;
+  width: 280px;
+  min-width: 280px;
+  flex: 0 0 280px;
   border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  overflow-y: auto;
+  overflow: hidden;
   background: rgb(var(--v-theme-surface));
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-area {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   background: #fafafa;
 }
 
 .prompt-sidebar {
-  width: 320px;
+  width: 360px;
   min-width: 320px;
+  flex: 0 0 360px;
   border-left: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgb(var(--v-theme-surface));
-  overflow-y: auto;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 1280px) {
+  .prompt-sidebar {
+    width: 320px;
+    flex-basis: 320px;
+  }
 }
 
 .chat-header {
@@ -1027,11 +1088,15 @@ onMounted(async () => {
 }
 
 .msg-bubble {
-  max-width: 70%;
+  max-width: 75%;
   padding: 8px 14px;
   border-radius: 18px;
   position: relative;
-  word-break: break-word;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1400px) {
+  .msg-bubble { max-width: 640px; }
 }
 
 .bubble-sent {
@@ -1050,6 +1115,14 @@ onMounted(async () => {
   font-size: 14px;
   line-height: 1.45;
 }
+.msg-text :deep(p) {
+  margin: 0;
+}
+.msg-text :deep(p + p),
+.msg-text :deep(p + ul),
+.msg-text :deep(ul + p) {
+  margin-top: 6px;
+}
 .msg-text :deep(strong) {
   font-weight: 600;
 }
@@ -1058,6 +1131,24 @@ onMounted(async () => {
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 0.9em;
+}
+.msg-text :deep(ul) {
+  margin: 4px 0 0 0;
+  padding-left: 18px;
+}
+.msg-text :deep(li) {
+  margin-bottom: 2px;
+}
+.msg-text :deep(a) {
+  color: inherit;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.bubble-sent .msg-text :deep(a) {
+  color: #fff;
+}
+.bubble-sent .msg-text :deep(code) {
+  background: rgba(255,255,255,0.2);
 }
 
 .msg-time {
@@ -1125,15 +1216,27 @@ onMounted(async () => {
 }
 
 /* Cases panel items */
+.cases-panel {
+  min-height: 0;
+}
 .case-item {
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   transition: background-color 0.15s;
+  align-items: flex-start !important;
 }
 .case-item:hover {
   background: rgba(var(--v-theme-primary), 0.04);
 }
 .case-selected {
   background: rgba(var(--v-theme-primary), 0.08);
+}
+.case-item :deep(.text-truncate) {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
 }
 
 .new-chat-btn {
@@ -1185,14 +1288,20 @@ onMounted(async () => {
 }
 
 /* Prompt panel */
+.prompt-editor {
+  min-height: 0;
+}
 .prompt-select {
   width: 100%;
+  max-width: 100%;
   padding: 8px 12px;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   font-size: 13px;
   background: #fff;
   outline: none;
+  box-sizing: border-box;
+  text-overflow: ellipsis;
 }
 .prompt-select:focus {
   border-color: rgb(var(--v-theme-primary));
@@ -1207,18 +1316,25 @@ onMounted(async () => {
 
 .prompt-textarea {
   width: 100%;
-  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   padding: 12px;
   font-size: 12px;
   line-height: 1.5;
-  font-family: 'Roboto Mono', monospace;
+  font-family: 'Roboto Mono', 'Menlo', monospace;
   resize: none;
   outline: none;
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: auto;
+  background: #fafafa;
 }
 .prompt-textarea:focus {
   border-color: rgb(var(--v-theme-primary));
+  background: #fff;
 }
 
 /* Cursor pointer helper */
@@ -1257,6 +1373,8 @@ onMounted(async () => {
   padding: 8px;
   overflow-y: auto;
   min-height: 80px;
+  background: #fafafa;
+  word-break: break-word;
 }
 .prompt-agent-msg {
   padding: 4px 8px;
@@ -1347,5 +1465,11 @@ onMounted(async () => {
   .msg-bubble {
     max-width: 85%;
   }
+}
+
+.prompt-mobile-sheet {
+  height: 70dvh;
+  display: flex;
+  flex-direction: column;
 }
 </style>

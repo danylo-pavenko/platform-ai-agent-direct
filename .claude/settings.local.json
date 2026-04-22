@@ -80,7 +80,10 @@
       "Bash(git pull *)",
       "Bash(claude --version)",
       "Bash(pm2 log *)",
-      "Bash(git rebase *)"
+      "Bash(git rebase *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(pkill -f 'vite')",
+      "Bash(git *)"
     ]
   },
   "enabledMcpjsonServers": [
