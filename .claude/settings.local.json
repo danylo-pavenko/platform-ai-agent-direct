@@ -84,7 +84,10 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(pkill -f 'vite')",
       "Bash(git *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "Bash(echo \"BACKEND_EXIT=$?\")",
+      "Bash(echo \"ADMIN_EXIT=$?\")",
+      "Bash(echo \"BUILD_EXIT=$?\")"
     ]
   },
   "enabledMcpjsonServers": [

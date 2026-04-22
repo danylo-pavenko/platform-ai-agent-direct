@@ -165,7 +165,13 @@ export async function importRecentIgConversations(
   firstUrl.searchParams.set('limit', String(pageSize));
   firstUrl.searchParams.set('access_token', accessToken);
 
+  log.info(
+    { ownIgUserId, target, pageSize },
+    'Starting IG conversations fetch',
+  );
+
   let nextUrl: string | null = firstUrl.toString();
+  let pageCount = 0;
 
   while (nextUrl && threads.length < target) {
     const pageRes: Response = await fetch(nextUrl, {
@@ -174,19 +180,39 @@ export async function importRecentIgConversations(
 
     if (!pageRes.ok) {
       const body = await pageRes.text().catch(() => '');
+      log.error(
+        { status: pageRes.status, body: body.slice(0, 500) },
+        'IG conversations list returned non-OK',
+      );
       throw new Error(
         `Instagram API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
       );
     }
 
     const pageData = (await pageRes.json()) as IgConversationListResponse;
+    pageCount++;
     threads.push(...(pageData.data ?? []));
+    // Log the first page in detail so we can diagnose "0 conversations"
+    // (empty mailbox vs participants shape mismatch vs pending requests).
+    if (pageCount === 1) {
+      log.info(
+        {
+          returned: pageData.data?.length ?? 0,
+          hasNext: !!pageData.paging?.next,
+          sample: pageData.data?.slice(0, 2),
+        },
+        'IG conversations first page',
+      );
+    }
     nextUrl = pageData.paging?.next ?? null;
   }
 
   if (threads.length > target) threads.length = target;
 
-  log.info({ count: threads.length, target }, 'Fetched recent IG conversations');
+  log.info(
+    { count: threads.length, target, pageCount },
+    'Fetched recent IG conversations',
+  );
 
   const result: ImportRecentResult = {
     conversationsImported: 0,

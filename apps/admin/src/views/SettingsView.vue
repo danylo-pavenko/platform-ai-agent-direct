@@ -26,6 +26,33 @@
           >
             {{ runtimeMode === 'public' ? 'Public — відповідає всім' : 'Debug — лише whitelist' }}
           </v-chip>
+          <v-chip
+            v-if="runtimeSaveState === 'saving'"
+            size="small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-content-save-outline"
+          >
+            Зберігаю…
+          </v-chip>
+          <v-chip
+            v-else-if="runtimeSaveState === 'saved'"
+            size="small"
+            color="success"
+            variant="tonal"
+            prepend-icon="mdi-check"
+          >
+            Збережено
+          </v-chip>
+          <v-chip
+            v-else-if="runtimeSaveState === 'error'"
+            size="small"
+            color="error"
+            variant="tonal"
+            prepend-icon="mdi-alert-circle-outline"
+          >
+            Помилка збереження
+          </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
           Керує тим, з ким бот спілкуватиметься в реальному Instagram.
@@ -135,7 +162,33 @@
           </div>
 
           <v-alert
-            v-if="runtimeBackfillResult"
+            v-if="runtimeBackfillError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            {{ runtimeBackfillError }}
+          </v-alert>
+
+          <v-alert
+            v-if="runtimeBackfillResult && runtimeBackfillIsEmpty"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            Instagram повернув <strong>0 діалогів</strong> для цього акаунту. Можливі причини:
+            <ul class="pl-4 mt-1" style="line-height:1.7;">
+              <li>У цього IG-акаунту ще немає жодної DM-розмови.</li>
+              <li>Запити в директ сидять у <strong>Message Requests</strong> і не видимі в API, поки їх не прийняти в Instagram-додатку (Inbox → Requests → Accept).</li>
+              <li>Акаунт не є <strong>Business/Creator</strong> — у «Перевірити підключення» має бути <code>BUSINESS</code> або <code>CREATOR</code>.</li>
+              <li>OAuth був виконаний без <code>instagram_business_manage_messages</code> scope — повторіть авторизацію.</li>
+            </ul>
+          </v-alert>
+
+          <v-alert
+            v-else-if="runtimeBackfillResult"
             type="info"
             variant="tonal"
             density="compact"
@@ -949,7 +1002,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import api from '@/api';
 
 interface DaySchedule {
@@ -1242,6 +1295,12 @@ const debugWhitelistRaw = ref('');
 const runtimeBackfillLimit = ref<number>(200);
 const runtimeBackfillLoading = ref(false);
 const runtimeBackfillResult = ref<ImportRecentResult | null>(null);
+const runtimeBackfillIsEmpty = computed(
+  () =>
+    !!runtimeBackfillResult.value &&
+    runtimeBackfillResult.value.conversationsImported === 0 &&
+    runtimeBackfillResult.value.conversationsSkipped === 0,
+);
 
 const debugWhitelistParsed = computed<string[]>(() => {
   const seen = new Set<string>();
@@ -1256,10 +1315,13 @@ const debugWhitelistParsed = computed<string[]>(() => {
   return out;
 });
 
+const runtimeBackfillError = ref('');
+
 async function runRuntimeBackfill() {
   const limit = Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200));
   runtimeBackfillLoading.value = true;
   runtimeBackfillResult.value = null;
+  runtimeBackfillError.value = '';
   try {
     const { data } = await api.post<ImportRecentResult>(
       '/settings/meta/import-recent-conversations',
@@ -1267,11 +1329,49 @@ async function runRuntimeBackfill() {
     );
     runtimeBackfillResult.value = data;
   } catch (e: any) {
-    error.value = e.response?.data?.error ?? 'Не вдалося завантажити розмови';
+    runtimeBackfillError.value = e.response?.data?.error ?? 'Не вдалося завантажити розмови';
   } finally {
     runtimeBackfillLoading.value = false;
   }
 }
+
+// ── Runtime-mode autosave ───────────────────────────────────────────────────
+// Runtime mode (Public/Debug) is flipped often during testing, so we save
+// it immediately on any change instead of waiting for "Зберегти налаштування".
+// Debounce to 500ms so typing in the whitelist textarea doesn't spam the API.
+type RuntimeSaveState = 'idle' | 'saving' | 'saved' | 'error';
+const runtimeSaveState = ref<RuntimeSaveState>('idle');
+let runtimeSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let runtimeHydrated = false;
+
+async function saveRuntimeModeNow() {
+  runtimeSaveState.value = 'saving';
+  try {
+    await api.put('/settings', {
+      runtime_mode: {
+        mode: runtimeMode.value,
+        debugWhitelist: debugWhitelistParsed.value,
+        backfillLimit: Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200)),
+      },
+    });
+    runtimeSaveState.value = 'saved';
+    setTimeout(() => {
+      if (runtimeSaveState.value === 'saved') runtimeSaveState.value = 'idle';
+    }, 2000);
+  } catch {
+    runtimeSaveState.value = 'error';
+  }
+}
+
+function scheduleRuntimeSave() {
+  if (!runtimeHydrated) return;
+  if (runtimeSaveTimer) clearTimeout(runtimeSaveTimer);
+  runtimeSaveTimer = setTimeout(() => {
+    saveRuntimeModeNow();
+  }, 500);
+}
+
+watch([runtimeMode, debugWhitelistRaw, runtimeBackfillLimit], scheduleRuntimeSave);
 
 type AgentModeValue = 'sales' | 'leadgen';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
@@ -1398,6 +1498,7 @@ async function fetchSettings() {
     error.value = 'Не вдалося завантажити налаштування';
   } finally {
     loading.value = false;
+    runtimeHydrated = true;
   }
 }
 
