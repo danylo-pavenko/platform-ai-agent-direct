@@ -3,7 +3,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'instagram' });
 
-const IG_API_URL = 'https://graph.instagram.com/v21.0/me/messages';
+const IG_API_URL = 'https://graph.instagram.com/v25.0/me/messages';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 const SPLIT_DELAY_MS = 200;

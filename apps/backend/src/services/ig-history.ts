@@ -22,7 +22,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-history' });
 
-const IG_API_BASE = 'https://graph.instagram.com/v21.0';
+const IG_API_BASE = 'https://graph.instagram.com/v25.0';
 const MAX_IMPORT_MESSAGES = 200; // Safety cap - avoid flooding DB
 
 interface IgApiMessage {
@@ -230,20 +230,22 @@ function buildMessagesUrl(igConversationId: string, accessToken: string): string
 }
 
 /**
- * Gets our own Instagram user ID (used to distinguish our outgoing messages
- * from the client's incoming messages when importing history).
+ * Gets our own Instagram Professional Account ID (used to distinguish our
+ * outgoing messages from the client's incoming messages when importing
+ * history). Must use `user_id` field — `id` returns the app-scoped ID,
+ * which won't match participants.data[].id in conversations responses.
  */
 export async function getOwnIgUserId(accessToken: string): Promise<string> {
   try {
     const url = new URL(`${IG_API_BASE}/me`);
-    url.searchParams.set('fields', 'id');
+    url.searchParams.set('fields', 'user_id');
     url.searchParams.set('access_token', accessToken);
 
     const res = await fetch(url.toString(), { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return '';
 
-    const data = (await res.json()) as { id?: string };
-    return data.id ?? '';
+    const data = (await res.json()) as { user_id?: string; id?: string };
+    return data.user_id ?? data.id ?? '';
   } catch {
     return '';
   }

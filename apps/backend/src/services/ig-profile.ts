@@ -13,7 +13,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-profile' });
 
-const IG_GRAPH_BASE = 'https://graph.instagram.com/v21.0';
+const IG_GRAPH_BASE = 'https://graph.instagram.com/v25.0';
 
 // Fields we want from the user profile.
 // "name" = display name, "username" = @handle (without @).

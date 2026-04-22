@@ -15,7 +15,7 @@ import {
 const IG_AUTHORIZE_URL = 'https://www.instagram.com/oauth/authorize';
 const IG_TOKEN_SHORT_URL = 'https://api.instagram.com/oauth/access_token';
 const IG_TOKEN_LONG_URL = 'https://graph.instagram.com/access_token';
-const IG_GRAPH_BASE = 'https://graph.instagram.com/v21.0';
+const IG_GRAPH_BASE = 'https://graph.instagram.com/v25.0';
 
 // Scopes for a sales/messaging bot: read profile + read & send DMs.
 const IG_SCOPES = 'instagram_business_basic,instagram_business_manage_messages';
@@ -210,33 +210,51 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         ? new Date(Date.now() + expiresInSec * 1000).toISOString()
         : '';
 
-      // Step 3 — fetch /me to confirm identity (id + username + account_type)
+      // Step 3 — fetch /me with `user_id` field to get the canonical
+      // Instagram Professional Account ID (e.g. 17841456810522403). Meta's
+      // `/me?fields=id` returns an app-scoped ID (e.g. 27103…) which does
+      // NOT match webhook `entry.id` or `participants.data[].id`, so we
+      // MUST use `user_id`. We still read `id` as a debug fallback.
       const meUrl = new URL(`${IG_GRAPH_BASE}/me`);
-      meUrl.searchParams.set('fields', 'id,username,name,account_type');
+      meUrl.searchParams.set('fields', 'id,user_id,username,name,account_type');
       meUrl.searchParams.set('access_token', longToken);
 
       const meRes = await fetch(meUrl.toString());
       const meData = (await meRes.json()) as {
         id?: string;
+        user_id?: string;
         username?: string;
         name?: string;
         account_type?: string;
         error?: { message?: string };
       };
 
-      if (!meRes.ok || !meData.id) {
+      // Prefer user_id (IG Professional Account ID). Fall back to id only
+      // if Meta didn't return user_id for some reason.
+      const canonicalId = meData.user_id ?? meData.id;
+      if (!meRes.ok || !canonicalId) {
         throw new Error(
           meData.error?.message ?? `Failed to fetch IG account info: ${meRes.status}`,
         );
       }
 
-      const igUserId = String(meData.id);
+      const igUserId = String(canonicalId);
       const igUsername = meData.username ?? '';
 
-      // Step 4 — subscribe this IG account to webhook events.
+      app.log.info(
+        {
+          canonicalId,
+          alsoReturnedId: meData.id,
+          usedField: meData.user_id ? 'user_id' : 'id',
+        },
+        'IG /me identity resolved',
+      );
+
+      // Step 4 — subscribe this IG account to webhook events via /me/subscribed_apps.
+      // Using `me` keeps us independent of which ID format we'd have to pass.
       // Non-fatal: log a warning if it fails, user can still save and retry later.
       try {
-        const subUrl = new URL(`${IG_GRAPH_BASE}/${igUserId}/subscribed_apps`);
+        const subUrl = new URL(`${IG_GRAPH_BASE}/me/subscribed_apps`);
         subUrl.searchParams.set('subscribed_fields', WEBHOOK_FIELDS);
         subUrl.searchParams.set('access_token', longToken);
 

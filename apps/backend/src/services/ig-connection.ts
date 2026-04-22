@@ -14,7 +14,7 @@ import { fetchIgUserProfile } from './ig-profile.js';
 
 const log = pino({ name: 'ig-connection' });
 
-const IG_API_BASE = 'https://graph.instagram.com/v21.0';
+const IG_API_BASE = 'https://graph.instagram.com/v25.0';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +62,9 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
 
   try {
     const url = new URL(`${IG_API_BASE}/me`);
-    url.searchParams.set('fields', 'id,username,name,account_type');
+    // Request both id (app-scoped) and user_id (IG Professional Account ID).
+    // Webhook payloads use user_id, so that's the one we surface as "id".
+    url.searchParams.set('fields', 'id,user_id,username,name,account_type');
     url.searchParams.set('access_token', meta.igAccessToken);
 
     const res = await fetch(url.toString(), {
@@ -83,19 +85,21 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
 
     const data = (await res.json()) as {
       id?: string;
+      user_id?: string;
       username?: string;
       name?: string;
       account_type?: string;
     };
 
-    if (!data.id) {
+    const canonicalId = data.user_id ?? data.id;
+    if (!canonicalId) {
       return { connected: false, error: 'Не вдалося отримати IG user id' };
     }
 
     return {
       connected: true,
       igAccount: {
-        id: data.id,
+        id: canonicalId,
         username: data.username,
         name: data.name,
         accountType: data.account_type,
