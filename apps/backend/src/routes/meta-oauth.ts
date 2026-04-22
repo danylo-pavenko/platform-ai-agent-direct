@@ -328,6 +328,88 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * GET /settings/meta/debug
+   * Diagnostic: hits several Meta endpoints with the stored token and
+   * returns raw responses (status, selected headers, body) so we can
+   * see exactly what Instagram is saying without another deploy cycle.
+   * Secrets are NOT included in the response.
+   */
+  app.get('/meta/debug', { onRequest: [app.authenticate] }, async () => {
+    const { meta } = await getIntegrationConfig();
+    if (!meta.igAccessToken) {
+      return { error: 'Instagram access token не налаштовано' };
+    }
+
+    const probe = async (label: string, url: string) => {
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        const text = await res.text();
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+        const hdrs: Record<string, string> = {};
+        for (const h of [
+          'x-app-usage',
+          'x-business-use-case-usage',
+          'x-ad-account-usage',
+          'x-fb-trace-id',
+          'x-fb-rev',
+        ]) {
+          const v = res.headers.get(h);
+          if (v) hdrs[h] = v;
+        }
+        return {
+          label,
+          url: url.replace(meta.igAccessToken, '«TOKEN»'),
+          status: res.status,
+          headers: hdrs,
+          body: parsed ?? text.slice(0, 2000),
+        };
+      } catch (e: any) {
+        return {
+          label,
+          url: url.replace(meta.igAccessToken, '«TOKEN»'),
+          error: e.message ?? String(e),
+        };
+      }
+    };
+
+    const token = meta.igAccessToken;
+    const ig = meta.igUserId;
+
+    const results = await Promise.all([
+      probe(
+        '/me?fields=id,user_id,username,name,account_type',
+        `${IG_GRAPH_BASE}/me?fields=id,user_id,username,name,account_type&access_token=${encodeURIComponent(token)}`,
+      ),
+      probe(
+        '/me/conversations?platform=instagram&limit=3',
+        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants&access_token=${encodeURIComponent(token)}`,
+      ),
+      ig
+        ? probe(
+            `/${ig}/conversations?platform=instagram&limit=3`,
+            `${IG_GRAPH_BASE}/${ig}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants&access_token=${encodeURIComponent(token)}`,
+          )
+        : Promise.resolve({ label: `/{igUserId}/conversations`, error: 'igUserId missing' }),
+      probe(
+        '/me/subscribed_apps',
+        `${IG_GRAPH_BASE}/me/subscribed_apps?access_token=${encodeURIComponent(token)}`,
+      ),
+    ]);
+
+    return {
+      igUserId: meta.igUserId,
+      igUsername: meta.igUsername,
+      apiVersion: 'v25.0',
+      probes: results,
+    };
+  });
+
+  /**
    * POST /settings/meta/import-recent-conversations
    * Bulk-imports the last N Instagram conversations (default 20) into our DB.
    * Outgoing messages in threads with no bot history are classified as manager replies.

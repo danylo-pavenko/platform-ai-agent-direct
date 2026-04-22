@@ -173,7 +173,15 @@ async function findIgConversationId(
   igScopedUserId: string,
   accessToken: string,
 ): Promise<string | null> {
-  const url = new URL(`${IG_API_BASE}/me/conversations`);
+  // Use explicit IG Professional Account ID (if we already know it from
+  // opts.ownIgUserId in the caller) via /{IG_ID}/conversations. Falls back
+  // to /me/conversations when we don't have it yet — same code path but
+  // Meta may behave differently for the two.
+  const ownIgUserId = await getOwnIgUserId(accessToken);
+  const base = ownIgUserId
+    ? `${IG_API_BASE}/${ownIgUserId}/conversations`
+    : `${IG_API_BASE}/me/conversations`;
+  const url = new URL(base);
   url.searchParams.set('platform', 'instagram');
   url.searchParams.set('user_id', igScopedUserId);
   url.searchParams.set('fields', 'id');

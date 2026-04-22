@@ -153,7 +153,16 @@ export async function importRecentIgConversations(
     throw new Error('Instagram access token не налаштовано');
   }
 
-  const ownIgUserId = await getOwnIgUserId(accessToken);
+  // Prefer the explicit IG Professional Account ID stored during OAuth.
+  // `/me/conversations` can resolve to an app-scoped alias that silently
+  // returns empty threads (Meta docs mark /<IG_ID>/conversations as the
+  // canonical form).
+  const ownIgUserId = meta.igUserId || (await getOwnIgUserId(accessToken));
+  if (!ownIgUserId) {
+    throw new Error(
+      'Instagram User ID не відомий — повторіть «Авторизуватись через Instagram»',
+    );
+  }
 
   // IG Graph caps a single page at 50, but the caller may ask for more
   // (e.g. the 200-conversation Public-mode backfill). Paginate via `next`
@@ -163,14 +172,14 @@ export async function importRecentIgConversations(
 
   const threads: IgConversationListItem[] = [];
 
-  const firstUrl = new URL(`${IG_API_BASE}/me/conversations`);
+  const firstUrl = new URL(`${IG_API_BASE}/${ownIgUserId}/conversations`);
   firstUrl.searchParams.set('platform', 'instagram');
   firstUrl.searchParams.set('fields', 'id,updated_time,participants');
   firstUrl.searchParams.set('limit', String(pageSize));
   firstUrl.searchParams.set('access_token', accessToken);
 
   log.info(
-    { ownIgUserId, target, pageSize },
+    { ownIgUserId, target, pageSize, endpoint: `${ownIgUserId}/conversations` },
     'Starting IG conversations fetch',
   );
 

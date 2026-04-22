@@ -89,7 +89,10 @@
       "Bash(echo \"ADMIN_EXIT=$?\")",
       "Bash(echo \"BUILD_EXIT=$?\")",
       "mcp__context7__resolve-library-id",
-      "mcp__context7__query-docs"
+      "mcp__context7__query-docs",
+      "Bash(echo \"BE=$?\")",
+      "Bash(echo \"AD=$?\")",
+      "Bash(echo \"BUILD=$?\")"
     ]
   },
   "enabledMcpjsonServers": [

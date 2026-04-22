@@ -667,6 +667,16 @@
             >
               Завантажити останні 20 діалогів
             </v-btn>
+            <v-btn
+              size="small"
+              color="deep-purple"
+              variant="tonal"
+              prepend-icon="mdi-bug-outline"
+              :loading="igDebugLoading"
+              @click="runIgDebug"
+            >
+              Діагностика API
+            </v-btn>
 
             <v-chip
               v-if="igStatus?.connected"
@@ -742,6 +752,32 @@
             <span v-if="igImportResult.managerReplies > 0">
               Знайдено відповідей менеджера: <strong>{{ igImportResult.managerReplies }}</strong>.
             </span>
+          </v-alert>
+
+          <!-- Diagnostic output -->
+          <v-alert
+            v-if="igDebugResult"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mt-2"
+          >
+            <div class="font-weight-bold mb-1">Діагностика Meta API — {{ igDebugResult.apiVersion }}</div>
+            <div class="text-caption mb-2">
+              User: {{ igDebugResult.igUsername }} (ID: {{ igDebugResult.igUserId }})
+            </div>
+            <pre
+              style="
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-size: 11px;
+                background: rgba(0,0,0,0.04);
+                padding: 8px;
+                border-radius: 4px;
+                max-height: 600px;
+                overflow: auto;
+              "
+            >{{ JSON.stringify(igDebugResult.probes, null, 2) }}</pre>
           </v-alert>
         </v-card-text>
       </v-card>
@@ -1132,6 +1168,28 @@ const igStatus = ref<IgStatus | null>(null);
 const igStatusLoading = ref(false);
 const igImportLoading = ref(false);
 const igImportResult = ref<ImportRecentResult | null>(null);
+const igDebugLoading = ref(false);
+const igDebugResult = ref<{
+  igUserId?: string;
+  igUsername?: string;
+  apiVersion?: string;
+  probes: unknown[];
+} | null>(null);
+
+async function runIgDebug() {
+  igDebugLoading.value = true;
+  igDebugResult.value = null;
+  try {
+    const { data } = await api.get('/settings/meta/debug');
+    igDebugResult.value = data;
+  } catch (e: any) {
+    igDebugResult.value = {
+      probes: [{ error: e.response?.data?.error ?? e.message ?? 'Не вдалося виконати діагностику' }],
+    };
+  } finally {
+    igDebugLoading.value = false;
+  }
+}
 const igImportIsEmpty = computed(
   () =>
     !!igImportResult.value &&
