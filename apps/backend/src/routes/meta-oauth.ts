@@ -92,7 +92,10 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     url.searchParams.set('scope', IG_SCOPES);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('state', state);
-    url.searchParams.set('force_authentication', '1');
+    // Meta's documented param name is `force_reauth`. We previously used
+    // `force_authentication` which was silently ignored, so Instagram could
+    // serve cached consent on repeat authorizations.
+    url.searchParams.set('force_reauth', 'true');
 
     return { authUrl: url.toString() };
   });
