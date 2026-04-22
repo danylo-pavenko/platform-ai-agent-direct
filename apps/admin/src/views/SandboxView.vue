@@ -782,7 +782,7 @@ const CasesPanel = defineComponent({
         // List
         h(
           'div',
-          { class: 'flex-grow-1 overflow-y-auto' },
+          { class: 'cases-list flex-grow-1 overflow-y-auto pa-2' },
           cases.value.length === 0
             ? [
                 h('div', { class: 'pa-4 text-center text-body-2 text-grey' }, [
@@ -796,17 +796,20 @@ const CasesPanel = defineComponent({
                   {
                     key: c.id,
                     class: [
-                      'case-item pa-3 d-flex align-center ga-2 cursor-pointer',
+                      'case-card d-flex align-center ga-2 cursor-pointer',
                       selectedCaseId.value === c.id ? 'case-selected' : '',
                     ],
                     onClick: () => loadCaseToChat(c),
                   },
                   [
-                    h('div', { class: 'flex-grow-1' }, [
-                      h('div', { class: 'text-body-2 font-weight-medium text-truncate' }, c.name),
+                    h('div', { class: 'case-body flex-grow-1' }, [
+                      h('div', {
+                        class: 'case-name text-body-2 font-weight-medium',
+                        title: c.name,
+                      }, c.name),
                       h('div', { class: 'text-caption text-grey' }, `${c.messages.length} питань`),
                     ]),
-                    h('div', { class: 'd-flex align-center ga-1' }, [
+                    h('div', { class: 'case-actions d-flex align-center ga-1' }, [
                       h('button', {
                         class: 'case-action-btn',
                         title: 'Запустити прогонку',
@@ -1219,24 +1222,45 @@ onMounted(async () => {
 .cases-panel {
   min-height: 0;
 }
-.case-item {
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
-  transition: background-color 0.15s;
-  align-items: flex-start !important;
+.cases-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.case-item:hover {
-  background: rgba(var(--v-theme-primary), 0.04);
+.case-card {
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid rgba(var(--v-border-color), 0.18);
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s, transform 0.1s;
+  min-width: 0;
+  box-shadow: 0 1px 2px rgba(10, 37, 64, 0.04);
+}
+.case-card:hover {
+  border-color: rgba(var(--v-theme-primary), 0.35);
+  box-shadow: 0 2px 8px rgba(10, 37, 64, 0.08);
+}
+.case-card:active {
+  transform: translateY(1px);
 }
 .case-selected {
-  background: rgba(var(--v-theme-primary), 0.08);
+  border-color: rgb(var(--v-theme-primary));
+  background: rgba(var(--v-theme-primary), 0.05);
+  box-shadow: 0 2px 8px rgba(var(--v-theme-primary), 0.15);
 }
-.case-item :deep(.text-truncate) {
-  white-space: normal;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.case-body {
+  min-width: 0;
   overflow: hidden;
-  line-height: 1.3;
+}
+.case-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+  margin-bottom: 2px;
+}
+.case-actions {
+  flex-shrink: 0;
 }
 
 .new-chat-btn {
