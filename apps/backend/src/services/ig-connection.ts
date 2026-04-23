@@ -159,14 +159,18 @@ export async function importRecentIgConversations(
   }
 
   const target = Math.max(1, Math.min(500, limit));
-  const pageSize = Math.min(50, target);
+  // Facebook API returns ~2-3s per item when participants.username is requested.
+  // Use small pages (5) and only fetch participant IDs (no username lookup).
+  // Usernames are resolved separately via fetchIgUserProfile if needed.
+  const pageSize = Math.min(5, target);
 
   const threads: IgConversationListItem[] = [];
 
   const firstUrl = new URL(`${FB_GRAPH_BASE}/${pageId}/conversations`);
   firstUrl.searchParams.set('platform', 'instagram');
-  firstUrl.searchParams.set('fields', 'id,updated_time,participants');
+  firstUrl.searchParams.set('fields', 'id,updated_time,participants{id}');
   firstUrl.searchParams.set('limit', String(pageSize));
+  firstUrl.searchParams.set('sort', 'desc');
 
   log.info(
     { pageId, ownIgUserId, target, pageSize },
@@ -183,7 +187,7 @@ export async function importRecentIgConversations(
     stripped.searchParams.delete('access_token');
     const pageRes: Response = await fetch(stripped.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` },
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!pageRes.ok) {
@@ -227,8 +231,17 @@ export async function importRecentIgConversations(
 
   if (threads.length > target) threads.length = target;
 
+  // Facebook API returns the same thread multiple times (once per participant).
+  // Deduplicate by conversation ID before processing.
+  const seenIds = new Set<string>();
+  const uniqueThreads = threads.filter((t) => {
+    if (seenIds.has(t.id)) return false;
+    seenIds.add(t.id);
+    return true;
+  });
+
   log.info(
-    { count: threads.length, target, pageCount, emptyStreakDetected },
+    { raw: threads.length, unique: uniqueThreads.length, target, pageCount, emptyStreakDetected },
     'Fetched recent IG conversations',
   );
 
@@ -241,7 +254,7 @@ export async function importRecentIgConversations(
     conversations: [],
   };
 
-  for (const thread of threads) {
+  for (const thread of uniqueThreads) {
     const participants = thread.participants?.data ?? [];
 
     const counterparty = participants.find((p) => p.id !== ownIgUserId);
