@@ -42,11 +42,9 @@ const envSchema = z.object({
     .default('false')
     .transform((v) => v.toLowerCase() === 'true'),
 
-  // Instagram (API with Instagram Login — no Facebook Page needed)
-  INSTAGRAM_APP_ID: z.string().default(''),
-  INSTAGRAM_APP_SECRET: z.string().default(''),
-  IG_USER_ID: z.string().default(''),
-  IG_ACCESS_TOKEN: z.string().default(''),
+  // Facebook / Instagram (Facebook Login for Business — Page Access Token)
+  FACEBOOK_APP_ID: z.string().default(''),
+  FACEBOOK_APP_SECRET: z.string().default(''),
   IG_WEBHOOK_VERIFY_TOKEN: z.string().default('sb-verify-2026'),
 
   // Telegram

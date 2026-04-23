@@ -11,16 +11,15 @@ import {
   importRecentIgConversations,
 } from '../services/ig-connection.js';
 
-// ── Instagram Business Login endpoints ───────────────────────────────────────
-const IG_AUTHORIZE_URL = 'https://www.instagram.com/oauth/authorize';
-const IG_TOKEN_SHORT_URL = 'https://api.instagram.com/oauth/access_token';
-const IG_TOKEN_LONG_URL = 'https://graph.instagram.com/access_token';
-const IG_GRAPH_BASE = 'https://graph.instagram.com/v25.0';
+// ── Facebook Login for Business endpoints ────────────────────────────────────
+const FB_AUTHORIZE_URL = 'https://www.facebook.com/dialog/oauth';
+const FB_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
 
-// Scopes for a sales/messaging bot: read profile + read & send DMs.
-const IG_SCOPES = 'instagram_business_basic,instagram_business_manage_messages';
+// Scopes for Instagram Business messaging via Facebook Login.
+const FB_SCOPES = 'instagram_basic,instagram_manage_messages,pages_messaging,pages_read_engagement,pages_show_list,business_management';
 
-// Webhook fields we want the IG account subscribed to.
+// Webhook fields we want the Page subscribed to.
 const WEBHOOK_FIELDS = 'messages,messaging_postbacks,messaging_seen';
 
 // ── State store (in-memory, expires in 10 min) ───────────────────────────────
@@ -53,7 +52,7 @@ function buildPopupHtml(message: Record<string, unknown>): string {
   const json = JSON.stringify(message);
   return `<!DOCTYPE html>
 <html lang="uk">
-<head><meta charset="utf-8"><title>Instagram OAuth</title></head>
+<head><meta charset="utf-8"><title>Facebook OAuth</title></head>
 <body style="font-family:sans-serif;text-align:center;padding:40px;color:#555">
 <p>Обробляємо авторизацію...</p>
 <script>
@@ -73,38 +72,34 @@ function buildPopupHtml(message: Record<string, unknown>): string {
 export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
   /**
    * GET /settings/meta/oauth-init
-   * Authenticated. Returns the Instagram Business Login authorization URL.
+   * Authenticated. Returns the Facebook Login authorization URL.
    * App ID must already be saved in DB (appSecret is read in the callback).
    */
   app.get('/meta/oauth-init', { onRequest: [app.authenticate] }, async (_request, reply) => {
     const { meta } = await getIntegrationConfig();
 
-    if (!meta.instagramAppId) {
-      return reply.code(400).send({ error: 'Instagram App ID не налаштовано' });
+    if (!meta.facebookAppId) {
+      return reply.code(400).send({ error: 'Facebook App ID не налаштовано' });
     }
 
     const state = generateState();
     const redirectUri = `${getApiBaseUrl()}/settings/meta/oauth-callback`;
 
-    const url = new URL(IG_AUTHORIZE_URL);
-    url.searchParams.set('client_id', meta.instagramAppId);
+    const url = new URL(FB_AUTHORIZE_URL);
+    url.searchParams.set('client_id', meta.facebookAppId);
     url.searchParams.set('redirect_uri', redirectUri);
-    url.searchParams.set('scope', IG_SCOPES);
+    url.searchParams.set('scope', FB_SCOPES);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('state', state);
-    // Meta's documented param name is `force_reauth`. We previously used
-    // `force_authentication` which was silently ignored, so Instagram could
-    // serve cached consent on repeat authorizations.
-    url.searchParams.set('force_reauth', 'true');
 
     return { authUrl: url.toString() };
   });
 
   /**
    * GET /settings/meta/oauth-callback
-   * Public — Instagram redirects here after the user authorizes.
-   *   code → short-lived token → long-lived token (~60d)
-   *   → /me for profile → subscribe webhook → save to DB
+   * Public — Facebook redirects here after the user authorizes.
+   *   code → User Access Token → Page list → Page Access Token
+   *   → subscribe webhook → save pageId + pageAccessToken + igUserId to DB
    * Sends result to opener via postMessage and closes the popup.
    */
   app.get<{
@@ -145,11 +140,11 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { meta } = await getIntegrationConfig();
-    if (!meta.instagramAppId || !meta.instagramAppSecret) {
+    if (!meta.facebookAppId || !meta.facebookAppSecret) {
       return reply.send(
         buildPopupHtml({
           type: 'meta_oauth_error',
-          error: 'Instagram App ID / Secret не налаштовано - збережіть їх перед авторизацією',
+          error: 'Facebook App ID / Secret не налаштовано - збережіть їх перед авторизацією',
         }),
       );
     }
@@ -157,138 +152,114 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     const redirectUri = `${getApiBaseUrl()}/settings/meta/oauth-callback`;
 
     try {
-      // Step 1 — exchange code for short-lived token (~1 hour)
-      const shortForm = new URLSearchParams({
-        client_id: meta.instagramAppId,
-        client_secret: meta.instagramAppSecret,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-        code,
+      // Step 1 — exchange code for User Access Token
+      const tokenUrl = new URL(FB_TOKEN_URL);
+      tokenUrl.searchParams.set('client_id', meta.facebookAppId);
+      tokenUrl.searchParams.set('client_secret', meta.facebookAppSecret);
+      tokenUrl.searchParams.set('redirect_uri', redirectUri);
+      tokenUrl.searchParams.set('code', code);
+
+      const tokenRes = await fetch(tokenUrl.toString(), {
+        signal: AbortSignal.timeout(10_000),
       });
-
-      const shortRes = await fetch(IG_TOKEN_SHORT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: shortForm.toString(),
-      });
-
-      const shortData = (await shortRes.json()) as {
-        access_token?: string;
-        user_id?: number | string;
-        error_message?: string;
-        error_type?: string;
-      };
-
-      if (!shortRes.ok || !shortData.access_token) {
-        throw new Error(
-          shortData.error_message ?? `Short-token exchange failed: ${shortRes.status}`,
-        );
-      }
-
-      const shortToken: string = shortData.access_token;
-
-      // Step 2 — exchange for long-lived token (~60 days)
-      const longUrl = new URL(IG_TOKEN_LONG_URL);
-      longUrl.searchParams.set('grant_type', 'ig_exchange_token');
-      longUrl.searchParams.set('client_secret', meta.instagramAppSecret);
-      longUrl.searchParams.set('access_token', shortToken);
-
-      const longRes = await fetch(longUrl.toString());
-      const longData = (await longRes.json()) as {
+      const tokenData = (await tokenRes.json()) as {
         access_token?: string;
         token_type?: string;
         expires_in?: number;
         error?: { message?: string };
       };
 
-      if (!longRes.ok || !longData.access_token) {
+      if (!tokenRes.ok || !tokenData.access_token) {
         throw new Error(
-          longData.error?.message ?? `Long-token exchange failed: ${longRes.status}`,
+          tokenData.error?.message ?? `Token exchange failed: ${tokenRes.status}`,
         );
       }
 
-      const longToken: string = longData.access_token;
-      const expiresInSec = typeof longData.expires_in === 'number' ? longData.expires_in : 0;
-      const expiresAtIso = expiresInSec
-        ? new Date(Date.now() + expiresInSec * 1000).toISOString()
-        : '';
+      const userAccessToken = tokenData.access_token;
 
-      // Step 3 — fetch /me with `user_id` field to get the canonical
-      // Instagram Professional Account ID (e.g. 17841456810522403). Meta's
-      // `/me?fields=id` returns an app-scoped ID (e.g. 27103…) which does
-      // NOT match webhook `entry.id` or `participants.data[].id`, so we
-      // MUST use `user_id`. We still read `id` as a debug fallback.
-      const meUrl = new URL(`${IG_GRAPH_BASE}/me`);
-      meUrl.searchParams.set('fields', 'id,user_id,username,name,account_type');
+      // Step 2 — get Pages the user manages, with their Instagram Business Accounts.
+      // We need both the Page Access Token and the connected IG account ID.
+      const pagesUrl = new URL(`${FB_GRAPH_BASE}/me/accounts`);
+      pagesUrl.searchParams.set(
+        'fields',
+        'id,name,access_token,instagram_business_account{id,username,name}',
+      );
 
-      const meRes = await fetch(meUrl.toString(), {
-        headers: { Authorization: `Bearer ${longToken}` },
+      const pagesRes = await fetch(pagesUrl.toString(), {
+        headers: { Authorization: `Bearer ${userAccessToken}` },
+        signal: AbortSignal.timeout(10_000),
       });
-      const meData = (await meRes.json()) as {
-        id?: string;
-        user_id?: string;
-        username?: string;
-        name?: string;
-        account_type?: string;
+      const pagesData = (await pagesRes.json()) as {
+        data?: Array<{
+          id: string;
+          name: string;
+          access_token: string;
+          instagram_business_account?: { id: string; username?: string; name?: string };
+        }>;
         error?: { message?: string };
       };
 
-      // Prefer user_id (IG Professional Account ID). Fall back to id only
-      // if Meta didn't return user_id for some reason.
-      const canonicalId = meData.user_id ?? meData.id;
-      if (!meRes.ok || !canonicalId) {
+      if (!pagesRes.ok || !pagesData.data) {
         throw new Error(
-          meData.error?.message ?? `Failed to fetch IG account info: ${meRes.status}`,
+          pagesData.error?.message ?? `Failed to fetch pages: ${pagesRes.status}`,
         );
       }
 
-      const igUserId = String(canonicalId);
-      const igUsername = meData.username ?? '';
+      // Pick the first page that has a connected Instagram Business Account
+      const pageWithIg = pagesData.data.find((p) => p.instagram_business_account?.id);
+      if (!pageWithIg) {
+        throw new Error(
+          'Не знайдено Facebook Сторінку з підключеним Instagram Business акаунтом. ' +
+          'Переконайтесь що сторінка підключена до Instagram Business у Business Manager.',
+        );
+      }
+
+      const pageId = pageWithIg.id;
+      const pageAccessToken = pageWithIg.access_token;
+      const igUserId = pageWithIg.instagram_business_account!.id;
+      const igUsername = pageWithIg.instagram_business_account!.username ?? '';
+      const pageName = pageWithIg.name;
 
       app.log.info(
-        {
-          canonicalId,
-          alsoReturnedId: meData.id,
-          usedField: meData.user_id ? 'user_id' : 'id',
-        },
-        'IG /me identity resolved',
+        { pageId, pageName, igUserId, igUsername },
+        'Facebook OAuth: page + IG account resolved',
       );
 
-      // Step 4 — subscribe this IG account to webhook events via /me/subscribed_apps.
-      // Using `me` keeps us independent of which ID format we'd have to pass.
-      // Non-fatal: log a warning if it fails, user can still save and retry later.
+      // Step 3 — subscribe this Page to webhook events.
+      // Non-fatal: log a warning if it fails, user can retry via reconnect.
       try {
-        const subUrl = new URL(`${IG_GRAPH_BASE}/me/subscribed_apps`);
+        const subUrl = new URL(`${FB_GRAPH_BASE}/${pageId}/subscribed_apps`);
         subUrl.searchParams.set('subscribed_fields', WEBHOOK_FIELDS);
 
         const subRes = await fetch(subUrl.toString(), {
           method: 'POST',
-          headers: { Authorization: `Bearer ${longToken}` },
+          headers: { Authorization: `Bearer ${pageAccessToken}` },
+          signal: AbortSignal.timeout(10_000),
         });
         if (!subRes.ok) {
           const body = await subRes.text().catch(() => '');
           app.log.warn(
             { status: subRes.status, body: body.slice(0, 300) },
-            'IG webhook subscription failed (non-fatal)',
+            'Page webhook subscription failed (non-fatal)',
           );
         } else {
-          app.log.info({ igUserId }, 'IG webhook subscribed successfully');
+          app.log.info({ pageId }, 'Page webhook subscribed successfully');
         }
       } catch (subErr) {
-        app.log.warn({ err: subErr }, 'IG webhook subscription error (non-fatal)');
+        app.log.warn({ err: subErr }, 'Page webhook subscription error (non-fatal)');
       }
 
-      // Step 5 — persist tokens to DB so subsequent API calls work immediately.
-      // We merge into existing integration_meta to preserve appId/appSecret/verifyToken.
+      // Step 4 — persist to DB, merging into existing integration_meta to preserve
+      // facebookAppId / facebookAppSecret / verifyToken.
       const existing = await prisma.setting.findUnique({ where: { key: 'integration_meta' } });
       const existingData = (existing?.value ?? {}) as Record<string, unknown>;
 
       const merged = {
         ...existingData,
+        pageId,
+        pageAccessToken,
         igUserId,
         igUsername,
-        igAccessToken: longToken,
-        igTokenExpiresAt: expiresAtIso,
       };
 
       await prisma.setting.upsert({
@@ -300,24 +271,23 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       invalidateIntegrationConfigCache();
 
       app.log.info(
-        { igUserId, igUsername, expiresAtIso },
-        'Instagram OAuth completed and credentials saved',
+        { pageId, pageName, igUserId, igUsername },
+        'Facebook OAuth completed and credentials saved',
       );
 
       return reply.send(
         buildPopupHtml({
           type: 'meta_oauth_success',
           account: {
+            pageId,
+            pageName,
             igUserId,
             igUsername,
-            name: meData.name,
-            accountType: meData.account_type,
-            expiresAt: expiresAtIso,
           },
         }),
       );
     } catch (err: any) {
-      app.log.error({ err }, 'Instagram OAuth callback error');
+      app.log.error({ err }, 'Facebook OAuth callback error');
       return reply.send(
         buildPopupHtml({ type: 'meta_oauth_error', error: err.message ?? 'OAuth failed' }),
       );
@@ -326,8 +296,8 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * GET /settings/meta/status
-   * Verifies the saved IG access token is still valid and returns
-   * the Instagram Business/Creator account info.
+   * Verifies the saved Page Access Token is still valid and returns
+   * the connected Instagram Business account info.
    */
   app.get('/meta/status', { onRequest: [app.authenticate] }, async () => {
     return checkIgConnectionStatus();
@@ -335,19 +305,18 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
   /**
    * GET /settings/meta/debug
-   * Diagnostic: hits several Meta endpoints with the stored token and
-   * returns raw responses (status, selected headers, body) so we can
-   * see exactly what Instagram is saying without another deploy cycle.
-   * Secrets are NOT included in the response.
+   * Diagnostic: hits several Facebook/Instagram Graph API endpoints with the
+   * stored Page token and returns raw responses.
    */
   app.get('/meta/debug', { onRequest: [app.authenticate] }, async () => {
     const { meta } = await getIntegrationConfig();
-    if (!meta.igAccessToken) {
-      return { error: 'Instagram access token не налаштовано' };
+    if (!meta.pageAccessToken) {
+      return { error: 'Facebook авторизацію не виконано — натисніть «Авторизуватись через Facebook»' };
     }
 
-    const token = meta.igAccessToken;
-    const ig = meta.igUserId;
+    const token = meta.pageAccessToken;
+    const pageId = meta.pageId;
+    const igUserId = meta.igUserId;
 
     const probe = async (
       label: string,
@@ -376,13 +345,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
           parsed = null;
         }
         const hdrs: Record<string, string> = {};
-        for (const h of [
-          'x-app-usage',
-          'x-business-use-case-usage',
-          'x-ad-account-usage',
-          'x-fb-trace-id',
-          'x-fb-rev',
-        ]) {
+        for (const h of ['x-app-usage', 'x-business-use-case-usage', 'x-fb-trace-id', 'x-fb-rev']) {
           const v = res.headers.get(h);
           if (v) hdrs[h] = v;
         }
@@ -404,73 +367,44 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     };
 
-    // Request the app-scoped id from /me?fields=id so we can probe
-    // /{app_scoped_id}/conversations — Meta may resolve `me` differently
-    // than an explicit id.
-    let appScopedId = '';
-    try {
-      const meRes = await fetch(
-        `${IG_GRAPH_BASE}/me?fields=id`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (meRes.ok) {
-        const meJson = (await meRes.json()) as { id?: string };
-        appScopedId = meJson.id ?? '';
-      }
-    } catch {
-      /* ignore */
-    }
-
     const probes = await Promise.all([
-      // /me — identity
+      // Page info + connected IG account
       probe(
-        '/me?fields=id,user_id,username,name,account_type (Bearer)',
-        `${IG_GRAPH_BASE}/me?fields=id,user_id,username,name,account_type`,
+        '/me?fields=id,name,instagram_business_account (Bearer)',
+        `${FB_GRAPH_BASE}/me?fields=id,name,instagram_business_account{id,username,name}`,
       ),
-      // /me/conversations — all 3 auth/id variations
-      probe(
-        '/me/conversations?platform=instagram (Bearer)',
-        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
-      ),
-      probe(
-        '/me/conversations?platform=instagram (query token)',
-        `${IG_GRAPH_BASE}/me/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
-        { auth: 'query' },
-      ),
-      probe(
-        '/me/conversations WITHOUT platform (Bearer)',
-        `${IG_GRAPH_BASE}/me/conversations?limit=3&fields=id,updated_time,participants`,
-      ),
-      // /{professional_id}/conversations (17841…)
-      ig
+      // Conversations via pageId
+      pageId
         ? probe(
-            `/${ig}/conversations?platform=instagram (Bearer, professional id)`,
-            `${IG_GRAPH_BASE}/${ig}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
+            `/${pageId}/conversations?platform=instagram (Bearer)`,
+            `${FB_GRAPH_BASE}/${pageId}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
           )
-        : Promise.resolve({ label: '/{professional_id}/conversations', error: 'igUserId missing' }),
-      // /{app_scoped_id}/conversations (27103…)
-      appScopedId
+        : Promise.resolve({ label: 'conversations', error: 'pageId not set' }),
+      // Webhook subscriptions
+      pageId
         ? probe(
-            `/${appScopedId}/conversations?platform=instagram (Bearer, app-scoped id)`,
-            `${IG_GRAPH_BASE}/${appScopedId}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
+            `/${pageId}/subscribed_apps (Bearer)`,
+            `${FB_GRAPH_BASE}/${pageId}/subscribed_apps`,
           )
-        : Promise.resolve({ label: '/{app_scoped_id}/conversations', error: 'appScopedId missing' }),
-      // webhook subscriptions
-      probe(
-        '/me/subscribed_apps (Bearer)',
-        `${IG_GRAPH_BASE}/me/subscribed_apps`,
-      ),
+        : Promise.resolve({ label: 'subscribed_apps', error: 'pageId not set' }),
+      // IG account details
+      igUserId
+        ? probe(
+            `/${igUserId}?fields=id,username,name (Bearer)`,
+            `${FB_GRAPH_BASE}/${igUserId}?fields=id,username,name`,
+          )
+        : Promise.resolve({ label: 'ig_account', error: 'igUserId not set' }),
     ]);
 
-    // debug_token — shows actual scopes on the token
+    // debug_token — shows actual scopes on the page token
     let tokenDebug: unknown = null;
-    if (meta.instagramAppId && meta.instagramAppSecret) {
+    if (meta.facebookAppId && meta.facebookAppSecret) {
       try {
-        const appToken = `${meta.instagramAppId}|${meta.instagramAppSecret}`;
-        const debugUrl = new URL('https://graph.facebook.com/v25.0/debug_token');
+        const appToken = `${meta.facebookAppId}|${meta.facebookAppSecret}`;
+        const debugUrl = new URL('https://graph.facebook.com/v22.0/debug_token');
         debugUrl.searchParams.set('input_token', token);
         debugUrl.searchParams.set('access_token', appToken);
-        const dtRes = await fetch(debugUrl.toString());
+        const dtRes = await fetch(debugUrl.toString(), { signal: AbortSignal.timeout(8_000) });
         const dtText = await dtRes.text();
         try {
           tokenDebug = JSON.parse(dtText);
@@ -483,10 +417,10 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return {
-      igUserId: meta.igUserId,
-      appScopedId,
+      pageId,
+      igUserId,
       igUsername: meta.igUsername,
-      apiVersion: 'v25.0',
+      apiVersion: 'v22.0 (graph.facebook.com)',
       tokenDebug,
       probes,
     };
@@ -495,7 +429,6 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
   /**
    * POST /settings/meta/import-recent-conversations
    * Bulk-imports the last N Instagram conversations (default 20) into our DB.
-   * Outgoing messages in threads with no bot history are classified as manager replies.
    */
   app.post<{ Body: { limit?: number } }>(
     '/meta/import-recent-conversations',

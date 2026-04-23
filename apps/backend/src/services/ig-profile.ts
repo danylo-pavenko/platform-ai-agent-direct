@@ -1,11 +1,12 @@
 /**
  * ig-profile.ts
  *
- * Fetches Instagram user profile information via the IG Graph API.
+ * Fetches Instagram user profile information via the Facebook Graph API.
  * Called once when a new client first contacts us - gives us their
  * real name and @handle so Claude can address them properly.
  *
- * Endpoint: GET /{igsid}?fields=name,username&access_token={ig_access_token}
+ * Endpoint: GET /{igsid}?fields=name,username
+ * Auth: Page Access Token via Bearer header
  */
 
 import pino from 'pino';
@@ -13,15 +14,13 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-profile' });
 
-const IG_GRAPH_BASE = 'https://graph.instagram.com/v25.0';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
 
-// Fields we want from the user profile.
-// "name" = display name, "username" = @handle (without @).
 const PROFILE_FIELDS = 'name,username';
 
 export interface IgUserProfile {
-  name?: string;      // e.g. "Olena Kovalenko"
-  username?: string;  // e.g. "olena.kovalenko" (without @)
+  name?: string;
+  username?: string;
 }
 
 /**
@@ -29,25 +28,23 @@ export interface IgUserProfile {
  *
  * Returns null on any error - callers should treat a missing profile
  * as non-critical and continue with igUserId as the identifier.
- *
- * NOTE: Requires the Instagram account to have granted messaging permissions.
- * Profile data availability depends on the user's privacy settings.
  */
 export async function fetchIgUserProfile(
   igScopedUserId: string,
 ): Promise<IgUserProfile | null> {
   try {
     const { meta } = await getIntegrationConfig();
-    const url = new URL(`${IG_GRAPH_BASE}/${igScopedUserId}`);
+    if (!meta.pageAccessToken) return null;
+
+    const url = new URL(`${FB_GRAPH_BASE}/${igScopedUserId}`);
     url.searchParams.set('fields', PROFILE_FIELDS);
 
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${meta.igAccessToken}`,
+        Authorization: `Bearer ${meta.pageAccessToken}`,
       },
-      // Short timeout - profile fetch is best-effort, don't block message processing
       signal: AbortSignal.timeout(5_000),
     });
 
@@ -77,7 +74,6 @@ export async function fetchIgUserProfile(
 
     return profile;
   } catch (err) {
-    // AbortError means timeout - log as warn, not error
     const isTimeout = err instanceof Error && err.name === 'AbortError';
     (isTimeout ? log.warn : log.error)(
       { err, igScopedUserId },

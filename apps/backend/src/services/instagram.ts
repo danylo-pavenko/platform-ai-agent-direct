@@ -3,7 +3,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'instagram' });
 
-const IG_API_URL = 'https://graph.instagram.com/v25.0/me/messages';
+const IG_API_URL = 'https://graph.facebook.com/v22.0/me/messages';
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
 const SPLIT_DELAY_MS = 200;
@@ -12,8 +12,6 @@ const SPLIT_DELAY_MS = 200;
 
 async function callIgApi(body: object): Promise<unknown> {
   const { meta } = await getIntegrationConfig();
-  // Auth via Authorization: Bearer header per Meta's official Postman
-  // collection — the same format that works for sending messages with curl.
   const url = IG_API_URL;
 
   let lastError: Error | undefined;
@@ -31,7 +29,7 @@ async function callIgApi(body: object): Promise<unknown> {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${meta.igAccessToken}`,
+          Authorization: `Bearer ${meta.pageAccessToken}`,
         },
         body: JSON.stringify(body),
       });

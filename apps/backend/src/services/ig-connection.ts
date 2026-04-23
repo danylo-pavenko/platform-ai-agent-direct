@@ -2,19 +2,21 @@
  * ig-connection.ts
  *
  * Endpoints that operate on the Instagram integration as a whole:
- *   - connection status (is the page / token working?)
+ *   - connection status (is the Page token / IG account working?)
  *   - bulk import of recent IG conversations (for onboarding a new client)
+ *
+ * Uses Facebook Graph API with Page Access Token (Facebook Login for Business).
  */
 
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
-import { importIgConversationHistory, getOwnIgUserId } from './ig-history.js';
+import { importIgConversationHistory } from './ig-history.js';
 import { fetchIgUserProfile } from './ig-profile.js';
 
 const log = pino({ name: 'ig-connection' });
 
-const IG_API_BASE = 'https://graph.instagram.com/v25.0';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,26 +50,24 @@ export interface ImportRecentResult {
 // ── Connection status ────────────────────────────────────────────────────────
 
 /**
- * Verifies the configured IG access token is still valid and returns
- * the Instagram Business/Creator account info.
+ * Verifies the configured Page Access Token is still valid and returns
+ * the connected Instagram Business account info.
  *
- * Calls: GET /me?fields=id,username,name,account_type
+ * Calls: GET /me?fields=id,name,instagram_business_account{id,username,name}
  */
 export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
   const { meta } = await getIntegrationConfig();
 
-  if (!meta.igAccessToken) {
-    return { connected: false, error: 'Instagram access token не налаштовано' };
+  if (!meta.pageAccessToken) {
+    return { connected: false, error: 'Facebook авторизацію не виконано — натисніть «Авторизуватись через Facebook»' };
   }
 
   try {
-    const url = new URL(`${IG_API_BASE}/me`);
-    // Request both id (app-scoped) and user_id (IG Professional Account ID).
-    // Webhook payloads use user_id, so that's the one we surface as "id".
-    url.searchParams.set('fields', 'id,user_id,username,name,account_type');
+    const url = new URL(`${FB_GRAPH_BASE}/me`);
+    url.searchParams.set('fields', 'id,name,instagram_business_account{id,username,name}');
 
     const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${meta.igAccessToken}` },
+      headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
       signal: AbortSignal.timeout(8_000),
     });
 
@@ -79,30 +79,32 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       );
       return {
         connected: false,
-        error: `Instagram API: ${res.status} — ${body.slice(0, 160) || 'помилка'}`,
+        error: `Facebook API: ${res.status} — ${body.slice(0, 160) || 'помилка'}`,
       };
     }
 
     const data = (await res.json()) as {
       id?: string;
-      user_id?: string;
-      username?: string;
       name?: string;
-      account_type?: string;
+      instagram_business_account?: { id?: string; username?: string; name?: string };
+      error?: { message?: string };
     };
 
-    const canonicalId = data.user_id ?? data.id;
-    if (!canonicalId) {
-      return { connected: false, error: 'Не вдалося отримати IG user id' };
+    const igAccount = data.instagram_business_account;
+    if (!igAccount?.id) {
+      return {
+        connected: false,
+        error: 'Facebook Сторінку не підключено до Instagram Business акаунту',
+      };
     }
 
     return {
       connected: true,
       igAccount: {
-        id: canonicalId,
-        username: data.username,
-        name: data.name,
-        accountType: data.account_type,
+        id: igAccount.id,
+        username: igAccount.username,
+        name: igAccount.name,
+        accountType: 'BUSINESS',
       },
     };
   } catch (err) {
@@ -135,67 +137,48 @@ interface IgConversationListResponse {
 /**
  * Fetches the last `limit` IG conversations for the connected page and
  * imports their messages into our DB.
- *
- * For each thread:
- *   - finds the counterparty participant (not our page IG user)
- *   - upserts a Client (by igUserId) and Conversation
- *   - runs importIgConversationHistory to bring in the messages
- *   - 'out' messages are classified as 'manager' for conversations with no
- *      bot history (see ig-history.ts)
  */
 export async function importRecentIgConversations(
   limit: number = 20,
 ): Promise<ImportRecentResult> {
   const { meta } = await getIntegrationConfig();
-  const accessToken = meta.igAccessToken;
+  const accessToken = meta.pageAccessToken;
+  const pageId = meta.pageId;
+  const ownIgUserId = meta.igUserId;
 
   if (!accessToken) {
-    throw new Error('Instagram access token не налаштовано');
+    throw new Error('Facebook авторизацію не виконано');
   }
 
-  // Prefer the explicit IG Professional Account ID stored during OAuth.
-  // `/me/conversations` can resolve to an app-scoped alias that silently
-  // returns empty threads (Meta docs mark /<IG_ID>/conversations as the
-  // canonical form).
-  const ownIgUserId = meta.igUserId || (await getOwnIgUserId(accessToken));
+  if (!pageId) {
+    throw new Error('Page ID не відомий — повторіть «Авторизуватись через Facebook»');
+  }
+
   if (!ownIgUserId) {
-    throw new Error(
-      'Instagram User ID не відомий — повторіть «Авторизуватись через Instagram»',
-    );
+    throw new Error('Instagram User ID не відомий — повторіть «Авторизуватись через Facebook»');
   }
 
-  // IG Graph caps a single page at 50, but the caller may ask for more
-  // (e.g. the 200-conversation Public-mode backfill). Paginate via `next`
-  // cursor until we have enough threads or run out of history.
   const target = Math.max(1, Math.min(500, limit));
   const pageSize = Math.min(50, target);
 
   const threads: IgConversationListItem[] = [];
 
-  const firstUrl = new URL(`${IG_API_BASE}/${ownIgUserId}/conversations`);
+  const firstUrl = new URL(`${FB_GRAPH_BASE}/${pageId}/conversations`);
   firstUrl.searchParams.set('platform', 'instagram');
   firstUrl.searchParams.set('fields', 'id,updated_time,participants');
   firstUrl.searchParams.set('limit', String(pageSize));
 
   log.info(
-    { ownIgUserId, target, pageSize, endpoint: `${ownIgUserId}/conversations` },
-    'Starting IG conversations fetch',
+    { pageId, ownIgUserId, target, pageSize },
+    'Starting IG conversations fetch via Facebook Graph API',
   );
 
   let nextUrl: string | null = firstUrl.toString();
   let pageCount = 0;
-  // Safety cap: Meta's /me/conversations can return paging.next cursors
-  // that yield empty pages forever (e.g. when all threads sit in Message
-  // Requests and aren't visible via the API). Stop after 20 pages or the
-  // first empty page, whichever comes first.
   const MAX_PAGES = 20;
   let emptyStreakDetected = false;
 
   while (nextUrl && threads.length < target && pageCount < MAX_PAGES) {
-    // Meta's paging.next URL embeds access_token in the query, but when we
-    // originate the request ourselves we pass Bearer. For follow-up pages
-    // from paging.next we strip the leaked token param (safer) and fall
-    // back to Bearer.
     const stripped = new URL(nextUrl);
     stripped.searchParams.delete('access_token');
     const pageRes: Response = await fetch(stripped.toString(), {
@@ -210,7 +193,7 @@ export async function importRecentIgConversations(
         'IG conversations list returned non-OK',
       );
       throw new Error(
-        `Instagram API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
+        `Facebook API conversations list failed: ${pageRes.status} ${body.slice(0, 200)}`,
       );
     }
 
@@ -230,10 +213,6 @@ export async function importRecentIgConversations(
       );
     }
 
-    // If a page returns zero items, the remaining pages (if any) will almost
-    // certainly also be empty — Instagram's conversation API is known to
-    // emit phantom `next` cursors for accounts with only Message Requests.
-    // Break rather than following them to the timeout.
     if (pageItems.length === 0) {
       emptyStreakDetected = true;
       log.info(
@@ -249,13 +228,7 @@ export async function importRecentIgConversations(
   if (threads.length > target) threads.length = target;
 
   log.info(
-    {
-      count: threads.length,
-      target,
-      pageCount,
-      emptyStreakDetected,
-      reachedCap: pageCount >= MAX_PAGES,
-    },
+    { count: threads.length, target, pageCount, emptyStreakDetected },
     'Fetched recent IG conversations',
   );
 
@@ -271,7 +244,6 @@ export async function importRecentIgConversations(
   for (const thread of threads) {
     const participants = thread.participants?.data ?? [];
 
-    // Counterparty = first participant whose id != our own IG id
     const counterparty = participants.find((p) => p.id !== ownIgUserId);
     if (!counterparty?.id) {
       log.warn({ threadId: thread.id }, 'No counterparty found, skipping');
@@ -282,31 +254,19 @@ export async function importRecentIgConversations(
     const igUserId = counterparty.id;
 
     try {
-      // Upsert client (prefer IG profile data if Graph API returned it)
-      const existingClient = await prisma.client.findUnique({
-        where: { igUserId },
-      });
+      const existingClient = await prisma.client.findUnique({ where: { igUserId } });
 
       const profile =
         counterparty.username || counterparty.name
-          ? {
-              username: counterparty.username,
-              name: counterparty.name,
-            }
+          ? { username: counterparty.username, name: counterparty.name }
           : await fetchIgUserProfile(igUserId).catch(() => null);
 
       const client = await prisma.client.upsert({
         where: { igUserId },
         update: {
-          // Fill in missing profile fields only
-          igUsername:
-            existingClient?.igUsername || profile?.username || undefined,
-          igFullName: existingClient?.igFullName || profile?.name || undefined,
-          displayName:
-            existingClient?.displayName ||
-            profile?.name ||
-            profile?.username ||
-            undefined,
+          igUsername:  existingClient?.igUsername  || profile?.username || undefined,
+          igFullName:  existingClient?.igFullName  || profile?.name     || undefined,
+          displayName: existingClient?.displayName || profile?.name     || profile?.username || undefined,
           lastActivityAt: new Date(),
         },
         create: {
@@ -318,7 +278,6 @@ export async function importRecentIgConversations(
         },
       });
 
-      // Find or create an IG conversation row
       let conversation = await prisma.conversation.findFirst({
         where: {
           clientId: client.id,
@@ -332,15 +291,10 @@ export async function importRecentIgConversations(
 
       if (!conversation) {
         conversation = await prisma.conversation.create({
-          data: {
-            clientId: client.id,
-            channel: 'ig',
-            state: 'bot',
-          },
+          data: { clientId: client.id, channel: 'ig', state: 'bot' },
         });
       }
 
-      // Import messages
       const imp = await importIgConversationHistory(
         conversation.id,
         igUserId,
@@ -366,15 +320,11 @@ export async function importRecentIgConversations(
         managerReplies: imp.managerReplies,
       });
     } catch (err) {
-      log.error(
-        { err, threadId: thread.id, igUserId },
-        'Failed to import IG thread',
-      );
+      log.error({ err, threadId: thread.id, igUserId }, 'Failed to import IG thread');
       result.conversationsSkipped++;
     }
   }
 
   log.info(result, 'Recent IG conversations import complete');
-
   return result;
 }
