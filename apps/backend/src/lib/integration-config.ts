@@ -24,6 +24,7 @@ export interface IntegrationMeta {
   facebookAppSecret: string;
   pageId: string;
   pageAccessToken: string;
+  userAccessToken: string;
   igUserId: string;
   igUsername: string;
   verifyToken: string;
@@ -86,6 +87,7 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
       facebookAppSecret: config.FACEBOOK_APP_SECRET,   // env-only, never from DB
       pageId:            m.pageId            || '',
       pageAccessToken:   m.pageAccessToken   || '',
+      userAccessToken:   m.userAccessToken   || '',
       igUserId:          m.igUserId          || '',
       igUsername:        m.igUsername        || '',
       verifyToken:       config.IG_WEBHOOK_VERIFY_TOKEN, // env-only
@@ -117,7 +119,7 @@ export function invalidateIntegrationConfigCache(): void {
 
 /** Sensitive field names - masked as "••••••" in GET responses */
 export const SENSITIVE_FIELDS: Record<string, string[]> = {
-  integration_meta:        ['pageAccessToken'],
+  integration_meta:        ['pageAccessToken', 'userAccessToken'],
   integration_telegram:    ['botToken', 'adminPassword'],
   integration_keycrm:      ['apiKey'],
   integration_novaposhta:  ['apiKey'],

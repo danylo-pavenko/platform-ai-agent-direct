@@ -28,6 +28,10 @@ export interface IgConnectionStatus {
     name?: string;
     accountType?: string;
   };
+  business?: {
+    id: string;
+    name: string;
+  };
   error?: string;
 }
 
@@ -98,6 +102,26 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       };
     }
 
+    // Fetch business info to exercise business_management scope.
+    let business: IgConnectionStatus['business'];
+    if (meta.userAccessToken) {
+      try {
+        const bizUrl = new URL(`${FB_GRAPH_BASE}/me/businesses`);
+        bizUrl.searchParams.set('fields', 'id,name');
+        const bizRes = await fetch(bizUrl.toString(), {
+          headers: { Authorization: `Bearer ${meta.userAccessToken}` },
+          signal: AbortSignal.timeout(6_000),
+        });
+        if (bizRes.ok) {
+          const bizData = (await bizRes.json()) as { data?: Array<{ id: string; name: string }> };
+          const first = bizData.data?.[0];
+          if (first) business = { id: first.id, name: first.name };
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
     return {
       connected: true,
       igAccount: {
@@ -106,6 +130,7 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
         name: igAccount.name,
         accountType: 'BUSINESS',
       },
+      ...(business && { business }),
     };
   } catch (err) {
     const msg =

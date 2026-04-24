@@ -264,6 +264,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         ...existingData,
         pageId,
         pageAccessToken,
+        userAccessToken,
         igUserId,
         igUsername,
       };
