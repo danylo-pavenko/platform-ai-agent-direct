@@ -149,7 +149,7 @@ platform-ai-agent-direct/
 │   │   │   ├── sync-worker.ts          # KeyCRM sync (PM2: {ID}-sync)
 │   │   │   ├── config.ts               # Zod-validated env
 │   │   │   ├── routes/
-│   │   │   │   ├── webhooks.ts         # IG webhook receiver
+│   │   │   │   ├── webhooks.ts         # IG webhook + deauthorize callback
 │   │   │   │   ├── conversations.ts
 │   │   │   │   ├── prompts.ts
 │   │   │   │   ├── settings.ts         # incl. /nova-poshta/resolve-city
@@ -425,6 +425,8 @@ Replace with each tenant’s domains (e.g. `api.example.com` / `agent.example.co
 |---------|-----|
 | OAuth redirect (Facebook Login) | `https://{API_DOMAIN}/settings/meta/oauth-callback` |
 | Webhook (Instagram / messaging) | `https://{API_DOMAIN}/webhooks/instagram` |
+| Deauthorize callback (App Review required) | `https://{API_DOMAIN}/webhooks/deauthorize` |
+| Data deletion instructions (platform) | `https://direct-ai-agents.com/data-deletion` |
 
 Local dev: with `API_DOMAIN=localhost`, the redirect uses `http://localhost:{API_PORT}` (see `getApiBaseUrl()` in `apps/backend/src/routes/meta-oauth.ts`).
 
@@ -486,9 +488,12 @@ Your App Review submission should describe **one concrete use case** (e.g. custo
 
 1. `developers.facebook.com/apps` → your **client’s** App → **App Settings → Basic** → copy **App ID** / **App Secret** into `.env`.
 2. **App Settings → Basic → Add Platform → Website** → Site URL `https://{API_DOMAIN}` (or your chosen public URL).
-3. **Facebook Login for Business → Settings** → **Valid OAuth Redirect URIs** → `https://{API_DOMAIN}/settings/meta/oauth-callback`.
-4. **Instagram** (Webhooks) → **Callback URL** `https://{API_DOMAIN}/webhooks/instagram`, **Verify token** = `IG_WEBHOOK_VERIFY_TOKEN`.
-5. On the server: set `ADMIN_DOMAIN`, `API_DOMAIN`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN`, deploy, then complete **Meta** connection in the admin UI.
+3. **App Settings → Basic → Privacy Policy URL** → `https://direct-ai-agents.com/privacy-policy` · **Terms of Service URL** → `https://direct-ai-agents.com/terms`.
+4. **App Settings → Basic → Deauthorize Callback URL** → `https://{API_DOMAIN}/webhooks/deauthorize`.
+5. **App Settings → Basic → Data Deletion** → select **"Data deletion instructions URL"** → `https://direct-ai-agents.com/data-deletion`.
+6. **Facebook Login for Business → Settings** → **Valid OAuth Redirect URIs** → `https://{API_DOMAIN}/settings/meta/oauth-callback`.
+7. **Instagram** (Webhooks) → **Callback URL** `https://{API_DOMAIN}/webhooks/instagram`, **Verify token** = `IG_WEBHOOK_VERIFY_TOKEN`.
+8. On the server: set `ADMIN_DOMAIN`, `API_DOMAIN`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN`, deploy, then complete **Meta** connection in the admin UI.
 
 ---
 

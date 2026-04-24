@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { verifyIgSignature } from '../lib/ig-signature.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
@@ -145,6 +146,49 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     processWebhookEvents(app, body).catch((err) => {
       app.log.error({ err }, 'Failed to process Instagram webhook events');
     });
+  });
+
+  // ── POST: Meta deauthorize callback ──
+  // Called by Meta when a user removes the app from their Facebook account.
+  // Body is application/x-www-form-urlencoded with a signed_request field.
+
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (_req, body: string, done) => {
+      try {
+        const params = new URLSearchParams(body);
+        const parsed: Record<string, string> = {};
+        for (const [k, v] of params.entries()) parsed[k] = v;
+        done(null, parsed);
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
+
+  app.post<{ Body: Record<string, string> }>('/webhooks/deauthorize', async (request, reply) => {
+    const signedRequest = request.body?.signed_request;
+
+    if (!signedRequest) {
+      app.log.warn('Deauthorize webhook: missing signed_request');
+      return reply.code(400).send({ error: 'Bad Request' });
+    }
+
+    const { meta: igMeta } = await getIntegrationConfig();
+    const payload = verifySignedRequest(signedRequest, igMeta.facebookAppSecret);
+
+    if (!payload) {
+      app.log.warn('Deauthorize webhook: invalid signed_request signature');
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const userId = payload['user_id'] as string | undefined;
+    app.log.info({ facebookUserId: userId }, 'Meta deauthorize callback received');
+
+    // Respond 200 immediately — Meta requires a quick acknowledgement.
+    // Actual data cleanup (if needed) happens asynchronously.
+    return reply.code(200).send('OK');
   });
 }
 
@@ -430,4 +474,38 @@ async function processMessageEvent(
   ).catch((err) => {
     app.log.error({ err, conversationId: conversation.id }, 'Error in conversation handler');
   });
+}
+
+// ── Helpers ──
+
+/**
+ * Verify and decode a Meta signed_request parameter.
+ *
+ * Format: <base64url_sig>.<base64url_payload>
+ * Signature = HMAC-SHA256(base64url_payload, appSecret)
+ *
+ * Returns the decoded payload object, or null if verification fails.
+ */
+function verifySignedRequest(
+  signedRequest: string,
+  appSecret: string,
+): Record<string, unknown> | null {
+  const dot = signedRequest.indexOf('.');
+  if (dot === -1) return null;
+
+  const encodedSig = signedRequest.slice(0, dot);
+  const payload    = signedRequest.slice(dot + 1);
+
+  const sig      = Buffer.from(encodedSig, 'base64url');
+  const expected = createHmac('sha256', appSecret).update(payload).digest();
+
+  if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
