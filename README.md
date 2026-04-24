@@ -340,8 +340,10 @@ su - blessed
 
 # 1. Fill in credentials
 nano ~/platform-ai-agent-direct/.env
-# Set: META_APP_ID, META_APP_SECRET, IG_PAGE_ACCESS_TOKEN, IG_PAGE_ID
+# Set: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, IG_WEBHOOK_VERIFY_TOKEN
+# Set: ADMIN_DOMAIN, API_DOMAIN (this instance’s public hostnames)
 # Set: TELEGRAM_BOT_TOKEN, TELEGRAM_MANAGER_GROUP_ID
+# Instagram Page / IG user tokens are obtained via Admin → Settings → Meta (OAuth), not pasted manually.
 
 # 2. Authenticate Claude Code (one-time, opens browser)
 claude auth login
@@ -388,7 +390,7 @@ See `.env.example` for the full list. Key groups:
 | Identity | `INSTANCE_ID`, `INSTANCE_NAME`, `BRAND_NAME` |
 | Network | `API_PORT`, `ADMIN_PORT`, `ADMIN_DOMAIN`, `API_DOMAIN` |
 | Database | `DATABASE_URL` (separate DB per client) |
-| Instagram | `META_APP_*`, `IG_*` |
+| Instagram / Meta | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN` (+ tokens in DB after OAuth) |
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MANAGER_GROUP_ID`, `TELEGRAM_ADMIN_PASSWORD` |
 | Claude | `CLAUDE_MAX_CONCURRENCY`, `CLAUDE_TIMEOUT_MS`, `CLAUDE_MODEL` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRES_IN` |
@@ -396,6 +398,97 @@ See `.env.example` for the full list. Key groups:
 | Delivery | `NOVA_POSHTA_API_KEY` (or set via Admin → Settings) |
 
 Super Admin uses a separate `.env.super-admin` file.
+
+---
+
+## Meta (Facebook) Developer setup & App Review
+
+The backend uses **Facebook Login for Business** (not Instagram Basic Display). OAuth resolves a **Facebook Page** with a connected **Instagram Business** account, stores the **Page access token** and **IG user id** in the database, and subscribes the Page to webhook fields `messages`, `messaging_postbacks`, `messaging_seen`. Graph calls use **v22.0**.
+
+**Marketing / legal URLs (platform):**
+
+- Privacy Policy: [https://direct-ai-agents.com/privacy-policy.html](https://direct-ai-agents.com/privacy-policy.html)
+- Terms of Service: [https://direct-ai-agents.com/terms.html](https://direct-ai-agents.com/terms.html)
+
+**Per-client public hostnames** are driven by `.env` on that instance:
+
+| Variable | Example (Status Blessed) | Role |
+|----------|--------------------------|------|
+| `API_DOMAIN` | `api.status-blessed.com` | OAuth redirect + webhook URL host; must be HTTPS in production |
+| `ADMIN_DOMAIN` | `agent.status-blessed.com` | Vue admin origin (CORS) |
+
+Replace with each tenant’s domains (e.g. `api.example.com` / `agent.example.com`). The paths below are always the same.
+
+### URLs derived in code
+
+| Purpose | URL |
+|---------|-----|
+| OAuth redirect (Facebook Login) | `https://{API_DOMAIN}/settings/meta/oauth-callback` |
+| Webhook (Instagram / messaging) | `https://{API_DOMAIN}/webhooks/instagram` |
+
+Local dev: with `API_DOMAIN=localhost`, the redirect uses `http://localhost:{API_PORT}` (see `getApiBaseUrl()` in `apps/backend/src/routes/meta-oauth.ts`).
+
+### One Meta App per tenant vs shared App
+
+In the Meta dashboard, **each app has a single Instagram/Webhook callback URL**. Deployments that use **different** `API_DOMAIN` values therefore need **separate Meta apps** (one per isolated instance), *unless* you intentionally front multiple tenants behind **one** HTTPS API host. You can still add **multiple** entries under **Valid OAuth Redirect URIs** in one app for staging + production, but the **webhook callback** cannot point to two different production API domains at once.
+
+### App Settings → Basic
+
+1. **App ID** / **App Secret** → copy into this instance’s `.env` as `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET`.
+2. **App icon** — use a square **1024×1024** PNG (upload in Basic settings). A ready-made asset for this product lives at [`docs/branding/meta-app-icon-1024.png`](./docs/branding/meta-app-icon-1024.png).
+3. **Privacy Policy URL** / **Terms of Service URL** — use the platform links above (or the tenant’s own if you rebrand legally).
+4. **App domains** — typically your public web presence (e.g. `direct-ai-agents.com` and/or the tenant admin domain without `https://`). Follow Meta’s current validator hints if submission fails.
+5. **Add platform → Website** — set **Site URL** to this deployment’s public site. For an API-first instance, using the API origin is acceptable if that matches what you expose to Meta (example: `https://api.status-blessed.com`).
+
+### Facebook Login for Business → Settings
+
+Under **Valid OAuth Redirect URIs**, add one URI **per API host** this codebase uses (the host must match `API_DOMAIN` in `.env`):
+
+```text
+https://api.status-blessed.com/settings/meta/oauth-callback
+```
+
+For each new isolated deployment:
+
+```text
+https://{that-client-API_DOMAIN}/settings/meta/oauth-callback
+```
+
+The admin UI is served from `ADMIN_DOMAIN`; OAuth still redirects to the **API** origin above.
+
+### Instagram / Messenger products & Webhooks
+
+1. Subscribe to **Instagram** (and/or **Messenger** as required by your use case) per Meta’s product checklist.
+2. **Callback URL:** `https://{API_DOMAIN}/webhooks/instagram`
+3. **Verify token:** must exactly match `IG_WEBHOOK_VERIFY_TOKEN` in `.env` (same value you enter in the Meta webhook UI).
+4. Webhook **POST** bodies are verified with **HMAC SHA256** using `FACEBOOK_APP_SECRET`.
+
+Ensure the **Facebook Page** is linked to an **Instagram Business** profile in Business Manager (**Accounts → Instagram accounts**).
+
+### Permissions requested in code (App Review)
+
+These scopes are requested in [`apps/backend/src/routes/meta-oauth.ts`](./apps/backend/src/routes/meta-oauth.ts) — keep the dashboard **App Review** list in sync:
+
+| Permission | Purpose |
+|------------|---------|
+| `business_management` | Access business assets / accounts for Page–IG linking |
+| `pages_show_list` | List Pages the user manages (pick Page with IG) |
+| `pages_read_engagement` | Read Page content / engagement where needed |
+| `pages_messaging` | Page messaging (used with IG DM / subscribed webhook fields) |
+| `instagram_basic` | Basic Instagram profile metadata |
+| `instagram_manage_messages` | Send/receive Instagram Direct as the connected account |
+| `instagram_business_basic` | Business account basics |
+| `instagram_business_manage_messages` | Business IG message management |
+
+Your App Review submission should describe **one concrete use case** (e.g. customer support / sales automation in Instagram DM), with screen recordings from **Admin → Settings → Meta** and a live test user if Meta asks.
+
+### Quick copy-paste checklist (per client)
+
+1. `developers.facebook.com/apps` → your **client’s** App → **App Settings → Basic** → copy **App ID** / **App Secret** into `.env`.
+2. **App Settings → Basic → Add Platform → Website** → Site URL `https://{API_DOMAIN}` (or your chosen public URL).
+3. **Facebook Login for Business → Settings** → **Valid OAuth Redirect URIs** → `https://{API_DOMAIN}/settings/meta/oauth-callback`.
+4. **Instagram** (Webhooks) → **Callback URL** `https://{API_DOMAIN}/webhooks/instagram`, **Verify token** = `IG_WEBHOOK_VERIFY_TOKEN`.
+5. On the server: set `ADMIN_DOMAIN`, `API_DOMAIN`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN`, deploy, then complete **Meta** connection in the admin UI.
 
 ---
 

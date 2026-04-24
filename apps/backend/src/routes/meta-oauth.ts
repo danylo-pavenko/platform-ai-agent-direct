@@ -16,8 +16,17 @@ const FB_AUTHORIZE_URL = 'https://www.facebook.com/dialog/oauth';
 const FB_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token';
 const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
 
-// Scopes for Instagram Business messaging via Facebook Login.
-const FB_SCOPES = 'instagram_basic,instagram_manage_messages,pages_messaging,pages_read_engagement,pages_show_list,business_management';
+// Scopes for Instagram Business messaging via Facebook Login (align with App Review).
+const FB_SCOPES = [
+  'business_management',
+  'pages_show_list',
+  'pages_read_engagement',
+  'pages_messaging',
+  'instagram_basic',
+  'instagram_manage_messages',
+  'instagram_business_basic',
+  'instagram_business_manage_messages',
+].join(',');
 
 // Webhook fields we want the Page subscribed to.
 const WEBHOOK_FIELDS = 'messages,messaging_postbacks,messaging_seen';
