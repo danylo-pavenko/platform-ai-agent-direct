@@ -100,7 +100,7 @@
 
       <template #append>
         <v-divider class="mx-3" />
-        <div class="pa-3">
+        <div class="pa-3 pb-1">
           <v-btn
             block
             variant="tonal"
@@ -111,6 +111,15 @@
           >
             Вийти
           </v-btn>
+        </div>
+        <div class="sidebar-legal pa-3 pt-1">
+          <a href="https://direct-ai-agents.com/data-deletion" target="_blank" rel="noopener" class="legal-link">
+            Видалення даних
+          </a>
+          <span class="legal-sep">·</span>
+          <a href="https://direct-ai-agents.com/privacy-policy" target="_blank" rel="noopener" class="legal-link">
+            Приватність
+          </a>
         </div>
       </template>
     </v-navigation-drawer>
@@ -177,5 +186,28 @@ function onNavClick() {
   letter-spacing: 0.06em;
   color: #97a4b1;
   padding: 16px 20px 6px;
+}
+
+.sidebar-legal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.legal-link {
+  font-size: 10px;
+  color: #97a4b1;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+
+.legal-link:hover {
+  color: #596773;
+}
+
+.legal-sep {
+  font-size: 10px;
+  color: #c8d0d8;
 }
 </style>
