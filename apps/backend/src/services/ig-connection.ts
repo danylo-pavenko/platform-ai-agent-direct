@@ -16,7 +16,7 @@ import { fetchIgUserProfile } from './ig-profile.js';
 
 const log = pino({ name: 'ig-connection' });
 
-const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

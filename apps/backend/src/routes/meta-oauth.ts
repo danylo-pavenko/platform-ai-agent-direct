@@ -14,14 +14,13 @@ import {
 // ── Facebook Login for Business endpoints ────────────────────────────────────
 const FB_AUTHORIZE_URL = 'https://www.facebook.com/dialog/oauth';
 const FB_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token';
-const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 // Scopes for Instagram Business messaging via Facebook Login (align with App Review).
 const FB_SCOPES = [
   'business_management',
   'pages_show_list',
   'pages_read_engagement',
-  'pages_messaging',
   'instagram_basic',
   'instagram_manage_messages',
   'instagram_business_basic',
@@ -410,7 +409,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     if (meta.facebookAppId && meta.facebookAppSecret) {
       try {
         const appToken = `${meta.facebookAppId}|${meta.facebookAppSecret}`;
-        const debugUrl = new URL('https://graph.facebook.com/v22.0/debug_token');
+        const debugUrl = new URL('https://graph.facebook.com/v25.0/debug_token');
         debugUrl.searchParams.set('input_token', token);
         debugUrl.searchParams.set('access_token', appToken);
         const dtRes = await fetch(debugUrl.toString(), { signal: AbortSignal.timeout(8_000) });

@@ -22,7 +22,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 
 const log = pino({ name: 'ig-history' });
 
-const FB_GRAPH_BASE = 'https://graph.facebook.com/v22.0';
+const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 const MAX_IMPORT_MESSAGES = 200;
 
 interface IgApiMessage {
