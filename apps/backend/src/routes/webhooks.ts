@@ -190,6 +190,41 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     // Actual data cleanup (if needed) happens asynchronously.
     return reply.code(200).send('OK');
   });
+
+  // ── POST: Meta data deletion request callback ──
+  // Called by Meta's privacy tools when a user requests deletion of their data.
+  // Must respond with { url, confirmation_code } so Meta can show status to the user.
+  // Spec: https://developers.facebook.com/docs/development/create-an-app/app-dashboard/data-deletion-callback
+
+  app.post<{ Body: Record<string, string> }>('/webhooks/data-deletion', async (request, reply) => {
+    const signedRequest = request.body?.signed_request;
+
+    if (!signedRequest) {
+      app.log.warn('Data deletion webhook: missing signed_request');
+      return reply.code(400).send({ error: 'Bad Request' });
+    }
+
+    const { meta: igMeta } = await getIntegrationConfig();
+    const payload = verifySignedRequest(signedRequest, igMeta.facebookAppSecret);
+
+    if (!payload) {
+      app.log.warn('Data deletion webhook: invalid signed_request signature');
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+
+    const userId = payload['user_id'] as string | undefined;
+    const confirmationCode = `del_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    app.log.info({ facebookUserId: userId, confirmationCode }, 'Meta data deletion request received');
+
+    // Meta requires the response within 5 s.
+    // Actual per-user data lookup is async — we match by IGSID which differs from
+    // Facebook UID; full cleanup is handled via email (help@depsoftware.com).
+    return reply.code(200).send({
+      url: `https://direct-ai-agents.com/data-deletion?code=${confirmationCode}`,
+      confirmation_code: confirmationCode,
+    });
+  });
 }
 
 // ── Async event processing ──
