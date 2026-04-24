@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Terms of Service — Direct AI Agents</title>
+<meta name="description" content="Terms of Service for Direct AI Agents — AI-powered Instagram DM automation platform by DEP Software." />
+<link rel="canonical" href="https://direct-ai-agents.com/terms" />
+<meta name="robots" content="index, follow" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><rect x='1' y='1' width='30' height='30' fill='none' stroke='%23ffffff' stroke-width='1.5'/><circle cx='9' cy='9' r='2.8' fill='%23ffffff'/><circle cx='16' cy='16' r='2.8' fill='%23D42F2F'/><circle cx='23' cy='23' r='2.8' fill='%23ffffff'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000; --bg-2: #0A0A0A; --bg-3: #141414;
+    --ink: #FFFFFF; --ink-2: #CFCFCF; --ink-3: #8A8A8A; --ink-4: #4F4F4F;
+    --rule: #1C1C1C; --rule-2: #2A2A2A;
+    --red: #D42F2F; --red-2: #FF3B30;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; line-height: 1.6; letter-spacing: 0.01em; -webkit-font-smoothing: antialiased; }
+  body { background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.04) 0.8px, transparent 1px); background-size: 14px 14px; }
+  ::selection { background: var(--red); color: #fff; }
+  a { color: var(--red); text-decoration: none; }
+  a:hover { color: var(--red-2); }
+
+  .nav { position: sticky; top: 0; z-index: 80; background: rgba(0,0,0,0.82); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-bottom: 1px solid var(--rule); }
+  .nav-inner { display: flex; align-items: center; gap: 20px; height: 56px; max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+  .brand-mark { width: 24px; height: 24px; border: 1px solid var(--ink); display: grid; place-items: center; position: relative; }
+  .brand-mark::before, .brand-mark::after { content: ''; position: absolute; width: 3.5px; height: 3.5px; background: var(--ink); border-radius: 50%; }
+  .brand-mark::before { top: 5px; left: 5px; }
+  .brand-mark::after { bottom: 5px; right: 5px; }
+  .brand-mark span { width: 3.5px; height: 3.5px; background: var(--red); border-radius: 50%; }
+  .brand-name { font-size: 10px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+  .brand-name em { font-style: normal; color: var(--ink-3); }
+  .nav-back { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); }
+  .nav-back:hover { color: var(--ink); }
+  .nav-sep { color: var(--ink-4); font-size: 10px; }
+  .nav-ml { margin-left: auto; }
+  .lang { display: flex; border: 1px solid var(--rule-2); }
+  .lang button { padding: 5px 9px; font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase; border: 0; background: transparent; cursor: pointer; }
+  .lang button.active { background: var(--ink); color: var(--bg); }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .page-header { padding: 56px 0 40px; border-bottom: 1px solid var(--rule); margin-bottom: 48px; }
+  .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 16px; }
+  .page-title { font-size: clamp(28px, 5vw, 44px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 16px; }
+  .page-meta { font-size: 11px; color: var(--ink-3); letter-spacing: 0.1em; }
+
+  .content { padding-bottom: 80px; }
+  .toc { background: var(--bg-3); border: 1px solid var(--rule-2); padding: 24px 28px; margin-bottom: 48px; }
+  .toc h6 { font-size: 9.5px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 14px; }
+  .toc ol { margin: 0; padding-left: 20px; }
+  .toc li { font-size: 11.5px; color: var(--ink-3); line-height: 1.9; }
+  .toc a { color: var(--ink-2); }
+  .toc a:hover { color: var(--ink); }
+
+  .section { margin-bottom: 48px; }
+  .section-num { font-size: 9.5px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; }
+  h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; color: var(--ink); }
+  p { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; }
+  ul, ol { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .divider { border: none; border-top: 1px solid var(--rule); margin: 48px 0; }
+  .highlight-box { background: var(--bg-3); border-left: 2px solid var(--red); padding: 16px 20px; margin: 20px 0; }
+  .highlight-box p { margin: 0; font-size: 12px; }
+  strong { color: var(--ink); font-weight: 600; }
+
+  .contact-box { background: var(--bg-2); border: 1px solid var(--rule-2); padding: 28px 32px; margin-top: 48px; }
+  .contact-box h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 16px; }
+  .contact-row { display: flex; flex-direction: column; gap: 8px; }
+  .contact-item { font-size: 12px; color: var(--ink-3); }
+  .contact-item strong { color: var(--ink); }
+
+  .page-footer { border-top: 1px solid var(--rule); padding: 28px 0; }
+  .page-footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .footer-links a { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-4); }
+  .footer-links a:hover { color: var(--ink-3); }
+  .footer-copy { font-size: 10px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase; }
+
+  @media (max-width: 600px) {
+    .nav-inner { gap: 12px; }
+    .page-header { padding: 36px 0 28px; margin-bottom: 32px; }
+    .toc { padding: 18px 20px; }
+    .section { margin-bottom: 36px; }
+    .contact-box { padding: 20px 22px; }
+    .page-footer .wrap { flex-direction: column; align-items: flex-start; }
+    .footer-links { gap: 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="brand">
+      <span class="brand-mark"><span></span></span>
+      <span class="brand-name">Direct AI<em> / Agents</em></span>
+    </a>
+    <span class="nav-sep">·</span>
+    <a href="/" class="nav-back" data-i="back">← Назад</a>
+    <div class="nav-ml">
+      <div class="lang">
+        <button data-lang="uk" class="active">UK</button>
+        <button data-lang="en">EN</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- HEADER -->
+<div class="wrap">
+  <div class="page-header">
+    <div class="eyebrow" data-i="eyebrow">Юридично</div>
+    <h1 class="page-title" data-i="title">Умови користування</h1>
+    <div class="page-meta" data-i="meta">Набули чинності: 24 квітня 2026 р. · Компанія: DEP Software</div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="wrap">
+<div class="content">
+
+  <!-- TOC -->
+  <div class="toc">
+    <h6 data-i="toc_title">Зміст</h6>
+    <ol>
+      <li><a href="#s1" data-i="toc1">Сторони та предмет договору</a></li>
+      <li><a href="#s2" data-i="toc2">Як працює сервіс</a></li>
+      <li><a href="#s3" data-i="toc3">Умови доступу</a></li>
+      <li><a href="#s4" data-i="toc4">Обов'язки клієнта</a></li>
+      <li><a href="#s5" data-i="toc5">Заборонене використання</a></li>
+      <li><a href="#s6" data-i="toc6">Інтеграція з Meta / Instagram</a></li>
+      <li><a href="#s7" data-i="toc7">Дані та конфіденційність</a></li>
+      <li><a href="#s8" data-i="toc8">Оплата та тарифи</a></li>
+      <li><a href="#s9" data-i="toc9">Скасування та видалення даних</a></li>
+      <li><a href="#s10" data-i="toc10">Відмова від відповідальності</a></li>
+      <li><a href="#s11" data-i="toc11">Зміни в умовах</a></li>
+      <li><a href="#s12" data-i="toc12">Контакти</a></li>
+    </ol>
+  </div>
+
+  <div class="highlight-box">
+    <p data-i="intro_note"><strong>Коротко:</strong> Використовуючи Direct AI Agents, ви погоджуєтеся з цими Умовами. Платформа надає AI-агентів для Instagram DM на основі промптів та даних вашого бізнесу. Ви несете відповідальність за дотримання правил Meta та чинного законодавства у ваших ринках.</p>
+  </div>
+
+  <!-- SECTION 1 -->
+  <div class="section" id="s1">
+    <div class="section-num" data-i="s1_num">01</div>
+    <h2 data-i="s1_title">Сторони та предмет договору</h2>
+    <p data-i="s1_p1">Ці Умови користування (далі — «Умови») укладаються між <strong>DEP Software</strong> (розробник та власник платформи Direct AI Agents; CEO Данило Павенко; <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a>) та юридичною або фізичною особою, що реєструється на платформі або використовує сервіс (далі — «Клієнт»).</p>
+    <p data-i="s1_p2">Платформа <strong>Direct AI Agents</strong> (<a href="https://direct-ai-agents.com">direct-ai-agents.com</a>) — це SaaS-рішення, що надає AI-агентів для автоматизованого спілкування з клієнтами в Instagram Direct Messages. AI-агенти функціонують на основі системних промптів та джерел даних (каталог, FAQ, правила), які Клієнт надає самостійно.</p>
+    <p data-i="s1_p3">Реєструючись або використовуючи сервіс, ви підтверджуєте, що прочитали, зрозуміли та приймаєте ці Умови та <a href="/privacy-policy.html">Політику конфіденційності</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 2 -->
+  <div class="section" id="s2">
+    <div class="section-num" data-i="s2_num">02</div>
+    <h2 data-i="s2_title">Як працює сервіс</h2>
+    <p data-i="s2_p1">Direct AI Agents надає Клієнту ізольований AI-агент, що:</p>
+    <ul>
+      <li data-i="s2_l1">Підключається до Instagram-сторінки Клієнта через офіційний Meta Platform API (Facebook Login for Business).</li>
+      <li data-i="s2_l2">Отримує повідомлення від підписників через Webhooks Meta у реальному часі.</li>
+      <li data-i="s2_l3">Генерує відповіді на основі системного промпту та бази знань, наданих Клієнтом (каталог товарів, FAQ, tone of voice, правила ескалації).</li>
+      <li data-i="s2_l4">Надсилає відповіді від імені Instagram-сторінки Клієнта.</li>
+      <li data-i="s2_l5">Передає структуровані дані замовлень до CRM-системи Клієнта (за наявності інтеграції з KeyCRM або іншою системою).</li>
+      <li data-i="s2_l6">Ескалює складні або чутливі запити до менеджера Клієнта через Telegram-бот або іншими каналами.</li>
+    </ul>
+    <div class="highlight-box">
+      <p data-i="s2_note"><strong>AI-застереження:</strong> Відповіді AI-агента генеруються автоматично на основі наданих Клієнтом даних. DEP Software не несе відповідальності за зміст відповідей, якщо вони суперечать наданим Клієнтом промптам або даним. Клієнт несе повну відповідальність за налаштування агента та його відповідність чинному законодавству.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 3 -->
+  <div class="section" id="s3">
+    <div class="section-num" data-i="s3_num">03</div>
+    <h2 data-i="s3_title">Умови доступу</h2>
+    <ul>
+      <li data-i="s3_l1">Клієнт повинен бути повнолітнім і діяти як законний представник свого бізнесу.</li>
+      <li data-i="s3_l2">Клієнт повинен мати права адміністратора на Facebook-сторінці та пов'язаному Instagram-акаунті.</li>
+      <li data-i="s3_l3">Клієнт погоджується з умовами використання Meta Platform та Instagram.</li>
+      <li data-i="s3_l4">Пробний доступ (14 днів) доступний без введення платіжних даних. Після завершення триалу необхідно підключити тариф або доступ буде призупинено.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 4 -->
+  <div class="section" id="s4">
+    <div class="section-num" data-i="s4_num">04</div>
+    <h2 data-i="s4_title">Обов'язки клієнта</h2>
+    <ul>
+      <li data-i="s4_l1"><strong>Правдивість даних.</strong> Клієнт забезпечує точність промптів, каталогу та бази знань. Неточна інформація (ціни, наявність товарів, умови доставки) є відповідальністю Клієнта.</li>
+      <li data-i="s4_l2"><strong>Дотримання правил Meta.</strong> Клієнт зобов'язаний дотримуватися <a href="https://www.facebook.com/policies/commerce/" target="_blank" rel="noopener">Комерційної політики Facebook</a>, <a href="https://developers.facebook.com/policy/" target="_blank" rel="noopener">Політики платформи Meta</a> та умов Instagram.</li>
+      <li data-i="s4_l3"><strong>Конфіденційність кінцевих користувачів.</strong> Клієнт зобов'язаний інформувати своїх клієнтів про використання AI-агента (наприклад, у біографії Instagram або в першому повідомленні).</li>
+      <li data-i="s4_l4"><strong>Безпека облікового запису.</strong> Клієнт несе відповідальність за збереження облікових даних адміністративної панелі.</li>
+      <li data-i="s4_l5"><strong>Відповідність законодавству.</strong> Клієнт зобов'язаний дотримуватися законів про захист даних (GDPR та інших), законів про захист прав споживачів та рекламного законодавства.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 5 -->
+  <div class="section" id="s5">
+    <div class="section-num" data-i="s5_num">05</div>
+    <h2 data-i="s5_title">Заборонене використання</h2>
+    <p data-i="s5_intro">Забороняється використовувати Direct AI Agents для:</p>
+    <ul>
+      <li data-i="s5_l1">Розсилання спаму, небажаних рекламних повідомлень або масових повідомлень без згоди одержувачів.</li>
+      <li data-i="s5_l2">Продажу або просування товарів/послуг, що порушують законодавство або правила Meta (зброя, наркотики, дискримінаційні товари тощо).</li>
+      <li data-i="s5_l3">Введення кінцевих користувачів в оману щодо наявності людини-оператора без відповідного розкриття.</li>
+      <li data-i="s5_l4">Збору персональних даних кінцевих користувачів для цілей, не пов'язаних із наданою послугою.</li>
+      <li data-i="s5_l5">Будь-якої діяльності, що порушує чинне законодавство, права інтелектуальної власності або конфіденційність.</li>
+      <li data-i="s5_l6">Перепродажу або передачі доступу до платформи третім особам без письмової згоди DEP Software (крім White-Label агентств).</li>
+    </ul>
+    <p data-i="s5_note">Порушення може призвести до негайного призупинення або видалення акаунту без повернення коштів.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 6 -->
+  <div class="section" id="s6">
+    <div class="section-num" data-i="s6_num">06</div>
+    <h2 data-i="s6_title">Інтеграція з Meta / Instagram</h2>
+    <p data-i="s6_p1">Direct AI Agents використовує офіційний Meta Platform API для підключення до Instagram та Facebook. Для функціонування сервісу Клієнт надає нашому застосунку такі дозволи Meta:</p>
+    <ul>
+      <li data-i="s6_l1"><strong>instagram_manage_messages</strong> — для читання та надсилання DM.</li>
+      <li data-i="s6_l2"><strong>pages_messaging</strong> — для Messenger API.</li>
+      <li data-i="s6_l3"><strong>instagram_basic, pages_read_engagement, pages_manage_metadata</strong> — для підключення та управління Webhook.</li>
+    </ul>
+    <p data-i="s6_p2">Клієнт може відкликати ці дозволи в будь-який момент через налаштування Facebook/Instagram. Після відкликання дозволів агент припинить роботу. DEP Software не зберігає токени доступу довше, ніж це необхідно для надання сервісу.</p>
+    <p data-i="s6_p3">Доступність та функції Meta API можуть змінюватись відповідно до рішень Meta Platforms Inc. DEP Software не несе відповідальності за зміни в API, що впливають на роботу сервісу.</p>
+    <p data-i="s6_keycrm">Платформа підтримує інтеграцію з <strong>KeyCRM</strong> — CRM-системою з власною інтеграцією з Meta. При підключенні KeyCRM дані замовлень (товар, кількість, контакт, адреса) передаються безпосередньо до KeyCRM. Використання KeyCRM регулюється окремими умовами цього сервісу.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 7 -->
+  <div class="section" id="s7">
+    <div class="section-num" data-i="s7_num">07</div>
+    <h2 data-i="s7_title">Дані та конфіденційність</h2>
+    <p data-i="s7_p1">Обробка персональних даних регулюється нашою <a href="/privacy-policy.html">Політикою конфіденційності</a>, яка є невід'ємною частиною цих Умов.</p>
+    <p data-i="s7_p2">Клієнт виступає Контролером даних (Data Controller) стосовно персональних даних своїх клієнтів (кінцевих користувачів Instagram). DEP Software виступає Обробником даних (Data Processor) і обробляє такі дані виключно відповідно до інструкцій Клієнта.</p>
+    <p data-i="s7_p3">За запитом DEP Software підписує Угоду про обробку даних (DPA). Запити надсилати на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 8 -->
+  <div class="section" id="s8">
+    <div class="section-num" data-i="s8_num">08</div>
+    <h2 data-i="s8_title">Оплата та тарифи</h2>
+    <ul>
+      <li data-i="s8_l1"><strong>Пробний період:</strong> 14 днів безкоштовно, без введення платіжних даних.</li>
+      <li data-i="s8_l2"><strong>Тарифи:</strong> деталі доступні на сторінці <a href="/#pricing">Тарифи</a>. Ціни в EUR, виставляються щомісяця.</li>
+      <li data-i="s8_l3"><strong>Оплата:</strong> рахунки виставляються на початку кожного розрахункового місяця. Несплата протягом 7 днів призводить до призупинення акаунту.</li>
+      <li data-i="s8_l4"><strong>Повернення коштів:</strong> не здійснюється за вже оплачені місяці. Виключення можливі за рішенням DEP Software у разі задокументованих технічних проблем з боку платформи.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 9 -->
+  <div class="section" id="s9">
+    <div class="section-num" data-i="s9_num">09</div>
+    <h2 data-i="s9_title">Скасування та видалення даних</h2>
+    <ul>
+      <li data-i="s9_l1">Клієнт може скасувати підписку в будь-який час через адміністративну панель або надіслав запит на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.</li>
+      <li data-i="s9_l2">Після скасування доступ до платформи припиняється в кінці оплаченого місяця.</li>
+      <li data-i="s9_l3">Усі дані Клієнта (промпти, повідомлення, токени) видаляються протягом 30 днів після скасування.</li>
+      <li data-i="s9_l4">Клієнт може запросити експорт своїх даних у форматі CSV/JSON до видалення.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 10 -->
+  <div class="section" id="s10">
+    <div class="section-num" data-i="s10_num">10</div>
+    <h2 data-i="s10_title">Відмова від відповідальності</h2>
+    <ul>
+      <li data-i="s10_l1">DEP Software надає платформу «як є» (as-is). Ми не гарантуємо безперервну роботу сервісу, хоча прагнемо до 99.5% uptime.</li>
+      <li data-i="s10_l2">DEP Software не несе відповідальності за збитки, що виникли внаслідок: некоректних промптів або даних Клієнта; змін у Meta Platform API; дій третіх сторін (KeyCRM, Anthropic тощо); форс-мажорних обставин.</li>
+      <li data-i="s10_l3">Максимальна відповідальність DEP Software перед Клієнтом не перевищує суму, сплачену Клієнтом за останні 3 місяці.</li>
+      <li data-i="s10_l4">Клієнт несе повну відповідальність за відповідність своєї діяльності чинному законодавству та правилам Meta.</li>
+    </ul>
+    <div class="highlight-box">
+      <p data-i="s10_note"><strong>Щодо AI-відповідей:</strong> Direct AI Agents не несе відповідальності за юридичні наслідки відповідей, що генеруються AI-агентом, якщо вони ґрунтуються на інформації, наданій Клієнтом. Клієнт зобов'язаний перевіряти точність наданих агенту даних.</p>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 11 -->
+  <div class="section" id="s11">
+    <div class="section-num" data-i="s11_num">11</div>
+    <h2 data-i="s11_title">Зміни в умовах</h2>
+    <p data-i="s11_p1">DEP Software може оновлювати ці Умови. Про суттєві зміни Клієнт повідомляється електронною поштою не менше ніж за 14 днів до набуття чинності. Продовження використання сервісу після набуття чинності нових Умов означає їх прийняття.</p>
+    <p data-i="s11_p2">Ці Умови регулюються законодавством України. Спори вирішуються шляхом переговорів, а за їх неможливості — в судовому порядку за місцезнаходженням DEP Software.</p>
+  </div>
+
+  <hr class="divider">
+
+  <!-- SECTION 12 -->
+  <div class="section" id="s12">
+    <div class="section-num" data-i="s12_num">12</div>
+    <h2 data-i="s12_title">Контакти</h2>
+    <p data-i="s12_intro">З питань щодо цих Умов зверніться до нас:</p>
+    <div class="contact-box">
+      <h3 data-i="s12_box_title">DEP Software — Direct AI Agents</h3>
+      <div class="contact-row">
+        <div class="contact-item"><strong data-i="s12_support">Підтримка та загальні запити:</strong> <a href="mailto:help@depsoftware.com">help@depsoftware.com</a></div>
+        <div class="contact-item"><strong data-i="s12_ceo">Генеральний директор:</strong> Данило Павенко — <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a></div>
+        <div class="contact-item"><strong data-i="s12_web">Вебсайт:</strong> <a href="https://direct-ai-agents.com">direct-ai-agents.com</a></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- FOOTER -->
+<footer class="page-footer">
+  <div class="wrap">
+    <div class="footer-links">
+      <a href="/" data-i="foot_home">Головна</a>
+      <a href="/privacy-policy.html" data-i="foot_privacy">Конфіденційність</a>
+      <a href="/terms.html" data-i="foot_terms">Умови</a>
+    </div>
+    <span class="footer-copy">© 2026 DEP SOFTWARE · DIRECT AI AGENTS</span>
+  </div>
+</footer>
+
+<script>
+const I18N = {
+  uk: {
+    back: "← Назад",
+    eyebrow: "Юридично",
+    title: "Умови користування",
+    meta: "Набули чинності: 24 квітня 2026 р. · Компанія: DEP Software",
+    toc_title: "Зміст",
+    toc1: "Сторони та предмет договору",
+    toc2: "Як працює сервіс",
+    toc3: "Умови доступу",
+    toc4: "Обов'язки клієнта",
+    toc5: "Заборонене використання",
+    toc6: "Інтеграція з Meta / Instagram",
+    toc7: "Дані та конфіденційність",
+    toc8: "Оплата та тарифи",
+    toc9: "Скасування та видалення даних",
+    toc10: "Відмова від відповідальності",
+    toc11: "Зміни в умовах",
+    toc12: "Контакти",
+    intro_note: "<strong>Коротко:</strong> Використовуючи Direct AI Agents, ви погоджуєтеся з цими Умовами. Платформа надає AI-агентів для Instagram DM на основі промптів та даних вашого бізнесу. Ви несете відповідальність за дотримання правил Meta та чинного законодавства у ваших ринках.",
+    s1_num:"01", s1_title:"Сторони та предмет договору",
+    s1_p1: 'Ці Умови користування (далі — «Умови») укладаються між <strong>DEP Software</strong> (розробник та власник платформи Direct AI Agents; CEO Данило Павенко; <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a>) та юридичною або фізичною особою, що реєструється на платформі або використовує сервіс (далі — «Клієнт»).',
+    s1_p2: 'Платформа <strong>Direct AI Agents</strong> (<a href="https://direct-ai-agents.com">direct-ai-agents.com</a>) — це SaaS-рішення, що надає AI-агентів для автоматизованого спілкування з клієнтами в Instagram Direct Messages. AI-агенти функціонують на основі системних промптів та джерел даних (каталог, FAQ, правила), які Клієнт надає самостійно.',
+    s1_p3: 'Реєструючись або використовуючи сервіс, ви підтверджуєте, що прочитали, зрозуміли та приймаєте ці Умови та <a href="/privacy-policy.html">Політику конфіденційності</a>.',
+    s2_num:"02", s2_title:"Як працює сервіс",
+    s2_p1: "Direct AI Agents надає Клієнту ізольований AI-агент, що:",
+    s2_l1:"Підключається до Instagram-сторінки Клієнта через офіційний Meta Platform API (Facebook Login for Business).",
+    s2_l2:"Отримує повідомлення від підписників через Webhooks Meta у реальному часі.",
+    s2_l3:"Генерує відповіді на основі системного промпту та бази знань, наданих Клієнтом (каталог товарів, FAQ, tone of voice, правила ескалації).",
+    s2_l4:"Надсилає відповіді від імені Instagram-сторінки Клієнта.",
+    s2_l5:"Передає структуровані дані замовлень до CRM-системи Клієнта (за наявності інтеграції з KeyCRM або іншою системою).",
+    s2_l6:"Ескалує складні або чутливі запити до менеджера Клієнта через Telegram-бот або іншими каналами.",
+    s2_note: "<strong>AI-застереження:</strong> Відповіді AI-агента генеруються автоматично на основі наданих Клієнтом даних. DEP Software не несе відповідальності за зміст відповідей, якщо вони суперечать наданим Клієнтом промптам або даним. Клієнт несе повну відповідальність за налаштування агента та його відповідність чинному законодавству.",
+    s3_num:"03", s3_title:"Умови доступу",
+    s3_l1:"Клієнт повинен бути повнолітнім і діяти як законний представник свого бізнесу.",
+    s3_l2:"Клієнт повинен мати права адміністратора на Facebook-сторінці та пов'язаному Instagram-акаунті.",
+    s3_l3:"Клієнт погоджується з умовами використання Meta Platform та Instagram.",
+    s3_l4:"Пробний доступ (14 днів) доступний без введення платіжних даних. Після завершення триалу необхідно підключити тариф або доступ буде призупинено.",
+    s4_num:"04", s4_title:"Обов'язки клієнта",
+    s4_l1:"<strong>Правдивість даних.</strong> Клієнт забезпечує точність промптів, каталогу та бази знань. Неточна інформація (ціни, наявність товарів, умови доставки) є відповідальністю Клієнта.",
+    s4_l2:'<strong>Дотримання правил Meta.</strong> Клієнт зобов\'язаний дотримуватися <a href="https://www.facebook.com/policies/commerce/" target="_blank" rel="noopener">Комерційної політики Facebook</a>, <a href="https://developers.facebook.com/policy/" target="_blank" rel="noopener">Політики платформи Meta</a> та умов Instagram.',
+    s4_l3:"<strong>Конфіденційність кінцевих користувачів.</strong> Клієнт зобов'язаний інформувати своїх клієнтів про використання AI-агента (наприклад, у біографії Instagram або в першому повідомленні).",
+    s4_l4:"<strong>Безпека облікового запису.</strong> Клієнт несе відповідальність за збереження облікових даних адміністративної панелі.",
+    s4_l5:"<strong>Відповідність законодавству.</strong> Клієнт зобов'язаний дотримуватися законів про захист даних (GDPR та інших), законів про захист прав споживачів та рекламного законодавства.",
+    s5_num:"05", s5_title:"Заборонене використання",
+    s5_intro:"Забороняється використовувати Direct AI Agents для:",
+    s5_l1:"Розсилання спаму, небажаних рекламних повідомлень або масових повідомлень без згоди одержувачів.",
+    s5_l2:"Продажу або просування товарів/послуг, що порушують законодавство або правила Meta (зброя, наркотики, дискримінаційні товари тощо).",
+    s5_l3:"Введення кінцевих користувачів в оману щодо наявності людини-оператора без відповідного розкриття.",
+    s5_l4:"Збору персональних даних кінцевих користувачів для цілей, не пов'язаних із наданою послугою.",
+    s5_l5:"Будь-якої діяльності, що порушує чинне законодавство, права інтелектуальної власності або конфіденційність.",
+    s5_l6:"Перепродажу або передачі доступу до платформи третім особам без письмової згоди DEP Software (крім White-Label агентств).",
+    s5_note:"Порушення може призвести до негайного призупинення або видалення акаунту без повернення коштів.",
+    s6_num:"06", s6_title:"Інтеграція з Meta / Instagram",
+    s6_p1:"Direct AI Agents використовує офіційний Meta Platform API для підключення до Instagram та Facebook. Для функціонування сервісу Клієнт надає нашому застосунку такі дозволи Meta:",
+    s6_l1:"<strong>instagram_manage_messages</strong> — для читання та надсилання DM.",
+    s6_l2:"<strong>pages_messaging</strong> — для Messenger API.",
+    s6_l3:"<strong>instagram_basic, pages_read_engagement, pages_manage_metadata</strong> — для підключення та управління Webhook.",
+    s6_p2:"Клієнт може відкликати ці дозволи в будь-який момент через налаштування Facebook/Instagram. Після відкликання дозволів агент припинить роботу. DEP Software не зберігає токени доступу довше, ніж це необхідно для надання сервісу.",
+    s6_p3:"Доступність та функції Meta API можуть змінюватись відповідно до рішень Meta Platforms Inc. DEP Software не несе відповідальності за зміни в API, що впливають на роботу сервісу.",
+    s6_keycrm:'Платформа підтримує інтеграцію з <strong>KeyCRM</strong> — CRM-системою з власною інтеграцією з Meta. При підключенні KeyCRM дані замовлень (товар, кількість, контакт, адреса) передаються безпосередньо до KeyCRM. Використання KeyCRM регулюється окремими умовами цього сервісу.',
+    s7_num:"07", s7_title:"Дані та конфіденційність",
+    s7_p1:'Обробка персональних даних регулюється нашою <a href="/privacy-policy.html">Політикою конфіденційності</a>, яка є невід\'ємною частиною цих Умов.',
+    s7_p2:"Клієнт виступає Контролером даних (Data Controller) стосовно персональних даних своїх клієнтів (кінцевих користувачів Instagram). DEP Software виступає Обробником даних (Data Processor) і обробляє такі дані виключно відповідно до інструкцій Клієнта.",
+    s7_p3:'За запитом DEP Software підписує Угоду про обробку даних (DPA). Запити надсилати на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s8_num:"08", s8_title:"Оплата та тарифи",
+    s8_l1:"<strong>Пробний період:</strong> 14 днів безкоштовно, без введення платіжних даних.",
+    s8_l2:'<strong>Тарифи:</strong> деталі доступні на сторінці <a href="/#pricing">Тарифи</a>. Ціни в EUR, виставляються щомісяця.',
+    s8_l3:"<strong>Оплата:</strong> рахунки виставляються на початку кожного розрахункового місяця. Несплата протягом 7 днів призводить до призупинення акаунту.",
+    s8_l4:"<strong>Повернення коштів:</strong> не здійснюється за вже оплачені місяці. Виключення можливі за рішенням DEP Software у разі задокументованих технічних проблем з боку платформи.",
+    s9_num:"09", s9_title:"Скасування та видалення даних",
+    s9_l1:'Клієнт може скасувати підписку в будь-який час через адміністративну панель або надіслав запит на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s9_l2:"Після скасування доступ до платформи припиняється в кінці оплаченого місяця.",
+    s9_l3:"Усі дані Клієнта (промпти, повідомлення, токени) видаляються протягом 30 днів після скасування.",
+    s9_l4:"Клієнт може запросити експорт своїх даних у форматі CSV/JSON до видалення.",
+    s10_num:"10", s10_title:"Відмова від відповідальності",
+    s10_l1:"DEP Software надає платформу «як є» (as-is). Ми не гарантуємо безперервну роботу сервісу, хоча прагнемо до 99.5% uptime.",
+    s10_l2:"DEP Software не несе відповідальності за збитки, що виникли внаслідок: некоректних промптів або даних Клієнта; змін у Meta Platform API; дій третіх сторін (KeyCRM, Anthropic тощо); форс-мажорних обставин.",
+    s10_l3:"Максимальна відповідальність DEP Software перед Клієнтом не перевищує суму, сплачену Клієнтом за останні 3 місяці.",
+    s10_l4:"Клієнт несе повну відповідальність за відповідність своєї діяльності чинному законодавству та правилам Meta.",
+    s10_note:"<strong>Щодо AI-відповідей:</strong> Direct AI Agents не несе відповідальності за юридичні наслідки відповідей, що генеруються AI-агентом, якщо вони ґрунтуються на інформації, наданій Клієнтом. Клієнт зобов'язаний перевіряти точність наданих агенту даних.",
+    s11_num:"11", s11_title:"Зміни в умовах",
+    s11_p1:"DEP Software може оновлювати ці Умови. Про суттєві зміни Клієнт повідомляється електронною поштою не менше ніж за 14 днів до набуття чинності. Продовження використання сервісу після набуття чинності нових Умов означає їх прийняття.",
+    s11_p2:"Ці Умови регулюються законодавством України. Спори вирішуються шляхом переговорів, а за їх неможливості — в судовому порядку за місцезнаходженням DEP Software.",
+    s12_num:"12", s12_title:"Контакти",
+    s12_intro:"З питань щодо цих Умов зверніться до нас:",
+    s12_box_title:"DEP Software — Direct AI Agents",
+    s12_support:"Підтримка та загальні запити:",
+    s12_ceo:"Генеральний директор:",
+    s12_web:"Вебсайт:",
+    foot_home:"Головна", foot_privacy:"Конфіденційність", foot_terms:"Умови",
+  },
+  en: {
+    back: "← Home",
+    eyebrow: "Legal",
+    title: "Terms of Service",
+    meta: "Effective date: April 24, 2026 · Company: DEP Software",
+    toc_title: "Table of contents",
+    toc1: "Parties and subject matter",
+    toc2: "How the service works",
+    toc3: "Access requirements",
+    toc4: "Client obligations",
+    toc5: "Prohibited use",
+    toc6: "Meta / Instagram integration",
+    toc7: "Data and privacy",
+    toc8: "Payment and pricing",
+    toc9: "Cancellation and data deletion",
+    toc10: "Disclaimer of liability",
+    toc11: "Changes to terms",
+    toc12: "Contact",
+    intro_note: "<strong>In short:</strong> By using Direct AI Agents you agree to these Terms. The platform provides AI agents for Instagram DM based on your business prompts and data. You are responsible for compliance with Meta's rules and applicable law in your markets.",
+    s1_num:"01", s1_title:"Parties and subject matter",
+    s1_p1:'These Terms of Service (hereinafter «Terms») are entered into between <strong>DEP Software</strong> (developer and owner of the Direct AI Agents platform; CEO Danylo Pavenko; <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a>) and the legal entity or individual who registers on or uses the platform (hereinafter «Client»).',
+    s1_p2:'<strong>Direct AI Agents</strong> (<a href="https://direct-ai-agents.com">direct-ai-agents.com</a>) is a SaaS solution that provides AI agents for automated customer communication via Instagram Direct Messages. AI agents operate based on system prompts and data sources (catalog, FAQ, rules) supplied by the Client.',
+    s1_p3:'By registering or using the service you confirm that you have read, understood, and accept these Terms and our <a href="/privacy-policy.html">Privacy Policy</a>.',
+    s2_num:"02", s2_title:"How the service works",
+    s2_p1:"Direct AI Agents provides the Client with an isolated AI agent that:",
+    s2_l1:"Connects to the Client's Instagram page via the official Meta Platform API (Facebook Login for Business).",
+    s2_l2:"Receives messages from followers via Meta Webhooks in real time.",
+    s2_l3:"Generates replies based on the system prompt and knowledge base supplied by the Client (product catalog, FAQ, tone of voice, escalation rules).",
+    s2_l4:"Sends replies on behalf of the Client's Instagram page.",
+    s2_l5:"Transfers structured order data to the Client's CRM (when KeyCRM or another integration is active).",
+    s2_l6:"Escalates complex or sensitive requests to the Client's manager via a Telegram bot or other channels.",
+    s2_note: "<strong>AI disclaimer:</strong> AI agent replies are generated automatically based on data supplied by the Client. DEP Software is not liable for reply content that contradicts the Client's prompts or data. The Client bears full responsibility for agent configuration and its compliance with applicable law.",
+    s3_num:"03", s3_title:"Access requirements",
+    s3_l1:"The Client must be of legal age and act as a lawful representative of their business.",
+    s3_l2:"The Client must hold admin rights on the Facebook page and the linked Instagram account.",
+    s3_l3:"The Client agrees to Meta Platform and Instagram terms of use.",
+    s3_l4:"A 14-day free trial is available without entering payment details. After the trial, a subscription is required or access will be suspended.",
+    s4_num:"04", s4_title:"Client obligations",
+    s4_l1:"<strong>Data accuracy.</strong> The Client ensures the accuracy of prompts, catalog, and knowledge base. Inaccurate information (prices, stock, delivery terms) is the Client's responsibility.",
+    s4_l2:'<strong>Meta compliance.</strong> The Client must comply with the <a href="https://www.facebook.com/policies/commerce/" target="_blank" rel="noopener">Facebook Commerce Policy</a>, <a href="https://developers.facebook.com/policy/" target="_blank" rel="noopener">Meta Platform Policy</a>, and Instagram terms.',
+    s4_l3:"<strong>End-user transparency.</strong> The Client must inform their customers about the use of an AI agent (e.g., in the Instagram bio or in the first message).",
+    s4_l4:"<strong>Account security.</strong> The Client is responsible for keeping their admin panel credentials secure.",
+    s4_l5:"<strong>Legal compliance.</strong> The Client must comply with data protection law (GDPR and others), consumer protection law, and advertising regulations.",
+    s5_num:"05", s5_title:"Prohibited use",
+    s5_intro:"It is prohibited to use Direct AI Agents for:",
+    s5_l1:"Sending spam, unsolicited promotional messages, or bulk messages without recipient consent.",
+    s5_l2:"Selling or promoting goods/services that violate law or Meta's rules (weapons, drugs, discriminatory products, etc.).",
+    s5_l3:"Misleading end users about the absence of a human operator without appropriate disclosure.",
+    s5_l4:"Collecting end-user personal data for purposes unrelated to the service.",
+    s5_l5:"Any activity that violates applicable law, intellectual property rights, or privacy.",
+    s5_l6:"Reselling or transferring platform access to third parties without written consent from DEP Software (excluding White-Label agencies).",
+    s5_note:"Violations may result in immediate account suspension or deletion without refund.",
+    s6_num:"06", s6_title:"Meta / Instagram integration",
+    s6_p1:"Direct AI Agents uses the official Meta Platform API to connect to Instagram and Facebook. The Client grants our application the following Meta permissions:",
+    s6_l1:"<strong>instagram_manage_messages</strong> — to read and send DMs.",
+    s6_l2:"<strong>pages_messaging</strong> — for Messenger API.",
+    s6_l3:"<strong>instagram_basic, pages_read_engagement, pages_manage_metadata</strong> — for connection and Webhook management.",
+    s6_p2:"The Client may revoke these permissions at any time via Facebook/Instagram settings. After revocation the agent will stop working. DEP Software does not retain access tokens longer than necessary to deliver the service.",
+    s6_p3:"Meta API availability and features may change at Meta Platforms Inc.'s discretion. DEP Software is not liable for API changes affecting service operation.",
+    s6_keycrm:'The platform supports integration with <strong>KeyCRM</strong> — a CRM with its own Meta Platform integration. When KeyCRM is connected, order data (item, quantity, contact, address) is sent directly to KeyCRM. KeyCRM use is governed by that service\'s separate terms.',
+    s7_num:"07", s7_title:"Data and privacy",
+    s7_p1:'Personal data processing is governed by our <a href="/privacy-policy.html">Privacy Policy</a>, which forms an integral part of these Terms.',
+    s7_p2:"The Client acts as the Data Controller for personal data of their customers (Instagram end users). DEP Software acts as the Data Processor and processes such data exclusively according to the Client's instructions.",
+    s7_p3:'On request, DEP Software will sign a Data Processing Agreement (DPA). Send requests to <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s8_num:"08", s8_title:"Payment and pricing",
+    s8_l1:"<strong>Free trial:</strong> 14 days free, no payment details required.",
+    s8_l2:'<strong>Pricing:</strong> details on the <a href="/#pricing">Pricing</a> page. Prices in EUR, billed monthly.',
+    s8_l3:"<strong>Billing:</strong> invoices are issued at the beginning of each billing month. Non-payment within 7 days results in account suspension.",
+    s8_l4:"<strong>Refunds:</strong> not issued for months already paid. Exceptions may be made at DEP Software's discretion in cases of documented platform-side technical failures.",
+    s9_num:"09", s9_title:"Cancellation and data deletion",
+    s9_l1:'The Client may cancel their subscription at any time through the admin panel or by sending a request to <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s9_l2:"After cancellation, access to the platform ceases at the end of the paid month.",
+    s9_l3:"All Client data (prompts, messages, tokens) is deleted within 30 days of cancellation.",
+    s9_l4:"The Client may request a data export in CSV/JSON format before deletion.",
+    s10_num:"10", s10_title:"Disclaimer of liability",
+    s10_l1:"DEP Software provides the platform «as is». We do not guarantee uninterrupted service availability, although we target 99.5% uptime.",
+    s10_l2:"DEP Software is not liable for losses arising from: inaccurate Client prompts or data; changes to the Meta Platform API; third-party actions (KeyCRM, Anthropic, etc.); force majeure events.",
+    s10_l3:"DEP Software's maximum liability to the Client shall not exceed the amount paid by the Client in the preceding 3 months.",
+    s10_l4:"The Client bears full responsibility for ensuring their activities comply with applicable law and Meta's rules.",
+    s10_note:"<strong>Regarding AI replies:</strong> Direct AI Agents is not liable for legal consequences of AI-generated replies that are based on information supplied by the Client. The Client must verify the accuracy of data provided to the agent.",
+    s11_num:"11", s11_title:"Changes to terms",
+    s11_p1:"DEP Software may update these Terms. For material changes Clients are notified by email at least 14 days before the changes take effect. Continued use of the service after new Terms take effect constitutes acceptance.",
+    s11_p2:"These Terms are governed by the laws of Ukraine. Disputes shall be resolved by negotiation, and if not possible, in court at DEP Software's place of registration.",
+    s12_num:"12", s12_title:"Contact",
+    s12_intro:"For questions about these Terms please contact us:",
+    s12_box_title:"DEP Software — Direct AI Agents",
+    s12_support:"Support and general enquiries:",
+    s12_ceo:"Chief Executive Officer:",
+    s12_web:"Website:",
+    foot_home:"Home", foot_privacy:"Privacy", foot_terms:"Terms",
+  }
+};
+
+function applyLang(lang) {
+  document.querySelectorAll("[data-i]").forEach(el => {
+    const k = el.getAttribute("data-i");
+    if (I18N[lang] && I18N[lang][k] != null) el.innerHTML = I18N[lang][k];
+  });
+  document.documentElement.setAttribute("lang", lang);
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("active", b.dataset.lang === lang));
+  localStorage.setItem("dal_lang", lang);
+}
+document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => applyLang(b.dataset.lang)));
+applyLang(localStorage.getItem("dal_lang") || "uk");
+</script>
+
+</body>
+</html>

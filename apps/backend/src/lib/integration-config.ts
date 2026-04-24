@@ -82,13 +82,13 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
 
   _cache = {
     meta: {
-      facebookAppId:     m.facebookAppId     || config.FACEBOOK_APP_ID,
-      facebookAppSecret: m.facebookAppSecret || config.FACEBOOK_APP_SECRET,
+      facebookAppId:     config.FACEBOOK_APP_ID,      // env-only, never from DB
+      facebookAppSecret: config.FACEBOOK_APP_SECRET,   // env-only, never from DB
       pageId:            m.pageId            || '',
       pageAccessToken:   m.pageAccessToken   || '',
       igUserId:          m.igUserId          || '',
       igUsername:        m.igUsername        || '',
-      verifyToken:       m.verifyToken       || config.IG_WEBHOOK_VERIFY_TOKEN,
+      verifyToken:       config.IG_WEBHOOK_VERIFY_TOKEN, // env-only
     },
     telegram: {
       botToken:        t.botToken         || config.TELEGRAM_BOT_TOKEN,
@@ -117,8 +117,11 @@ export function invalidateIntegrationConfigCache(): void {
 
 /** Sensitive field names - masked as "••••••" in GET responses */
 export const SENSITIVE_FIELDS: Record<string, string[]> = {
-  integration_meta:        ['facebookAppSecret', 'pageAccessToken'],
+  integration_meta:        ['pageAccessToken'],
   integration_telegram:    ['botToken', 'adminPassword'],
   integration_keycrm:      ['apiKey'],
   integration_novaposhta:  ['apiKey'],
 };
+
+/** Fields that must come from .env only — stripped from PUT /integrations requests */
+export const META_ENV_ONLY_FIELDS = ['facebookAppId', 'facebookAppSecret', 'verifyToken'];

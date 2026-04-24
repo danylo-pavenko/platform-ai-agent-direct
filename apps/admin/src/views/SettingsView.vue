@@ -500,86 +500,48 @@
             :prepend-icon="showMetaHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
             @click="showMetaHelp = !showMetaHelp"
           >
-            Де взяти ці дані? Натисни тут.
+            Як підключити Instagram? Натисни тут.
           </v-btn>
           <v-expand-transition>
             <v-alert v-if="showMetaHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
               <div class="font-weight-bold mb-2">Покрокова інструкція</div>
               <ol class="pl-4" style="line-height:1.8;">
                 <li>
-                  Відкрийте
-                  <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com/apps</a>
-                  → оберіть свій App → <strong>App Settings → Basic</strong>.
-                  Скопіюйте <strong>App ID</strong> і <strong>App Secret</strong>.
+                  Переконайтесь, що ваша <strong>Facebook Сторінка</strong> підключена до
+                  <strong>Instagram Business</strong> або <strong>Creator</strong> акаунту.
+                  Перевірити можна в <strong>Business Manager → Accounts → Instagram accounts</strong>
+                  або в налаштуваннях Facebook Сторінки → Instagram.
                 </li>
                 <li>
-                  В <strong>App Settings → Basic → Add Platform → Website</strong> вкажіть
-                  <code>https://api.status-blessed.com</code> і збережіть.
+                  Натисніть кнопку <strong>«Авторизуватись через Facebook»</strong> нижче.
+                  Відкриється вікно Facebook Login — надайте запитувані дозволи.
                 </li>
                 <li>
-                  В <strong>Facebook Login for Business → Settings → Valid OAuth Redirect URIs</strong>
-                  додайте: <code>{{ redirectUrl }}</code>
-                </li>
-                <li>
-                  В <strong>Products → Webhooks → Instagram</strong> вкажіть
-                  Callback URL <code>{{ webhookUrl }}</code> і Verify Token нижче.
-                </li>
-                <li>
-                  Переконайтесь що Facebook Сторінка підключена до Instagram Business акаунту
-                  в <strong>Business Manager → Accounts → Instagram accounts</strong>.
-                </li>
-                <li>
-                  Натисніть «Авторизуватись через Facebook» — авторизація відкриє Facebook Login,
-                  після чого Page ID, Page Access Token та Instagram User ID заповняться автоматично.
+                  Після авторизації <strong>Page ID</strong>, <strong>Access Token</strong>
+                  та <strong>Instagram User ID</strong> заповняться автоматично. Webhook підпишеться сам.
                 </li>
               </ol>
-              <div class="mt-2">
-                <a href="https://developers.facebook.com/docs/development/create-an-app/instagram-use-case" target="_blank" rel="noopener">
-                  Документація: Instagram use case (Facebook Login) →
-                </a>
+              <div class="mt-2 text-caption text-medium-emphasis">
+                Webhook URL: <code>{{ webhookUrl }}</code>
               </div>
             </v-alert>
           </v-expand-transition>
 
           <v-row dense>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.meta.facebookAppId"
-                label="Facebook App ID"
-                variant="outlined"
-                density="compact"
-                hide-details
-                placeholder="1653252955997185"
-              />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.meta.facebookAppSecret"
-                label="Facebook App Secret"
-                variant="outlined"
-                density="compact"
-                hide-details
-                :type="showSecrets.metaAppSecret ? 'text' : 'password'"
-                :append-inner-icon="showSecrets.metaAppSecret ? 'mdi-eye-off' : 'mdi-eye'"
-                @click:append-inner="showSecrets.metaAppSecret = !showSecrets.metaAppSecret"
-              />
-            </v-col>
-
             <!-- Facebook OAuth button -->
-            <v-col cols="12" class="pt-1 pb-0">
+            <v-col cols="12" class="pb-2">
               <v-btn
                 color="blue-darken-2"
                 variant="tonal"
-                size="small"
                 prepend-icon="mdi-facebook"
                 :loading="oauthLoading"
-                :disabled="!integrations.meta.facebookAppId || !integrations.meta.facebookAppSecret || oauthLoading"
+                :disabled="oauthLoading"
                 @click="startMetaOAuth"
               >
                 Авторизуватись через Facebook
               </v-btn>
-              <span class="text-caption text-medium-emphasis ml-2">
-                Заповнить Page ID, Access Token та Instagram User ID автоматично
+              <span class="text-caption text-medium-emphasis ml-3">
+                Надасть доступ до сторінки та Instagram — Page ID і токен заповняться самі
               </span>
             </v-col>
 
@@ -591,7 +553,7 @@
                 density="compact"
                 hide-details
                 readonly
-                placeholder="Заповниться після OAuth"
+                placeholder="Заповниться після авторизації"
               />
             </v-col>
             <v-col cols="12" sm="6">
@@ -602,7 +564,7 @@
                 density="compact"
                 hide-details
                 readonly
-                placeholder="Заповниться після OAuth"
+                placeholder="Заповниться після авторизації"
               />
             </v-col>
             <v-col cols="12" sm="6">
@@ -613,18 +575,8 @@
                 density="compact"
                 hide-details
                 readonly
-                placeholder="Заповниться після OAuth"
+                placeholder="Заповниться після авторизації"
                 prefix="@"
-              />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.meta.verifyToken"
-                label="Webhook Verify Token"
-                variant="outlined"
-                density="compact"
-                hide-details
-                placeholder="sb-verify-2026"
               />
             </v-col>
             <v-col v-if="integrations.meta.pageAccessToken" cols="12">
@@ -1077,13 +1029,10 @@ const success = ref(false);
 
 const integrations = ref({
   meta: {
-    facebookAppId: '',
-    facebookAppSecret: '',
     pageId: '',
     pageAccessToken: '',
     igUserId: '',
     igUsername: '',
-    verifyToken: '',
   },
   telegram: {
     botToken: '',
@@ -1102,8 +1051,6 @@ const integrations = ref({
 });
 
 const showSecrets = ref({
-  metaAppSecret: false,
-  metaToken: false,
   tgToken: false,
   tgPassword: false,
   keycrmKey: false,
@@ -1278,23 +1225,10 @@ function formatExpiresAt(iso: string): string {
 }
 
 async function startMetaOAuth() {
-  const appId = integrations.value.meta.facebookAppId.trim();
-  const appSecret = integrations.value.meta.facebookAppSecret.trim();
-  if (!appId || !appSecret || oauthLoading.value) return;
-
+  if (oauthLoading.value) return;
   oauthLoading.value = true;
 
   try {
-    // Save App ID + Secret to DB first so backend can use them in the callback
-    await api.put('/settings/integrations', {
-      integration_meta: {
-        facebookAppId: appId,
-        facebookAppSecret: appSecret,
-        verifyToken: integrations.value.meta.verifyToken,
-      },
-    });
-
-    // Get OAuth URL from backend
     const { data } = await api.get('/settings/meta/oauth-init');
 
     const popup = window.open(
@@ -1609,13 +1543,10 @@ async function fetchIntegrations() {
     const np = data.integration_novaposhta ?? {};
 
     integrations.value.meta = {
-      facebookAppId:     m.facebookAppId     ?? '',
-      facebookAppSecret: m.facebookAppSecret ?? '',
-      pageId:            m.pageId            ?? '',
-      pageAccessToken:   m.pageAccessToken   ?? '',
-      igUserId:          m.igUserId          ?? '',
-      igUsername:        m.igUsername        ?? '',
-      verifyToken:       m.verifyToken       ?? '',
+      pageId:          m.pageId          ?? '',
+      pageAccessToken: m.pageAccessToken ?? '',
+      igUserId:        m.igUserId        ?? '',
+      igUsername:      m.igUsername      ?? '',
     };
     integrations.value.telegram = {
       botToken:        t.botToken        ?? '',

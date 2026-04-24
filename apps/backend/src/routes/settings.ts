@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import {
   invalidateIntegrationConfigCache,
   SENSITIVE_FIELDS,
+  META_ENV_ONLY_FIELDS,
 } from '../lib/integration-config.js';
 import { invalidateAgentConfigCache } from '../lib/agent-config.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
@@ -95,11 +96,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       const data = row.value as Record<string, unknown>;
       const masked: Record<string, unknown> = { ...data };
       const sensitive = SENSITIVE_FIELDS[row.key] ?? [];
+      const envOnly = row.key === 'integration_meta' ? META_ENV_ONLY_FIELDS : [];
 
+      for (const field of envOnly) delete masked[field];
       for (const field of sensitive) {
-        if (masked[field]) {
-          masked[field] = '••••••';
-        }
+        if (masked[field]) masked[field] = '••••••';
       }
 
       result[row.key] = masked;
@@ -134,14 +135,18 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
       const merged: Record<string, unknown> = { ...existingData };
       const sensitive = SENSITIVE_FIELDS[key] ?? [];
+      const envOnly = key === 'integration_meta' ? META_ENV_ONLY_FIELDS : [];
 
       for (const [field, value] of Object.entries(incoming)) {
+        // Never store env-only fields in DB
+        if (envOnly.includes(field)) continue;
         // Skip masked placeholder - keep existing value
-        if (sensitive.includes(field) && value === '••••••') {
-          continue;
-        }
+        if (sensitive.includes(field) && value === '••••••') continue;
         merged[field] = value;
       }
+
+      // Clean up any previously stored env-only fields
+      for (const f of envOnly) delete merged[f];
 
       await prisma.setting.upsert({
         where: { key },
