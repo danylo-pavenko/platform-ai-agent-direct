@@ -98,7 +98,10 @@
       "mcp__playwright__browser_navigate",
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_evaluate",
-      "mcp__playwright__browser_resize"
+      "mcp__playwright__browser_resize",
+      "Bash(identify /Users/danylopavenko/Development/playground/status-blessed/platform-ai-agent-direct/docs/branding/meta-app-icon-1024.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/danylopavenko/Development/playground/status-blessed/platform-ai-agent-direct/docs/branding/meta-app-icon-1024.png)",
+      "Bash(sips *)"
     ]
   },
   "enabledMcpjsonServers": [
