@@ -23,8 +23,6 @@ const FB_SCOPES = [
   'pages_read_engagement',
   'instagram_basic',
   'instagram_manage_messages',
-  'instagram_business_basic',
-  'instagram_business_manage_messages',
 ].join(',');
 
 // Webhook fields we want the Page subscribed to.
