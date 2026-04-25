@@ -32,6 +32,7 @@ export interface IgConnectionStatus {
     id: string;
     name: string;
   };
+  conversationsCount?: number;
   error?: string;
 }
 
@@ -122,6 +123,27 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       }
     }
 
+    // Fetch recent conversations to exercise instagram_manage_messages scope.
+    let conversationsCount: number | undefined;
+    if (meta.pageId) {
+      try {
+        const convUrl = new URL(`${FB_GRAPH_BASE}/${meta.pageId}/conversations`);
+        convUrl.searchParams.set('platform', 'instagram');
+        convUrl.searchParams.set('limit', '5');
+        convUrl.searchParams.set('fields', 'id,updated_time');
+        const convRes = await fetch(convUrl.toString(), {
+          headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
+          signal: AbortSignal.timeout(6_000),
+        });
+        if (convRes.ok) {
+          const convData = (await convRes.json()) as { data?: unknown[] };
+          conversationsCount = convData.data?.length ?? 0;
+        }
+      } catch {
+        // non-fatal
+      }
+    }
+
     return {
       connected: true,
       igAccount: {
@@ -131,6 +153,7 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
         accountType: 'BUSINESS',
       },
       ...(business && { business }),
+      ...(conversationsCount !== undefined && { conversationsCount }),
     };
   } catch (err) {
     const msg =
