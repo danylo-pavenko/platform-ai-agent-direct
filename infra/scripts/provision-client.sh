@@ -168,12 +168,13 @@ CRM_PROVIDER=none
 KEYCRM_API_KEY=
 KEYCRM_SYNC_INTERVAL_MIN=30
 
-# ── Meta / Instagram ──
-META_APP_ID=
-META_APP_SECRET=
-IG_PAGE_ACCESS_TOKEN=
-IG_PAGE_ID=
+# ── Facebook / Instagram ──
+# Meta Dashboard → App Settings → Basic: App ID + App Secret.
+FACEBOOK_APP_ID=
+FACEBOOK_APP_SECRET=
+# Random secret string; must match Meta → Webhooks → Verify Token.
 IG_WEBHOOK_VERIFY_TOKEN=${INSTANCE_ID}-verify-$(date +%Y)
+# Page + IG tokens are filled by OAuth (Settings → Meta in admin) and stored in DB.
 
 # ── Telegram ──
 TELEGRAM_BOT_TOKEN=
@@ -183,14 +184,25 @@ TELEGRAM_ADMIN_PASSWORD=${TG_ADMIN_PASS}
 # ── Claude ──
 CLAUDE_MAX_CONCURRENCY=2
 CLAUDE_TIMEOUT_MS=30000
+CLAUDE_ADMIN_TIMEOUT_MS=120000
 CLAUDE_MODEL=sonnet
 
 # ── Auth ──
 JWT_SECRET=${JWT_SECRET}
 JWT_EXPIRES_IN=7d
 
+# Shared secret between super-admin and this tenant backend.
+# Keep empty to disable the supervisor chat endpoint.
+SUPERVISOR_SHARED_SECRET=
+
 # ── File storage ──
 UPLOADS_DIR=${APP_DIR}/uploads
+
+# Per-tenant knowledge dir (leave empty to auto-resolve to \$HOME/tenant_knowledge).
+TENANT_KNOWLEDGE_DIR=
+
+# ── Nova Poshta ──
+NOVA_POSHTA_API_KEY=
 
 # ── Logging ──
 LOG_LEVEL=info
@@ -374,7 +386,7 @@ echo ""
 echo "  1. Fill in API credentials in .env:"
 echo "     su - ${LINUX_USER}"
 echo "     nano ${APP_DIR}/.env"
-echo "     # Set: META_APP_ID, META_APP_SECRET, IG_PAGE_ACCESS_TOKEN, IG_PAGE_ID"
+echo "     # Set: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, IG_WEBHOOK_VERIFY_TOKEN"
 echo "     # Set: TELEGRAM_BOT_TOKEN, TELEGRAM_MANAGER_GROUP_ID"
 echo "     # Set: CRM_PROVIDER + KEYCRM_API_KEY (if needed)"
 echo ""
