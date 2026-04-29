@@ -49,31 +49,37 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "══════════════════════════════════════════════"
 
 # ── 1. Pull latest ──
-echo "[1/8] Pulling latest code..."
+echo "[1/9] Pulling latest code..."
 git pull --ff-only
 
 # ── 2. Install dependencies ──
-echo "[2/8] Installing dependencies..."
+echo "[2/9] Installing dependencies..."
 npm ci --prefer-offline
 
 # ── 3. Generate Prisma client ──
-echo "[3/8] Generating Prisma client..."
+echo "[3/9] Generating Prisma client..."
 cd apps/backend
 npx prisma generate
 cd "${PROJECT_ROOT}"
 
 # ── 4. Run migrations ──
-echo "[4/8] Running database migrations..."
+echo "[4/9] Running database migrations..."
 cd apps/backend
 npx prisma migrate deploy
 cd "${PROJECT_ROOT}"
 
-# ── 5. Bootstrap tenant knowledge (seed missing files only) ──
-echo "[5/8] Bootstrapping tenant knowledge..."
+# ── 5. Seed admin user + default settings ──
+echo "[5/9] Seeding admin user and default settings..."
+cd apps/backend
+npx prisma db seed
+cd "${PROJECT_ROOT}"
+
+# ── 6. Bootstrap tenant knowledge (seed missing files only) ──
+echo "[6/9] Bootstrapping tenant knowledge..."
 npm run bootstrap:knowledge
 
-# ── 6. Build backend ──
-echo "[6/8] Building backend..."
+# ── 7. Build backend ──
+echo "[7/9] Building backend..."
 if ! npm run build:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Build failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
@@ -85,9 +91,9 @@ if [ ! -f "${BACKEND_ENTRY}" ]; then
   exit 1
 fi
 
-# ── 7. Build admin panel ──
+# ── 8. Build admin panel ──
 if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
-  echo "[7/8] Building admin panel..."
+  echo "[8/9] Building admin panel..."
   if ! npm run build:admin >>"${DEPLOY_LOG}" 2>&1; then
     echo "  Admin build failed — see ${DEPLOY_LOG}" >&2
     tail -40 "${DEPLOY_LOG}" >&2
@@ -99,11 +105,11 @@ if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
     exit 1
   fi
 else
-  echo "[7/8] Admin panel not built yet — skipping"
+  echo "[8/9] Admin panel not built yet — skipping"
 fi
 
-# ── 8. Restart PM2 ──
-echo "[8/8] Restarting PM2 processes..."
+# ── 9. Restart PM2 ──
+echo "[9/9] Restarting PM2 processes..."
 PM2_PREFIX="${INSTANCE_ID_UPPER}"
 
 # Use full restart (not graceful reload): cluster-mode reload performs a

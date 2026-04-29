@@ -6,7 +6,7 @@
         <div class="login-logo">
           <v-icon size="24" color="white">mdi-shield-crown</v-icon>
         </div>
-        <h1 class="login-title">Status Blessed</h1>
+        <h1 class="login-title">{{ brandName }}</h1>
         <p class="login-subtitle">Увійдіть в панель управління</p>
       </div>
 
@@ -65,6 +65,7 @@ const username = ref('');
 const password = ref('');
 const loading = ref(false);
 const error = ref('');
+const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent Platform';
 
 async function handleLogin() {
   error.value = '';

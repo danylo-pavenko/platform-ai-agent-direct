@@ -18,7 +18,7 @@ async function main() {
 
   await prisma.adminUser.upsert({
     where: { username },
-    update: {},
+    update: { passwordHash },
     create: {
       username,
       passwordHash,
