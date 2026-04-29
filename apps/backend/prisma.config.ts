@@ -10,8 +10,8 @@ config({ path: resolve(__dirname, '..', '..', '.env') });
 export default defineConfig({
   earlyAccess: true,
   schema: 'src/prisma/schema.prisma',
-  migrate: {
-    migrations: 'src/prisma/migrations',
+  migrations: {
+    path: 'src/prisma/migrations',
     seed: 'tsx src/prisma/seed.ts',
   },
   datasource: {
