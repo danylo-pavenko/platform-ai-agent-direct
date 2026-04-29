@@ -101,7 +101,8 @@
       "mcp__playwright__browser_resize",
       "Bash(identify /Users/danylopavenko/Development/playground/status-blessed/platform-ai-agent-direct/docs/branding/meta-app-icon-1024.png)",
       "Bash(sips -g pixelWidth -g pixelHeight /Users/danylopavenko/Development/playground/status-blessed/platform-ai-agent-direct/docs/branding/meta-app-icon-1024.png)",
-      "Bash(sips *)"
+      "Bash(sips *)",
+      "Bash(npx --prefix apps/admin vite build --dry-run)"
     ]
   },
   "enabledMcpjsonServers": [
