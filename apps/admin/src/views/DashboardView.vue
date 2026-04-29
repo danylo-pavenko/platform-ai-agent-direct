@@ -10,7 +10,6 @@
           </p>
         </div>
         <div class="period-wrap">
-          <div class="period-label">Період</div>
           <v-chip-group
             v-model="period"
             mandatory
@@ -545,21 +544,21 @@ onMounted(() => {
 
 .dashboard-container {
   max-width: 1200px;
-  padding-top: 20px;
-  padding-bottom: 32px;
+  padding-top: 16px;
+  padding-bottom: 24px;
 }
 
 .dash-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .dash-subtitle {
-  margin-top: 4px;
+  margin-top: 2px;
   max-width: 520px;
 }
 
@@ -567,15 +566,6 @@ onMounted(() => {
   flex: 1;
   min-width: 0;
   max-width: 100%;
-}
-
-.period-label {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #6c7688;
-  margin-bottom: 8px;
 }
 
 .period-chips {
@@ -604,11 +594,11 @@ onMounted(() => {
 
 .health-banner {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
-  padding: 14px 18px;
+  padding: 12px 16px;
   border-radius: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   border: 1px solid transparent;
 }
 
@@ -663,9 +653,10 @@ onMounted(() => {
   background: #fff;
   border: 1px solid #e6ebf1;
   border-radius: 12px;
-  padding: 18px 18px 16px;
+  padding: 14px 16px;
   height: 100%;
-  min-height: 118px;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
@@ -694,11 +685,14 @@ onMounted(() => {
   font-weight: 600;
   color: #6c7688;
   letter-spacing: 0.01em;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  min-height: 32px;
+  display: flex;
+  align-items: flex-start;
 }
 
 .kpi-value {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: -0.03em;
   color: #0a2540;
@@ -706,7 +700,8 @@ onMounted(() => {
 }
 
 .kpi-hint {
-  margin-top: 8px;
+  margin-top: auto;
+  padding-top: 6px;
   font-size: 11px;
   color: #8898a7;
   line-height: 1.35;
@@ -716,13 +711,13 @@ onMounted(() => {
   background: #fff;
   border: 1px solid #e6ebf1;
   border-radius: 12px;
-  padding: 20px 20px 18px;
-  margin-top: 16px;
+  padding: 16px;
+  margin-top: 12px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .section-head {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .section-title {
@@ -740,11 +735,13 @@ onMounted(() => {
 }
 
 .funnel-item {
-  padding: 14px 16px;
+  padding: 12px 14px;
   border-radius: 10px;
   background: #f6f9fc;
   border: 1px solid #e6ebf1;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .funnel-item--success {
@@ -763,7 +760,7 @@ onMounted(() => {
 
 .funnel-n {
   display: block;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #0a2540;
@@ -771,18 +768,14 @@ onMounted(() => {
 
 .funnel-l {
   display: block;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  margin-top: 4px;
+  margin-top: 3px;
   color: #3d4d5d;
 }
 
 .funnel-s {
-  display: block;
-  font-size: 11px;
-  color: #8898a7;
-  margin-top: 4px;
-  line-height: 1.35;
+  display: none;
 }
 
 .funnel-s code {
@@ -793,8 +786,8 @@ onMounted(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 18px;
-  padding-top: 16px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid #eef2f6;
 }
 
@@ -981,12 +974,16 @@ onMounted(() => {
 
 @media (max-width: 600px) {
   .kpi-value {
-    font-size: 24px;
+    font-size: 22px;
   }
 
   .dash-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .kpi-label {
+    min-height: unset;
   }
 }
 </style>
