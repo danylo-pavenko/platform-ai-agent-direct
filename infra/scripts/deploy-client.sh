@@ -23,12 +23,25 @@ if [ ! -f .env ]; then
   echo "ERROR: .env not found in ${PROJECT_ROOT}. Configure it first."
   exit 1
 fi
-# shellcheck disable=SC2046
-export $(grep -v '^#' .env | grep -v '^$' | xargs)
+# source is more robust than xargs: handles inline comments, special chars,
+# and always overrides stale values already set in the daemon environment.
+set -a
+# shellcheck source=/dev/null
+source .env
+set +a
+
+# Validate required fields so a misconfigured .env fails fast with a clear message.
+_missing=()
+for _var in INSTANCE_ID API_PORT ADMIN_PORT API_DOMAIN ADMIN_DOMAIN; do
+  [ -z "${!_var:-}" ] && _missing+=("${_var}")
+done
+if [ "${#_missing[@]}" -gt 0 ]; then
+  echo "ERROR: Missing required .env fields: ${_missing[*]}"
+  echo "       Add them to ${PROJECT_ROOT}/.env and re-run."
+  exit 1
+fi
 
 INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
-API_PORT="${API_PORT:-3100}"
-ADMIN_PORT="${ADMIN_PORT:-3101}"
 
 echo "══════════════════════════════════════════════"
 echo "  Deploy: ${INSTANCE_NAME:-${INSTANCE_ID_UPPER}}"
