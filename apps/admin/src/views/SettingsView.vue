@@ -464,7 +464,7 @@
       </v-card>
 
       <!-- Save button (agent settings) -->
-      <v-row class="mb-8">
+      <v-row class="mb-5">
         <v-col cols="auto">
           <v-btn
             color="primary"
@@ -478,10 +478,10 @@
         </v-col>
       </v-row>
 
-      <v-divider class="mb-6" />
+      <v-divider class="mb-4" />
 
       <!-- ── Integrations ── -->
-      <div class="page-title mb-1" style="font-size:16px;">Інтеграції</div>
+      <div class="integrations-title">Інтеграції</div>
 
       <!-- Instagram -->
       <v-card class="mb-4">
@@ -958,7 +958,7 @@
       </v-card>
 
       <!-- Save integrations -->
-      <v-row class="mb-8">
+      <v-row class="mb-5">
         <v-col cols="auto">
           <v-btn
             color="primary"
@@ -1591,3 +1591,66 @@ onMounted(() => {
   fetchIntegrations();
 });
 </script>
+
+<style scoped>
+/* ── Section divider title ─────────────────────────────────────────────── */
+.integrations-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0a2540;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+
+/* ── Card density: tighter titles & content ────────────────────────────── */
+:deep(.v-card) {
+  margin-bottom: 12px;
+}
+
+:deep(.v-card-title) {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.35 !important;
+  padding: 14px 16px 6px !important;
+  min-height: unset !important;
+  letter-spacing: -0.01em;
+}
+
+:deep(.v-card-subtitle) {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  padding: 0 16px 10px !important;
+  color: #6c7688 !important;
+  opacity: 1 !important;
+}
+
+/* Remove top gap between subtitle and card-text */
+:deep(.v-card-text) {
+  padding-top: 0 !important;
+  padding-left: 16px !important;
+  padding-right: 16px !important;
+  padding-bottom: 14px !important;
+}
+
+/* ── Icon + title vertical centering ───────────────────────────────────── */
+:deep(.v-card-title .v-icon) {
+  vertical-align: middle;
+  margin-top: -1px;
+}
+
+/* ── Chip in runtime-mode header: keep on same baseline ───────────────── */
+:deep(.v-card-title .v-chip) {
+  vertical-align: middle;
+}
+
+/* ── Radio group: tighten default gap ──────────────────────────────────── */
+:deep(.v-radio-group .v-selection-control-group) {
+  gap: 4px !important;
+}
+
+/* ── Dense divider inside cards ────────────────────────────────────────── */
+:deep(.v-card-text .v-divider) {
+  margin-top: 12px !important;
+  margin-bottom: 12px !important;
+}
+</style>
