@@ -189,15 +189,23 @@ mkdir -p "$TENANT_HOME/.ssh"
 chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh"
 chmod 700 "$TENANT_HOME/.ssh"
 
-if [ ! -f "$TENANT_HOME/.ssh/id_rsa" ] && [ -f "$CURRENT_HOME/.ssh/id_rsa" ]; then
-  cp "$CURRENT_HOME/.ssh/id_rsa" "$TENANT_HOME/.ssh/id_rsa"
-  cp "$CURRENT_HOME/.ssh/id_rsa.pub" "$TENANT_HOME/.ssh/id_rsa.pub" 2>/dev/null || true
-  chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/id_rsa" "$TENANT_HOME/.ssh/id_rsa.pub" 2>/dev/null || true
-  chmod 600 "$TENANT_HOME/.ssh/id_rsa"
-  echo "[provision] SSH key copied from $(whoami)"
-else
-  echo "[provision] SSH key already exists or source not found — skipping"
-fi
+for KEY_TYPE in id_ed25519 id_rsa; do
+  if [ ! -f "$TENANT_HOME/.ssh/$KEY_TYPE" ] && [ -f "$CURRENT_HOME/.ssh/$KEY_TYPE" ]; then
+    cp "$CURRENT_HOME/.ssh/$KEY_TYPE" "$TENANT_HOME/.ssh/$KEY_TYPE"
+    cp "$CURRENT_HOME/.ssh/$KEY_TYPE.pub" "$TENANT_HOME/.ssh/$KEY_TYPE.pub" 2>/dev/null || true
+    chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/$KEY_TYPE" "$TENANT_HOME/.ssh/$KEY_TYPE.pub" 2>/dev/null || true
+    chmod 600 "$TENANT_HOME/.ssh/$KEY_TYPE"
+    echo "[provision] SSH key $KEY_TYPE copied from $(whoami)"
+  fi
+done
+# Fix permissions on any pre-existing keys
+for KEY_FILE in "$TENANT_HOME/.ssh/id_ed25519" "$TENANT_HOME/.ssh/id_rsa"; do
+  if [ -f "$KEY_FILE" ]; then
+    chown "$TENANT_USER:$TENANT_USER" "$KEY_FILE"
+    chmod 600 "$KEY_FILE"
+    echo "[provision] Fixed permissions on $KEY_FILE"
+  fi
+done
 
 if [ -f "$CURRENT_HOME/.ssh/authorized_keys" ] && [ ! -f "$TENANT_HOME/.ssh/authorized_keys" ]; then
   cp "$CURRENT_HOME/.ssh/authorized_keys" "$TENANT_HOME/.ssh/authorized_keys"
