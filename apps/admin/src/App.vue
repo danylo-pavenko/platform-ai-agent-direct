@@ -140,7 +140,7 @@ const authStore = useAuthStore();
 const { mobile } = useDisplay();
 const route = useRoute();
 const drawer = ref(true);
-const brandName = 'Status Blessed';
+const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent';
 
 function onNavClick() {
   if (mobile.value) drawer.value = false;

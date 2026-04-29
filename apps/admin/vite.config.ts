@@ -7,11 +7,19 @@ export default defineConfig(({ mode }) => {
   // BRAND_NAME into the build without requiring a duplicate VITE_BRAND_NAME field.
   const env = loadEnv(mode, resolve(__dirname, '..', '..'), '');
 
+  const brandName = env.BRAND_NAME || 'AI Agent Platform';
+
   return {
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: 'html-inject-brand',
+      transformIndexHtml: (html) => html.replaceAll('%BRAND_NAME%', brandName),
+    },
+  ],
   envDir: resolve(__dirname, '..', '..'),
   define: {
-    'import.meta.env.VITE_BRAND_NAME': JSON.stringify(env.BRAND_NAME || 'AI Agent Platform'),
+    'import.meta.env.VITE_BRAND_NAME': JSON.stringify(brandName),
   },
   resolve: {
     alias: {
