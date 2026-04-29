@@ -61,23 +61,22 @@
         <v-card-text>
           <v-radio-group
             v-model="runtimeMode"
-            inline
             hide-details
-            class="mb-3"
+            class="mb-2"
           >
             <v-radio value="public">
               <template #label>
-                <div>
+                <div class="radio-label">
                   <strong>Public</strong>
                   <div class="text-caption text-medium-emphasis">
-                    Бот відповідає усім клієнтам. Історичні діалоги без відповіді можна дотягнути кнопкою нижче.
+                    Бот відповідає усім клієнтам. Перед першим увімкненням — завантажте останні розмови нижче.
                   </div>
                 </div>
               </template>
             </v-radio>
-            <v-radio value="debug" class="ml-4">
+            <v-radio value="debug" class="mt-1">
               <template #label>
-                <div>
+                <div class="radio-label">
                   <strong>Debug</strong>
                   <div class="text-caption text-medium-emphasis">
                     Бот відповідає лише @нікнеймам з переліку нижче — для тестування на підключеному Instagram.
@@ -88,10 +87,12 @@
           </v-radio-group>
 
           <v-expand-transition>
-            <div v-if="runtimeMode === 'debug'" class="mb-1">
+            <div v-if="runtimeMode === 'debug'" class="debug-whitelist-block">
+              <div class="text-caption text-medium-emphasis mb-1">
+                Whitelist @нікнеймів — через кому. Регістр не важливий, «@» можна залишати або опускати.
+              </div>
               <v-textarea
                 v-model="debugWhitelistRaw"
-                label="Whitelist @нікнеймів (через кому)"
                 variant="outlined"
                 density="compact"
                 rows="2"
@@ -99,9 +100,6 @@
                 hide-details
                 placeholder="@olena.kovalenko, @dev_test, your_qa_handle"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Регістр не важливий, «@» можна залишати або опускати. Повідомлення від інших користувачів ігноруватимуться (не зберігаються в БД, Claude не викликається).
-              </div>
               <div v-if="debugWhitelistParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
                 <v-chip
                   v-for="tag in debugWhitelistParsed"
@@ -126,39 +124,42 @@
             </div>
           </v-expand-transition>
 
-          <v-divider class="my-4" />
+          <v-divider class="my-3" />
 
-          <div class="text-subtitle-2 mb-2 d-flex align-center ga-2">
-            <v-icon size="18">mdi-database-import</v-icon>
-            Історичний імпорт IG-розмов
-          </div>
-          <div class="d-flex flex-wrap align-center ga-2">
-            <v-text-field
-              v-model.number="runtimeBackfillLimit"
-              type="number"
-              min="10"
-              max="500"
-              label="Скільки останніх розмов дотягнути"
-              variant="outlined"
-              density="compact"
-              hide-details
-              style="max-width: 260px;"
-            />
-            <v-btn
-              size="small"
-              color="primary"
-              variant="tonal"
-              prepend-icon="mdi-download"
-              :loading="runtimeBackfillLoading"
-              :disabled="igStatus?.connected === false"
-              @click="runRuntimeBackfill"
-            >
-              Завантажити останні {{ runtimeBackfillLimit || 200 }} розмов
-            </v-btn>
-          </div>
-          <div class="text-caption text-medium-emphasis mt-1">
-            Імпортує останні <strong>N</strong> IG-тредів (включно з тими, де раніше не було відповіді) — саме це потрібно перед першим перемиканням у Public.
-            Перевірте спочатку статус підключення в блоці «Meta / Instagram» нижче.
+          <div class="backfill-row">
+            <div class="backfill-info">
+              <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
+                <v-icon size="16">mdi-database-import</v-icon>
+                Історичний імпорт IG-розмов
+              </div>
+              <div class="text-caption text-medium-emphasis">
+                Завантажує останні <strong>N</strong> IG-тредів — потрібно перед першим перемиканням у Public.
+              </div>
+            </div>
+            <div class="backfill-controls">
+              <v-text-field
+                v-model.number="runtimeBackfillLimit"
+                type="number"
+                min="10"
+                max="500"
+                label="Кількість розмов"
+                variant="outlined"
+                density="compact"
+                hide-details
+                class="backfill-count"
+              />
+              <v-btn
+                size="small"
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-download"
+                :loading="runtimeBackfillLoading"
+                :disabled="igStatus?.connected === false"
+                @click="runRuntimeBackfill"
+              >
+                Завантажити {{ runtimeBackfillLimit || 200 }}
+              </v-btn>
+            </div>
           </div>
 
           <v-alert
@@ -1643,9 +1644,47 @@ onMounted(() => {
   vertical-align: middle;
 }
 
-/* ── Radio group: tighten default gap ──────────────────────────────────── */
+/* ── Radio group ────────────────────────────────────────────────────────── */
 :deep(.v-radio-group .v-selection-control-group) {
-  gap: 4px !important;
+  gap: 2px !important;
+}
+
+.radio-label {
+  padding: 2px 0;
+  line-height: 1.3;
+}
+
+/* ── Debug whitelist block ──────────────────────────────────────────────── */
+.debug-whitelist-block {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+}
+
+/* ── Backfill row ───────────────────────────────────────────────────────── */
+.backfill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.backfill-info {
+  flex: 1;
+  min-width: 180px;
+}
+
+.backfill-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.backfill-count {
+  width: 130px;
 }
 
 /* ── Dense divider inside cards ────────────────────────────────────────── */
