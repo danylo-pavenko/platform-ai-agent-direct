@@ -23,12 +23,20 @@ if [ ! -f .env ]; then
   echo "ERROR: .env not found in ${PROJECT_ROOT}. Configure it first."
   exit 1
 fi
-# source is more robust than xargs: handles inline comments, special chars,
+# Parse .env manually: handles unquoted values with spaces, inline comments,
 # and always overrides stale values already set in the daemon environment.
-set -a
-# shellcheck source=/dev/null
-source .env
-set +a
+while IFS= read -r _line || [ -n "$_line" ]; do
+  # skip comment and blank lines
+  [[ "$_line" =~ ^[[:space:]]*# ]] && continue
+  [[ -z "${_line// }" ]] && continue
+  _key="${_line%%=*}"          # everything before the first =
+  _val="${_line#*=}"           # everything after the first =
+  _key="${_key//[[:space:]]/}" # strip any spaces from key
+  # strip surrounding quotes from value (optional quoting in .env)
+  _val="${_val#\"}" ; _val="${_val%\"}"
+  _val="${_val#\'}" ; _val="${_val%\'}"
+  export "$_key=$_val"
+done < .env
 
 # Validate required fields so a misconfigured .env fails fast with a clear message.
 _missing=()
