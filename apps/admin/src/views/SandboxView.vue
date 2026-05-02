@@ -345,8 +345,9 @@ const useCustomPrompt = ref(false);
 const promptAgentMessages = ref<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
 const promptAgentInput = ref('');
 const promptAgentLoading = ref(false);
-const promptAgentDiff = ref<{ before: string; after: string; summary: string } | null>(null);
+const promptAgentDiff = ref<Array<{ before: string; after: string; summary: string }> | null>(null);
 const promptAgentTab = ref<'edit' | 'agent'>('edit');
+const includeConversationContext = ref(true);
 
 // Save-as-version dialog state (for persisting the edited override to DB
 // as a draft prompt version that can later be activated from /prompts).
@@ -678,13 +679,21 @@ async function sendToPromptAgent() {
     if (useCustomPrompt.value && promptOverride.value.trim()) {
       payload.currentPromptContent = promptOverride.value;
     }
+    if (includeConversationContext.value && chatMessages.value.length > 0) {
+      payload.conversationContext = chatMessages.value.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+    }
 
     const { data } = await api.post('/meta-agent/chat', payload);
 
     promptAgentMessages.value.push({ role: 'assistant', content: data.reply });
 
-    if (data.suggestedDiff) {
-      promptAgentDiff.value = data.suggestedDiff;
+    if (data.suggestedDiffs && data.suggestedDiffs.length > 0) {
+      promptAgentDiff.value = data.suggestedDiffs;
+    } else {
+      promptAgentDiff.value = null;
     }
   } catch (e: any) {
     const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
@@ -728,22 +737,58 @@ async function saveOverrideAsVersion() {
   }
 }
 
-function applyPromptAgentDiff() {
+function applyPromptAgentDiff(idx: number) {
   if (!promptAgentDiff.value) return;
-  const { before, after } = promptAgentDiff.value;
+  const diff = promptAgentDiff.value[idx];
+  if (!diff) return;
 
-  // Load current prompt into override if not already editing
+  const apply = () => {
+    doApplyDiff(diff.before, diff.after);
+    promptAgentDiff.value = promptAgentDiff.value!.filter((_, i) => i !== idx);
+    if (promptAgentDiff.value.length === 0) {
+      promptAgentDiff.value = null;
+      promptAgentTab.value = 'edit';
+    }
+    showSnack('Зміну застосовано до промпту');
+  };
+
   if (!useCustomPrompt.value) {
-    // Need to load the prompt content first
     const activeId = selectedPromptId.value || prompts.value.find((p) => p.isActive)?.id;
     if (activeId) {
-      loadPromptContent(activeId).then(() => {
-        doApplyDiff(before, after);
-      });
+      loadPromptContent(activeId).then(() => apply());
       return;
     }
   }
-  doApplyDiff(before, after);
+  apply();
+}
+
+function rejectDiff(idx: number) {
+  if (!promptAgentDiff.value) return;
+  promptAgentDiff.value = promptAgentDiff.value.filter((_, i) => i !== idx);
+  if (promptAgentDiff.value.length === 0) promptAgentDiff.value = null;
+}
+
+function applyAllDiffs() {
+  if (!promptAgentDiff.value || promptAgentDiff.value.length === 0) return;
+  const diffs = [...promptAgentDiff.value];
+
+  const doApplyAll = () => {
+    for (const diff of diffs) {
+      doApplyDiff(diff.before, diff.after);
+    }
+    promptAgentDiff.value = null;
+    promptAgentTab.value = 'edit';
+    showSnack(`Застосовано ${diffs.length} змін до промпту`);
+  };
+
+  if (!useCustomPrompt.value) {
+    const activeId = selectedPromptId.value || prompts.value.find((p) => p.isActive)?.id;
+    if (activeId) {
+      loadPromptContent(activeId).then(() => doApplyAll());
+      return;
+    }
+  }
+  doApplyAll();
 }
 
 function doApplyDiff(before: string, after: string) {
@@ -753,9 +798,6 @@ function doApplyDiff(before: string, after: string) {
     promptOverride.value = promptOverride.value + '\n\n' + after;
   }
   useCustomPrompt.value = true;
-  promptAgentDiff.value = null;
-  promptAgentTab.value = 'edit';
-  showSnack('Зміни застосовано до промпту');
 }
 
 // ---------------------------------------------------------------------------
@@ -929,7 +971,7 @@ const PromptEditor = defineComponent({
                           h('span', { class: 'text-caption font-weight-medium' },
                             msg.role === 'user' ? 'Ви: ' : 'Агент: ',
                           ),
-                          h('span', { class: 'text-caption' }, msg.content.length > 200 ? msg.content.slice(0, 200) + '...' : msg.content),
+                          h('span', { class: 'text-caption' }, msg.content),
                         ]),
                       ),
                       promptAgentLoading.value
@@ -940,38 +982,66 @@ const PromptEditor = defineComponent({
                         : null,
                     ],
               ),
-              // Diff
-              promptAgentDiff.value
-                ? h('div', { class: 'prompt-agent-diff mb-2' }, [
-                    h('div', { class: 'text-caption font-weight-bold mb-1' }, promptAgentDiff.value.summary),
-                    h('div', { class: 'd-flex ga-1' }, [
-                      h('button', {
-                        class: 'prompt-agent-apply-btn',
-                        onClick: () => applyPromptAgentDiff(),
-                      }, 'Застосувати'),
-                      h('button', {
-                        class: 'prompt-agent-reject-btn',
-                        onClick: () => { promptAgentDiff.value = null; },
-                      }, 'Відхилити'),
-                    ]),
+              // Diffs (array — each with individual Apply/Reject + "Apply all" when multiple)
+              promptAgentDiff.value && promptAgentDiff.value.length > 0
+                ? h('div', { class: 'prompt-agent-diffs mb-2' }, [
+                    promptAgentDiff.value.length > 1
+                      ? h('div', { class: 'd-flex justify-end mb-1' }, [
+                          h('button', {
+                            class: 'prompt-agent-apply-all-btn',
+                            onClick: () => applyAllDiffs(),
+                          }, `Застосувати всі (${promptAgentDiff.value!.length})`),
+                        ])
+                      : null,
+                    ...promptAgentDiff.value.map((diff, i) =>
+                      h('div', { key: i, class: 'prompt-agent-diff mb-1' }, [
+                        h('div', { class: 'text-caption font-weight-bold mb-1' },
+                          diff.summary || `Зміна ${i + 1}`,
+                        ),
+                        h('div', { class: 'd-flex ga-1' }, [
+                          h('button', {
+                            class: 'prompt-agent-apply-btn',
+                            onClick: () => applyPromptAgentDiff(i),
+                          }, 'Застосувати'),
+                          h('button', {
+                            class: 'prompt-agent-reject-btn',
+                            onClick: () => rejectDiff(i),
+                          }, 'Відхилити'),
+                        ]),
+                      ]),
+                    ),
                   ])
                 : null,
-              // Input
-              h('div', { class: 'd-flex ga-1 align-end' }, [
-                h('input', {
-                  class: 'prompt-agent-input',
-                  value: promptAgentInput.value,
-                  placeholder: 'Додай правило про...',
-                  disabled: promptAgentLoading.value,
-                  onInput: (e: Event) => { promptAgentInput.value = (e.target as HTMLInputElement).value; },
-                  onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') sendToPromptAgent(); },
-                }),
-                h('button', {
-                  class: 'prompt-agent-send-btn',
-                  disabled: !promptAgentInput.value.trim() || promptAgentLoading.value,
-                  onClick: () => sendToPromptAgent(),
-                  innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
-                }),
+              // Context toggle + Input
+              h('div', { class: 'prompt-agent-footer d-flex flex-column ga-1' }, [
+                chatMessages.value.length > 0
+                  ? h('label', { class: 'prompt-agent-ctx-toggle text-caption d-flex align-center ga-1 cursor-pointer' }, [
+                      h('input', {
+                        type: 'checkbox',
+                        checked: includeConversationContext.value,
+                        onChange: (e: Event) => {
+                          includeConversationContext.value = (e.target as HTMLInputElement).checked;
+                        },
+                      }),
+                      `Включити контекст чату (${chatMessages.value.length} повід.)`,
+                    ])
+                  : null,
+                h('div', { class: 'd-flex ga-1 align-end' }, [
+                  h('input', {
+                    class: 'prompt-agent-input',
+                    value: promptAgentInput.value,
+                    placeholder: 'Додай правило про...',
+                    disabled: promptAgentLoading.value,
+                    onInput: (e: Event) => { promptAgentInput.value = (e.target as HTMLInputElement).value; },
+                    onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') sendToPromptAgent(); },
+                  }),
+                  h('button', {
+                    class: 'prompt-agent-send-btn',
+                    disabled: !promptAgentInput.value.trim() || promptAgentLoading.value,
+                    onClick: () => sendToPromptAgent(),
+                    innerHTML: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>',
+                  }),
+                ]),
               ]),
             ])
           : null,
@@ -1412,11 +1482,41 @@ onMounted(async () => {
   background: #f5f5f5;
 }
 
+.prompt-agent-diffs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .prompt-agent-diff {
   background: #fffde7;
   border: 1px solid #fff9c4;
   border-radius: 8px;
   padding: 8px;
+}
+
+.prompt-agent-apply-all-btn {
+  border: none;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.prompt-agent-apply-all-btn:hover {
+  opacity: 0.9;
+}
+
+.prompt-agent-footer {
+  flex-shrink: 0;
+}
+
+.prompt-agent-ctx-toggle {
+  color: #666;
+  user-select: none;
+  line-height: 1.4;
 }
 .prompt-agent-apply-btn {
   border: none;

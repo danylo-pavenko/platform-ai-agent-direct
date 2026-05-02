@@ -14,6 +14,9 @@ interface ChatBody {
   // draft). When provided, the meta-agent reasons about THIS text instead of
   // the DB-active prompt. Falls back to active when omitted/empty.
   currentPromptContent?: string;
+  // Optional: active sandbox conversation messages to give the meta-agent
+  // context about what the sales agent actually said during testing.
+  conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 interface ApplyBody {
@@ -41,7 +44,23 @@ interface SuggestedDiff {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
+function buildMetaAgentSystemPrompt(
+  currentPromptContent: string,
+  conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
+): string {
+  let contextBlock = '';
+  if (conversationContext && conversationContext.length > 0) {
+    const formatted = conversationContext
+      .map((m) => `${m.role === 'user' ? 'Клієнт' : 'Агент'}: ${m.content}`)
+      .join('\n\n');
+    contextBlock = `\n\n<active_conversation>
+Поточний тестовий діалог (контекст для змін промпту):
+${formatted}
+</active_conversation>
+
+Врахуй цей діалог при пропозиції змін — він показує, як агент зараз відповідає. Пропонуй зміни, які виправлять або покращать саме таку поведінку.`;
+  }
+
   return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
 
 Контекст:
@@ -85,7 +104,7 @@ function buildMetaAgentSystemPrompt(currentPromptContent: string): string {
 
 <current_prompt>
 ${currentPromptContent}
-</current_prompt>`;
+</current_prompt>${contextBlock}`;
 }
 
 /**
@@ -223,7 +242,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/chat',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { message, history, currentPromptContent } = request.body ?? {};
+      const { message, history, currentPromptContent, conversationContext } = request.body ?? {};
 
       if (!message || typeof message !== 'string' || message.trim().length === 0) {
         return reply.code(400).send({ error: 'Message is required' });
@@ -246,7 +265,10 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // 2. Build meta-agent system prompt
-      const metaAgentPrompt = buildMetaAgentSystemPrompt(promptContent);
+      const metaAgentPrompt = buildMetaAgentSystemPrompt(
+        promptContent,
+        Array.isArray(conversationContext) ? conversationContext : undefined,
+      );
 
       // 3. Call Claude
       const response = await askClaude(
