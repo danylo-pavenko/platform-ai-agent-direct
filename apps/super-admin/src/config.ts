@@ -16,6 +16,10 @@ const schema = z.object({
   // Set this in the Meta App Dashboard → Webhooks → Verify Token field.
   // Used by the hub to respond to Meta's GET challenge verification.
   PLATFORM_WEBHOOK_VERIFY_TOKEN: z.string().default('platform-verify-2026'),
+  // App Secret of the single shared Meta App used for all tenants.
+  // Used by the hub to verify X-Hub-Signature-256 on every inbound webhook.
+  // If empty, HMAC verification is skipped (not recommended for production).
+  PLATFORM_FACEBOOK_APP_SECRET: z.string().default(''),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

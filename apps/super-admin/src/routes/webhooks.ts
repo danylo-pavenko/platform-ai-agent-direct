@@ -115,21 +115,20 @@ export async function webhookRoutes(app: FastifyInstance) {
         continue;
       }
 
-      // Verify HMAC with this tenant's app secret before forwarding.
-      if (!signature || !tenant.facebookAppSecret) {
-        app.log.warn(
-          { pageId, tenantId: tenant.id, hasSignature: !!signature, hasSecret: !!tenant.facebookAppSecret },
-          'Webhook hub: cannot verify — missing signature or tenant app secret',
-        );
-        continue;
-      }
-
-      if (!verifyHmac(rawBody, signature, tenant.facebookAppSecret)) {
-        app.log.warn(
-          { pageId, tenantId: tenant.id },
-          'Webhook hub: HMAC verification failed for tenant',
-        );
-        continue;
+      // Verify HMAC with the platform-level App Secret (one shared Meta App for all tenants).
+      // If PLATFORM_FACEBOOK_APP_SECRET is not set, skip verification and let the tenant
+      // backend verify independently with its own FACEBOOK_APP_SECRET.
+      if (config.PLATFORM_FACEBOOK_APP_SECRET) {
+        if (!signature) {
+          app.log.warn({ pageId, tenantId: tenant.id }, 'Webhook hub: missing X-Hub-Signature-256, skipping');
+          continue;
+        }
+        if (!verifyHmac(rawBody, signature, config.PLATFORM_FACEBOOK_APP_SECRET)) {
+          app.log.warn({ pageId, tenantId: tenant.id }, 'Webhook hub: HMAC verification failed');
+          continue;
+        }
+      } else {
+        app.log.debug({ pageId }, 'Webhook hub: PLATFORM_FACEBOOK_APP_SECRET not set, skipping HMAC check');
       }
 
       // Forward raw payload to tenant backend via internal localhost routing.
