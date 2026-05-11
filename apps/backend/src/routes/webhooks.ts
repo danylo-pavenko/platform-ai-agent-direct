@@ -201,8 +201,18 @@ async function processWebhookEvents(
   app: FastifyInstance,
   body: MetaWebhookBody,
 ): Promise<void> {
+  app.log.info(
+    {
+      object: body?.object,
+      entryCount: body?.entry?.length ?? 0,
+      firstEntryKeys: body?.entry?.[0] ? Object.keys(body.entry[0]) : [],
+      messagingCount: body?.entry?.[0]?.messaging?.length ?? 0,
+    },
+    'processWebhookEvents called',
+  );
+
   if (body.object !== 'instagram') {
-    app.log.debug({ object: body.object }, 'Ignoring non-instagram webhook object');
+    app.log.info({ object: body.object }, 'Ignoring non-instagram webhook object');
     return;
   }
 
@@ -210,6 +220,9 @@ async function processWebhookEvents(
 
   for (const entry of entries) {
     const events = entry.messaging ?? [];
+    if (events.length === 0) {
+      app.log.info({ entryId: entry.id, entryKeys: Object.keys(entry) }, 'Entry has no messaging events');
+    }
 
     for (const event of events) {
       if (!event.message) {
