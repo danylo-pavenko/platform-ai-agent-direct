@@ -184,7 +184,7 @@
               <li>У цього IG-акаунту ще немає жодної DM-розмови.</li>
               <li>Запити в директ сидять у <strong>Message Requests</strong> і не видимі в API, поки їх не прийняти в Instagram-додатку (Inbox → Requests → Accept).</li>
               <li>Акаунт не є <strong>Business/Creator</strong> — у «Перевірити підключення» має бути <code>BUSINESS</code> або <code>CREATOR</code>.</li>
-              <li>OAuth був виконаний без <code>instagram_business_manage_messages</code> scope — повторіть авторизацію.</li>
+              <li>OAuth був виконаний без <code>instagram_manage_messages</code> scope — повторіть авторизацію.</li>
             </ul>
           </v-alert>
 
@@ -680,7 +680,7 @@
             Instagram повернув <strong>0 діалогів</strong>. Найчастіше — через:
             <ul class="pl-4 mt-1" style="line-height:1.7;">
               <li>Усі DM сидять у <strong>Message Requests</strong> і не видимі API, поки їх не прийняти в Instagram-додатку.</li>
-              <li>Акаунт не Business/Creator, або OAuth без <code>instagram_business_manage_messages</code> scope — повторіть авторизацію.</li>
+              <li>Акаунт не Business/Creator, або OAuth без <code>instagram_manage_messages</code> scope — повторіть авторизацію.</li>
             </ul>
           </v-alert>
 

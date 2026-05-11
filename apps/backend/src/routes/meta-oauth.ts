@@ -17,11 +17,17 @@ const FB_TOKEN_URL = 'https://graph.facebook.com/oauth/access_token';
 const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 // Scopes for Instagram Business messaging via Facebook Login (align with App Review).
+// pages_manage_metadata is required to subscribe the Page to webhook events
+// (POST /{page-id}/subscribed_apps). Without it the webhook step silently fails
+// and Instagram DMs are never delivered to our endpoint.
+// instagram_basic is intentionally omitted: it belongs to the deprecated
+// Instagram Basic Display API (personal accounts) and is wrong for Messenger
+// Platform / Business Messaging.
 const FB_SCOPES = [
   'business_management',
   'pages_show_list',
   'pages_read_engagement',
-  'instagram_basic',
+  'pages_manage_metadata',
   'instagram_manage_messages',
 ].join(',');
 

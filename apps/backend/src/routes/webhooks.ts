@@ -42,6 +42,11 @@ interface MetaMessagingEvent {
   message?: {
     mid: string;
     text?: string;
+    // True when Meta echoes back a message sent BY the page/bot.
+    // Even without messaging_echoes subscription, the standard `messages`
+    // subscription includes these echoes — we must skip them to avoid
+    // the bot processing its own outgoing messages as incoming client messages.
+    is_echo?: boolean;
     attachments?: MetaAttachment[];
   };
 }
@@ -246,6 +251,17 @@ async function processWebhookEvents(
     for (const event of events) {
       if (!event.message) {
         // Not a message event (e.g. delivery, read receipt) - skip
+        continue;
+      }
+
+      // Skip echo messages (copies of messages sent BY the page/bot).
+      // Meta includes these in the standard `messages` subscription even
+      // without explicit messaging_echoes subscription.
+      if (event.message.is_echo) {
+        app.log.debug(
+          { mid: event.message.mid, senderId: event.sender.id },
+          'Skipping echo message (sent by page)',
+        );
         continue;
       }
 
