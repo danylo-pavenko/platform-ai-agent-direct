@@ -63,7 +63,7 @@ server
 |-------|-----------|
 | Backend | Node.js 20+, TypeScript, Fastify, Prisma 6 (PostgreSQL) |
 | Frontend (admin) | Vue 3, Vuetify 3, Vite, Pinia, Vue Router 4 |
-| Super Admin | Fastify + vanilla HTML/JS (single-page, no build step) |
+| Super Admin | Fastify + TypeScript (tenant DB, webhook hub, deploy APIs) |
 | Telegram | grammY framework, long polling |
 | AI inference | Claude Code headless CLI (`claude -p`), NOT Anthropic API |
 | CRM | KeyCRM (pluggable, can be `none`) |
@@ -76,7 +76,8 @@ server
 ## Features
 
 ### Core (per-client)
-- **Instagram DM automation** — webhook receiver, Claude-powered responses, message splitting for >1000 chars
+- **Instagram DM automation** — webhook receiver, Claude-powered responses, message splitting for >1000 chars; outbound text is stripped of Markdown (`**`, links, etc.) because Instagram does not render it
+- **Instagram `standby` webhooks** — when another messaging surface (e.g. Meta Business Suite) holds primary control, new customer messages may arrive under `entry[].standby[]`; the backend merges `standby` with `messaging` and OAuth subscribes the Page to the `standby` field alongside `messages`
 - **Smart conversation routing** — bot / handoff / paused states, working hours awareness
 - **Shared post handling** — agent identifies garment type, color, print from IG post; matches CRM catalog; shows size chart
 - **Catalog sync** — periodic KeyCRM fetch, smart filtering, `catalog.txt` snapshot for Claude
@@ -85,7 +86,8 @@ server
 - **Handoff to humans** — keyword + AI-based escalation, TG notifications with inline actions
 
 ### Admin Panel (per-client)
-- **Conversations** — full chat history, search, filters, manual reply
+- **Conversations** — list with IG-aware columns, search (name / @username / IGSID), filters; **conversation detail** loads full history, manual reply, lead-quality rating, client profile (phone, email, Nova Poshta branch, tags)
+- **Live view** — while a conversation is open, the admin polls `GET /conversations/:id/live` (~2.5s) so new client/bot messages and tool-updated client fields appear without refresh; tab background pauses polling; profile form edit mode pauses overwriting the client object until save/cancel
 - **System Prompts** — versioned prompt management, activate/rollback
 - **Meta-Agent (Teach Chat)** — describe changes in natural language, AI proposes prompt edits
 - **Sandbox** — Instagram DM-style test chat, save up to 15 test cases, step-by-step replay
@@ -94,6 +96,7 @@ server
 - **Sync** — manual trigger, run history, status monitoring
 
 ### Super Admin (platform-level)
+- **Instagram webhook hub** — optional single HTTPS callback (e.g. `admin.direct-ai-agents.com/webhooks/instagram`) verifies `X-Hub-Signature-256`, resolves the tenant by IG/Page ids in the payload (including `standby` and `changes`), and POSTs the raw body to `http://localhost:{tenant.apiPort}/webhooks/instagram`
 - **Tenant management** — list/add/edit/delete clients, status, domains, ports
 - **Deploy control** — trigger deploy per client
 - **Health overview** — PM2 status across all instances
@@ -149,8 +152,8 @@ platform-ai-agent-direct/
 │   │   │   ├── sync-worker.ts          # KeyCRM sync (PM2: {ID}-sync)
 │   │   │   ├── config.ts               # Zod-validated env
 │   │   │   ├── routes/
-│   │   │   │   ├── webhooks.ts         # IG webhook + deauthorize callback
-│   │   │   │   ├── conversations.ts
+│   │   │   │   ├── webhooks.ts         # IG webhook + deauthorize + data-deletion
+│   │   │   │   ├── conversations.ts    # incl. GET /:id/live (admin live poll)
 │   │   │   │   ├── prompts.ts
 │   │   │   │   ├── settings.ts         # incl. /nova-poshta/resolve-city
 │   │   │   │   ├── orders.ts
@@ -164,7 +167,7 @@ platform-ai-agent-direct/
 │   │   │   │   ├── claude.ts           # headless CLI wrapper
 │   │   │   │   ├── conversation.ts     # main message handler
 │   │   │   │   ├── prompt-builder.ts   # runtime prompt assembly
-│   │   │   │   ├── instagram.ts        # IG Graph API client
+│   │   │   │   ├── instagram.ts        # IG Graph send + chunking
 │   │   │   │   ├── ig-profile.ts       # profile fetch + cache
 │   │   │   │   ├── ig-history.ts       # IG conversation history
 │   │   │   │   ├── keycrm.ts           # KeyCRM API client
@@ -177,6 +180,7 @@ platform-ai-agent-direct/
 │   │   │   │   ├── prisma.ts
 │   │   │   │   ├── auth.ts
 │   │   │   │   ├── queue.ts            # in-memory concurrency queue
+│   │   │   │   ├── instagram-text.ts   # strip Markdown before IG DM send
 │   │   │   │   ├── ig-signature.ts     # HMAC webhook verification
 │   │   │   │   ├── sanitize.ts         # input sanitization
 │   │   │   │   ├── integration-config.ts # DB-first integration settings
@@ -191,22 +195,26 @@ platform-ai-agent-direct/
 │   │   └── tsconfig.json
 │   │
 │   ├── admin/                          # Vue 3 SPA (PM2: {ID}-admin or static via Vite)
-│   │   └── src/views/
-│   │       ├── ConversationsView.vue
-│   │       ├── ConversationDetail.vue
-│   │       ├── PromptsView.vue
-│   │       ├── TeachChat.vue
-│   │       ├── SandboxView.vue
-│   │       ├── SettingsView.vue
-│   │       ├── OrdersView.vue
-│   │       ├── SyncView.vue
-│   │       └── DashboardView.vue
+│   │   └── src/
+│   │       ├── lib/
+│   │       │   └── chatDisplay.ts      # plain-text chat rendering (no Markdown artifacts)
+│   │       └── views/
+│   │           ├── ConversationsView.vue
+│   │           ├── ConversationDetail.vue
+│   │           ├── PromptsView.vue
+│   │           ├── TeachChat.vue
+│   │           ├── SandboxView.vue
+│   │           ├── SettingsView.vue
+│   │           ├── OrdersView.vue
+│   │           ├── SyncView.vue
+│   │           └── DashboardView.vue
 │   │
 │   ├── super-admin/                    # Super Admin dashboard
 │   │   ├── public/index.html           # Single-page app (Fastify serves it)
 │   │   ├── src/
 │   │   │   ├── server.ts
 │   │   │   ├── routes/tenants.ts
+│   │   │   ├── routes/webhooks.ts      # central IG POST hub → tenant localhost
 │   │   │   ├── routes/auth.ts
 │   │   │   └── config.ts
 │   │   └── prisma/schema.prisma        # tenants table
@@ -403,7 +411,7 @@ Super Admin uses a separate `.env.super-admin` file.
 
 ## Meta (Facebook) Developer setup & App Review
 
-The backend uses **Facebook Login for Business** (not Instagram Basic Display). OAuth resolves a **Facebook Page** with a connected **Instagram Business** account, stores the **Page access token** and **IG user id** in the database, and subscribes the Page to webhook fields `messages`, `messaging_postbacks`, `messaging_seen`. Graph calls use **v22.0**.
+The backend uses **Facebook Login for Business** (not Instagram Basic Display). OAuth resolves a **Facebook Page** with a connected **Instagram Business** account, stores the **Page access token** and **IG user id** in the database, and subscribes the Page to webhook fields `messages`, `messaging_postbacks`, `messaging_seen`, and **`standby`** (needed when another messaging app owns the thread). Graph calls use **v25.0** (see `FB_GRAPH_BASE` in `meta-oauth.ts`). After upgrading fields, have each tenant complete **Meta reconnect** in Admin so `subscribed_apps` is refreshed.
 
 **Marketing / legal URLs (platform):**
 
@@ -464,7 +472,7 @@ The admin UI is served from `ADMIN_DOMAIN`; OAuth still redirects to the **API**
 1. Subscribe to **Instagram** (and/or **Messenger** as required by your use case) per Meta’s product checklist.
 2. **Callback URL:** `https://{API_DOMAIN}/webhooks/instagram`
 3. **Verify token:** must exactly match `IG_WEBHOOK_VERIFY_TOKEN` in `.env` (same value you enter in the Meta webhook UI).
-4. Webhook **POST** bodies are verified with **HMAC SHA256** using `FACEBOOK_APP_SECRET`.
+4. Webhook **POST** bodies are verified with **HMAC SHA256** using `FACEBOOK_APP_SECRET` on the tenant API. At **info** log level, full JSON bodies are not printed; use **debug** logging to see compact summaries when troubleshooting.
 
 Ensure the **Facebook Page** is linked to an **Instagram Business** profile in Business Manager (**Accounts → Instagram accounts**).
 
@@ -495,6 +503,14 @@ Your App Review submission should describe **one concrete use case** (e.g. custo
 6. **Facebook Login for Business → Settings** → **Valid OAuth Redirect URIs** → `https://{API_DOMAIN}/settings/meta/oauth-callback`.
 7. **Instagram** (Webhooks) → **Callback URL** `https://{API_DOMAIN}/webhooks/instagram`, **Verify token** = `IG_WEBHOOK_VERIFY_TOKEN`.
 8. On the server: set `ADMIN_DOMAIN`, `API_DOMAIN`, `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN`, deploy, then complete **Meta** connection in the admin UI.
+
+---
+
+## REST: conversation live poll (admin)
+
+Authenticated:
+
+- `GET /conversations/:id/live?after=<ISO-8601>` — returns `{ conversation, client, newMessages }`. Messages are those with `createdAt` strictly after `after` (omit `after` when the thread has no messages yet; the client row still refreshes). Used by **Admin → Розмови → open chat** for near real-time updates.
 
 ---
 

@@ -30,6 +30,8 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       where.client = {
         OR: [
           { displayName: { contains: search, mode: 'insensitive' } },
+          { igFullName: { contains: search, mode: 'insensitive' } },
+          { igUsername: { contains: search, mode: 'insensitive' } },
           { igUserId: { contains: search, mode: 'insensitive' } },
         ],
       };
@@ -39,7 +41,15 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       prisma.conversation.findMany({
         where,
         include: {
-          client: { select: { id: true, igUserId: true, displayName: true } },
+          client: {
+            select: {
+              id: true,
+              igUserId: true,
+              displayName: true,
+              igFullName: true,
+              igUsername: true,
+            },
+          },
           // Fetch just one manager message (if any) to flag "manager already replied"
           messages: {
             where: { sender: 'manager' },
@@ -60,6 +70,53 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { data, total, page, limit };
+  });
+
+  // GET /:id/live — lightweight poll for admin: new messages since `after` + fresh client & meta.
+  // Registered before `/:id` so "live" is not captured as a UUID param.
+  app.get<{
+    Params: { id: string };
+    Querystring: { after?: string };
+  }>('/:id/live', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { id } = request.params;
+    let afterDate: Date | undefined;
+    const afterRaw = request.query.after;
+    if (typeof afterRaw === 'string' && afterRaw.trim().length > 0) {
+      const d = new Date(afterRaw.trim());
+      if (!Number.isNaN(d.getTime())) afterDate = d;
+    }
+
+    const row = await prisma.conversation.findUnique({
+      where: { id },
+      include: { client: true },
+    });
+
+    if (!row) {
+      return reply.code(404).send({ error: 'Conversation not found' });
+    }
+
+    const newMessages = afterDate
+      ? await prisma.message.findMany({
+          where: { conversationId: id, createdAt: { gt: afterDate } },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+
+    return {
+      conversation: {
+        id: row.id,
+        channel: row.channel,
+        state: row.state,
+        intent: row.intent,
+        lastMessageAt: row.lastMessageAt,
+        firstInboundAt: row.firstInboundAt,
+        createdAt: row.createdAt,
+        briefQuality: row.briefQuality,
+        briefQualityNote: row.briefQualityNote,
+      },
+      client: row.client,
+      newMessages,
+    };
   });
 
   // GET /:id - Get conversation detail with messages

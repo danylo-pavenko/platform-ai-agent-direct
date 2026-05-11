@@ -8,10 +8,20 @@
       <div class="flex-grow-1 text-truncate text-subtitle-2">
         {{ clientName }}
       </div>
-      <v-chip v-if="conversation?.state" :color="stateColor(conversation.state)" size="x-small" label>
-        {{ stateLabel(conversation.state) }}
-      </v-chip>
-      <v-btn icon variant="text" size="small" @click="showProfile = !showProfile">
+          <v-chip v-if="conversation?.state" :color="stateColor(conversation.state)" size="x-small" label>
+            {{ stateLabel(conversation.state) }}
+          </v-chip>
+          <v-chip
+            v-if="livePollActive"
+            size="x-small"
+            color="success"
+            variant="tonal"
+            class="live-chip"
+          >
+            <v-icon start size="12">mdi-access-point</v-icon>
+            На звʼязку
+          </v-chip>
+          <v-btn icon variant="text" size="small" @click="showProfile = !showProfile">
         <v-icon>mdi-account-details</v-icon>
       </v-btn>
     </div>
@@ -32,6 +42,16 @@
           </div>
           <v-chip v-if="conversation?.state" :color="stateColor(conversation.state)" size="small" label>
             {{ stateLabel(conversation.state) }}
+          </v-chip>
+          <v-chip
+            v-if="livePollActive"
+            size="x-small"
+            color="success"
+            variant="tonal"
+            class="live-chip"
+          >
+            <v-icon start size="12">mdi-access-point</v-icon>
+            На звʼязку
           </v-chip>
           <v-btn
             :icon="showProfile ? 'mdi-account-details' : 'mdi-account-details-outline'"
@@ -120,19 +140,18 @@
             :class="messageAlignment(msg)"
           >
             <div v-if="msg.sender === 'system'" class="text-center">
-              <v-chip size="x-small" variant="outlined" class="font-italic">{{ msg.text }}</v-chip>
+              <v-chip size="x-small" variant="outlined" class="font-italic">{{ formatChatPlain(msg.text) }}</v-chip>
             </div>
             <div v-else :style="{ maxWidth: mobile ? '88%' : '72%' }">
               <div class="text-caption text-grey mb-1" :class="msg.direction === 'out' ? 'text-right' : ''">
                 {{ senderIcon(msg) }} {{ senderLabel(msg) }} · {{ formatTime(msg.createdAt) }}
               </div>
-              <v-card :color="bubbleColor(msg)" :variant="msg.direction === 'in' ? 'tonal' : 'flat'" rounded="lg" class="pa-3">
+              <v-card flat rounded="lg" class="pa-3 message-bubble-card" :class="bubbleCardClass(msg)">
                 <div
-                  class="text-body-2"
-                  :class="{ 'text-white': msg.direction === 'out' }"
-                  style="word-break: break-word; line-height: 1.5;"
+                  class="message-bubble-text text-body-2"
+                  style="word-break: break-word; line-height: 1.55; white-space: pre-wrap;"
                 >
-                  {{ msg.text }}
+                  {{ formatChatPlain(msg.text) }}
                 </div>
               </v-card>
             </div>
@@ -177,7 +196,9 @@
           <client-profile-panel
             :client="conversation?.client"
             :conversation-id="props.id"
+            :lead-summary="leadSummary"
             @updated="onClientUpdated"
+            @profile-editing="onProfileEditing"
           />
         </v-card>
       </v-bottom-sheet>
@@ -186,7 +207,9 @@
         <client-profile-panel
           :client="conversation?.client"
           :conversation-id="props.id"
+          :lead-summary="leadSummary"
           @updated="onClientUpdated"
+          @profile-editing="onProfileEditing"
         />
       </div>
     </div>
@@ -198,10 +221,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, defineComponent, h } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineComponent, h } from 'vue';
+import type { PropType } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
+import { formatChatPlain } from '@/lib/chatDisplay';
 
 const { mobile } = useDisplay();
 const router = useRouter();
@@ -238,10 +263,29 @@ interface ConversationData {
   client: ClientData;
   channel: string;
   state: string;
+  intent?: string | null;
+  createdAt: string;
+  firstInboundAt?: string | null;
+  lastMessageAt?: string | null;
   messages: Message[];
   orders?: Array<{ id: string; status: string; items: unknown[] }>;
   briefQuality?: number | null;
   briefQualityNote?: string | null;
+}
+
+interface LeadSummary {
+  channel: string;
+  intent: string | null;
+  createdAt: string;
+  firstInboundAt: string | null;
+  lastMessageAt: string | null;
+  messageCount: number;
+}
+
+interface LivePollPayload {
+  conversation: Partial<ConversationData> & { id: string };
+  client: ClientData;
+  newMessages: Message[];
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +302,14 @@ const sending = ref(false);
 const sendError = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const showProfile = ref(true);
+
+/** While true, live poll must not overwrite `conversation.client` (admin is editing the form). */
+const profileEditing = ref(false);
+
+/** Background sync with tenant API (new IG messages + tool-saved client fields). */
+const livePollActive = ref(false);
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+const LIVE_POLL_MS = 2500;
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -277,6 +329,19 @@ const clientName = computed(() => {
   const c = conversation.value?.client;
   if (!c) return 'Клієнт';
   return c.displayName || c.igFullName || (c.igUsername ? `@${c.igUsername}` : null) || c.igUserId || 'Клієнт';
+});
+
+const leadSummary = computed((): LeadSummary | undefined => {
+  const c = conversation.value;
+  if (!c) return undefined;
+  return {
+    channel: c.channel,
+    intent: c.intent ?? null,
+    createdAt: c.createdAt,
+    firstInboundAt: c.firstInboundAt ?? null,
+    lastMessageAt: c.lastMessageAt ?? null,
+    messageCount: messages.value.length,
+  };
 });
 
 // ---------------------------------------------------------------------------
@@ -311,10 +376,10 @@ function messageAlignment(msg: Message): string {
   return msg.direction === 'in' ? 'd-flex justify-start' : 'd-flex justify-end';
 }
 
-function bubbleColor(msg: Message): string {
-  if (msg.direction === 'in') return 'grey-lighten-3';
-  if (msg.sender === 'manager') return 'green';
-  return 'blue';
+function bubbleCardClass(msg: Message): string {
+  if (msg.direction === 'in') return 'bubble-incoming';
+  if (msg.sender === 'manager') return 'bubble-out-manager';
+  return 'bubble-out-bot';
 }
 
 function senderIcon(msg: Message): string {
@@ -332,6 +397,90 @@ async function scrollToBottom() {
   }
 }
 
+function onProfileEditing(v: boolean) {
+  profileEditing.value = v;
+}
+
+function lastMessageCursorIso(): string | undefined {
+  if (messages.value.length === 0) return undefined;
+  let maxMs = -1;
+  let iso = messages.value[0]!.createdAt;
+  for (const m of messages.value) {
+    const t = new Date(m.createdAt).getTime();
+    if (!Number.isNaN(t) && t >= maxMs) {
+      maxMs = t;
+      iso = m.createdAt;
+    }
+  }
+  return iso;
+}
+
+function applyLiveUpdate(data: LivePollPayload) {
+  if (!conversation.value) return;
+  const { newMessages, client, conversation: conv } = data;
+
+  conversation.value.state = conv.state ?? conversation.value.state;
+  conversation.value.channel = conv.channel ?? conversation.value.channel;
+  conversation.value.intent = conv.intent ?? conversation.value.intent;
+  conversation.value.lastMessageAt = conv.lastMessageAt ?? conversation.value.lastMessageAt;
+  conversation.value.firstInboundAt = conv.firstInboundAt ?? conversation.value.firstInboundAt;
+  conversation.value.createdAt = conv.createdAt ?? conversation.value.createdAt;
+  conversation.value.briefQuality =
+    conv.briefQuality !== undefined ? conv.briefQuality : conversation.value.briefQuality;
+  conversation.value.briefQualityNote =
+    conv.briefQualityNote !== undefined ? conv.briefQualityNote : conversation.value.briefQualityNote;
+
+  if (!profileEditing.value) {
+    conversation.value.client = { ...conversation.value.client, ...client };
+  }
+
+  const seen = new Set(messages.value.map((m) => m.id));
+  let appended = false;
+  for (const m of newMessages) {
+    if (!seen.has(m.id)) {
+      messages.value.push(m);
+      seen.add(m.id);
+      appended = true;
+    }
+  }
+  if (appended) void scrollToBottom();
+}
+
+async function pollLive() {
+  if (document.hidden || loading.value || !conversation.value) return;
+  const after = lastMessageCursorIso();
+  try {
+    const { data } = await api.get<LivePollPayload>(`/conversations/${props.id}/live`, {
+      params: after ? { after } : {},
+    });
+    applyLiveUpdate(data);
+  } catch {
+    /* offline or 404 — ignore until next tick */
+  }
+}
+
+function onVisibilityChange() {
+  if (!document.hidden) void pollLive();
+}
+
+function startLivePoll() {
+  stopLivePoll();
+  livePollActive.value = true;
+  pollTimer = setInterval(() => {
+    void pollLive();
+  }, LIVE_POLL_MS);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+}
+
+function stopLivePoll() {
+  livePollActive.value = false;
+  if (pollTimer != null) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+}
+
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
@@ -347,6 +496,7 @@ async function fetchConversation() {
     showQualityNote.value = !!data.briefQualityNote;
     await scrollToBottom();
   } catch {
+    stopLivePoll();
     router.push({ name: 'conversations' });
   } finally {
     loading.value = false;
@@ -397,8 +547,12 @@ async function sendReply() {
       text: replyText.value.trim(),
     });
     messages.value.push(data);
+    if (conversation.value && data.createdAt) {
+      conversation.value.lastMessageAt = data.createdAt;
+    }
     replyText.value = '';
     await scrollToBottom();
+    void pollLive();
   } catch (e: any) {
     sendError.value = e.response?.data?.error || 'Помилка відправлення';
   } finally {
@@ -413,23 +567,51 @@ function onClientUpdated(updated: ClientData) {
   showSnack('Профіль оновлено');
 }
 
-onMounted(() => {
-  fetchConversation();
+onMounted(async () => {
+  await fetchConversation();
+  startLivePoll();
+});
+
+watch(
+  () => props.id,
+  async (newId, oldId) => {
+    if (!newId || newId === oldId) return;
+    stopLivePoll();
+    await fetchConversation();
+    startLivePoll();
+  },
+);
+
+onBeforeUnmount(() => {
+  stopLivePoll();
 });
 
 // ---------------------------------------------------------------------------
 // ClientProfilePanel (inline component)
 // ---------------------------------------------------------------------------
 
+const INTENT_LABELS: Record<string, string> = {
+  new_lead: 'Новий лід',
+  service_question: 'Сервіс / питання',
+  complaint: 'Скарга',
+  partnership: 'Партнерство',
+  jobs: 'Вакансії',
+  spam: 'Спам',
+};
+
 const ClientProfilePanel = defineComponent({
   name: 'ClientProfilePanel',
   props: {
     client: { type: Object as () => ClientData | undefined, default: undefined },
     conversationId: { type: String, required: true },
+    leadSummary: { type: Object as PropType<LeadSummary | undefined>, default: undefined },
   },
-  emits: ['updated'],
+  emits: ['updated', 'profileEditing'],
   setup(props, { emit }) {
     const editing = ref(false);
+    watch(editing, (v) => {
+      emit('profileEditing', v);
+    });
     const saving = ref(false);
     const importing = ref(false);
     const newTag = ref('');
@@ -487,6 +669,30 @@ const ClientProfilePanel = defineComponent({
       }
     }
 
+    function formatLeadDate(iso: string | null | undefined): string {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleString('uk-UA', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+      } catch {
+        return '—';
+      }
+    }
+
+    function channelLabel(ch: string): string {
+      return ch === 'ig' ? 'Instagram DM' : ch?.toUpperCase() ?? '—';
+    }
+
+    function intentLabel(intent: string | null | undefined): string {
+      if (!intent) return '—';
+      return INTENT_LABELS[intent] ?? intent;
+    }
+
     async function importHistory() {
       if (!props.conversationId) return;
       importing.value = true;
@@ -521,6 +727,29 @@ const ClientProfilePanel = defineComponent({
         ]),
         h('hr', { class: 'v-divider' }),
 
+        // Lead / thread summary
+        props.leadSummary
+          ? h('div', { class: 'pa-3 pb-0' }, [
+              h('div', { class: 'text-caption text-grey text-uppercase mb-2', style: 'letter-spacing:0.04em;' }, 'Лід і тред'),
+              h('div', { class: 'lead-summary-grid text-body-2' }, [
+                h('div', { class: 'text-caption text-grey' }, 'Канал'),
+                h('div', {}, channelLabel(props.leadSummary.channel)),
+                h('div', { class: 'text-caption text-grey' }, 'Класифікація'),
+                h('div', {}, intentLabel(props.leadSummary.intent)),
+                h('div', { class: 'text-caption text-grey' }, 'Повідомлень'),
+                h('div', {}, String(props.leadSummary.messageCount)),
+                h('div', { class: 'text-caption text-grey' }, 'Тред відкрито'),
+                h('div', {}, formatLeadDate(props.leadSummary.createdAt)),
+                h('div', { class: 'text-caption text-grey' }, 'Перше від клієнта'),
+                h('div', {}, formatLeadDate(props.leadSummary.firstInboundAt)),
+                h('div', { class: 'text-caption text-grey' }, 'Остання активність'),
+                h('div', {}, formatLeadDate(props.leadSummary.lastMessageAt)),
+              ]),
+            ])
+          : null,
+
+        props.leadSummary ? h('hr', { class: 'v-divider' }) : null,
+
         // IG identity
         h('div', { class: 'pa-3 pb-0' }, [
           c?.igUsername
@@ -536,15 +765,20 @@ const ClientProfilePanel = defineComponent({
 
         // Fields (view / edit)
         h('div', { class: 'pa-3 flex-grow-1' }, [
-          // Name
+          // Name (prefer CRM displayName; fall back to IG display name)
           profileField('Імʼя', editing.value
             ? h('input', {
                 class: 'profile-input',
                 value: form.value.displayName,
-                placeholder: 'Повне імʼя',
+                placeholder: c?.igFullName || 'Повне імʼя',
                 onInput: (e: Event) => { form.value.displayName = (e.target as HTMLInputElement).value; },
               })
-            : h('span', { class: 'text-body-2' }, c?.displayName || c?.igFullName || '-'),
+            : h('div', {}, [
+                h('span', { class: 'text-body-2' }, c?.displayName || c?.igFullName || '-'),
+                c?.displayName && c?.igFullName && c.displayName !== c.igFullName
+                  ? h('div', { class: 'text-caption text-grey mt-1' }, `IG: ${c.igFullName}`)
+                  : null,
+              ]),
           ),
 
           // Phone
@@ -691,8 +925,6 @@ const ClientProfilePanel = defineComponent({
     }
   },
 });
-
-const clientProfilePanel = ClientProfilePanel;
 </script>
 
 <style scoped>
@@ -722,8 +954,8 @@ const clientProfilePanel = ClientProfilePanel;
 }
 
 .profile-col {
-  width: 280px;
-  min-width: 280px;
+  width: 300px;
+  min-width: 300px;
   border-left: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   background: rgb(var(--v-theme-surface));
   overflow-y: auto;
@@ -732,6 +964,10 @@ const clientProfilePanel = ClientProfilePanel;
 
 .chat-header {
   background: rgb(var(--v-theme-surface));
+}
+
+.live-chip {
+  flex-shrink: 0;
 }
 
 .messages-area {
@@ -744,9 +980,32 @@ const clientProfilePanel = ClientProfilePanel;
   flex-shrink: 0;
 }
 
+.message-bubble-card.bubble-incoming {
+  background: rgb(var(--v-theme-surface-variant));
+  color: rgb(var(--v-theme-on-surface-variant));
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.message-bubble-card.bubble-out-bot {
+  background: rgb(var(--v-theme-primary));
+  color: rgb(var(--v-theme-on-primary));
+}
+
+.message-bubble-card.bubble-out-manager {
+  background: rgb(var(--v-theme-success));
+  color: rgb(var(--v-theme-on-success));
+}
+
 /* Profile panel styles */
 :deep(.profile-panel) {
   height: 100%;
+}
+
+:deep(.lead-summary-grid) {
+  display: grid;
+  grid-template-columns: minmax(0, auto) 1fr;
+  gap: 6px 14px;
+  align-items: baseline;
 }
 
 :deep(.profile-field) {

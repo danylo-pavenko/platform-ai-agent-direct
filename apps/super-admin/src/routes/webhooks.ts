@@ -37,6 +37,26 @@ function verifyHmac(payload: Buffer, signature: string, secret: string): boolean
   return timingSafeEqual(Buffer.from(signature, 'utf8'), Buffer.from(expected, 'utf8'));
 }
 
+function summarizeHubIgWebhook(body: MetaWebhookBody): Record<string, unknown> {
+  const entries = body.entry ?? [];
+  let messaging = 0;
+  let standby = 0;
+  let changes = 0;
+  for (const e of entries) {
+    messaging += ((e as { messaging?: unknown[] }).messaging ?? []).length;
+    standby += ((e as { standby?: unknown[] }).standby ?? []).length;
+    changes += ((e as { changes?: unknown[] }).changes ?? []).length;
+  }
+  return {
+    object: body.object,
+    entryCount: entries.length,
+    messagingEvents: messaging,
+    standbyEvents: standby,
+    changesFields: changes,
+    entryIds: entries.map((x) => x.id).slice(0, 4),
+  };
+}
+
 export async function webhookRoutes(app: FastifyInstance) {
   // Capture raw body for HMAC verification before JSON parsing.
   // Scoped to this plugin — does not affect other routes.
@@ -79,7 +99,10 @@ export async function webhookRoutes(app: FastifyInstance) {
 
   // ── POST: Receive event → route to tenant ────────────────────────────────────
   app.post<{ Body: MetaWebhookBody }>('/webhooks/instagram', async (request, reply) => {
-    app.log.info({ body: request.body }, 'Instagram webhook raw payload (hub)');
+    app.log.debug(
+      { summary: summarizeHubIgWebhook(request.body as MetaWebhookBody) },
+      'Instagram webhook received (hub)',
+    );
     // Respond 200 immediately — Meta requires a reply within 5 seconds.
     reply.code(200).send('EVENT_RECEIVED');
 
@@ -175,7 +198,7 @@ export async function webhookRoutes(app: FastifyInstance) {
           signal: AbortSignal.timeout(10_000),
         });
 
-        app.log.info(
+        app.log.debug(
           {
             pageId,
             tenantId: tenant.id,

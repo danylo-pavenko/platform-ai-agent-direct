@@ -1,5 +1,7 @@
 # Tenant knowledge templates
 
+Platform behaviour (Instagram webhooks, admin live chat, deploy) is documented in the **[repository root `README.md`](../../../README.md)**.
+
 This folder is the **seed set** that every new tenant starts with. It is
 checked into the repo and shared across all tenants. Individual tenants
 never edit these files directly — they edit their own copy in their

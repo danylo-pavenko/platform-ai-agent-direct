@@ -1,5 +1,6 @@
 import pino from 'pino';
 import { getIntegrationConfig } from '../lib/integration-config.js';
+import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 
 const log = pino({ name: 'instagram' });
 
@@ -192,7 +193,7 @@ export async function sendText(
   recipientId: string,
   text: string,
 ): Promise<void> {
-  const parts = splitText(text);
+  const parts = splitText(stripMarkdownForInstagram(text));
 
   for (let i = 0; i < parts.length; i++) {
     const body = {

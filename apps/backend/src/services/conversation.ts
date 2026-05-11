@@ -26,6 +26,7 @@ import {
 } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
+import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 
 const log = pino({ name: 'conversation' });
 
@@ -509,21 +510,23 @@ export async function handleIncomingMessage(
     responseText = 'Дякую за запитання! Зверніться до менеджера для деталей.';
   }
 
+  const clientFacingText = stripMarkdownForInstagram(responseText);
+
   // ── 11. Send response ─────────────────────────────────────────────
   try {
-    await sendText(client.igUserId, responseText);
+    await sendText(client.igUserId, clientFacingText);
   } catch (err) {
     log.error({ err, conversationId }, 'Failed to send bot response to Instagram');
     // Still persist the message even if delivery failed
   }
 
-  // ── 12. Persist bot message ───────────────────────────────────────
+  // ── 12. Persist bot message (same text as sent to IG — no literal Markdown) ──
   await prisma.message.create({
     data: {
       conversationId,
       direction: 'out',
       sender: 'bot',
-      text: responseText,
+      text: clientFacingText,
     },
   });
   markFirstOutboundAt(conversationId).catch((err) =>
@@ -531,7 +534,7 @@ export async function handleIncomingMessage(
   );
 
   log.info(
-    { conversationId, responseLength: responseText.length },
+    { conversationId, responseLength: clientFacingText.length },
     'Bot response sent and persisted',
   );
 }

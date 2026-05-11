@@ -133,7 +133,10 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   // ── POST: Receive messages ──
 
   app.post<{ Body: MetaWebhookBody }>('/webhooks/instagram', async (request, reply) => {
-    app.log.info({ body: request.body }, 'Instagram webhook raw payload');
+    app.log.debug(
+      { summary: summarizeMetaIgWebhook(request.body as MetaWebhookBody) },
+      'Instagram webhook received',
+    );
     // Signature is verified by the platform hub before forwarding via localhost.
     // Return 200 immediately - Meta requires response within 5 seconds
     reply.code(200).send('EVENT_RECEIVED');
@@ -224,6 +227,27 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
+/** Compact webhook shape for logs (avoid dumping full Meta JSON at info level). */
+function summarizeMetaIgWebhook(body: MetaWebhookBody): Record<string, unknown> {
+  const entries = body.entry ?? [];
+  let messagingEvents = 0;
+  let standbyEvents = 0;
+  let changesFields = 0;
+  for (const e of entries) {
+    messagingEvents += (e.messaging ?? []).length;
+    standbyEvents += (e.standby ?? []).length;
+    changesFields += (e.changes ?? []).length;
+  }
+  return {
+    object: body.object,
+    entryCount: entries.length,
+    messagingEvents,
+    standbyEvents,
+    changesFields,
+    entryIds: entries.map((x) => x.id).slice(0, 4),
+  };
+}
+
 // ── Async event processing ──
 
 async function processWebhookEvents(
@@ -231,7 +255,7 @@ async function processWebhookEvents(
   body: MetaWebhookBody,
 ): Promise<void> {
   if (body.object !== 'instagram') {
-    app.log.info({ object: body.object }, 'Ignoring non-instagram webhook object');
+    app.log.debug({ object: body.object }, 'Ignoring non-instagram webhook object');
     return;
   }
 
@@ -275,14 +299,14 @@ async function processWebhookEvents(
       }
 
       if (event.message.is_echo) {
-        app.log.info(
+        app.log.debug(
           { mid: event.message.mid, senderId: event.sender.id },
           'Skipping echo message (sent by page)',
         );
         continue;
       }
 
-      app.log.info(
+      app.log.debug(
         { mid: event.message.mid, senderId: event.sender.id, hasText: !!event.message.text },
         'Processing incoming message event',
       );
@@ -316,10 +340,10 @@ async function processMessageEvent(
     where: { igMessageId },
   });
 
-  app.log.info({ igUserId, igMessageId, rawText: rawText.slice(0, 80) }, 'processMessageEvent started');
+  app.log.debug({ igUserId, igMessageId, textLen: rawText.length }, 'processMessageEvent started');
 
   if (existingMessage) {
-    app.log.info({ igMessageId }, 'Duplicate message - skipping');
+    app.log.debug({ igMessageId }, 'Duplicate message - skipping');
     return;
   }
 
@@ -343,7 +367,7 @@ async function processMessageEvent(
     }
 
     if (!shouldProcessIncoming(runtime, username)) {
-      app.log.info(
+      app.log.debug(
         {
           igUserId,
           igUsername: username,
@@ -354,7 +378,7 @@ async function processMessageEvent(
       return;
     }
 
-    app.log.info(
+    app.log.debug(
       { igUserId, igUsername: username },
       'Debug mode: processing message from whitelisted IG user',
     );
@@ -385,7 +409,7 @@ async function processMessageEvent(
       // Caption comes in as "title" in the share payload
       caption: payload?.title,
     };
-    app.log.info(
+    app.log.debug(
       { igUserId, igMessageId, postUrl: sharedPost.postUrl },
       'Detected shared Instagram post in message',
     );
@@ -434,7 +458,7 @@ async function processMessageEvent(
             displayName: profile.name ?? profile.username,
           },
         });
-        app.log.info(
+        app.log.debug(
           { clientId: client.id, name: profile.name, username: profile.username },
           'Updated new client with IG profile data',
         );
@@ -529,7 +553,7 @@ async function processMessageEvent(
     },
   });
 
-  app.log.info(
+  app.log.debug(
     {
       igUserId,
       igMessageId,
