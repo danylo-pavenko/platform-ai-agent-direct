@@ -20,6 +20,9 @@ const tenantSchema = z.object({
   status: z.enum(['provisioned', 'active', 'suspended']).default('provisioned'),
   gitRepo: z.string().min(1).optional(),
   envExtra: z.string().optional(),
+  // Instagram / Meta webhook routing
+  facebookPageId: z.string().optional(),
+  facebookAppSecret: z.string().optional(),
 });
 
 export async function tenantsRoutes(app: FastifyInstance) {

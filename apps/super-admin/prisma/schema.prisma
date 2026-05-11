@@ -9,20 +9,28 @@ datasource db {
 }
 
 model Tenant {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  instanceId  String   @unique @map("instance_id")
-  name        String
-  apiDomain   String   @map("api_domain")
-  adminDomain String   @map("admin_domain")
-  apiPort     Int      @map("api_port")
-  adminPort   Int      @map("admin_port")
-  linuxUser   String   @map("linux_user")
-  appDir      String   @map("app_dir")
-  status      String   @default("provisioned")
-  gitRepo     String?  @map("git_repo")
-  envExtra    String?  @map("env_extra")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  instanceId        String   @unique @map("instance_id")
+  name              String
+  apiDomain         String   @map("api_domain")
+  adminDomain       String   @map("admin_domain")
+  apiPort           Int      @map("api_port")
+  adminPort         Int      @map("admin_port")
+  linuxUser         String   @map("linux_user")
+  appDir            String   @map("app_dir")
+  status            String   @default("provisioned")
+  gitRepo           String?  @map("git_repo")
+  envExtra          String?  @map("env_extra")
+  // Instagram / Meta webhook routing
+  // facebookPageId: the Page ID returned by OAuth — used to route inbound
+  //   webhooks from the platform hub to this tenant's backend.
+  // facebookAppSecret: this tenant's Meta App Secret — used by the hub to
+  //   verify the HMAC signature before forwarding. Required so each tenant
+  //   can use their own Meta App (different app secrets).
+  facebookPageId    String?  @map("facebook_page_id")
+  facebookAppSecret String?  @map("facebook_app_secret")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   @@map("tenants")
 }

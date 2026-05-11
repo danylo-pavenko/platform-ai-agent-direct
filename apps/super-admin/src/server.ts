@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { authRoutes } from './routes/auth.js';
 import { tenantsRoutes } from './routes/tenants.js';
+import { webhookRoutes } from './routes/webhooks.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,9 @@ await app.register(fastifyStatic, {
 // ── Routes ──
 await app.register(authRoutes);
 await app.register(tenantsRoutes);
+// Webhook dispatcher — public (no auth), verified via Meta HMAC per tenant.
+// Responds 200 immediately then forwards to the correct tenant backend.
+await app.register(webhookRoutes);
 
 // Health check
 app.get('/api/health', async () => ({ status: 'ok', service: 'super-admin' }));

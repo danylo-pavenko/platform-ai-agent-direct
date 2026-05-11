@@ -12,6 +12,10 @@ const schema = z.object({
   // Shared secret forwarded to tenant backends as X-Supervisor-Token.
   // Must match each tenant's own SUPERVISOR_SHARED_SECRET for chat to work.
   SUPERVISOR_SHARED_SECRET: z.string().default(''),
+  // Platform-level Instagram webhook verify token.
+  // Set this in the Meta App Dashboard → Webhooks → Verify Token field.
+  // Used by the hub to respond to Meta's GET challenge verification.
+  PLATFORM_WEBHOOK_VERIFY_TOKEN: z.string().default('platform-verify-2026'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 
