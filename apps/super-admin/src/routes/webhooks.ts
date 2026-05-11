@@ -101,20 +101,42 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const entries = body.entry ?? [];
 
-    // Deduplicate page IDs — one entry per page per webhook delivery.
-    const pageIds = [...new Set(entries.map((e) => e.id).filter(Boolean))];
+    // Collect all candidate routing IDs from this payload.
+    // Meta uses different values in entry[].id depending on event type:
+    //   message_edit  → entry.id = business IG account ID (reliable)
+    //   messages      → entry.id = SENDER's IG ID (useless for routing)
+    // So we also extract recipient.id from inside messaging[] and changes[]
+    // events, where it's always the business IG account ID.
+    const candidateIds = new Set<string>();
+    for (const entry of entries) {
+      if (entry.id && entry.id !== '0') candidateIds.add(entry.id);
+      for (const m of (entry as any).messaging ?? []) {
+        if (m.recipient?.id) candidateIds.add(m.recipient.id);
+        if (m.sender?.id)    candidateIds.add(m.sender.id);
+      }
+      for (const c of (entry as any).changes ?? []) {
+        if (c.value?.recipient?.id) candidateIds.add(c.value.recipient.id);
+      }
+    }
 
-    if (pageIds.length === 0) return;
+    if (candidateIds.size === 0) return;
 
-    for (const pageId of pageIds) {
+    // Find all active tenants matching any candidate ID. Deduplicate by tenant
+    // so we forward the payload exactly once per tenant even if multiple IDs match.
+    const seenTenants = new Set<string>();
+
+    for (const pageId of candidateIds) {
       const tenant = await prisma.tenant.findFirst({
         where: { instagramUserId: pageId, status: { not: 'suspended' } },
       });
 
       if (!tenant) {
-        app.log.warn({ pageId }, 'Webhook hub: no active tenant found for page_id');
+        app.log.debug({ pageId }, 'Webhook hub: no tenant for candidate id');
         continue;
       }
+
+      if (seenTenants.has(tenant.id)) continue;
+      seenTenants.add(tenant.id);
 
       // Verify HMAC with the platform-level App Secret (one shared Meta App for all tenants).
       // If PLATFORM_FACEBOOK_APP_SECRET is not set, skip verification and let the tenant
