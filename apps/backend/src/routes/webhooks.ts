@@ -250,22 +250,16 @@ async function processWebhookEvents(
 
     const events = [...fromMessaging, ...fromChanges];
 
-    app.log.info(
-      {
-        entryId: entry.id,
-        fromMessaging: fromMessaging.length,
-        fromChanges: fromChanges.length,
-        total: events.length,
-      },
+    app.log.debug(
+      { entryId: entry.id, fromMessaging: fromMessaging.length, fromChanges: fromChanges.length },
       'Webhook entry events resolved',
     );
 
     for (const event of events) {
-      app.log.info(
-        { eventKeys: Object.keys(event), hasMessage: !!event.message, senderId: event.sender?.id },
-        'Webhook event type',
-      );
-      if (!event.message) continue;
+      if (!event.message) {
+        app.log.debug({ eventKeys: Object.keys(event) }, 'Skipping non-message webhook event');
+        continue;
+      }
 
       if (event.message.is_echo) {
         app.log.info(
