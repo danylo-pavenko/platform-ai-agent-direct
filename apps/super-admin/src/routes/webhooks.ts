@@ -79,6 +79,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
   // ── POST: Receive event → route to tenant ────────────────────────────────────
   app.post<{ Body: MetaWebhookBody }>('/webhooks/instagram', async (request, reply) => {
+    app.log.info({ body: request.body }, 'Instagram webhook raw payload (hub)');
     // Respond 200 immediately — Meta requires a reply within 5 seconds.
     reply.code(200).send('EVENT_RECEIVED');
 
