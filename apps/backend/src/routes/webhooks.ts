@@ -261,6 +261,10 @@ async function processWebhookEvents(
     );
 
     for (const event of events) {
+      app.log.info(
+        { eventKeys: Object.keys(event), hasMessage: !!event.message, senderId: event.sender?.id },
+        'Webhook event type',
+      );
       if (!event.message) continue;
 
       if (event.message.is_echo) {
