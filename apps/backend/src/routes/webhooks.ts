@@ -92,6 +92,9 @@ interface MetaWebhookBody {
     time: number;
     // Messenger Platform format (real DMs via subscribed_apps)
     messaging?: MetaMessagingEvent[];
+    // Same shape as `messaging` when this app is not the active thread owner
+    // (e.g. Meta Business Suite or another bot has primary control).
+    standby?: MetaMessagingEvent[];
     // Instagram API format (dashboard tests, newer subscriptions)
     changes?: MetaWebhookChange[];
   }>;
@@ -239,6 +242,10 @@ async function processWebhookEvents(
     // Messenger Platform (real DMs): entry.messaging[]
     const fromMessaging: MetaMessagingEvent[] = entry.messaging ?? [];
 
+    // Handover / multi-app: customer messages may arrive only in entry.standby[]
+    // while message_edit and other updates still appear under messaging[].
+    const fromStandby: MetaMessagingEvent[] = entry.standby ?? [];
+
     // Instagram API (dashboard tests, newer subs): entry.changes[].field=messages
     const fromChanges: MetaMessagingEvent[] = (entry.changes ?? [])
       .filter((c) => c.field === 'messages' && c.value?.message)
@@ -249,10 +256,15 @@ async function processWebhookEvents(
         message:   c.value.message!,
       }));
 
-    const events = [...fromMessaging, ...fromChanges];
+    const events = [...fromMessaging, ...fromStandby, ...fromChanges];
 
     app.log.debug(
-      { entryId: entry.id, fromMessaging: fromMessaging.length, fromChanges: fromChanges.length },
+      {
+        entryId: entry.id,
+        fromMessaging: fromMessaging.length,
+        fromStandby: fromStandby.length,
+        fromChanges: fromChanges.length,
+      },
       'Webhook entry events resolved',
     );
 

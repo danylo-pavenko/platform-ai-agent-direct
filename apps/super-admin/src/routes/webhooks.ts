@@ -114,8 +114,14 @@ export async function webhookRoutes(app: FastifyInstance) {
         if (m.recipient?.id) candidateIds.add(m.recipient.id);
         if (m.sender?.id)    candidateIds.add(m.sender.id);
       }
+      // DM payloads when this app is not the active owner (see `standby` subscription).
+      for (const s of (entry as any).standby ?? []) {
+        if (s.recipient?.id) candidateIds.add(s.recipient.id);
+        if (s.sender?.id)    candidateIds.add(s.sender.id);
+      }
       for (const c of (entry as any).changes ?? []) {
         if (c.value?.recipient?.id) candidateIds.add(c.value.recipient.id);
+        if (c.value?.sender?.id) candidateIds.add(c.value.sender.id);
       }
     }
 
