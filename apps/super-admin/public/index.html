@@ -536,6 +536,20 @@
         ></textarea>
       </div>
 
+      <!-- Instagram / Meta webhook routing -->
+      <hr class="modal-sep" />
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Instagram / Meta Webhook</div>
+      <div class="form-row">
+        <div class="field">
+          <label>Instagram Business Account ID <span style="color:var(--muted);font-weight:400">(entry[].id у вебхуку)</span></label>
+          <input v-model="modal.form.facebookPageId" placeholder="17841410659012767" style="font-family:monospace;font-size:12px" />
+        </div>
+        <div class="field">
+          <label>Facebook App Secret <span style="color:var(--muted);font-weight:400">(HMAC верифікація)</span></label>
+          <input v-model="modal.form.facebookAppSecret" placeholder="abc123..." type="password" style="font-family:monospace;font-size:12px" />
+        </div>
+      </div>
+
       <!-- Advanced (one-time server setup) -->
       <hr class="modal-sep" />
       <div class="modal-section-toggle" :class="{open: modal.advancedOpen}" @click="modal.advancedOpen=!modal.advancedOpen">
@@ -649,7 +663,7 @@ createApp({
     });
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', facebookPageId:'', facebookAppSecret:'' };
     }
 
     function headers() {
@@ -725,6 +739,8 @@ createApp({
         status: t.status,
         gitRepo: t.gitRepo || '',
         envExtra: t.envExtra || '',
+        facebookPageId: t.facebookPageId || '',
+        facebookAppSecret: t.facebookAppSecret || '',
       };
       modal.advancedOpen = false;
       modal.open = true;
