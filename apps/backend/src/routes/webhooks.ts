@@ -1,7 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
-import { verifyIgSignature } from '../lib/ig-signature.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { handleIncomingMessage } from '../services/conversation.js';
@@ -73,30 +72,9 @@ interface MetaWebhookBody {
   }>;
 }
 
-/** Augment Fastify request to carry raw body captured by our custom parser */
-interface WebhookRequest extends FastifyRequest<{ Body: MetaWebhookBody }> {
-  rawBodyBuf?: Buffer;
-}
-
 // ── Route plugin ──
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
-  // Register a custom content-type parser that captures the raw body
-  // while still parsing JSON for the route handler.
-  app.addContentTypeParser(
-    'application/json',
-    { parseAs: 'buffer' },
-    (_req, body: Buffer, done) => {
-      // Attach raw bytes for HMAC verification later
-      (_req as WebhookRequest).rawBodyBuf = body;
-      try {
-        const parsed = JSON.parse(body.toString('utf8'));
-        done(null, parsed);
-      } catch (err) {
-        done(err as Error, undefined);
-      }
-    },
-  );
 
   // ── GET: Meta verification challenge ──
 
@@ -127,27 +105,12 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   // ── POST: Receive messages ──
 
   app.post<{ Body: MetaWebhookBody }>('/webhooks/instagram', async (request, reply) => {
-    const req = request as WebhookRequest;
-    // Verify signature
-    const signature = req.headers['x-hub-signature-256'] as string | undefined;
-    const rawBody = req.rawBodyBuf;
-
-    if (!signature || !rawBody) {
-      app.log.warn('Missing signature or raw body on Instagram webhook POST');
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
-
-    const { meta: igMeta } = await getIntegrationConfig();
-    if (!verifyIgSignature(rawBody, signature, igMeta.facebookAppSecret)) {
-      app.log.warn('Invalid Instagram webhook signature');
-      return reply.code(401).send({ error: 'Unauthorized' });
-    }
-
+    // Signature is verified by the platform hub before forwarding via localhost.
     // Return 200 immediately - Meta requires response within 5 seconds
     reply.code(200).send('EVENT_RECEIVED');
 
     // Process asynchronously after response is sent
-    const body = req.body as MetaWebhookBody;
+    const body = request.body as MetaWebhookBody;
     processWebhookEvents(app, body).catch((err) => {
       app.log.error({ err }, 'Failed to process Instagram webhook events');
     });
