@@ -522,23 +522,36 @@ async function processMessageEvent(
     );
   }
 
-  // ── Create message record ──
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      direction: 'in',
-      sender: 'client',
-      text: redacted || null,
-      mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
-      // Store raw shared post metadata for audit / future reference.
-      // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
-      // accept typed interfaces with optional fields directly.
-      sharedPost: sharedPost
-        ? (sharedPost as unknown as Record<string, string | undefined>)
-        : undefined,
-      igMessageId,
-    },
-  });
+  // ── Create message record (unique on ig_message_id — catch race duplicates) ──
+  try {
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'in',
+        sender: 'client',
+        text: redacted || null,
+        mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+        // Store raw shared post metadata for audit / future reference.
+        // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
+        // accept typed interfaces with optional fields directly.
+        sharedPost: sharedPost
+          ? (sharedPost as unknown as Record<string, string | undefined>)
+          : undefined,
+        igMessageId,
+      },
+    });
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: string }).code === 'P2002'
+    ) {
+      app.log.debug({ igMessageId }, 'Duplicate message (DB race) — skipping handler');
+      return;
+    }
+    throw err;
+  }
 
   // ── Update conversation lastMessageAt (+ firstInboundAt on first ever inbound) ──
   // Prisma has no "coalesce on null" shorthand, so we branch in JS: set

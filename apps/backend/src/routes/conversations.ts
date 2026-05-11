@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { sendText } from '../services/instagram.js';
 import { importIgConversationHistory } from '../services/ig-history.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
   // GET / - List conversations
@@ -95,12 +96,13 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Conversation not found' });
     }
 
-    const newMessages = afterDate
+    const newMessagesRaw = afterDate
       ? await prisma.message.findMany({
           where: { conversationId: id, createdAt: { gt: afterDate } },
           orderBy: { createdAt: 'asc' },
         })
       : [];
+    const newMessages = dedupeConversationMessages(newMessagesRaw);
 
     return {
       conversation: {
@@ -136,7 +138,10 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Conversation not found' });
     }
 
-    return conversation;
+    return {
+      ...conversation,
+      messages: dedupeConversationMessages(conversation.messages),
+    };
   });
 
   // POST /:id/reply - Manual reply from admin

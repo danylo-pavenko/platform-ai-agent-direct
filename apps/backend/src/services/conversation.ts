@@ -27,6 +27,8 @@ import {
 import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { dedupeConversationMessages } from '../lib/message-dedupe.js';
+import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
 
 const log = pino({ name: 'conversation' });
 
@@ -52,7 +54,18 @@ const MAX_HISTORY_MESSAGES = 30;
  * @param mediaUrls       Local paths to downloaded media files (images, videos).
  * @param sharedPost      Parsed metadata if the user forwarded an IG post.
  */
-export async function handleIncomingMessage(
+export function handleIncomingMessage(
+  conversationId: string,
+  messageText: string,
+  mediaUrls?: string[],
+  sharedPost?: SharedPostData,
+): Promise<void> {
+  return runConversationTurnSerialized(conversationId, () =>
+    handleIncomingMessageImpl(conversationId, messageText, mediaUrls, sharedPost),
+  );
+}
+
+async function handleIncomingMessageImpl(
   conversationId: string,
   messageText: string,
   mediaUrls?: string[],
@@ -226,12 +239,20 @@ export async function handleIncomingMessage(
     where: { conversationId },
     orderBy: { createdAt: 'desc' },
     take: MAX_HISTORY_MESSAGES,
-    select: { direction: true, text: true },
+    select: {
+      id: true,
+      direction: true,
+      text: true,
+      sender: true,
+      createdAt: true,
+      igMessageId: true,
+    },
   });
 
-  // Reverse to chronological order & filter out system / empty
-  const history = rawMessages
-    .reverse()
+  const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
+
+  // Chronological order & filter out system / empty
+  const history = dedupedAsc
     .filter((m) => m.direction !== 'system' && m.text)
     .map((m) => ({
       role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',

@@ -239,8 +239,9 @@ interface Message {
   id: string;
   direction: 'in' | 'out' | 'system';
   sender: 'client' | 'bot' | 'manager' | 'system';
-  text: string;
+  text: string | null;
   createdAt: string;
+  igMessageId?: string | null;
 }
 
 interface ClientData {
@@ -435,13 +436,30 @@ function applyLiveUpdate(data: LivePollPayload) {
   }
 
   const seen = new Set(messages.value.map((m) => m.id));
+  const seenIg = new Set(
+    messages.value.map((m) => m.igMessageId).filter((x): x is string => Boolean(x)),
+  );
   let appended = false;
   for (const m of newMessages) {
-    if (!seen.has(m.id)) {
-      messages.value.push(m);
-      seen.add(m.id);
-      appended = true;
+    if (seen.has(m.id)) continue;
+    if (m.igMessageId && seenIg.has(m.igMessageId)) continue;
+    const last = messages.value[messages.value.length - 1];
+    const t = (x: string | null | undefined) => (x ?? '').trim();
+    if (
+      last &&
+      last.sender !== 'system' &&
+      m.sender !== 'system' &&
+      last.direction === m.direction &&
+      last.sender === m.sender &&
+      t(last.text) === t(m.text) &&
+      t(m.text).length > 0
+    ) {
+      continue;
     }
+    messages.value.push(m);
+    seen.add(m.id);
+    if (m.igMessageId) seenIg.add(m.igMessageId);
+    appended = true;
   }
   if (appended) void scrollToBottom();
 }
