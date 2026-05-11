@@ -768,14 +768,42 @@ const ClientProfilePanel = defineComponent({
 
         props.leadSummary ? h('hr', { class: 'v-divider' }) : null,
 
-        // IG identity
+        // IG identity + outbound links (profile + DM shortcut via ig.me)
         h('div', { class: 'pa-3 pb-0' }, [
           c?.igUsername
             ? h('div', { class: 'd-flex align-center ga-2 mb-2' }, [
                 h('span', { class: 'text-pink', style: 'font-size:16px;' }, '📷'),
-                h('span', { class: 'text-body-2' }, `@${c.igUsername}`),
+                h('span', { class: 'text-body-2' }, `@${String(c.igUsername).replace(/^@+/, '')}`),
               ])
             : null,
+          (() => {
+            const hnd = c?.igUsername?.replace(/^@+/, '').trim();
+            if (!hnd) {
+              return c?.igUserId
+                ? h(
+                    'div',
+                    { class: 'text-caption text-grey mb-2' },
+                    'Немає @username в профілі — посилання на Instagram зʼявляться після підтягування ніку (перше повідомлення або профіль IG).',
+                  )
+                : null;
+            }
+            const profileHref = `https://www.instagram.com/${encodeURIComponent(hnd)}/`;
+            const dmHref = `https://ig.me/m/${encodeURIComponent(hnd)}`;
+            return h('div', { class: 'd-flex flex-column ga-1 mb-2' }, [
+              h('a', {
+                class: 'profile-external-link',
+                href: profileHref,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+              }, 'Профіль Instagram'),
+              h('a', {
+                class: 'profile-external-link',
+                href: dmHref,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+              }, 'Чат у Instagram (DM)'),
+            ]);
+          })(),
           c?.igUserId
             ? h('div', { class: 'text-caption text-grey mb-2' }, `IGSID: ${c.igUserId}`)
             : null,
@@ -1000,8 +1028,13 @@ const ClientProfilePanel = defineComponent({
 
 .message-bubble-card.bubble-incoming {
   background: rgb(var(--v-theme-surface-variant));
-  color: rgb(var(--v-theme-on-surface-variant));
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+/* Incoming body: Vuetify `text-body-2` uses medium-emphasis; on surface-variant it reads as invisible */
+.messages-area .message-bubble-card.bubble-incoming .message-bubble-text.text-body-2 {
+  color: rgb(var(--v-theme-on-surface));
+  opacity: 1;
 }
 
 .message-bubble-card.bubble-out-bot {
@@ -1080,6 +1113,17 @@ const ClientProfilePanel = defineComponent({
   font-size: 13px;
   cursor: pointer;
   color: #555;
+}
+
+.profile-external-link {
+  color: rgb(var(--v-theme-primary));
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  word-break: break-all;
+}
+.profile-external-link:hover {
+  text-decoration: underline;
 }
 
 :deep(.profile-action-btn) {

@@ -4,6 +4,8 @@ import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { handleIncomingMessage } from '../services/conversation.js';
+import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.js';
+import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import {
@@ -576,6 +578,20 @@ async function processMessageEvent(
     },
     'Persisted incoming Instagram message',
   );
+
+  // Phone / email / NP hints — regex capture even when Claude skips update_client_info
+  if (redacted?.trim()) {
+    persistHeuristicClientContact(client.id, redacted)
+      .then((changed) => {
+        if (changed) return mirrorClientToCrm(client.id, {});
+      })
+      .catch((err) => {
+        app.log.warn(
+          { err, clientId: client.id },
+          'Heuristic client contact persist or CRM mirror failed (non-fatal)',
+        );
+      });
+  }
 
   // Enqueue Claude turn asynchronously (don't await - webhook already responded)
   handleIncomingMessage(
