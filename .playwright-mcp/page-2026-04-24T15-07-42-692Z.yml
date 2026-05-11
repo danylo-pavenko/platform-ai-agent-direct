@@ -1,0 +1,469 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]:
+      - link "Direct AI / Agents" [ref=e4] [cursor=pointer]:
+        - /url: "#"
+        - generic [ref=e7]:
+          - text: Direct AI
+          - emphasis [ref=e8]: / Agents
+      - generic [ref=e9]:
+        - link "Як" [ref=e10] [cursor=pointer]:
+          - /url: "#how"
+        - link "Можливості" [ref=e11] [cursor=pointer]:
+          - /url: "#features"
+        - link "Тарифи" [ref=e12] [cursor=pointer]:
+          - /url: "#pricing"
+        - link "Питання" [ref=e13] [cursor=pointer]:
+          - /url: "#faq"
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - button "UA" [ref=e16] [cursor=pointer]
+          - button "EN" [ref=e17] [cursor=pointer]
+        - link "Замовити демо ↗" [ref=e18] [cursor=pointer]:
+          - /url: mailto:help@depsoftware.com
+  - banner [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e21]:
+        - generic [ref=e22]: Direct AI / Agents · Kyiv · EU‑Central‑1
+        - generic [ref=e23]:
+          - generic [ref=e24]: NDOT‑01 · REV 0.4.2
+          - generic [ref=e25]: Uptime 99.96%
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e30]: Активно · Instagram Direct · 24/7
+          - heading "Direct, який продає сам." [level=1] [ref=e31]:
+            - text: Direct, який
+            - text: продає сам.
+          - paragraph [ref=e32]: AI-агент відповідає у вашому стилі, 24/7. Знає каталог. Збирає замовлення повністю — від розміру до адреси доставки. Передає менеджеру готову картку в Telegram.
+          - generic [ref=e33]:
+            - link "Запустити за 48 год ↗" [ref=e34] [cursor=pointer]:
+              - /url: mailto:help@depsoftware.com
+            - link "Подивитись, як працює" [ref=e35] [cursor=pointer]:
+              - /url: "#how"
+            - generic [ref=e36]: 14 днів · без карти
+        - generic [ref=e37]:
+          - generic [ref=e38]: КЛІЄНТ · 23:47
+          - generic [ref=e39]: AI · 4 сек
+          - generic [ref=e40]: МЕНЕДЖЕР · TG
+          - generic [ref=e41]:
+            - generic [ref=e43]: NDOT / DIRECT
+            - generic [ref=e48]:
+              - generic [ref=e49]:
+                - generic [ref=e50]: D
+                - generic [ref=e51]:
+                  - generic [ref=e52]: "@dariakh"
+                  - generic [ref=e53]: ● Active
+                - generic [ref=e54]: ☏ ⓘ
+              - generic [ref=e55]:
+                - generic [ref=e56]: 23:47
+                - generic [ref=e57]: Доброго вечора! Сукня Agnes у розмірі S є?
+                - generic [ref=e58]: Доброго вечора 🌿 Так, S в наявності — оливкова та піщана. Який колір ближче?
+                - generic [ref=e59]: Оливкова. Скільки коштує?
+                - generic [ref=e60]: 3 190 ₴. Оформлюємо? № відділення Нової Пошти?
+                - generic [ref=e61]: Львів, відділення 12 ✨
+              - generic [ref=e62]:
+                - generic [ref=e63]: ⊕
+                - generic [ref=e64]: Повідомлення…
+                - generic [ref=e65]: ●
+  - generic [ref=e68]:
+    - generic [ref=e69]: REGION · EU‑CENTRAL‑1
+    - generic [ref=e70]: PLATFORM · DIRECT AI AGENTS
+    - generic [ref=e71]: LATENCY · 4.2s avg
+    - generic [ref=e72]: UPTIME · 99.96% ●
+    - generic [ref=e73]: SETUP · 48 год
+    - generic [ref=e74]: SUPPORT · UA + EN
+  - generic [ref=e76]:
+    - generic [ref=e77]:
+      - generic [ref=e78]:
+        - text: "01"
+        - emphasis [ref=e79]: .
+      - generic [ref=e80]:
+        - generic [ref=e81]: Проблема
+        - heading "Менеджер цілий день відповідає на одне і те саме." [level=2] [ref=e82]:
+          - text: Менеджер цілий день відповідає
+          - text: на одне і те саме.
+        - paragraph [ref=e83]: Клієнти йдуть до тих, хто відповів першим. Сьогодні — це рідко ви.
+    - generic [ref=e84]:
+      - generic [ref=e85]:
+        - generic [ref=e86]:
+          - generic [ref=e87]: ✕
+          - generic [ref=e88]: Без агента
+        - heading "Сьогодні" [level=3] [ref=e89]
+        - list [ref=e90]:
+          - listitem [ref=e91]:
+            - generic [ref=e92]: /01
+            - generic [ref=e93]: Клієнт пише о 23:00 — відповідь о 09:00. Половина не дочекалась.
+          - listitem [ref=e94]:
+            - generic [ref=e95]: /02
+            - generic [ref=e96]: "200+ однотипних питань на день: ціна, розмір, доставка."
+          - listitem [ref=e97]:
+            - generic [ref=e98]: /03
+            - generic [ref=e99]: Менеджер вручну переписує дані з Direct у CRM. Помилки.
+          - listitem [ref=e100]:
+            - generic [ref=e101]: /04
+            - generic [ref=e102]: Свята, вихідні, відпустка — продажі стають.
+          - listitem [ref=e103]:
+            - generic [ref=e104]: /05
+            - generic [ref=e105]: Більше реклами = більше переписки. Нові менеджери = мінус маржа.
+      - generic [ref=e106]:
+        - generic [ref=e107]:
+          - generic [ref=e108]: +
+          - generic [ref=e109]: З Direct AI Agent
+        - heading "Як стає" [level=3] [ref=e110]
+        - list [ref=e111]:
+          - listitem [ref=e112]:
+            - generic [ref=e113]: /01
+            - generic [ref=e114]: Відповідь за 4 секунди. У будь-яку годину.
+          - listitem [ref=e115]:
+            - generic [ref=e116]: /02
+            - generic [ref=e117]: 87% запитів агент закриває сам.
+          - listitem [ref=e118]:
+            - generic [ref=e119]: /03
+            - generic [ref=e120]: Замовлення в Telegram готовою карткою. 1 клік — підтвердив.
+          - listitem [ref=e121]:
+            - generic [ref=e122]: /04
+            - generic [ref=e123]: Працює в свята, вночі, у відпустку.
+          - listitem [ref=e124]:
+            - generic [ref=e125]: /05
+            - generic [ref=e126]: Повернення, скарги — передає живій людині автоматично.
+  - generic [ref=e128]:
+    - generic [ref=e129]:
+      - generic [ref=e130]:
+        - text: "02"
+        - emphasis [ref=e131]: .
+      - generic [ref=e132]:
+        - generic [ref=e133]: Як це працює
+        - heading "Чотири кроки. Direct починає продавати без вас." [level=2] [ref=e134]
+    - generic [ref=e135]:
+      - generic [ref=e136]:
+        - generic [ref=e137]: i
+        - heading "Підключаємо Instagram" [level=3] [ref=e138]
+        - paragraph [ref=e139]: Авторизація через офіційний Meta API. Ніяких паролів — лише безпечний токен.
+        - generic [ref=e140]: T+ 00:05
+      - generic [ref=e141]:
+        - generic [ref=e142]: ii
+        - heading "Завантажуємо каталог" [level=3] [ref=e143]
+        - paragraph [ref=e144]: CRM, Google Sheets, Shopify. Ціни, розміри, наявність — синхроно.
+        - generic [ref=e145]: T+ 01:00
+      - generic [ref=e146]:
+        - generic [ref=e147]: iii
+        - heading "Налаштовуємо тон" [level=3] [ref=e148]
+        - paragraph [ref=e149]: Стиль бренду, правила ескалації, години роботи. Тест у пісочниці.
+        - generic [ref=e150]: T+ 1 день
+      - generic [ref=e151]:
+        - generic [ref=e152]: iv
+        - heading "Telegram-бот" [level=3] [ref=e153]
+        - paragraph [ref=e154]: Менеджер у групі отримує готові замовлення. Один клік — підтвердив.
+        - generic [ref=e155]: T+ 00:10
+  - generic [ref=e157]:
+    - generic [ref=e158]:
+      - generic [ref=e159]:
+        - text: "03"
+        - emphasis [ref=e160]: .
+      - generic [ref=e161]:
+        - generic [ref=e162]: Можливості
+        - heading "Не просто бот. Повноцінний продавець." [level=2] [ref=e163]
+    - generic [ref=e164]:
+      - generic [ref=e165]:
+        - generic [ref=e166]:
+          - generic [ref=e167]: "01"
+          - generic [ref=e168]:
+            - heading "Знає каталог напам'ять" [level=4] [ref=e169]
+            - paragraph [ref=e170]: Ціни, розміри, тканина, терміни — миттєво. Немає товару? Пропонує альтернативу.
+        - generic [ref=e171]:
+          - generic [ref=e172]: "02"
+          - generic [ref=e173]:
+            - heading "Веде живу розмову" [level=4] [ref=e174]
+            - paragraph [ref=e175]: Не кнопковий скрипт. Розуміє контекст, пам'ятає історію, реагує на сленг та емодзі.
+        - generic [ref=e176]:
+          - generic [ref=e177]: "03"
+          - generic [ref=e178]:
+            - heading "Збирає замовлення повністю" [level=4] [ref=e179]
+            - paragraph [ref=e180]: Товар → розмір → колір → к-ть → адреса → телефон → доставка. Валідація НП.
+        - generic [ref=e181]:
+          - generic [ref=e182]: "04"
+          - generic [ref=e183]:
+            - heading "Розуміє, коли мовчати" [level=4] [ref=e184]
+            - paragraph [ref=e185]: Скарги, повернення, нестандарт — миттєво передає людині. Не вирішує зайвого.
+        - generic [ref=e186]:
+          - generic [ref=e187]: "05"
+          - generic [ref=e188]:
+            - heading "Працює у вашому стилі" [level=4] [ref=e189]
+            - paragraph [ref=e190]: Тон, словник, фірмові емодзі — без коду. «Ти» чи «Ви» — налаштовується.
+      - generic [ref=e192]:
+        - generic [ref=e193]:
+          - generic [ref=e194]: "N"
+          - generic [ref=e195]:
+            - generic [ref=e196]: N. Kovalenko
+            - generic [ref=e197]: Today · 09:12 · @nadia.ko
+          - generic [ref=e198]: AI АКТИВНИЙ
+        - generic [ref=e199]:
+          - generic [ref=e200]: Привіт! Бачила Agnes у сторіс — шукаю на корпоратив, які розміри?
+          - generic [ref=e201]: Привіт 🌿 Agnes є в S, M, L — оливковий і піщаний. Який колір ближче?
+          - generic [ref=e202]: Оливковий, S. А якщо не сяде?
+          - generic [ref=e203]: Безкоштовний обмін 14 днів. Адреса доставки?
+          - generic [ref=e204]: Львів, Нова Пошта 12, +380 67 ххх
+        - generic [ref=e205]:
+          - generic [ref=e206]: "ЗАМОВЛЕННЯ #2438 → TG"
+          - generic [ref=e207]: N. Kovalenko
+          - generic [ref=e208]:
+            - generic [ref=e209]: Agnes · Olive · S
+            - generic [ref=e210]: ₴3,190
+          - generic [ref=e211]:
+            - generic [ref=e212]: НП · Львів · №12
+            - generic [ref=e213]: +380 67…
+          - generic [ref=e214]:
+            - generic [ref=e215]: РАЗОМ
+            - generic [ref=e216]: ₴3,190
+          - generic [ref=e217]:
+            - button "✓ Підтвердити" [ref=e218] [cursor=pointer]
+            - button "⟳" [ref=e219] [cursor=pointer]
+            - button "✕" [ref=e220] [cursor=pointer]
+  - generic [ref=e222]:
+    - generic [ref=e223]:
+      - generic [ref=e224]:
+        - text: "04"
+        - emphasis [ref=e225]: .
+      - generic [ref=e226]:
+        - generic [ref=e227]: Метрики · тиждень 01
+        - heading "Що бачать клієнти з першого тижня." [level=2] [ref=e228]
+    - generic [ref=e229]:
+      - generic [ref=e230]:
+        - generic [ref=e231]: 01 / 04
+        - generic [ref=e232]:
+          - text: "87"
+          - generic [ref=e233]: "%"
+        - generic [ref=e234]: діалогів закриваються без менеджера
+      - generic [ref=e235]:
+        - generic [ref=e236]: 02 / 04
+        - generic [ref=e237]:
+          - text: "4.2"
+          - generic [ref=e238]: S
+        - generic [ref=e239]: середня перша відповідь · вдень і вночі
+      - generic [ref=e240]:
+        - generic [ref=e241]: 03 / 04
+        - generic [ref=e242]:
+          - text: "2.4"
+          - generic [ref=e243]: ×
+        - generic [ref=e244]: конверсія DM → замовлення
+      - generic [ref=e245]:
+        - generic [ref=e246]: 04 / 04
+        - generic [ref=e247]:
+          - text: −68
+          - generic [ref=e248]: "%"
+        - generic [ref=e249]: витрат на підтримку
+  - generic [ref=e251]:
+    - generic [ref=e252]:
+      - generic [ref=e253]:
+        - text: "05"
+        - emphasis [ref=e254]: .
+      - generic [ref=e255]:
+        - generic [ref=e256]: Тарифи
+        - heading "Платите за результат." [level=2] [ref=e257]
+        - paragraph [ref=e258]: "Усі тарифи: ізольований інстанс, власний домен, безлімітні діалоги, підтримка UA+EN."
+    - generic [ref=e259]:
+      - generic [ref=e260]:
+        - generic [ref=e261]: STARTER
+        - generic [ref=e262]:
+          - text: €69
+          - emphasis [ref=e263]: /міс
+        - generic [ref=e264]: магазини до 1 000 діалогів/міс
+        - list [ref=e265]:
+          - listitem [ref=e266]:
+            - generic [ref=e267]: +
+            - generic [ref=e268]: 1 Instagram-акаунт
+          - listitem [ref=e269]:
+            - generic [ref=e270]: +
+            - generic [ref=e271]: До 1 000 діалогів/міс
+          - listitem [ref=e272]:
+            - generic [ref=e273]: +
+            - generic [ref=e274]: Каталог · до 200 товарів
+          - listitem [ref=e275]:
+            - generic [ref=e276]: +
+            - generic [ref=e277]: Telegram-бот для менеджера
+          - listitem [ref=e278]:
+            - generic [ref=e279]: +
+            - generic [ref=e280]: Email-підтримка
+        - button "Почати безкоштовно ↗" [ref=e281] [cursor=pointer]
+      - generic [ref=e282]:
+        - generic [ref=e283]: НАЙПОПУЛЯРНІШИЙ
+        - generic [ref=e284]: BUSINESS
+        - generic [ref=e285]:
+          - text: €199
+          - emphasis [ref=e286]: /міс
+        - generic [ref=e287]: для брендів, які живуть в Direct
+        - list [ref=e288]:
+          - listitem [ref=e289]:
+            - generic [ref=e290]: +
+            - generic [ref=e291]: До 3 Instagram-акаунтів
+          - listitem [ref=e292]:
+            - generic [ref=e293]: +
+            - generic [ref=e294]: Безлімітні діалоги
+          - listitem [ref=e295]:
+            - generic [ref=e296]: +
+            - generic [ref=e297]: Каталог без обмежень
+          - listitem [ref=e298]:
+            - generic [ref=e299]: +
+            - generic [ref=e300]: Власний домен панелі
+          - listitem [ref=e301]:
+            - generic [ref=e302]: +
+            - generic [ref=e303]: НП, CRM, Sheets
+          - listitem [ref=e304]:
+            - generic [ref=e305]: +
+            - generic [ref=e306]: Аналітика + редактор промптів
+          - listitem [ref=e307]:
+            - generic [ref=e308]: +
+            - generic [ref=e309]: Telegram-підтримка · 12 год
+        - button "Замовити демо ↗" [ref=e310] [cursor=pointer]
+      - generic [ref=e311]:
+        - generic [ref=e312]: AGENCY · WHITE-LABEL
+        - generic [ref=e313]:
+          - text: €990
+          - emphasis [ref=e314]: /міс
+        - generic [ref=e315]: агенціям, які перепродають клієнтам
+        - list [ref=e316]:
+          - listitem [ref=e317]:
+            - generic [ref=e318]: +
+            - generic [ref=e319]: Необмежено клієнтів
+          - listitem [ref=e320]:
+            - generic [ref=e321]: +
+            - generic [ref=e322]: Власний бренд і логотип
+          - listitem [ref=e323]:
+            - generic [ref=e324]: +
+            - generic [ref=e325]: Новий клієнт за 1–2 дні
+          - listitem [ref=e326]:
+            - generic [ref=e327]: +
+            - generic [ref=e328]: Авто-провіжнінг
+          - listitem [ref=e329]:
+            - generic [ref=e330]: +
+            - generic [ref=e331]: Recurring revenue
+          - listitem [ref=e332]:
+            - generic [ref=e333]: +
+            - generic [ref=e334]: Виділений менеджер
+        - button "Стати партнером ↗" [ref=e335] [cursor=pointer]
+  - generic [ref=e337]:
+    - generic [ref=e338]:
+      - generic [ref=e339]:
+        - text: "06"
+        - emphasis [ref=e340]: .
+      - generic [ref=e341]:
+        - generic [ref=e342]: Питання
+        - heading "Питання, які завжди задають." [level=2] [ref=e343]
+    - generic [ref=e344]:
+      - paragraph [ref=e345]:
+        - text: Не знайшли відповідь? Напишіть на
+        - link "help@depsoftware.com" [ref=e346] [cursor=pointer]:
+          - /url: mailto:help@depsoftware.com
+        - text: — відповідаємо швидко.
+      - generic [ref=e347]:
+        - generic [ref=e348]:
+          - generic [ref=e349] [cursor=pointer]:
+            - generic [ref=e350]: Чи відрізнить клієнт, що це AI?
+            - generic [ref=e351]: +
+          - generic [ref=e352]: Більшість — ні. Налаштовується під ваш фірмовий стиль. Радимо чесно вказати в bio, що відповідає AI — це підвищує довіру.
+        - generic [ref=e354] [cursor=pointer]:
+          - generic [ref=e355]: Що зі складними запитами?
+          - generic [ref=e356]: +
+        - generic [ref=e358] [cursor=pointer]:
+          - generic [ref=e359]: Скільки часу на запуск?
+          - generic [ref=e360]: +
+        - generic [ref=e362] [cursor=pointer]:
+          - generic [ref=e363]: Де зберігаються дані?
+          - generic [ref=e364]: +
+        - generic [ref=e366] [cursor=pointer]:
+          - generic [ref=e367]: Що, якщо не сподобається?
+          - generic [ref=e368]: +
+        - generic [ref=e370] [cursor=pointer]:
+          - generic [ref=e371]: А якщо у нас WhatsApp/Telegram?
+          - generic [ref=e372]: +
+  - generic [ref=e373]:
+    - generic [ref=e374]:
+      - heading "Instagram більше не має бути роботою 24/7." [level=2] [ref=e375]:
+        - text: Instagram більше не
+        - text: має бути роботою 24/7.
+      - paragraph [ref=e376]: Запустимо AI-агента за 48 годин. 14 днів безкоштовно. Не зайде — не платите.
+      - generic [ref=e377]:
+        - link "Замовити демо ↗" [ref=e378] [cursor=pointer]:
+          - /url: mailto:help@depsoftware.com
+        - link "Подивитися тарифи" [ref=e379] [cursor=pointer]:
+          - /url: "#pricing"
+        - generic [ref=e380]: "help@depsoftware.com · CEO: ceo@depsoftware.com"
+    - generic [ref=e382]:
+      - generic [ref=e383]: REVERIE ATELIER
+      - generic [ref=e384]: ●
+      - generic [ref=e385]: KAVA&KOHANA
+      - generic [ref=e386]: ●
+      - generic [ref=e387]: NORTH·COAST
+      - generic [ref=e388]: ●
+      - generic [ref=e389]: MAVKA STUDIO
+      - generic [ref=e390]: ●
+      - generic [ref=e391]: OLIVE&SALT
+      - generic [ref=e392]: ●
+      - generic [ref=e393]: STATUS BLESSED
+      - generic [ref=e394]: ●
+      - generic [ref=e395]: JUNESTUDIO
+      - generic [ref=e396]: ●
+      - generic [ref=e397]: REVERIE ATELIER
+      - generic [ref=e398]: ●
+      - generic [ref=e399]: KAVA&KOHANA
+      - generic [ref=e400]: ●
+      - generic [ref=e401]: NORTH·COAST
+      - generic [ref=e402]: ●
+      - generic [ref=e403]: MAVKA STUDIO
+      - generic [ref=e404]: ●
+      - generic [ref=e405]: OLIVE&SALT
+      - generic [ref=e406]: ●
+      - generic [ref=e407]: STATUS BLESSED
+      - generic [ref=e408]: ●
+      - generic [ref=e409]: JUNESTUDIO
+      - generic [ref=e410]: ●
+  - contentinfo [ref=e411]:
+    - generic [ref=e412]:
+      - generic [ref=e413]: DIRECT·AI·AGENTS
+      - generic [ref=e414]:
+        - generic [ref=e415]:
+          - link "Direct AI / Agents" [ref=e416] [cursor=pointer]:
+            - /url: "#"
+            - generic [ref=e419]:
+              - text: Direct AI
+              - emphasis [ref=e420]: / Agents
+          - paragraph [ref=e421]: Платформа, що перетворює Instagram Direct на канал продажів. DEP Software, Київ, 2024.
+          - paragraph [ref=e422]:
+            - link "help@depsoftware.com" [ref=e423] [cursor=pointer]:
+              - /url: mailto:help@depsoftware.com
+            - text: "CEO:"
+            - link "ceo@depsoftware.com" [ref=e424] [cursor=pointer]:
+              - /url: mailto:ceo@depsoftware.com
+        - generic [ref=e425]:
+          - heading "Продукт" [level=5] [ref=e426]
+          - link "Як" [ref=e427] [cursor=pointer]:
+            - /url: "#how"
+          - link "Можливості" [ref=e428] [cursor=pointer]:
+            - /url: "#features"
+          - link "Тарифи" [ref=e429] [cursor=pointer]:
+            - /url: "#pricing"
+          - link "FAQ" [ref=e430] [cursor=pointer]:
+            - /url: "#faq"
+        - generic [ref=e431]:
+          - heading "Компанія" [level=5] [ref=e432]
+          - link "Про нас" [ref=e433] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+          - link "Кейси" [ref=e434] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+          - link "Партнерам" [ref=e435] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+          - link "Контакти" [ref=e436] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+        - generic [ref=e437]:
+          - heading "Юридично" [level=5] [ref=e438]
+          - link "Приватність" [ref=e439] [cursor=pointer]:
+            - /url: /privacy-policy.html
+          - link "Умови" [ref=e440] [cursor=pointer]:
+            - /url: /terms.html
+          - link "DPA" [ref=e441] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+          - link "Безпека" [ref=e442] [cursor=pointer]:
+            - /url: mailto:help@depsoftware.com
+      - generic [ref=e443]:
+        - generic [ref=e444]: © 2026 DIRECT AI AGENTS · UA · NDOT‑01
+        - generic [ref=e445]: ЗРОБЛЕНО В КИЄВІ ● UA
