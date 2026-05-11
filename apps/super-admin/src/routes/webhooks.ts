@@ -107,7 +107,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     for (const pageId of pageIds) {
       const tenant = await prisma.tenant.findFirst({
-        where: { facebookPageId: pageId, status: { not: 'suspended' } },
+        where: { instagramUserId: pageId, status: { not: 'suspended' } },
       });
 
       if (!tenant) {

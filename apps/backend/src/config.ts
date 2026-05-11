@@ -70,6 +70,12 @@ const envSchema = z.object({
   // If unset, /supervisor/* endpoints are disabled.
   SUPERVISOR_SHARED_SECRET: z.string().default(''),
 
+  // Internal URL of the super-admin server for auto-syncing webhook config.
+  // After a successful Facebook OAuth the tenant backend calls the SA hub
+  // to register its instagramUserId so the hub can route webhooks automatically.
+  // Empty = skip auto-sync (manual SA configuration required).
+  SA_INTERNAL_URL: z.string().default(''),
+
   // Nova Poshta
   NOVA_POSHTA_API_KEY: z.string().default(''),
 

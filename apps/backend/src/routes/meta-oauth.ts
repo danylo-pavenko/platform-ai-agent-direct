@@ -287,6 +287,36 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         'Facebook OAuth completed and credentials saved',
       );
 
+      // Step 5 — auto-sync instagramUserId + facebookAppSecret to the platform hub
+      // so the central webhook dispatcher can route events to this tenant without
+      // manual super-admin configuration.
+      if (config.SA_INTERNAL_URL && config.INSTANCE_ID && config.SUPERVISOR_SHARED_SECRET) {
+        const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;
+        fetch(syncUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET,
+          },
+          body: JSON.stringify({
+            instagramUserId: igUserId,
+            facebookAppSecret: meta.facebookAppSecret,
+          }),
+          signal: AbortSignal.timeout(8_000),
+        })
+          .then(async (res) => {
+            if (res.ok) {
+              app.log.info({ igUserId }, 'Webhook config auto-synced to platform hub');
+            } else {
+              const txt = await res.text().catch(() => '');
+              app.log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Hub webhook-config sync failed');
+            }
+          })
+          .catch((err) => {
+            app.log.warn({ err }, 'Hub webhook-config sync error (non-fatal)');
+          });
+      }
+
       return reply.send(
         buildPopupHtml({
           type: 'meta_oauth_success',

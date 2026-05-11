@@ -542,7 +542,7 @@
       <div class="form-row">
         <div class="field">
           <label>Instagram Business Account ID <span style="color:var(--muted);font-weight:400">(entry[].id у вебхуку)</span></label>
-          <input v-model="modal.form.facebookPageId" placeholder="17841410659012767" style="font-family:monospace;font-size:12px" />
+          <input v-model="modal.form.instagramUserId" placeholder="17841410659012767" style="font-family:monospace;font-size:12px" />
         </div>
         <div class="field">
           <label>Facebook App Secret <span style="color:var(--muted);font-weight:400">(HMAC верифікація)</span></label>
@@ -663,7 +663,7 @@ createApp({
     });
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', facebookPageId:'', facebookAppSecret:'' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', facebookAppSecret:'' };
     }
 
     function headers() {
@@ -739,7 +739,7 @@ createApp({
         status: t.status,
         gitRepo: t.gitRepo || '',
         envExtra: t.envExtra || '',
-        facebookPageId: t.facebookPageId || '',
+        instagramUserId: t.instagramUserId || '',
         facebookAppSecret: t.facebookAppSecret || '',
       };
       modal.advancedOpen = false;

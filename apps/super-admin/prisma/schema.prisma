@@ -21,13 +21,12 @@ model Tenant {
   status            String   @default("provisioned")
   gitRepo           String?  @map("git_repo")
   envExtra          String?  @map("env_extra")
-  // Instagram / Meta webhook routing
-  // facebookPageId: the Page ID returned by OAuth — used to route inbound
-  //   webhooks from the platform hub to this tenant's backend.
-  // facebookAppSecret: this tenant's Meta App Secret — used by the hub to
-  //   verify the HMAC signature before forwarding. Required so each tenant
-  //   can use their own Meta App (different app secrets).
-  facebookPageId    String?  @map("facebook_page_id")
+  // Instagram / Meta webhook routing.
+  // instagramUserId: entry[].id from Meta instagram-object webhooks = IG Business Account ID.
+  //   Auto-populated when the tenant completes Facebook OAuth in their admin panel.
+  // facebookAppSecret: tenant's Meta App Secret for hub HMAC verification.
+  //   Auto-populated on OAuth success; can also be set manually by super-admin.
+  instagramUserId   String?  @unique @map("instagram_user_id")
   facebookAppSecret String?  @map("facebook_app_secret")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")

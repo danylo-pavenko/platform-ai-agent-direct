@@ -21,7 +21,7 @@ const tenantSchema = z.object({
   gitRepo: z.string().min(1).optional(),
   envExtra: z.string().optional(),
   // Instagram / Meta webhook routing
-  facebookPageId: z.string().optional(),
+  instagramUserId: z.string().optional(),
   facebookAppSecret: z.string().optional(),
 });
 
@@ -310,6 +310,40 @@ echo "[provision] ✓ Initial setup complete"
     } catch (err: any) {
       return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
     }
+  });
+
+  // Auto-sync webhook routing config from tenant OAuth flow.
+  // Called by the tenant backend after a successful Facebook OAuth so that
+  // the platform hub can route webhooks to this tenant without manual setup.
+  // Auth: X-Supervisor-Token (same shared secret used for /supervisor/* routes).
+  app.post<{
+    Params: { instanceId: string };
+    Body: { instagramUserId: string; facebookAppSecret: string };
+  }>('/api/tenants/by-instance/:instanceId/webhook-config', async (req, reply) => {
+    const token = req.headers['x-supervisor-token'];
+    if (!config.SUPERVISOR_SHARED_SECRET || token !== config.SUPERVISOR_SHARED_SECRET) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const { instagramUserId, facebookAppSecret } = req.body ?? {};
+    if (!instagramUserId || !facebookAppSecret) {
+      return reply.status(400).send({ error: 'instagramUserId and facebookAppSecret are required' });
+    }
+
+    const tenant = await prisma.tenant.findUnique({ where: { instanceId: req.params.instanceId } });
+    if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+
+    const updated = await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { instagramUserId, facebookAppSecret },
+    });
+
+    app.log.info(
+      { instanceId: req.params.instanceId, instagramUserId },
+      'Webhook config auto-synced from tenant OAuth',
+    );
+
+    return { ok: true, instagramUserId: updated.instagramUserId };
   });
 
   // Proxy Claude CLI health probe to tenant backend.
