@@ -234,12 +234,17 @@ async function processWebhookEvents(
       // Meta includes these in the standard `messages` subscription even
       // without explicit messaging_echoes subscription.
       if (event.message.is_echo) {
-        app.log.debug(
+        app.log.info(
           { mid: event.message.mid, senderId: event.sender.id },
           'Skipping echo message (sent by page)',
         );
         continue;
       }
+
+      app.log.info(
+        { mid: event.message.mid, senderId: event.sender.id, hasText: !!event.message.text },
+        'Processing incoming message event',
+      );
 
       try {
         await processMessageEvent(app, event);
@@ -270,8 +275,10 @@ async function processMessageEvent(
     where: { igMessageId },
   });
 
+  app.log.info({ igUserId, igMessageId, rawText: rawText.slice(0, 80) }, 'processMessageEvent started');
+
   if (existingMessage) {
-    app.log.debug({ igMessageId }, 'Duplicate message - skipping');
+    app.log.info({ igMessageId }, 'Duplicate message - skipping');
     return;
   }
 
