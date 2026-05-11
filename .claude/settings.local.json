@@ -103,14 +103,16 @@
       "Bash(sips -g pixelWidth -g pixelHeight /Users/danylopavenko/Development/playground/status-blessed/platform-ai-agent-direct/docs/branding/meta-app-icon-1024.png)",
       "Bash(sips *)",
       "Bash(npx --prefix apps/admin vite build --dry-run)",
-      "Bash(~/.local/bin/claude -p --output-format stream-json --verbose --model sonnet)"
+      "Bash(~/.local/bin/claude -p --output-format stream-json --verbose --model sonnet)",
+      "Bash(GIT_EDITOR=true git rebase *)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "context7",
     "sequential-thinking",
     "playwright",
     "trello"
   ],
-  "enableAllProjectMcpServers": true
+  "spinnerTipsEnabled": false
 }
