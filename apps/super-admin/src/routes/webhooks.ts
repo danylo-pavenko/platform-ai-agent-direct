@@ -139,7 +139,7 @@ export async function webhookRoutes(app: FastifyInstance) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Hub-Signature-256': signature,
+            ...(signature ? { 'X-Hub-Signature-256': signature } : {}),
             'X-Forwarded-By': 'platform-hub',
           },
           body: rawBody,
