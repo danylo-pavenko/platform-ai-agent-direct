@@ -63,12 +63,37 @@ export interface SharedPostData {
   [key: string]: unknown; // Allows Prisma to accept this as InputJsonValue
 }
 
+// Instagram API (changes[]) format — used by Meta dashboard test webhooks
+// and increasingly by newer Graph API subscriptions.
+interface MetaWebhookChange {
+  field: string;
+  value: {
+    sender?: { id: string };
+    recipient?: { id: string };
+    timestamp?: number | string;
+    // field=messages
+    message?: {
+      mid: string;
+      text?: string;
+      is_echo?: boolean;
+      attachments?: MetaAttachment[];
+    };
+    // field=message_edit (ignored — no re-processing)
+    message_edit?: unknown;
+    // field=message_reactions (ignored)
+    reaction?: unknown;
+  };
+}
+
 interface MetaWebhookBody {
   object: string;
   entry?: Array<{
     id: string;
     time: number;
+    // Messenger Platform format (real DMs via subscribed_apps)
     messaging?: MetaMessagingEvent[];
+    // Instagram API format (dashboard tests, newer subscriptions)
+    changes?: MetaWebhookChange[];
   }>;
 }
 
@@ -201,16 +226,6 @@ async function processWebhookEvents(
   app: FastifyInstance,
   body: MetaWebhookBody,
 ): Promise<void> {
-  app.log.info(
-    {
-      object: body?.object,
-      entryCount: body?.entry?.length ?? 0,
-      firstEntryKeys: body?.entry?.[0] ? Object.keys(body.entry[0]) : [],
-      messagingCount: body?.entry?.[0]?.messaging?.length ?? 0,
-    },
-    'processWebhookEvents called',
-  );
-
   if (body.object !== 'instagram') {
     app.log.info({ object: body.object }, 'Ignoring non-instagram webhook object');
     return;
@@ -219,20 +234,35 @@ async function processWebhookEvents(
   const entries = body.entry ?? [];
 
   for (const entry of entries) {
-    const events = entry.messaging ?? [];
-    if (events.length === 0) {
-      app.log.info({ entryId: entry.id, entryKeys: Object.keys(entry) }, 'Entry has no messaging events');
-    }
+    // ── Collect events from both formats ──────────────────────────────────
+    // Messenger Platform (real DMs): entry.messaging[]
+    const fromMessaging: MetaMessagingEvent[] = entry.messaging ?? [];
+
+    // Instagram API (dashboard tests, newer subs): entry.changes[].field=messages
+    const fromChanges: MetaMessagingEvent[] = (entry.changes ?? [])
+      .filter((c) => c.field === 'messages' && c.value?.message)
+      .map((c) => ({
+        sender:    { id: c.value.sender?.id ?? '' },
+        recipient: { id: c.value.recipient?.id ?? '' },
+        timestamp: Number(c.value.timestamp ?? 0),
+        message:   c.value.message!,
+      }));
+
+    const events = [...fromMessaging, ...fromChanges];
+
+    app.log.info(
+      {
+        entryId: entry.id,
+        fromMessaging: fromMessaging.length,
+        fromChanges: fromChanges.length,
+        total: events.length,
+      },
+      'Webhook entry events resolved',
+    );
 
     for (const event of events) {
-      if (!event.message) {
-        // Not a message event (e.g. delivery, read receipt) - skip
-        continue;
-      }
+      if (!event.message) continue;
 
-      // Skip echo messages (copies of messages sent BY the page/bot).
-      // Meta includes these in the standard `messages` subscription even
-      // without explicit messaging_echoes subscription.
       if (event.message.is_echo) {
         app.log.info(
           { mid: event.message.mid, senderId: event.sender.id },
@@ -250,7 +280,7 @@ async function processWebhookEvents(
         await processMessageEvent(app, event);
       } catch (err) {
         app.log.error(
-          { err, senderId: event.sender.id, mid: event.message.mid },
+          { err, senderId: event.sender.id, mid: event.message?.mid },
           'Error processing message event',
         );
       }
