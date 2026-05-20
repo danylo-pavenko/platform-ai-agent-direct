@@ -94,9 +94,26 @@
         <v-card-text style="flex:1 1 auto;overflow-y:auto;min-height:0;">
           <!-- Manual tab -->
           <div v-if="editTab === 'manual'">
+            <v-alert
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              icon="mdi-language-markdown-outline"
+            >
+              <div class="text-body-2">
+                Зберігайте промпт у форматі <strong>Markdown</strong>.
+              </div>
+              <div class="text-caption mt-1">
+                Використовуйте <code>#</code>, <code>##</code> для заголовків,
+                <code>**жирний**</code>, <code>- список</code>, <code>`код`</code>,
+                <code>```блок```</code>. Це покращує структуру тексту для агента
+                та узгоджується з нашими шаблонами knowledge-файлів.
+              </div>
+            </v-alert>
             <v-textarea
               v-model="newContent"
-              label="Зміст промпту"
+              label="Зміст промпту (Markdown)"
               variant="outlined"
               rows="15"
               max-rows="40"

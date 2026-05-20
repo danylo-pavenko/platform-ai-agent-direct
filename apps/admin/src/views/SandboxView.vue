@@ -880,7 +880,11 @@ const PromptEditor = defineComponent({
       h('div', { class: 'prompt-editor d-flex flex-column', style: 'height: 100%;' }, [
         // Header with tabs
         h('div', { class: 'pa-3 pb-0' }, [
-          h('div', { class: 'text-subtitle-2 mb-2' }, 'Системний промпт'),
+          h('div', { class: 'text-subtitle-2 mb-1' }, 'Системний промпт'),
+          h('div', { class: 'prompt-md-hint d-flex align-center ga-1 mb-2' }, [
+            h('span', { class: 'prompt-md-hint-icon', innerHTML: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.56 18H3.44A1.44 1.44 0 0 1 2 16.56V7.44A1.44 1.44 0 0 1 3.44 6h17.12A1.44 1.44 0 0 1 22 7.44v9.12A1.44 1.44 0 0 1 20.56 18M6.81 15.19V11.53l1.92 2.44 1.92-2.44v3.66h1.93V8.81h-1.93l-1.92 2.44L6.81 8.81H4.89v6.38h1.92m11.27-3.18V8.81h-1.92v3.2h-1.93l2.89 3.37 2.89-3.37h-1.93Z"/></svg>' }),
+            h('span', null, 'Зберігайте у форматі Markdown (#, **, -, `).'),
+          ]),
         ]),
         h('div', { class: 'prompt-tabs d-flex px-3 mb-2' }, [
           h('button', {
@@ -944,7 +948,7 @@ const PromptEditor = defineComponent({
                     onInput: (e: Event) => {
                       promptOverride.value = (e.target as HTMLTextAreaElement).value;
                     },
-                    placeholder: 'Вставте або відредагуйте промпт...',
+                    placeholder: 'Вставте або відредагуйте промпт у форматі Markdown...',
                   })
                 : h('div', { class: 'text-caption text-grey' },
                     'Використовується обраний промпт з бази. Натисніть "Редагувати копію" для внесення змін.',
@@ -1384,6 +1388,23 @@ onMounted(async () => {
 /* Prompt panel */
 .prompt-editor {
   min-height: 0;
+}
+.prompt-md-hint {
+  font-size: 11px;
+  line-height: 1.3;
+  color: #1976d2;
+  background: rgba(25, 118, 210, 0.08);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.prompt-md-hint-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #1976d2;
+  flex-shrink: 0;
+}
+.prompt-md-hint-icon :deep(svg) {
+  display: block;
 }
 .prompt-select {
   width: 100%;
