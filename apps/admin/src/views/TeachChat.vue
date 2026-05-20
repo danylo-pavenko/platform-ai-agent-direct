@@ -72,12 +72,16 @@
             </div>
           </div>
 
-          <!-- Loading -->
-          <div v-if="loading" class="d-flex justify-start mb-3">
-            <v-card color="grey-lighten-4" variant="flat" rounded="lg" class="pa-3 d-flex align-center">
-              <v-progress-circular indeterminate size="18" width="2" color="primary" />
-              <span class="text-body-2 text-grey ml-2">Аналізую промпт...</span>
-            </v-card>
+          <!-- Typing indicator -->
+          <div v-if="loading" class="mb-3 d-flex justify-start">
+            <div :style="{ maxWidth: mobile ? '90%' : '75%' }">
+              <div class="text-caption text-grey mb-1">Мета-агент</div>
+              <v-card color="grey-lighten-4" variant="flat" rounded="lg" class="pa-3">
+                <div class="typing-dots">
+                  <span /><span /><span />
+                </div>
+              </v-card>
+            </div>
           </div>
         </div>
 
@@ -612,5 +616,25 @@ onMounted(() => {
   margin: 8px 0;
   font-size: 12px;
   overflow-x: auto;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 4px;
+}
+.typing-dots span {
+  width: 8px;
+  height: 8px;
+  background: #999;
+  border-radius: 50%;
+  animation: typing-bounce 1.4s infinite both;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
 }
 </style>

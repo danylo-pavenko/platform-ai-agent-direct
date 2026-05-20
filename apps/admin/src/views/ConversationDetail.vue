@@ -156,6 +156,18 @@
               </v-card>
             </div>
           </div>
+
+          <!-- Bot typing indicator -->
+          <div v-if="botIsThinking" class="mb-3 d-flex justify-end">
+            <div :style="{ maxWidth: mobile ? '88%' : '72%' }">
+              <div class="text-caption text-grey mb-1 text-right">🤖 Бот</div>
+              <v-card flat rounded="lg" class="pa-3 message-bubble-card bubble-out-bot">
+                <div class="typing-dots">
+                  <span /><span /><span />
+                </div>
+              </v-card>
+            </div>
+          </div>
         </div>
 
         <!-- Reply input -->
@@ -386,6 +398,13 @@ function bubbleCardClass(msg: Message): string {
 function senderIcon(msg: Message): string {
   return ({ client: '👤', bot: '🤖', manager: '💬', system: '⚙️' } as Record<string, string>)[msg.sender] || '';
 }
+
+const botIsThinking = computed(() => {
+  if (!conversation.value || conversation.value.state !== 'bot') return false;
+  const last = messages.value[messages.value.length - 1];
+  if (!last || last.direction !== 'in') return false;
+  return Date.now() - new Date(last.createdAt).getTime() < 3 * 60 * 1000;
+});
 
 function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
@@ -1045,6 +1064,26 @@ const ClientProfilePanel = defineComponent({
 .message-bubble-card.bubble-out-manager {
   background: rgb(var(--v-theme-success));
   color: rgb(var(--v-theme-on-success));
+}
+
+.typing-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  padding: 2px 4px;
+}
+.typing-dots span {
+  width: 8px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  animation: typing-bounce 1.4s infinite both;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
 }
 
 /* Profile panel styles */
