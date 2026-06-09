@@ -18,7 +18,8 @@
     [v-cloak] { display: none; }
 
     /* ── Layout ── */
-    .layout { display: flex; height: 100vh; overflow: hidden; }
+    /* dvh: keeps the layout correct when mobile/foldable browser chrome collapses */
+    .layout { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
     .sidebar { width: var(--sidebar); background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
     .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
@@ -125,7 +126,7 @@
     @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
 
     /* ── Login ── */
-    .login-wrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+    .login-wrap { display: flex; align-items: center; justify-content: center; height: 100vh; height: 100dvh; }
     .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 360px; }
     .login-box h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
     .login-box p { color: var(--muted); font-size: 13px; margin-bottom: 28px; }
@@ -250,11 +251,36 @@
       .chat-send { padding: 0 18px; font-size: 18px; }
     }
 
-    /* ── Very narrow (<=420px) ── */
+    /* ── Tablet / unfolded foldable (601–900px, e.g. Galaxy Fold ≈673px) ──
+       Keeps the off-canvas drawer, but restores desktop-like floating panels:
+       centered modal card instead of fullscreen, side chat instead of full sheet. */
+    @media (min-width: 601px) and (max-width: 900px) {
+      .stats { grid-template-columns: repeat(3, 1fr); }
+
+      .modal-overlay { align-items: center; justify-content: center; padding: 24px; }
+      .modal {
+        width: 560px !important; max-width: 100% !important;
+        max-height: calc(100dvh - 48px) !important;
+        border-radius: 14px !important;
+        padding: 24px !important;
+      }
+      .modal-actions .btn { flex: 0 1 auto; }
+      .form-row { grid-template-columns: 1fr 1fr; gap: 12px; }
+
+      .chat-panel { width: 400px; box-shadow: -8px 0 24px rgba(0,0,0,.35); }
+
+      .content { padding: 18px; }
+      .actions-cell .btn { flex: 0 1 auto; }
+    }
+
+    /* ── Very narrow (<=420px, foldable cover screens ≈344px) ── */
     @media (max-width: 420px) {
       .stats { grid-template-columns: 1fr; }
       .topbar-actions .btn { padding: 7px 10px; font-size: 12px; }
       .topbar-actions .btn span.btn-text { display: none; }
+      .content { padding: 10px; }
+      .actions-cell .btn { flex: 1 1 45%; }
+      .modal { padding: 16px 14px !important; }
     }
   </style>
 </head>

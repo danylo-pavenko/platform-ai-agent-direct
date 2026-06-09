@@ -610,6 +610,18 @@
               >
                 Авторизуватись через Facebook
               </v-btn>
+              <v-btn
+                v-if="metaConnected"
+                color="error"
+                variant="tonal"
+                prepend-icon="mdi-link-off"
+                class="ml-2"
+                :loading="metaDisconnectLoading"
+                :disabled="metaDisconnectLoading || oauthLoading"
+                @click="metaDisconnectDialog = true"
+              >
+                Відвʼязати
+              </v-btn>
               <span class="text-caption text-medium-emphasis ml-3">
                 Надасть доступ до сторінки та Instagram — Page ID і токен заповняться самі
               </span>
@@ -1061,6 +1073,47 @@
       <v-snackbar v-model="oauthSnackbar" :color="oauthSnackbarColor" :timeout="4000">
         {{ oauthSnackbarText }}
       </v-snackbar>
+
+      <!-- Instagram disconnect confirmation -->
+      <v-dialog v-model="metaDisconnectDialog" max-width="480">
+        <v-card>
+          <v-card-title class="d-flex align-center">
+            <v-icon start color="error">mdi-link-off</v-icon>
+            Відвʼязати Instagram?
+          </v-card-title>
+          <v-card-text class="text-body-2">
+            <p class="mb-2">
+              Буде відвʼязано
+              <strong v-if="integrations.meta.igUsername">@{{ integrations.meta.igUsername }}</strong>
+              <strong v-else>підключену сторінку</strong>
+              (Page ID: {{ integrations.meta.pageId || '—' }}).
+            </p>
+            <ul class="pl-4 mb-2">
+              <li>Бот перестане отримувати та відправляти повідомлення в Instagram DM.</li>
+              <li>Підписку на webhook буде скасовано.</li>
+              <li>Збережені діалоги та інші налаштування залишаться без змін.</li>
+            </ul>
+            <p class="text-medium-emphasis mb-0">
+              Підключити можна буде знову через «Авторизуватись через Facebook».
+            </p>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" :disabled="metaDisconnectLoading" @click="metaDisconnectDialog = false">
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="tonal"
+              prepend-icon="mdi-link-off"
+              :loading="metaDisconnectLoading"
+              @click="disconnectMeta"
+            >
+              Відвʼязати
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
     </template>
   </v-container>
 
@@ -1415,6 +1468,42 @@ function applyOAuthAccount(account: OAuthAccount) {
   showOAuthSnackbar(
     `Підключено @${account.igUsername || account.igUserId} (Page: ${account.pageName || account.pageId}). Webhook підписано.`,
   );
+}
+
+// ── Instagram disconnect ────────────────────────────────────────────────────
+
+const metaConnected = computed(
+  () =>
+    !!integrations.value.meta.pageId ||
+    !!integrations.value.meta.igUserId ||
+    !!integrations.value.meta.pageAccessToken,
+);
+
+const metaDisconnectDialog = ref(false);
+const metaDisconnectLoading = ref(false);
+
+async function disconnectMeta() {
+  metaDisconnectLoading.value = true;
+  try {
+    await api.post('/settings/meta/disconnect');
+
+    integrations.value.meta = {
+      pageId: '',
+      pageAccessToken: '',
+      igUserId: '',
+      igUsername: '',
+    };
+    igStatus.value = null;
+    igImportResult.value = null;
+    igDebugResult.value = null;
+
+    metaDisconnectDialog.value = false;
+    showOAuthSnackbar('Instagram відвʼязано. Бот більше не обробляє повідомлення.', 'info');
+  } catch (e: any) {
+    showOAuthSnackbar(e.response?.data?.error ?? 'Не вдалося відвʼязати Instagram', 'error');
+  } finally {
+    metaDisconnectLoading.value = false;
+  }
 }
 
 const scheduleMode = ref<'24_7' | 'schedule'>('schedule');

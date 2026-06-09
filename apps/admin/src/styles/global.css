@@ -282,3 +282,74 @@ code {
     font-size: 18px;
   }
 }
+
+/* ── Tablet / unfolded foldable (600–800px, Galaxy Fold ≈673px) ──
+   Enough width for two-column rows, but keep paddings compact. */
+@media (min-width: 600px) and (max-width: 800px) {
+  .v-container {
+    padding: 16px !important;
+    max-width: 100% !important;
+  }
+}
+
+/* ── Narrow phones / foldable cover screens (≤480px, Fold cover ≈344px) ── */
+@media (max-width: 480px) {
+  .v-container {
+    padding: 8px !important;
+  }
+
+  .page-title {
+    font-size: 17px;
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+  }
+
+  /* Action rows: let buttons wrap instead of overflowing */
+  .v-card-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .v-card-title {
+    font-size: 14px !important;
+    white-space: normal !important;
+  }
+
+  .v-card-text {
+    padding: 12px !important;
+  }
+
+  /* Tabs: allow horizontal swipe instead of squeezing */
+  .v-tabs {
+    overflow-x: auto;
+  }
+
+  .v-tab {
+    min-width: 0 !important;
+    padding: 0 10px !important;
+  }
+
+  /* Dialogs nearly full-width on tiny screens */
+  .v-overlay__content {
+    margin: 8px !important;
+    max-width: calc(100vw - 16px) !important;
+  }
+
+  /* Data tables: keep horizontal scroll usable */
+  .v-table .v-table__wrapper {
+    overflow-x: auto;
+  }
+
+  .v-data-table tbody td,
+  .v-data-table thead th {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+  }
+
+  /* Snackbar above possible browser chrome */
+  .v-snackbar__wrapper {
+    max-width: calc(100vw - 16px) !important;
+  }
+}

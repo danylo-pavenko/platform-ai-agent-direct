@@ -471,6 +471,94 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
+   * POST /settings/meta/disconnect
+   * Unlinks the connected Facebook Page / Instagram account:
+   *   1. best-effort unsubscribe the Page from webhook events
+   *   2. clear connection fields in integration_meta (pageId, tokens, IG ids)
+   *   3. best-effort clear instagramUserId routing on the platform hub
+   * Conversations and other settings are left intact.
+   */
+  app.post('/meta/disconnect', { onRequest: [app.authenticate] }, async (_request, reply) => {
+    const { meta } = await getIntegrationConfig();
+
+    if (!meta.pageId && !meta.pageAccessToken && !meta.igUserId) {
+      return reply.code(400).send({ error: 'Instagram не підключено — нічого відвʼязувати' });
+    }
+
+    // Step 1 — unsubscribe Page from webhook events (non-fatal).
+    if (meta.pageId && meta.pageAccessToken) {
+      try {
+        const unsubRes = await fetch(`${FB_GRAPH_BASE}/${meta.pageId}/subscribed_apps`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!unsubRes.ok) {
+          const body = await unsubRes.text().catch(() => '');
+          app.log.warn(
+            { status: unsubRes.status, body: body.slice(0, 300) },
+            'Page webhook unsubscribe failed (non-fatal)',
+          );
+        } else {
+          app.log.info({ pageId: meta.pageId }, 'Page webhook unsubscribed');
+        }
+      } catch (unsubErr) {
+        app.log.warn({ err: unsubErr }, 'Page webhook unsubscribe error (non-fatal)');
+      }
+    }
+
+    // Step 2 — clear connection fields in integration_meta, preserving the rest.
+    const existing = await prisma.setting.findUnique({ where: { key: 'integration_meta' } });
+    const existingData = (existing?.value ?? {}) as Record<string, unknown>;
+
+    const merged = {
+      ...existingData,
+      pageId: '',
+      pageAccessToken: '',
+      userAccessToken: '',
+      igUserId: '',
+      igUsername: '',
+    };
+
+    await prisma.setting.upsert({
+      where: { key: 'integration_meta' },
+      create: { key: 'integration_meta', value: merged },
+      update: { value: merged },
+    });
+
+    invalidateIntegrationConfigCache();
+
+    app.log.info(
+      { pageId: meta.pageId, igUserId: meta.igUserId, igUsername: meta.igUsername },
+      'Instagram connection removed',
+    );
+
+    // Step 3 — clear webhook routing on the platform hub (non-fatal) so the
+    // IG account can be re-connected by this or another tenant later.
+    if (config.SA_INTERNAL_URL && config.INSTANCE_ID && config.SUPERVISOR_SHARED_SECRET) {
+      const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;
+      fetch(syncUrl, {
+        method: 'DELETE',
+        headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
+        signal: AbortSignal.timeout(8_000),
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            app.log.info('Webhook config cleared on platform hub');
+          } else {
+            const txt = await res.text().catch(() => '');
+            app.log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Hub webhook-config clear failed');
+          }
+        })
+        .catch((err) => {
+          app.log.warn({ err }, 'Hub webhook-config clear error (non-fatal)');
+        });
+    }
+
+    return { ok: true };
+  });
+
+  /**
    * POST /settings/meta/import-recent-conversations
    * Bulk-imports the last N Instagram conversations (default 20) into our DB.
    */

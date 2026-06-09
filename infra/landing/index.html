@@ -364,6 +364,45 @@
   .readout-row b { color: var(--ink); font-weight: 500; }
   .readout-row .blink { color: var(--red); animation: led 1.2s infinite; }
 
+  /* ---------- Value band (business outcomes) ---------- */
+  .value-band {
+    border-bottom: 1px solid var(--rule);
+    padding: 56px 0;
+    background: var(--bg);
+  }
+  .value-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+    border: 1px solid var(--rule-2);
+  }
+  .value-cell {
+    padding: 28px 28px 26px;
+    border-left: 1px solid var(--rule-2);
+    position: relative;
+  }
+  .value-cell:first-child { border-left: 0; }
+  .value-k {
+    font-family: var(--dot); font-weight: 900;
+    font-size: 44px; line-height: 0.9; letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+  .value-k em { color: var(--red); font-style: normal; }
+  .value-h {
+    margin: 16px 0 8px;
+    font-family: var(--mono); font-size: 13px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .value-p {
+    margin: 0;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--ink-2); line-height: 1.55;
+  }
+  .value-tag {
+    position: absolute; top: 16px; right: 18px;
+    font-family: var(--mono); font-size: 9.5px;
+    letter-spacing: 0.2em; text-transform: uppercase;
+    color: var(--ink-4);
+  }
+
   /* ---------- Section chrome ---------- */
   section { padding: 120px 0; border-bottom: 1px solid var(--rule); position: relative; }
   .sec-head {
@@ -917,6 +956,13 @@
     .readout { padding: 12px 0; }
     .readout-row { gap: 10px 18px; font-size: 9px; letter-spacing: 0.16em; }
 
+    /* Value band */
+    .value-band { padding: 40px 0; }
+    .value-grid { grid-template-columns: 1fr; }
+    .value-cell { border-left: 0; border-top: 1px solid var(--rule-2); padding: 22px 20px; }
+    .value-cell:first-child { border-top: 0; }
+    .value-k { font-size: 34px; }
+
     /* Section chrome */
     section { padding: 72px 0; }
     .sec-head { flex-direction: column; gap: 18px; margin-bottom: 36px; padding-bottom: 26px; }
@@ -983,6 +1029,37 @@
     .footer-bottom { flex-direction: column; gap: 8px; align-items: flex-start; font-size: 9px; letter-spacing: 0.16em; }
   }
 
+  /* ---------- Tablet tier (600–960px) — foldables unfolded (Galaxy Fold ≈673px),
+     small tablets in portrait. Re-expand grids that collapse to 1 column on phones. */
+  @media (min-width: 600px) and (max-width: 960px) {
+    .wrap { padding: 0 32px; }
+
+    .hero-title { font-size: 72px; }
+    .hero-sub { font-size: 13.5px; max-width: 480px; }
+    .hero-cta .btn.lg { flex: 0 1 auto; }
+    .hero-device { padding-top: 24px; }
+
+    /* Problem: two columns fit at ≥600px */
+    .problem-grid { grid-template-columns: 1fr 1fr; }
+    .prob-col + .prob-col { border-top: 0; border-left: 1px solid var(--rule-2); }
+
+    /* Steps: 2×2 grid */
+    .steps { grid-template-columns: repeat(2, 1fr); }
+    .step { border-top: 1px solid var(--rule-2); border-left: 0; }
+    .step:nth-child(-n+2) { border-top: 0; }
+    .step:nth-child(even) { border-left: 1px solid var(--rule-2); }
+
+    .sec-title { font-size: 44px; }
+    .sec-num { font-size: 60px; }
+    .cta-h { font-size: 84px; }
+
+    .stat-cell .v { font-size: 72px; }
+
+    .footer-grid { grid-template-columns: 1fr 1fr 1fr; }
+    .footer-grid > div:first-child { grid-column: 1 / -1; }
+    .footer-big { font-size: 96px; }
+  }
+
   @media (max-width: 420px) {
     .wrap { padding: 0 18px; }
     .nav-panel a { padding: 14px 18px; }
@@ -999,6 +1076,24 @@
     .footer-grid { grid-template-columns: 1fr; }
     .nav-right .btn { padding: 7px 10px; font-size: 9px; }
     .brand-name { font-size: 9.5px; letter-spacing: 0.16em; }
+  }
+
+  /* ---------- Foldable cover screens (≤360px, Galaxy Fold cover ≈344px) ---------- */
+  @media (max-width: 360px) {
+    .wrap { padding: 0 14px; }
+    .hero-title { font-size: 38px; }
+    .hero-cta .btn.lg { width: 100%; }
+    .device { width: 236px; height: 450px; }
+    .anno { display: none; }
+    .sec-title { font-size: 24px; }
+    .cta-h { font-size: 34px; }
+    .stat-cell { padding: 22px 14px; }
+    .stat-cell .v { font-size: 40px; }
+    .value-cell { padding: 18px 14px; }
+    .value-k { font-size: 28px; }
+    .prob-col { padding: 18px 14px; }
+    .price-col { padding: 26px 16px; }
+    .nav-right .btn { padding: 6px 8px; font-size: 8.5px; letter-spacing: 0.1em; }
   }
 </style>
 </head>
@@ -1064,7 +1159,7 @@
           <span class="outline" data-i="hero_t3">продає</span>
           <span data-i="hero_t4">сам.</span>
         </h1>
-        <p class="hero-sub" data-i="hero_sub">AI-агент відповідає у вашому стилі, 24/7. Знає каталог. Збирає замовлення повністю — від розміру до адреси доставки. Передає менеджеру готову картку в Telegram.</p>
+        <p class="hero-sub" data-i="hero_sub">AI-продавець для Instagram DM: відповідає кожному клієнту за 4 секунди, 24/7, і доводить діалог до замовлення. Ви отримуєте більше продажів з тієї ж реклами — без додаткових менеджерів.</p>
         <div class="hero-cta">
           <a class="btn red lg" href="mailto:help@depsoftware.com" data-i="hero_cta1">Запустити за 48 год ↗</a>
           <a class="btn lg" href="#how" data-i="hero_cta2">Подивитись, як працює</a>
@@ -1121,6 +1216,32 @@
       <span>UPTIME · <b>99.96%</b> <span class="blink">●</span></span>
       <span>SETUP · <b>48 год</b></span>
       <span>SUPPORT · <b>UA + EN</b></span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ VALUE FOR BUSINESS ============ -->
+<div class="value-band">
+  <div class="wrap">
+    <div class="value-grid">
+      <div class="value-cell">
+        <div class="value-tag">REV ↑</div>
+        <div class="value-k" data-i="val1_k">+<em>Продажі</em></div>
+        <div class="value-h" data-i="val1_h">Жоден лід не чекає</div>
+        <p class="value-p" data-i="val1_p">Кожне повідомлення отримує відповідь за секунди — вночі, у свята, у пік розпродажу. Клієнт купує у вас, бо ви відповіли першими. Конверсія DM → замовлення зростає до 2.4×.</p>
+      </div>
+      <div class="value-cell">
+        <div class="value-tag">COST ↓</div>
+        <div class="value-k" data-i="val2_k">−<em>Витрати</em></div>
+        <div class="value-h" data-i="val2_h">Менеджер без рутини</div>
+        <p class="value-p" data-i="val2_p">87% типових питань — ціна, розмір, наявність, доставка — агент закриває сам. Команда займається складними клієнтами, а не копіпастом. Масштабуєте рекламу без нових ставок.</p>
+      </div>
+      <div class="value-cell">
+        <div class="value-tag">LOSS = 0</div>
+        <div class="value-k" data-i="val3_k">0 <em>втрат</em></div>
+        <div class="value-h" data-i="val3_h">Кожне замовлення — в системі</div>
+        <p class="value-p" data-i="val3_p">Зібрані дані — товар, розмір, телефон, відділення НП — приходять менеджеру готовою карткою в Telegram і лягають у CRM. Нічого не губиться в переписці й не переноситься вручну.</p>
+      </div>
     </div>
   </div>
 </div>
@@ -1545,8 +1666,15 @@
 
       hero_eyebrow: "Активно · Instagram Direct · 24/7",
       hero_t1: "Direct,", hero_t2: "який", hero_t3: "продає", hero_t4: "сам.",
-      hero_sub: "AI-агент відповідає у вашому стилі, 24/7. Знає каталог. Збирає замовлення повністю — від розміру до адреси доставки. Передає менеджеру готову картку в Telegram.",
+      hero_sub: "AI-продавець для Instagram DM: відповідає кожному клієнту за 4 секунди, 24/7, і доводить діалог до замовлення. Ви отримуєте більше продажів з тієї ж реклами — без додаткових менеджерів.",
       hero_cta1: "Запустити за 48 год ↗", hero_cta2: "Подивитись, як працює", hero_micro: "14 днів · без карти",
+
+      val1_k: "+<em>Продажі</em>", val1_h: "Жоден лід не чекає",
+      val1_p: "Кожне повідомлення отримує відповідь за секунди — вночі, у свята, у пік розпродажу. Клієнт купує у вас, бо ви відповіли першими. Конверсія DM → замовлення зростає до 2.4×.",
+      val2_k: "−<em>Витрати</em>", val2_h: "Менеджер без рутини",
+      val2_p: "87% типових питань — ціна, розмір, наявність, доставка — агент закриває сам. Команда займається складними клієнтами, а не копіпастом. Масштабуєте рекламу без нових ставок.",
+      val3_k: "0 <em>втрат</em>", val3_h: "Кожне замовлення — в системі",
+      val3_p: "Зібрані дані — товар, розмір, телефон, відділення НП — приходять менеджеру готовою карткою в Telegram і лягають у CRM. Нічого не губиться в переписці й не переноситься вручну.",
 
       anno1: "КЛІЄНТ · 23:47", anno2: "AI · 4 сек", anno3: "МЕНЕДЖЕР · TG",
 
@@ -1667,8 +1795,14 @@
       nav_demo: "Book demo ↗",
       hero_eyebrow: "Live · Instagram Direct · 24/7",
       hero_t1: "DM", hero_t2: "that", hero_t3: "sells", hero_t4: "itself.",
-      hero_sub: "An AI agent answers in your brand voice, 24/7. Knows the catalog. Builds the order end-to-end — from size to delivery. Hands the manager a ready-to-confirm card on Telegram.",
+      hero_sub: "An AI salesperson for Instagram DM: replies to every customer in 4 seconds, 24/7, and walks the dialog all the way to a placed order. More sales from the same ad budget — without hiring more managers.",
       hero_cta1: "Launch in 48h ↗", hero_cta2: "See how it works", hero_micro: "14 days · no card",
+      val1_k: "+<em>Revenue</em>", val1_h: "No lead ever waits",
+      val1_p: "Every message gets a reply in seconds — at night, on holidays, at sale peaks. Customers buy from whoever answers first: that's you now. DM → order conversion grows up to 2.4×.",
+      val2_k: "−<em>Costs</em>", val2_h: "Managers without routine",
+      val2_p: "87% of repetitive questions — price, size, stock, delivery — the agent closes itself. Your team handles complex customers, not copy-paste. Scale ads without new hires.",
+      val3_k: "0 <em>lost orders</em>", val3_h: "Every order lands in the system",
+      val3_p: "Collected data — item, size, phone, delivery branch — arrives as a ready card in Telegram and lands in your CRM. Nothing drowns in the chat thread, nothing is retyped by hand.",
       anno1: "CUSTOMER · 23:47", anno2: "AI REPLY · 4s", anno3: "MANAGER · TG",
       chat1: "Hi! Is the Agnes dress in size S available?",
       chat2: "Hi there 🌿 Yes, S is in stock — olive and sand. Which one speaks to you?",

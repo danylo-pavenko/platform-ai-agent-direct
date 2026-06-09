@@ -346,6 +346,33 @@ echo "[provision] ✓ Initial setup complete"
     return { ok: true, instagramUserId: updated.instagramUserId };
   });
 
+  // Clear webhook routing config when the tenant disconnects their Instagram.
+  // instagramUserId is unique, so it must be released for future (re)connects.
+  // facebookAppSecret is kept — it belongs to the tenant's Meta App, not the page.
+  app.delete<{
+    Params: { instanceId: string };
+  }>('/api/tenants/by-instance/:instanceId/webhook-config', async (req, reply) => {
+    const token = req.headers['x-supervisor-token'];
+    if (!config.SUPERVISOR_SHARED_SECRET || token !== config.SUPERVISOR_SHARED_SECRET) {
+      return reply.status(401).send({ error: 'Unauthorized' });
+    }
+
+    const tenant = await prisma.tenant.findUnique({ where: { instanceId: req.params.instanceId } });
+    if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { instagramUserId: null },
+    });
+
+    app.log.info(
+      { instanceId: req.params.instanceId, previousInstagramUserId: tenant.instagramUserId },
+      'Webhook config cleared after tenant Instagram disconnect',
+    );
+
+    return { ok: true };
+  });
+
   // Proxy Claude CLI health probe to tenant backend.
   // Returns { ok, path, version, error } — lets super-admin see whether
   // the tenant's `claude` binary is reachable and authenticated, instead
