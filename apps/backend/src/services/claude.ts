@@ -477,3 +477,102 @@ export async function claudeHealthCheck(timeoutMs = 5000): Promise<ClaudeHealth>
     return { ok: false, path, version: null, error: message };
   }
 }
+
+export interface ClaudeAuthHealth {
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * Verify Claude CLI session is authenticated (`claude auth status`).
+ */
+export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealth> {
+  const path = getClaudeBinaryPath();
+  try {
+    const { stdout, stderr } = await execFileAsync(path, ['auth', 'status'], {
+      timeout: timeoutMs,
+      env: { ...process.env },
+    });
+    const combined = `${stdout}\n${stderr}`.toLowerCase();
+    if (
+      combined.includes('not logged in') ||
+      combined.includes('not authenticated') ||
+      combined.includes('login required') ||
+      combined.includes('run `claude auth login`') ||
+      combined.includes('run "claude auth login"')
+    ) {
+      return {
+        ok: false,
+        error: 'Claude не авторизовано — на сервері виконайте: claude auth login',
+      };
+    }
+    return { ok: true, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
+  }
+}
+
+export interface AgentLatencyProbe {
+  ok: boolean;
+  latencyMs: number;
+  error: string | null;
+  fallback?: 'busy' | 'timeout';
+}
+
+const AGENT_LATENCY_PROBE_SYSTEM =
+  'You are a health-check probe. Reply with exactly one word: OK. No punctuation.';
+const AGENT_LATENCY_PROBE_USER = 'ping';
+
+/**
+ * Minimal Claude invocation to measure real end-to-end agent latency.
+ * Uses the customer-facing timeout (CLAUDE_TIMEOUT_MS, default 30s).
+ */
+export async function probeAgentLatency(
+  maxLatencyMs = config.CLAUDE_TIMEOUT_MS,
+): Promise<AgentLatencyProbe> {
+  const startMs = Date.now();
+  const prompt = buildPrompt({
+    systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
+    conversationHistory: [],
+    userMessage: AGENT_LATENCY_PROBE_USER,
+  });
+  const args = buildArgs({
+    systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
+    conversationHistory: [],
+    userMessage: AGENT_LATENCY_PROBE_USER,
+  });
+
+  const response = await spawnClaude(prompt, args, maxLatencyMs);
+  const latencyMs = Date.now() - startMs;
+
+  if (response.fallback) {
+    return {
+      ok: false,
+      latencyMs,
+      error:
+        response.fallback === 'busy'
+          ? 'Агент перевантажений (черга запитів)'
+          : (response.errorDetail ?? 'Агент не відповів у відведений час'),
+      fallback: response.fallback,
+    };
+  }
+
+  if (!response.text.trim()) {
+    return {
+      ok: false,
+      latencyMs,
+      error: 'Агент повернув порожню відповідь',
+    };
+  }
+
+  if (latencyMs > maxLatencyMs) {
+    return {
+      ok: false,
+      latencyMs,
+      error: `Відповідь зайняла ${latencyMs} мс (ліміт ${maxLatencyMs} мс)`,
+    };
+  }
+
+  return { ok: true, latencyMs, error: null };
+}

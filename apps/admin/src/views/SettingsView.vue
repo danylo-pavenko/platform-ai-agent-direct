@@ -11,6 +11,75 @@
     </div>
 
     <template v-else>
+      <!-- Health Check -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
+          <v-icon start color="teal">mdi-heart-pulse</v-icon>
+          <span>Health Check</span>
+          <v-chip
+            v-if="healthCheckResult"
+            size="small"
+            :color="healthCheckResult.overall === 'ok' ? 'success' : 'warning'"
+            variant="tonal"
+          >
+            {{ healthCheckResult.overall === 'ok' ? 'Усе OK' : 'Є проблеми' }}
+          </v-chip>
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Перевірка Instagram, Claude, CRM та швидкості відповіді агента (до 30 с).
+          Може зайняти до півхвилини через тестовий запит до Claude.
+        </v-card-subtitle>
+        <v-card-text>
+          <div class="d-flex flex-wrap align-center ga-2 mb-3">
+            <v-btn
+              color="teal"
+              variant="tonal"
+              prepend-icon="mdi-play-circle-outline"
+              :loading="healthCheckLoading"
+              :disabled="healthCheckLoading"
+              @click="runHealthCheck"
+            >
+              Запустити перевірку
+            </v-btn>
+            <span v-if="healthCheckResult" class="text-caption text-medium-emphasis">
+              Остання перевірка: {{ formatHealthCheckTime(healthCheckResult.checkedAt) }}
+            </span>
+          </div>
+
+          <v-alert
+            v-if="healthCheckError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            {{ healthCheckError }}
+          </v-alert>
+
+          <v-list v-if="healthCheckResult" density="compact" class="health-check-list pa-0">
+            <v-list-item
+              v-for="item in healthCheckResult.checks"
+              :key="item.id"
+              class="health-check-item px-0"
+            >
+              <template #prepend>
+                <v-icon
+                  :icon="healthCheckIcon(item.status)"
+                  :color="healthCheckColor(item.status)"
+                  size="20"
+                />
+              </template>
+              <v-list-item-title class="text-body-2 font-weight-medium">
+                {{ item.label }}
+              </v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ item.message }}
+              </v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+      </v-card>
+
       <!-- Runtime mode (Public / Debug) -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center ga-2 flex-wrap">
@@ -1084,6 +1153,66 @@ const showMetaHelp = ref(false);
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
 
+// ── Health Check ────────────────────────────────────────────────────────────
+
+type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
+
+interface HealthCheckItem {
+  id: string;
+  label: string;
+  status: HealthCheckStatus;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+interface HealthCheckResult {
+  checkedAt: string;
+  overall: 'ok' | 'degraded';
+  checks: HealthCheckItem[];
+}
+
+const healthCheckLoading = ref(false);
+const healthCheckError = ref('');
+const healthCheckResult = ref<HealthCheckResult | null>(null);
+
+function healthCheckIcon(status: HealthCheckStatus): string {
+  if (status === 'ok') return 'mdi-check-circle';
+  if (status === 'not_configured') return 'mdi-alert-circle-outline';
+  return 'mdi-close-circle';
+}
+
+function healthCheckColor(status: HealthCheckStatus): string {
+  if (status === 'ok') return 'success';
+  if (status === 'not_configured') return 'warning';
+  return 'error';
+}
+
+function formatHealthCheckTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('uk-UA', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+async function runHealthCheck() {
+  healthCheckLoading.value = true;
+  healthCheckError.value = '';
+  try {
+    const { data } = await api.post<HealthCheckResult>('/settings/health-check');
+    healthCheckResult.value = data;
+  } catch (e: any) {
+    healthCheckError.value = e.response?.data?.error ?? 'Не вдалося виконати перевірку';
+    healthCheckResult.value = null;
+  } finally {
+    healthCheckLoading.value = false;
+  }
+}
+
 // ── Instagram connection status + bulk import ───────────────────────────────
 
 interface IgStatus {
@@ -1685,6 +1814,17 @@ onMounted(() => {
 
 .backfill-count {
   width: 130px;
+}
+
+/* ── Health check list ─────────────────────────────────────────────────── */
+.health-check-list {
+  border: 1px solid #e8ecf1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.health-check-item + .health-check-item {
+  border-top: 1px solid #e8ecf1;
 }
 
 /* ── Dense divider inside cards ────────────────────────────────────────── */
