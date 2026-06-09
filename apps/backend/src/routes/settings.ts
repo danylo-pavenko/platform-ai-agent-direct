@@ -8,6 +8,7 @@ import {
 import { invalidateAgentConfigCache } from '../lib/agent-config.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
+import { runTenantHealthCheck } from '../services/health-check.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -159,6 +160,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     invalidateIntegrationConfigCache();
 
     return { ok: true };
+  });
+
+  /**
+   * POST /settings/health-check
+   * Self-diagnostic for the tenant instance: Instagram, Claude, CRM, agent latency.
+   */
+  app.post('/health-check', { onRequest: [app.authenticate] }, async () => {
+    return runTenantHealthCheck();
   });
 
   // POST /settings/nova-poshta/resolve-city
