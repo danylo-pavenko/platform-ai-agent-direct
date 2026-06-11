@@ -1442,7 +1442,7 @@ const META_TOKEN_MASK = '•••••• (збережено на серве�
 function startPageTokenReplace() {
   metaPageTokenReplacing.value = true;
   integrations.value.meta.pageAccessToken = '';
-  showSecrets.metaPageToken = true;
+  showSecrets.value.metaPageToken = true;
 }
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
