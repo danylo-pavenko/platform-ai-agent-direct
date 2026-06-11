@@ -719,16 +719,16 @@ createApp({
       history: [], // for sandbox API
     });
 
-    const modal = reactive({
-      open: false, editing: null, saving: false, advancedOpen: false,
-      form: emptyForm(),
-    });
-
     const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
 
     function emptyForm() {
       return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo: DEFAULT_GIT_REPO, envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
     }
+
+    const modal = reactive({
+      open: false, editing: null, saving: false, advancedOpen: false,
+      form: emptyForm(),
+    });
 
     // ISO string → value for <input type="datetime-local"> (local time)
     function isoToLocalInput(iso) {
