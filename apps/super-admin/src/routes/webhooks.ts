@@ -244,11 +244,18 @@ export async function webhookRoutes(app: FastifyInstance) {
     }
 
     if (forwardedCount === 0) {
+      const tenantRoutingSnapshot = activeTenants
+        .filter((t) => t.instagramUserId)
+        .map((t) => ({
+          instanceId: t.instanceId,
+          routingIds: [...collectTenantInstagramRoutingIds(t)].slice(0, 6),
+        }));
       app.log.warn(
         {
           candidateIds: [...candidateIds].slice(0, 12),
           candidateCount: candidateIds.size,
           matchedTenantCount: seenTenants.size,
+          tenantRoutingSnapshot,
           summary: summarizeHubIgWebhook(body),
         },
         'Webhook hub: event not delivered to any tenant',

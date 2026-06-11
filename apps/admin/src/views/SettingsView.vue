@@ -1701,11 +1701,11 @@ async function startMetaOAuth() {
       oauthLoading.value = false;
 
       if (msg.type === 'meta_oauth_success') {
-        applyOAuthAccount(msg.account as OAuthAccount);
+        void applyOAuthAccount(msg.account as OAuthAccount);
       } else if (msg.type === 'meta_oauth_select') {
         openMetaOAuthSelectDialog(msg);
       } else if (msg.type === 'meta_oauth_partial') {
-        applyOAuthAccount(msg.account as OAuthAccount);
+        void applyOAuthAccount(msg.account as OAuthAccount);
         showMetaManualHelp.value = true;
         showOAuthSnackbar(
           (msg.message as string) ??
@@ -1735,12 +1735,13 @@ async function startMetaOAuth() {
   }
 }
 
-function applyOAuthAccount(account: OAuthAccount) {
+async function applyOAuthAccount(account: OAuthAccount) {
   integrations.value.meta.pageId = account.pageId;
   integrations.value.meta.igUserId = account.igUserId ?? '';
   integrations.value.meta.igUsername = account.igUsername ?? '';
-  fetchIntegrations();
+  await fetchIntegrations();
   if (account.igUserId) {
+    showMetaManualHelp.value = false;
     showOAuthSnackbar(
       `Підключено @${account.igUsername || account.igUserId} (Page: ${account.pageName || account.pageId}). Webhook підписано.`,
     );
@@ -1786,7 +1787,7 @@ async function confirmMetaOAuthSelect() {
     metaOAuthSelectSessionId.value = '';
     metaOAuthSelectCandidates.value = [];
 
-    applyOAuthAccount(data.account);
+    await applyOAuthAccount(data.account);
     if (data.partial) {
       showMetaManualHelp.value = true;
       showOAuthSnackbar(

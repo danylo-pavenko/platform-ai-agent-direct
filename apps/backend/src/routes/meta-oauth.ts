@@ -116,25 +116,56 @@ async function debugFacebookToken(
   }
 }
 
-async function probePageInstagram(
-  pageId: string,
-  userAccessToken: string,
-): Promise<MetaPageRow['instagram_business_account'] | undefined> {
-  const url = new URL(`${FB_GRAPH_BASE}/${pageId}`);
-  url.searchParams.set('fields', PAGE_IG_FIELDS);
+type IgBusinessAccount = NonNullable<MetaPageRow['instagram_business_account']>;
+
+async function graphGetJson<T>(
+  url: string,
+  accessToken: string,
+): Promise<{ ok: boolean; data?: T }> {
   try {
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${userAccessToken}` },
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(8_000),
     });
-    if (!res.ok) return undefined;
-    const data = (await res.json()) as {
-      instagram_business_account?: MetaPageRow['instagram_business_account'];
-    };
-    return data.instagram_business_account?.id ? data.instagram_business_account : undefined;
+    if (!res.ok) return { ok: false };
+    return { ok: true, data: (await res.json()) as T };
   } catch {
-    return undefined;
+    return { ok: false };
   }
+}
+
+async function probePageInstagram(
+  pageId: string,
+  accessToken: string,
+): Promise<IgBusinessAccount | undefined> {
+  const url = new URL(`${FB_GRAPH_BASE}/${pageId}`);
+  url.searchParams.set('fields', PAGE_IG_FIELDS);
+  const res = await graphGetJson<{
+    instagram_business_account?: IgBusinessAccount;
+  }>(url.toString(), accessToken);
+  const ig = res.data?.instagram_business_account;
+  return ig?.id ? ig : undefined;
+}
+
+/** Page token /me often exposes instagram_business_account when /{page-id} does not. */
+async function probeMeInstagram(accessToken: string): Promise<IgBusinessAccount | undefined> {
+  const url = new URL(`${FB_GRAPH_BASE}/me`);
+  url.searchParams.set('fields', PAGE_IG_FIELDS);
+  const res = await graphGetJson<{
+    instagram_business_account?: IgBusinessAccount;
+  }>(url.toString(), accessToken);
+  const ig = res.data?.instagram_business_account;
+  return ig?.id ? ig : undefined;
+}
+
+async function probeIgUsername(
+  igUserId: string,
+  accessToken: string,
+): Promise<string | undefined> {
+  const url = new URL(`${FB_GRAPH_BASE}/${igUserId}`);
+  url.searchParams.set('fields', 'username');
+  const res = await graphGetJson<{ username?: string }>(url.toString(), accessToken);
+  return res.data?.username;
 }
 
 /**
@@ -469,6 +500,63 @@ function pageToCandidate(p: MetaPageRow): OAuthSelectionCandidate | null {
   };
 }
 
+/**
+ * Graph often omits instagram_business_account on /me/accounts for granular OAuth.
+ * Re-probe with user token, Page token, /me, then pair IG target_ids to the selected Page.
+ */
+async function enrichOAuthCandidateInstagram(
+  candidate: OAuthSelectionCandidate,
+  userAccessToken: string,
+  facebookAppId: string,
+  facebookAppSecret: string,
+): Promise<OAuthSelectionCandidate> {
+  if (candidate.hasInstagram && candidate.igUserId) return candidate;
+
+  let ig: IgBusinessAccount | undefined =
+    (await probePageInstagram(candidate.pageId, userAccessToken)) ??
+    (await probePageInstagram(candidate.pageId, candidate.pageAccessToken)) ??
+    (await probeMeInstagram(candidate.pageAccessToken));
+
+  if (!ig?.id) {
+    const tokenDebug = await debugFacebookToken(
+      userAccessToken,
+      facebookAppId,
+      facebookAppSecret,
+    );
+    let igIds = extractIgTargetIdsFromTokenDebug(tokenDebug);
+    if (igIds.length === 0) {
+      igIds = await listInstagramAccountIdsFromBusinesses(userAccessToken);
+    }
+
+    for (const igUserId of igIds) {
+      const linked = await fetchIgUserConnectedPage(igUserId, userAccessToken);
+      if (linked?.pageId !== candidate.pageId) continue;
+      ig = { id: igUserId, username: linked.igUsername };
+      break;
+    }
+
+    if (!ig?.id) {
+      const pageIds = extractPageTargetIdsFromTokenDebug(tokenDebug);
+      if (pageIds.includes(candidate.pageId) && igIds.length === 1) {
+        const igUserId = igIds[0];
+        const username =
+          (await probeIgUsername(igUserId, candidate.pageAccessToken)) ??
+          (await probeIgUsername(igUserId, userAccessToken));
+        ig = { id: igUserId, username };
+      }
+    }
+  }
+
+  if (!ig?.id) return candidate;
+
+  return {
+    ...candidate,
+    igUserId: ig.id,
+    igUsername: ig.username ?? candidate.igUsername,
+    hasInstagram: true,
+  };
+}
+
 function collectPageCandidates(pages: MetaPageRow[]): {
   full: OAuthSelectionCandidate[];
   partial: OAuthSelectionCandidate[];
@@ -568,6 +656,7 @@ async function persistMetaOAuthConnection(
       meta.facebookAppSecret,
       app.log,
       input.pageAccessToken,
+      input.pageId,
     );
   }
 }
@@ -841,19 +930,25 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       );
 
       const finalizeCandidate = async (c: OAuthSelectionCandidate) => {
-        await persistMetaOAuthConnection(app, {
-          pageId: c.pageId,
-          pageName: c.pageName,
-          pageAccessToken: c.pageAccessToken,
+        const enriched = await enrichOAuthCandidateInstagram(
+          c,
           userAccessToken,
-          igUserId: c.igUserId,
-          igUsername: c.igUsername,
+          meta.facebookAppId,
+          meta.facebookAppSecret,
+        );
+        await persistMetaOAuthConnection(app, {
+          pageId: enriched.pageId,
+          pageName: enriched.pageName,
+          pageAccessToken: enriched.pageAccessToken,
+          userAccessToken,
+          igUserId: enriched.igUserId,
+          igUsername: enriched.igUsername,
         });
         return {
-          pageId: c.pageId,
-          pageName: c.pageName,
-          igUserId: c.igUserId,
-          igUsername: c.igUsername,
+          pageId: enriched.pageId,
+          pageName: enriched.pageName,
+          igUserId: enriched.igUserId,
+          igUsername: enriched.igUsername,
         };
       };
 
@@ -882,24 +977,19 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
 
       if (partialCandidates.length === 1) {
-        const c = partialCandidates[0];
-        await persistMetaOAuthConnection(app, {
-          pageId: c.pageId,
-          pageName: c.pageName,
-          pageAccessToken: c.pageAccessToken,
-          userAccessToken,
-          igUserId: '',
-          igUsername: '',
-        });
+        const account = await finalizeCandidate(partialCandidates[0]);
+        if (account.igUserId) {
+          return reply.send(
+            buildPopupHtml({
+              type: 'meta_oauth_success',
+              account,
+            }),
+          );
+        }
         return reply.send(
           buildPopupHtml({
             type: 'meta_oauth_partial',
-            account: {
-              pageId: c.pageId,
-              pageName: c.pageName,
-              igUserId: '',
-              igUsername: '',
-            },
+            account,
             message:
               'Facebook Page і Page Access Token збережено. Instagram Business ID Graph API не повернув — введіть Instagram User ID та @username вручну в Settings і натисніть «Зберегти Instagram».',
           }),
@@ -955,27 +1045,45 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Обрану сторінку не знайдено в сесії OAuth' });
     }
 
+    const { meta } = await getIntegrationConfig();
+    const enriched = await enrichOAuthCandidateInstagram(
+      candidate,
+      session.userAccessToken,
+      meta.facebookAppId,
+      meta.facebookAppSecret,
+    );
+
     await persistMetaOAuthConnection(app, {
-      pageId: candidate.pageId,
-      pageName: candidate.pageName,
-      pageAccessToken: candidate.pageAccessToken,
+      pageId: enriched.pageId,
+      pageName: enriched.pageName,
+      pageAccessToken: enriched.pageAccessToken,
       userAccessToken: session.userAccessToken,
-      igUserId: candidate.igUserId,
-      igUsername: candidate.igUsername,
+      igUserId: enriched.igUserId,
+      igUsername: enriched.igUsername,
     });
 
     const account = {
-      pageId: candidate.pageId,
-      pageName: candidate.pageName,
-      igUserId: candidate.igUserId,
-      igUsername: candidate.igUsername,
+      pageId: enriched.pageId,
+      pageName: enriched.pageName,
+      igUserId: enriched.igUserId,
+      igUsername: enriched.igUsername,
     };
+
+    app.log.info(
+      {
+        pageId: enriched.pageId,
+        igUserId: enriched.igUserId || null,
+        igUsername: enriched.igUsername || null,
+        resolvedInstagram: Boolean(enriched.igUserId),
+      },
+      'Facebook OAuth: page selection finalized',
+    );
 
     return {
       account,
-      partial: !candidate.hasInstagram,
-      message: candidate.hasInstagram
-        ? `Підключено @${candidate.igUsername || candidate.igUserId} (Page: ${candidate.pageName})`
+      partial: !enriched.igUserId,
+      message: enriched.igUserId
+        ? `Підключено @${enriched.igUsername || enriched.igUserId} (Page: ${enriched.pageName})`
         : 'Page збережено. Вкажіть Instagram User ID та username вручну.',
     };
   });

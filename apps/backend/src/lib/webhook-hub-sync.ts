@@ -14,6 +14,7 @@ export function syncWebhookRoutingToHub(
   facebookAppSecret: string,
   log: FastifyBaseLogger | pino.Logger = defaultLog,
   pageAccessToken?: string,
+  pageId?: string,
 ): void {
   if (
     !igUserId ||
@@ -28,7 +29,11 @@ export function syncWebhookRoutingToHub(
   void (async () => {
     let instagramRoutingIds: string[] | undefined;
     if (pageAccessToken) {
-      instagramRoutingIds = await resolveInstagramWebhookRoutingIds(igUserId, pageAccessToken);
+      instagramRoutingIds = await resolveInstagramWebhookRoutingIds(
+        igUserId,
+        pageAccessToken,
+        pageId,
+      );
     }
 
     const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;

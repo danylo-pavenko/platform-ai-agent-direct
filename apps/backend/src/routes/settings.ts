@@ -191,7 +191,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
               ? pageAccessToken
               : meta.pageAccessToken;
           if (meta.facebookAppSecret) {
-            syncWebhookRoutingToHub(igUserId, meta.facebookAppSecret, app.log, token);
+            const pid =
+              typeof pageId === 'string' && pageId ? pageId : meta.pageId;
+            syncWebhookRoutingToHub(igUserId, meta.facebookAppSecret, app.log, token, pid);
           }
         }
       }

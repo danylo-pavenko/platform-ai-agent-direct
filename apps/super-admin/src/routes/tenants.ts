@@ -4,7 +4,10 @@ import { PrismaClient } from '@prisma/client';
 import { exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
-import { normalizeInstagramRoutingIds } from '../lib/tenant-webhook-routing.js';
+import {
+  collectTenantInstagramRoutingIds,
+  normalizeInstagramRoutingIds,
+} from '../lib/tenant-webhook-routing.js';
 
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
@@ -467,7 +470,14 @@ echo "[provision] ✓ Initial setup complete"
     const tenant = await prisma.tenant.findUnique({ where: { instanceId: req.params.instanceId } });
     if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
 
-    const routingIds = normalizeInstagramRoutingIds(instagramUserId, instagramRoutingIds);
+    const synced = normalizeInstagramRoutingIds(instagramUserId, instagramRoutingIds);
+    const merged = new Set(synced);
+    // Preserve manually-added extras when auto-sync cannot resolve ig_id from Graph.
+    const prevPrimary = tenant.instagramUserId;
+    for (const id of collectTenantInstagramRoutingIds(tenant)) {
+      if (id !== prevPrimary && id !== instagramUserId) merged.add(id);
+    }
+    const routingIds = [...merged];
 
     const updated = await prisma.tenant.update({
       where: { id: tenant.id },

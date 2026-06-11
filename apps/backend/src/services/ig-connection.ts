@@ -331,6 +331,7 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
         meta.facebookAppSecret,
         log,
         meta.pageAccessToken,
+        pageId,
       );
     }
 
