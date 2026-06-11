@@ -627,6 +627,85 @@
               </span>
             </v-col>
 
+            <v-col v-if="metaConnected && integrations.meta.pageId" cols="12">
+              <v-alert type="success" variant="tonal" density="compact" class="text-body-2">
+                <div class="font-weight-bold mb-1">Поточне підключення</div>
+                <div v-if="integrations.meta.igUsername || integrations.meta.igUserId">
+                  Instagram:
+                  <strong>@{{ integrations.meta.igUsername || '—' }}</strong>
+                  <span class="text-medium-emphasis">(ID: {{ integrations.meta.igUserId || '—' }})</span>
+                </div>
+                <div v-else class="text-warning">
+                  Instagram ID не вказано — доповніть вручну нижче.
+                </div>
+                <div class="text-medium-emphasis">
+                  Facebook Page ID: <code>{{ integrations.meta.pageId }}</code>
+                </div>
+              </v-alert>
+            </v-col>
+
+            <v-col v-if="metaNeedsManualIg" cols="12">
+              <v-alert type="warning" variant="tonal" density="compact" class="text-body-2">
+                Facebook Page збережено, але Instagram Business ID не отримано автоматично.
+                Введіть <strong>Instagram User ID</strong> та <strong>@username</strong> вручну нижче і натисніть
+                <strong>«Зберегти Instagram»</strong>.
+              </v-alert>
+            </v-col>
+
+            <v-col cols="12">
+              <v-btn
+                variant="text"
+                size="small"
+                color="warning"
+                class="px-1"
+                :prepend-icon="showMetaManualHelp ? 'mdi-chevron-up' : 'mdi-pencil-outline'"
+                @click="showMetaManualHelp = !showMetaManualHelp"
+              >
+                Як вручну вказати Instagram ID та username?
+              </v-btn>
+              <v-expand-transition>
+                <v-alert
+                  v-if="showMetaManualHelp"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  class="mt-2 text-body-2"
+                >
+                  <div class="font-weight-bold mb-2">Де взяти Instagram Business Account ID</div>
+                  <ol class="pl-4 mb-3" style="line-height:1.75;">
+                    <li>
+                      <strong>Через Graph API Explorer</strong> (developers.facebook.com/tools/explorer):
+                      оберіть ваш App → User/Page token з правами на Page → запит
+                      <code>GET /{FACEBOOK_PAGE_ID}?fields=instagram_business_account&#123;id,username&#125;</code>.
+                      У відповіді візьміть <code>instagram_business_account.id</code> — це <strong>Instagram User ID</strong>
+                      (числовий ID, не @username).
+                    </li>
+                    <li>
+                      <strong>Business Manager</strong> → Accounts → Instagram accounts → відкрийте акаунт —
+                      ID часто видно в URL або в деталях підключення до Facebook Page.
+                    </li>
+                    <li>
+                      <strong>Meta Business Suite</strong> → налаштування Instagram, прив’язаного до вашої Facebook Сторінки.
+                    </li>
+                  </ol>
+                  <div class="font-weight-bold mb-1">Username</div>
+                  <p class="mb-2">
+                    Публічний нік без <code>@</code>, наприклад <code>statusblessed</code> — лише для відображення в адмінці.
+                  </p>
+                  <div class="font-weight-bold mb-1">Facebook Page ID</div>
+                  <p class="mb-2">
+                    Зазвичай заповнюється після OAuth. Якщо порожньо — у Graph API Explorer:
+                    <code>GET /me/accounts?fields=id,name</code> або в налаштуваннях Facebook Page → About.
+                  </p>
+                  <div class="font-weight-bold mb-1">Page Access Token</div>
+                  <p class="mb-0">
+                    Краще отримати через кнопку «Авторизуватись через Facebook» вище. Вручну — у Graph API Explorer:
+                    <code>GET /me/accounts?fields=id,name,access_token</code> і скопіюйте <code>access_token</code> потрібної Page.
+                  </p>
+                </v-alert>
+              </v-expand-transition>
+            </v-col>
+
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model="integrations.meta.pageId"
@@ -634,19 +713,19 @@
                 variant="outlined"
                 density="compact"
                 hide-details
-                readonly
-                placeholder="Заповниться після авторизації"
+                placeholder="Заповниться після OAuth або вручну"
               />
             </v-col>
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model="integrations.meta.igUserId"
-                label="Instagram User ID"
+                label="Instagram User ID (Business account)"
                 variant="outlined"
                 density="compact"
                 hide-details
-                readonly
-                placeholder="Заповниться після авторизації"
+                placeholder="Числовий ID з instagram_business_account"
+                hint="Обовʼязково, якщо OAuth не підставив IG"
+                persistent-hint
               />
             </v-col>
             <v-col cols="12" sm="6">
@@ -656,14 +735,49 @@
                 variant="outlined"
                 density="compact"
                 hide-details
-                readonly
-                placeholder="Заповниться після авторизації"
+                placeholder="nickname без @"
                 prefix="@"
               />
             </v-col>
-            <v-col v-if="integrations.meta.pageAccessToken" cols="12">
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model="integrations.meta.pageAccessToken"
+                label="Page Access Token"
+                variant="outlined"
+                density="compact"
+                hide-details
+                :type="showSecrets.metaPageToken ? 'text' : 'password'"
+                :placeholder="metaPageTokenMasked ? '•••••• (збережено)' : 'Заповниться після OAuth'"
+                :append-inner-icon="showSecrets.metaPageToken ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showSecrets.metaPageToken = !showSecrets.metaPageToken"
+              />
+            </v-col>
+            <v-col cols="12">
+              <v-btn
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-content-save"
+                :loading="savingMeta"
+                @click="saveMetaIntegration"
+              >
+                Зберегти Instagram
+              </v-btn>
+              <v-chip
+                v-if="metaSaved"
+                color="success"
+                size="small"
+                class="ml-2"
+                prepend-icon="mdi-check"
+              >
+                Збережено
+              </v-chip>
+              <span class="text-caption text-medium-emphasis ml-3">
+                Зберігає Page ID, токен і Instagram-поля; підписка webhook оновиться автоматично.
+              </span>
+            </v-col>
+            <v-col v-if="metaPageTokenMasked && !integrations.meta.pageAccessToken" cols="12">
               <v-alert type="success" variant="tonal" density="compact" class="text-caption">
-                Page Access Token збережено. Токен сторінки безстроковий — переавторизація потрібна лише якщо змінились права.
+                Page Access Token збережено на сервері. Залиште поле порожнім, щоб не перезаписувати, або вставте новий токен.
               </v-alert>
             </v-col>
           </v-row>
@@ -1074,6 +1188,64 @@
         {{ oauthSnackbarText }}
       </v-snackbar>
 
+      <!-- OAuth: pick one Page when Facebook returned several -->
+      <v-dialog v-model="metaOAuthSelectDialog" max-width="560" persistent>
+        <v-card>
+          <v-card-title class="d-flex align-center">
+            <v-icon start color="primary">mdi-facebook</v-icon>
+            Оберіть Facebook Page
+          </v-card-title>
+          <v-card-text class="text-body-2">
+            <p class="mb-3">
+              {{ metaOAuthSelectMessage }}
+            </p>
+            <v-radio-group v-model="metaOAuthSelectPageId" hide-details>
+              <v-radio
+                v-for="c in metaOAuthSelectCandidates"
+                :key="c.pageId"
+                :value="c.pageId"
+                class="mb-2"
+              >
+                <template #label>
+                  <div>
+                    <div class="font-weight-medium">{{ c.pageName }}</div>
+                    <div class="text-caption text-medium-emphasis">
+                      Page ID: {{ c.pageId }}
+                      <template v-if="c.hasInstagram && (c.igUsername || c.igUserId)">
+                        · Instagram @{{ c.igUsername || '—' }} ({{ c.igUserId }})
+                      </template>
+                      <template v-else-if="metaOAuthSelectNeedsManualIg">
+                        · Instagram ID потрібно вказати вручну після вибору
+                      </template>
+                    </div>
+                  </div>
+                </template>
+              </v-radio>
+            </v-radio-group>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn
+              variant="text"
+              :disabled="metaOAuthSelectLoading"
+              @click="cancelMetaOAuthSelect"
+            >
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-check"
+              :loading="metaOAuthSelectLoading"
+              :disabled="!metaOAuthSelectPageId"
+              @click="confirmMetaOAuthSelect"
+            >
+              Підключити обрану
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!-- Instagram disconnect confirmation -->
       <v-dialog v-model="metaDisconnectDialog" max-width="480">
         <v-card>
@@ -1178,6 +1350,7 @@ const showSecrets = ref({
   tgPassword: false,
   keycrmKey: false,
   npKey: false,
+  metaPageToken: false,
 });
 
 const npCityLoading = ref(false);
@@ -1203,6 +1376,10 @@ async function resolveNpSenderCity() {
 }
 
 const showMetaHelp = ref(false);
+const showMetaManualHelp = ref(false);
+const savingMeta = ref(false);
+const metaSaved = ref(false);
+const metaPageTokenMasked = ref(false);
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
 
@@ -1359,11 +1536,26 @@ async function importRecentConversations() {
 interface OAuthAccount {
   pageId: string;
   pageName?: string;
-  igUserId: string;
+  igUserId?: string;
   igUsername?: string;
 }
 
+interface OAuthSelectCandidate {
+  pageId: string;
+  pageName: string;
+  igUserId: string;
+  igUsername: string;
+  hasInstagram: boolean;
+}
+
 const oauthLoading = ref(false);
+const metaOAuthSelectDialog = ref(false);
+const metaOAuthSelectSessionId = ref('');
+const metaOAuthSelectCandidates = ref<OAuthSelectCandidate[]>([]);
+const metaOAuthSelectPageId = ref('');
+const metaOAuthSelectNeedsManualIg = ref(false);
+const metaOAuthSelectMessage = ref('');
+const metaOAuthSelectLoading = ref(false);
 const oauthSnackbar = ref(false);
 const oauthSnackbarText = ref('');
 const oauthSnackbarColor = ref('success');
@@ -1437,7 +1629,18 @@ async function startMetaOAuth() {
 
       if (msg.type === 'meta_oauth_success') {
         applyOAuthAccount(msg.account as OAuthAccount);
+      } else if (msg.type === 'meta_oauth_select') {
+        openMetaOAuthSelectDialog(msg);
+      } else if (msg.type === 'meta_oauth_partial') {
+        applyOAuthAccount(msg.account as OAuthAccount);
+        showMetaManualHelp.value = true;
+        showOAuthSnackbar(
+          (msg.message as string) ??
+            'Page збережено. Введіть Instagram User ID та username вручну.',
+          'warning',
+        );
       } else {
+        showMetaManualHelp.value = true;
         showOAuthSnackbar(msg.error ?? 'Помилка авторизації Facebook', 'error');
       }
     };
@@ -1461,13 +1664,122 @@ async function startMetaOAuth() {
 
 function applyOAuthAccount(account: OAuthAccount) {
   integrations.value.meta.pageId = account.pageId;
-  integrations.value.meta.igUserId = account.igUserId;
+  integrations.value.meta.igUserId = account.igUserId ?? '';
   integrations.value.meta.igUsername = account.igUsername ?? '';
-  // pageAccessToken saved to DB by backend — reload to show masked indicator
   fetchIntegrations();
+  if (account.igUserId) {
+    showOAuthSnackbar(
+      `Підключено @${account.igUsername || account.igUserId} (Page: ${account.pageName || account.pageId}). Webhook підписано.`,
+    );
+  }
+}
+
+function openMetaOAuthSelectDialog(msg: Record<string, unknown>) {
+  metaOAuthSelectSessionId.value = String(msg.sessionId ?? '');
+  metaOAuthSelectCandidates.value = (msg.candidates as OAuthSelectCandidate[]) ?? [];
+  metaOAuthSelectNeedsManualIg.value = Boolean(msg.needsManualIg);
+  metaOAuthSelectMessage.value =
+    (msg.message as string) ??
+    'Знайдено кілька сторінок. Оберіть одну для роботи бота.';
+  metaOAuthSelectPageId.value = metaOAuthSelectCandidates.value[0]?.pageId ?? '';
+  metaOAuthSelectDialog.value = true;
+}
+
+function cancelMetaOAuthSelect() {
+  metaOAuthSelectDialog.value = false;
+  metaOAuthSelectSessionId.value = '';
+  metaOAuthSelectCandidates.value = [];
+  metaOAuthSelectPageId.value = '';
   showOAuthSnackbar(
-    `Підключено @${account.igUsername || account.igUserId} (Page: ${account.pageName || account.pageId}). Webhook підписано.`,
+    'Вибір сторінки скасовано. Повторіть авторизацію Facebook, якщо потрібно.',
+    'info',
   );
+}
+
+async function confirmMetaOAuthSelect() {
+  if (!metaOAuthSelectSessionId.value || !metaOAuthSelectPageId.value) return;
+  metaOAuthSelectLoading.value = true;
+  try {
+    const { data } = await api.post<{
+      account: OAuthAccount;
+      partial: boolean;
+      message?: string;
+    }>('/settings/meta/oauth-select', {
+      sessionId: metaOAuthSelectSessionId.value,
+      pageId: metaOAuthSelectPageId.value,
+    });
+
+    metaOAuthSelectDialog.value = false;
+    metaOAuthSelectSessionId.value = '';
+    metaOAuthSelectCandidates.value = [];
+
+    applyOAuthAccount(data.account);
+    if (data.partial) {
+      showMetaManualHelp.value = true;
+      showOAuthSnackbar(
+        data.message ?? 'Page збережено. Вкажіть Instagram User ID вручну.',
+        'warning',
+      );
+    } else {
+      showOAuthSnackbar(data.message ?? 'Сторінку підключено', 'success');
+    }
+  } catch (e: any) {
+    showOAuthSnackbar(
+      e.response?.data?.error ?? 'Не вдалося зберегти обрану сторінку',
+      'error',
+    );
+  } finally {
+    metaOAuthSelectLoading.value = false;
+  }
+}
+
+async function saveMetaIntegration() {
+  const pageId = integrations.value.meta.pageId.trim();
+  const igUserId = integrations.value.meta.igUserId.trim();
+  if (!pageId) {
+    showOAuthSnackbar('Вкажіть Facebook Page ID', 'error');
+    return;
+  }
+  if (!igUserId) {
+    showOAuthSnackbar('Вкажіть Instagram User ID (Business account)', 'error');
+    return;
+  }
+  if (!/^\d+$/.test(igUserId)) {
+    showOAuthSnackbar('Instagram User ID — лише цифри (з instagram_business_account.id)', 'error');
+    return;
+  }
+  const tokenDraft = integrations.value.meta.pageAccessToken.trim();
+  if (!tokenDraft && !metaPageTokenMasked.value) {
+    showOAuthSnackbar('Потрібен Page Access Token — OAuth або вставте токен вручну', 'error');
+    return;
+  }
+
+  savingMeta.value = true;
+  metaSaved.value = false;
+  error.value = '';
+  try {
+    const payload: Record<string, string> = {
+      pageId,
+      igUserId,
+      igUsername: integrations.value.meta.igUsername.trim().replace(/^@+/, ''),
+    };
+    const token = integrations.value.meta.pageAccessToken.trim();
+    if (token && token !== '••••••') {
+      payload.pageAccessToken = token;
+    }
+
+    await api.put('/settings/integrations', {
+      integration_meta: payload,
+    });
+    metaSaved.value = true;
+    await fetchIntegrations();
+    showOAuthSnackbar('Instagram / Meta збережено', 'success');
+  } catch (e: any) {
+    error.value = e.response?.data?.error ?? 'Не вдалося зберегти Instagram';
+    showOAuthSnackbar(error.value, 'error');
+  } finally {
+    savingMeta.value = false;
+  }
 }
 
 // ── Instagram disconnect ────────────────────────────────────────────────────
@@ -1476,7 +1788,14 @@ const metaConnected = computed(
   () =>
     !!integrations.value.meta.pageId ||
     !!integrations.value.meta.igUserId ||
-    !!integrations.value.meta.pageAccessToken,
+    !!integrations.value.meta.pageAccessToken ||
+    metaPageTokenMasked.value,
+);
+
+const metaNeedsManualIg = computed(
+  () =>
+    (!!integrations.value.meta.pageId || metaPageTokenMasked.value) &&
+    !integrations.value.meta.igUserId,
 );
 
 const metaDisconnectDialog = ref(false);
@@ -1493,6 +1812,7 @@ async function disconnectMeta() {
       igUserId: '',
       igUsername: '',
     };
+    metaPageTokenMasked.value = false;
     igStatus.value = null;
     igImportResult.value = null;
     igDebugResult.value = null;
@@ -1761,9 +2081,10 @@ async function fetchIntegrations() {
     const k = data.integration_keycrm ?? {};
     const np = data.integration_novaposhta ?? {};
 
+    metaPageTokenMasked.value = m.pageAccessToken === '••••••';
     integrations.value.meta = {
       pageId:          m.pageId          ?? '',
-      pageAccessToken: m.pageAccessToken ?? '',
+      pageAccessToken: metaPageTokenMasked.value ? '' : (m.pageAccessToken ?? ''),
       igUserId:        m.igUserId        ?? '',
       igUsername:      m.igUsername      ?? '',
     };

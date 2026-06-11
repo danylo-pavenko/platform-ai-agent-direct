@@ -9,6 +9,7 @@ import { invalidateAgentConfigCache } from '../lib/agent-config.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
+import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -154,6 +155,33 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         create: { key, value: merged as any },
         update: { value: merged as any },
       });
+
+      if (key === 'integration_meta') {
+        const pageId = merged.pageId;
+        const pageAccessToken = merged.pageAccessToken;
+        if (
+          typeof pageId === 'string' &&
+          pageId &&
+          typeof pageAccessToken === 'string' &&
+          pageAccessToken &&
+          pageAccessToken !== '••••••'
+        ) {
+          subscribePageToMetaWebhooks(pageId, pageAccessToken)
+            .then((sub) => {
+              if (!sub.ok) {
+                app.log.warn(
+                  { status: sub.status, body: sub.body, pageId },
+                  'Manual meta save: webhook subscription failed (non-fatal)',
+                );
+              } else {
+                app.log.info({ pageId }, 'Manual meta save: Page webhook subscribed');
+              }
+            })
+            .catch((err) => {
+              app.log.warn({ err, pageId }, 'Manual meta save: webhook subscription error');
+            });
+        }
+      }
     }
 
     // Bust the cache so next request picks up new values
