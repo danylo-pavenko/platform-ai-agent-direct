@@ -1209,6 +1209,33 @@
         </v-card-text>
       </v-card>
 
+      <!-- Danger zone -->
+      <v-card class="mb-4 danger-zone-card" variant="outlined">
+        <v-card-title class="d-flex align-center text-error">
+          <v-icon start color="error">mdi-alert-octagon-outline</v-icon>
+          Небезпечна зона
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Незворотні дії. Використовуйте після зміни Instagram-акаунта або для повного скидання історії чатів.
+        </v-card-subtitle>
+        <v-card-text>
+          <p class="text-body-2 mb-3">
+            Видаляє <strong>усіх клієнтів</strong>, <strong>діалоги</strong>, <strong>повідомлення</strong>,
+            замовлення та брифі з бази цього тенанта. Instagram DM у Meta не чіпається — лише локальна копія.
+          </p>
+          <v-btn
+            color="error"
+            variant="outlined"
+            prepend-icon="mdi-delete-sweep"
+            :loading="purgeDialogsLoading"
+            :disabled="purgeDialogsLoading"
+            @click="purgeDialogsDialog = true"
+          >
+            Очистити всі діалоги
+          </v-btn>
+        </v-card-text>
+      </v-card>
+
       <!-- Save integrations -->
       <v-row class="mb-5">
         <v-col cols="auto">
@@ -1297,6 +1324,61 @@
               @click="confirmMetaOAuthSelect"
             >
               Підключити обрану
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <!-- Purge all dialogs confirmation -->
+      <v-dialog v-model="purgeDialogsDialog" max-width="520" persistent>
+        <v-card>
+          <v-card-title class="d-flex align-center text-error">
+            <v-icon start color="error">mdi-delete-sweep</v-icon>
+            Очистити всі діалоги?
+          </v-card-title>
+          <v-card-text class="text-body-2">
+            <v-alert type="error" variant="tonal" density="compact" class="mb-3">
+              Цю дію <strong>неможливо скасувати</strong>.
+            </v-alert>
+            <ul class="pl-4 mb-3" style="line-height: 1.6;">
+              <li>Усі клієнти та їхні IG/Telegram ID в адмінці будуть видалені.</li>
+              <li>Зникнуть історія повідомлень, замовлення та брифі.</li>
+              <li>Після перепідключення Instagram знову зʼявляться лише <strong>нові</strong> вхідні DM.</li>
+              <li>Налаштування, промпти та інтеграції <strong>не</strong> змінюються.</li>
+            </ul>
+            <p class="mb-2">
+              Щоб підтвердити, введіть:
+              <code class="text-error">{{ purgeDialogsConfirmPhrase }}</code>
+            </p>
+            <v-text-field
+              v-model="purgeDialogsConfirmInput"
+              label="Підтвердження"
+              variant="outlined"
+              density="compact"
+              hide-details
+              autocomplete="off"
+              :disabled="purgeDialogsLoading"
+              @keyup.enter="purgeAllDialogs"
+            />
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn
+              variant="text"
+              :disabled="purgeDialogsLoading"
+              @click="closePurgeDialogsDialog"
+            >
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="flat"
+              prepend-icon="mdi-delete-forever"
+              :loading="purgeDialogsLoading"
+              :disabled="!purgeDialogsConfirmReady"
+              @click="purgeAllDialogs"
+            >
+              Видалити назавжди
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -1878,6 +1960,51 @@ const metaNeedsManualIg = computed(
 const metaDisconnectDialog = ref(false);
 const metaDisconnectLoading = ref(false);
 
+const PURGE_DIALOGS_CONFIRM = 'ВИДАЛИТИ ДІАЛОГИ';
+const purgeDialogsDialog = ref(false);
+const purgeDialogsConfirmInput = ref('');
+const purgeDialogsLoading = ref(false);
+const purgeDialogsConfirmPhrase = PURGE_DIALOGS_CONFIRM;
+const purgeDialogsConfirmReady = computed(
+  () => purgeDialogsConfirmInput.value.trim() === PURGE_DIALOGS_CONFIRM,
+);
+
+function closePurgeDialogsDialog() {
+  purgeDialogsDialog.value = false;
+  purgeDialogsConfirmInput.value = '';
+}
+
+async function purgeAllDialogs() {
+  if (!purgeDialogsConfirmReady.value || purgeDialogsLoading.value) return;
+  purgeDialogsLoading.value = true;
+  try {
+    const { data } = await api.post<{
+      ok: boolean;
+      deleted: {
+        clients: number;
+        conversations: number;
+        messages: number;
+        orders: number;
+        briefs: number;
+      };
+    }>('/settings/purge-dialogs', { confirm: PURGE_DIALOGS_CONFIRM });
+
+    const d = data.deleted;
+    closePurgeDialogsDialog();
+    showOAuthSnackbar(
+      `Видалено: ${d.clients} клієнтів, ${d.conversations} діалогів, ${d.messages} повідомлень.`,
+      'success',
+    );
+  } catch (e: any) {
+    showOAuthSnackbar(
+      e.response?.data?.error ?? 'Не вдалося очистити діалоги',
+      'error',
+    );
+  } finally {
+    purgeDialogsLoading.value = false;
+  }
+}
+
 async function disconnectMeta() {
   metaDisconnectLoading.value = true;
   try {
@@ -2219,6 +2346,10 @@ onMounted(() => {
   color: #0a2540;
   letter-spacing: -0.01em;
   margin-bottom: 12px;
+}
+
+.danger-zone-card {
+  border-color: rgba(var(--v-theme-error), 0.45) !important;
 }
 
 /* ── Card density: tighter titles & content ────────────────────────────── */

@@ -213,6 +213,49 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return runTenantHealthCheck();
   });
 
+  const PURGE_DIALOGS_CONFIRM = 'ВИДАЛИТИ ДІАЛОГИ';
+
+  /**
+   * POST /settings/purge-dialogs
+   * Irreversible wipe of all clients, conversations, messages, orders and briefs.
+   * Requires exact confirmation phrase in body.confirm.
+   */
+  app.post<{ Body: { confirm?: string } }>(
+    '/purge-dialogs',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      if (request.body?.confirm !== PURGE_DIALOGS_CONFIRM) {
+        return reply.code(400).send({
+          error: `Для підтвердження надішліть confirm: "${PURGE_DIALOGS_CONFIRM}"`,
+        });
+      }
+
+      const [clients, conversations, messages, orders, briefs] = await Promise.all([
+        prisma.client.count(),
+        prisma.conversation.count(),
+        prisma.message.count(),
+        prisma.order.count(),
+        prisma.presaleBrief.count(),
+      ]);
+
+      if (clients === 0 && conversations === 0) {
+        return { ok: true, deleted: { clients: 0, conversations: 0, messages: 0, orders: 0, briefs: 0 } };
+      }
+
+      await prisma.client.deleteMany({});
+
+      app.log.warn(
+        { clients, conversations, messages, orders, briefs },
+        'All dialog data purged via admin settings',
+      );
+
+      return {
+        ok: true,
+        deleted: { clients, conversations, messages, orders, briefs },
+      };
+    },
+  );
+
   // POST /settings/nova-poshta/resolve-city
   // Given a city name, returns its NP Ref UUID. Used to configure sender city.
   app.post<{ Body: { cityName: string } }>(
