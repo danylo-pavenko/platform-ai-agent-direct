@@ -386,9 +386,10 @@
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
                   <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
                   <td data-label="Health">
-                    <span>
-                      <span class="online-dot" :class="{online: health[t.id]}"></span>
-                      {{ health[t.id] ? 'Online' : 'Offline' }}
+                    <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-else>
+                      <span class="online-dot" :class="{online: health[t.id]?.online}"></span>
+                      {{ health[t.id]?.online ? 'Online' : 'Offline' }}
                     </span>
                   </td>
                   <td data-label="Actions">
@@ -398,8 +399,9 @@
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
                       </button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
-                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id">
-                        {{ deploying===t.id ? '⏳ ...' : '🚀 Deploy' }}
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
+                        :title="health[t.id] && health[t.id].deployed === false ? 'Перша установка: clone + .env + deploy' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ deploying===t.id ? '⏳ ...' : (health[t.id] && health[t.id].deployed === false ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                     </div>
                   </td>
@@ -781,8 +783,10 @@ createApp({
       for (const t of tenants.value) {
         fetch(`${BASE}/tenants/${t.id}/health`, { headers: headers() })
           .then(r => r.json())
-          .then(d => { health[t.id] = d.online; })
-          .catch(() => { health[t.id] = false; });
+          // deployed: true/false from the server, null = unknown → treat as
+          // deployed so a live instance is never mislabeled "Not deployed".
+          .then(d => { health[t.id] = { online: !!d.online, deployed: d.deployed === false ? false : true }; })
+          .catch(() => { health[t.id] = { online: false, deployed: true }; });
       }
     }
 

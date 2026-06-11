@@ -27,7 +27,9 @@ const FB_SCOPES = [
   'business_management',
   'pages_show_list',
   'pages_read_engagement',
+  'pages_messaging',
   'instagram_manage_messages',
+  'instagram_business_basic',
 ].join(',');
 
 // Webhook fields we want the Page subscribed to.
@@ -79,6 +81,10 @@ function summarizePagesList(pages: MetaPageRow[]) {
   }));
 }
 
+const PAGE_LIST_FIELDS =
+  'id,name,access_token,instagram_business_account{id,username,name}';
+const PAGE_IG_FIELDS = 'instagram_business_account{id,username,name}';
+
 /** Graph debug_token — scopes / validity (no secret values). */
 async function debugFacebookToken(
   inputToken: string,
@@ -108,6 +114,254 @@ async function debugFacebookToken(
   } catch (err) {
     return { probeError: err instanceof Error ? err.message : String(err) };
   }
+}
+
+async function probePageInstagram(
+  pageId: string,
+  userAccessToken: string,
+): Promise<MetaPageRow['instagram_business_account'] | undefined> {
+  const url = new URL(`${FB_GRAPH_BASE}/${pageId}`);
+  url.searchParams.set('fields', PAGE_IG_FIELDS);
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${userAccessToken}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return undefined;
+    const data = (await res.json()) as {
+      instagram_business_account?: MetaPageRow['instagram_business_account'];
+    };
+    return data.instagram_business_account?.id ? data.instagram_business_account : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Meta sometimes omits instagram_business_account on /me/accounts batch responses
+ * even when the Page↔IG link exists. Probe each Page directly, then scan Business
+ * Portfolio pages (requires business_management — already in our OAuth scopes).
+ */
+async function resolvePagesWithInstagram(
+  pages: MetaPageRow[],
+  userAccessToken: string,
+): Promise<{ pages: MetaPageRow[]; businessOnlyPages: Array<{ id: string; name: string; igUsername: string | null }> }> {
+  const byId = new Map<string, MetaPageRow>(pages.map((p) => [p.id, { ...p }]));
+
+  for (const p of byId.values()) {
+    if (p.instagram_business_account?.id) continue;
+    const ig = await probePageInstagram(p.id, userAccessToken);
+    if (ig?.id) p.instagram_business_account = ig;
+  }
+
+  const businessOnlyPages: Array<{ id: string; name: string; igUsername: string | null }> = [];
+
+  try {
+    const bizUrl = new URL(`${FB_GRAPH_BASE}/me/businesses`);
+    bizUrl.searchParams.set('fields', 'id,name');
+    const bizRes = await fetch(bizUrl.toString(), {
+      headers: { Authorization: `Bearer ${userAccessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const bizData = (await bizRes.json()) as { data?: Array<{ id: string; name: string }> };
+
+    for (const biz of bizData.data ?? []) {
+      for (const edge of ['owned_pages', 'client_pages'] as const) {
+        const edgeUrl = new URL(`${FB_GRAPH_BASE}/${biz.id}/${edge}`);
+        edgeUrl.searchParams.set('fields', `id,name,${PAGE_IG_FIELDS}`);
+        const edgeRes = await fetch(edgeUrl.toString(), {
+          headers: { Authorization: `Bearer ${userAccessToken}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!edgeRes.ok) continue;
+        const edgeData = (await edgeRes.json()) as { data?: MetaPageRow[] };
+        for (const row of edgeData.data ?? []) {
+          const ig = row.instagram_business_account;
+          const existing = byId.get(row.id);
+          if (existing) {
+            if (!existing.instagram_business_account?.id && ig?.id) {
+              existing.instagram_business_account = ig;
+            }
+          } else if (ig?.id) {
+            businessOnlyPages.push({
+              id: row.id,
+              name: row.name,
+              igUsername: ig.username ?? null,
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    /* non-fatal enrichment */
+  }
+
+  return { pages: [...byId.values()], businessOnlyPages };
+}
+
+const IG_RELATED_SCOPES = new Set([
+  'instagram_manage_messages',
+  'instagram_business_manage_messages',
+  'instagram_basic',
+  'instagram_business_basic',
+]);
+
+/** IG account IDs the user explicitly selected in the granular OAuth dialog. */
+function extractIgTargetIdsFromTokenDebug(tokenDebug: Record<string, unknown>): string[] {
+  const granular = tokenDebug.granularScopes;
+  if (!Array.isArray(granular)) return [];
+  const ids = new Set<string>();
+  for (const row of granular) {
+    if (!row || typeof row !== 'object') continue;
+    const scope = String((row as { scope?: string }).scope ?? '');
+    if (!IG_RELATED_SCOPES.has(scope) && !scope.startsWith('instagram')) continue;
+    const targets = (row as { target_ids?: string[] }).target_ids;
+    if (Array.isArray(targets)) {
+      for (const id of targets) {
+        if (typeof id === 'string' && id.length > 0) ids.add(id);
+      }
+    }
+  }
+  return [...ids];
+}
+
+async function listInstagramAccountIdsFromBusinesses(userAccessToken: string): Promise<string[]> {
+  const ids = new Set<string>();
+  try {
+    const bizUrl = new URL(`${FB_GRAPH_BASE}/me/businesses`);
+    bizUrl.searchParams.set('fields', 'id');
+    const bizRes = await fetch(bizUrl.toString(), {
+      headers: { Authorization: `Bearer ${userAccessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!bizRes.ok) return [];
+    const bizData = (await bizRes.json()) as { data?: Array<{ id: string }> };
+
+    for (const biz of bizData.data ?? []) {
+      for (const edge of [
+        'owned_instagram_accounts',
+        'instagram_accounts',
+        'client_instagram_accounts',
+      ] as const) {
+        const edgeUrl = new URL(`${FB_GRAPH_BASE}/${biz.id}/${edge}`);
+        edgeUrl.searchParams.set('fields', 'id,username');
+        const edgeRes = await fetch(edgeUrl.toString(), {
+          headers: { Authorization: `Bearer ${userAccessToken}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!edgeRes.ok) continue;
+        const edgeData = (await edgeRes.json()) as { data?: Array<{ id: string }> };
+        for (const ig of edgeData.data ?? []) {
+          if (ig.id) ids.add(ig.id);
+        }
+      }
+    }
+  } catch {
+    /* non-fatal */
+  }
+  return [...ids];
+}
+
+async function fetchIgUserConnectedPage(
+  igUserId: string,
+  userAccessToken: string,
+): Promise<{
+  igUserId: string;
+  igUsername?: string;
+  pageId?: string;
+  pageName?: string;
+  httpStatus?: number;
+  graphError?: string;
+} | null> {
+  const url = new URL(`${FB_GRAPH_BASE}/${igUserId}`);
+  url.searchParams.set('fields', 'id,username,name,connected_facebook_page{id,name}');
+  try {
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${userAccessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data = (await res.json()) as {
+      id?: string;
+      username?: string;
+      connected_facebook_page?: { id?: string; name?: string };
+      error?: { message?: string };
+    };
+    if (!res.ok) {
+      return {
+        igUserId,
+        httpStatus: res.status,
+        graphError: data.error?.message,
+      };
+    }
+    return {
+      igUserId,
+      igUsername: data.username,
+      pageId: data.connected_facebook_page?.id,
+      pageName: data.connected_facebook_page?.name,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * When the user picks Instagram accounts in the OAuth dialog (your screenshot),
+ * Graph often still omits instagram_business_account on /me/accounts. Resolve via
+ * debug_token target_ids → IG node → connected_facebook_page → Page access_token.
+ */
+async function resolvePageFromSelectedInstagramAccounts(
+  userAccessToken: string,
+  pages: MetaPageRow[],
+  tokenDebug: Record<string, unknown>,
+): Promise<MetaPageRow | null> {
+  let igIds = extractIgTargetIdsFromTokenDebug(tokenDebug);
+  if (igIds.length === 0) {
+    igIds = await listInstagramAccountIdsFromBusinesses(userAccessToken);
+  }
+
+  for (const igUserId of igIds) {
+    const linked = await fetchIgUserConnectedPage(igUserId, userAccessToken);
+    if (!linked?.pageId) continue;
+
+    const pageRow = pages.find((p) => p.id === linked.pageId);
+    if (!pageRow?.access_token) continue;
+
+    return {
+      ...pageRow,
+      instagram_business_account: {
+        id: igUserId,
+        username: linked.igUsername,
+      },
+    };
+  }
+  return null;
+}
+
+function buildOAuthNoIgError(
+  pages: MetaPageRow[],
+  businessOnlyPages: Array<{ id: string; name: string; igUsername: string | null }>,
+): string {
+  const names = pages.map((p) => `«${p.name}»`).join(', ') || '—';
+  let msg =
+    `Facebook повернув ${pages.length} сторінок (${names}), але на жодній Graph API не бачить підключений Instagram Business. `;
+
+  if (businessOnlyPages.length > 0) {
+    const bm = businessOnlyPages
+      .map((p) => `«${p.name}»${p.igUsername ? ` (@${p.igUsername})` : ''}`)
+      .join(', ');
+    msg +=
+      `У Business Manager знайдені інші сторінки з Instagram (${bm}), але до них немає доступу в цьому OAuth — ` +
+      'увійдіть акаунтом-адміном цієї Page і в вікні Facebook натисніть «Змінити налаштування» / «Изменить настройки», щоб дозволити потрібну сторінку. ';
+  } else {
+    msg +=
+      'Ймовірно, ви ввійшли не тим Facebook-профілем або не обрали потрібну Page у діалозі дозволів. ';
+  }
+
+  msg +=
+    'Якщо в OAuth ви вже обрали Instagram-акаунт (крок «Аккаунты Instagram»), але помилка лишається — оновіть код на сервері або зверніться до підтримки: потрібен резолв через connected_facebook_page. ';
+  msg +=
+    'Також перевірте в Business Suite: Instagram Professional привʼязаний до Facebook Page, а в OAuth дозволені і Page, і Instagram.';
+  return msg;
 }
 
 function buildPopupHtml(message: Record<string, unknown>): string {
@@ -249,10 +503,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       // Step 2 — get Pages the user manages, with their Instagram Business Accounts.
       // We need both the Page Access Token and the connected IG account ID.
       const pagesUrl = new URL(`${FB_GRAPH_BASE}/me/accounts`);
-      pagesUrl.searchParams.set(
-        'fields',
-        'id,name,access_token,instagram_business_account{id,username,name}',
-      );
+      pagesUrl.searchParams.set('fields', PAGE_LIST_FIELDS);
 
       const pagesRes = await fetch(pagesUrl.toString(), {
         headers: { Authorization: `Bearer ${userAccessToken}` },
@@ -290,29 +541,88 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         'Facebook OAuth: /me/accounts response',
       );
 
-      // Pick the first page that has a connected Instagram Business Account
-      const pageWithIg = pagesData.data.find((p) => p.instagram_business_account?.id);
-      if (!pageWithIg) {
-        const tokenDebug = await debugFacebookToken(
-          userAccessToken,
-          meta.facebookAppId,
-          meta.facebookAppSecret,
+      const { pages: resolvedPages, businessOnlyPages } = await resolvePagesWithInstagram(
+        pagesData.data,
+        userAccessToken,
+      );
+      const resolvedSummary = summarizePagesList(resolvedPages);
+      if (resolvedSummary.some((p) => p.hasInstagram) && !pagesSummary.some((p) => p.hasInstagram)) {
+        app.log.info(
+          { pages: resolvedSummary.filter((p) => p.hasInstagram) },
+          'Facebook OAuth: instagram_business_account resolved via per-page / Business Portfolio probe',
         );
+      }
+      if (businessOnlyPages.length > 0) {
         app.log.warn(
-          {
-            pageCount: pagesData.data.length,
-            pagesWithInstagram: 0,
-            pages: pagesSummary,
-            hasPagingNext: Boolean(pagesData.paging?.next),
-            requestedScopes: FB_SCOPES,
+          { businessOnlyPages },
+          'Facebook OAuth: IG-linked pages visible in Business Manager but not granted in /me/accounts',
+        );
+      }
+
+      // Pick the first page that has a connected Instagram Business Account
+      let pageWithIg = resolvedPages.find(
+        (p) => p.instagram_business_account?.id && p.access_token,
+      );
+
+      const tokenDebug =
+        pageWithIg
+          ? null
+          : await debugFacebookToken(
+              userAccessToken,
+              meta.facebookAppId,
+              meta.facebookAppSecret,
+            );
+
+      if (!pageWithIg && tokenDebug) {
+        const igTargetIds = extractIgTargetIdsFromTokenDebug(tokenDebug);
+
+        pageWithIg =
+          (await resolvePageFromSelectedInstagramAccounts(
+            userAccessToken,
+            resolvedPages,
             tokenDebug,
-          },
-          'Facebook OAuth: no Page with linked Instagram Business account',
-        );
-        throw new Error(
-          'Не знайдено Facebook Сторінку з підключеним Instagram Business акаунтом. ' +
-          'Переконайтесь що сторінка підключена до Instagram Business у Business Manager.',
-        );
+          )) ?? undefined;
+
+        if (pageWithIg) {
+          app.log.info(
+            {
+              pageId: pageWithIg.id,
+              pageName: pageWithIg.name,
+              igUserId: pageWithIg.instagram_business_account?.id,
+              igUsername: pageWithIg.instagram_business_account?.username,
+              igTargetIds,
+              via: 'granular_ig_selection_connected_facebook_page',
+            },
+            'Facebook OAuth: resolved Page+IG via selected Instagram account',
+          );
+        } else {
+          const granularResolveAttempts: Array<Record<string, unknown>> = [];
+          for (const igId of igTargetIds.length > 0
+            ? igTargetIds
+            : await listInstagramAccountIdsFromBusinesses(userAccessToken)) {
+            const probe = await fetchIgUserConnectedPage(igId, userAccessToken);
+            if (probe) granularResolveAttempts.push(probe);
+          }
+          app.log.warn(
+            {
+              pageCount: resolvedPages.length,
+              pagesWithInstagram: resolvedSummary.filter((p) => p.hasInstagram).length,
+              pages: resolvedSummary,
+              businessOnlyPages,
+              hasPagingNext: Boolean(pagesData.paging?.next),
+              requestedScopes: FB_SCOPES,
+              tokenDebug,
+              igTargetIds,
+              granularResolveAttempts,
+            },
+            'Facebook OAuth: no Page with linked Instagram Business account',
+          );
+          throw new Error(buildOAuthNoIgError(resolvedPages, businessOnlyPages));
+        }
+      }
+
+      if (!pageWithIg?.access_token || !pageWithIg.instagram_business_account?.id) {
+        throw new Error('Facebook OAuth: internal error resolving Page + Instagram');
       }
 
       const pageId = pageWithIg.id;

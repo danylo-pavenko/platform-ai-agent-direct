@@ -89,19 +89,37 @@ export async function tenantsRoutes(app: FastifyInstance) {
     return reply.status(204).send();
   });
 
-  // Health check for tenant
+  // Health check for tenant.
+  // deployed: whether the project is already provisioned on disk
+  // (deploy-client.sh exists in appDir) — lets the UI distinguish
+  // "not deployed yet" from "deployed but offline".
   app.get<{ Params: { id: string } }>('/api/tenants/:id/health', auth, async (req, reply) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+    let deployed: boolean | null = null;
+    try {
+      await execAsync(
+        `sudo -u ${tenant.linuxUser} test -f '${tenant.appDir}/infra/scripts/deploy-client.sh'`,
+        { timeout: 10_000 },
+      );
+      deployed = true;
+    } catch (err: any) {
+      // `test -f` exits 1 with empty stderr when the file is genuinely
+      // missing; sudo/permission problems and timeouts produce stderr or
+      // other exit codes = unknown — don't mislabel a live instance.
+      const stderr = String(err?.stderr ?? '').trim();
+      deployed = err?.code === 1 && !stderr ? false : null;
+    }
 
     try {
       const res = await fetch(`http://localhost:${tenant.apiPort}/health`, {
         signal: AbortSignal.timeout(5000),
       });
       const data = await res.json();
-      return { online: res.ok, status: data };
+      return { online: res.ok, deployed: deployed ?? res.ok, status: data };
     } catch {
-      return { online: false, status: null };
+      return { online: false, deployed, status: null };
     }
   });
 
@@ -168,6 +186,22 @@ export async function tenantsRoutes(app: FastifyInstance) {
 
     if (checkCode !== 0) {
       // ── Auto-provision ──────────────────────────────────────────────────────
+      // Safety guard: deploy script missing, but appDir already exists and is
+      // non-empty. That's either a half-broken install or a misconfigured
+      // tenant record (wrong appDir / linuxUser / sudo issue). Never clone or
+      // write .env over an existing directory — abort with a clear message.
+      const dirNonEmptyCode = await runStream([
+        'bash', '-c',
+        `sudo -u ${tenant.linuxUser} bash -c '[ -d "${tenant.appDir}" ] && [ -n "$(ls -A "${tenant.appDir}" 2>/dev/null)" ]'`,
+      ]);
+      if (dirNonEmptyCode === 0) {
+        send(`[error] ${tenant.appDir} already exists and is not empty, but deploy-client.sh was not found.`);
+        send('[error] Re-provision aborted to protect existing data. Check App Dir / Linux User / sudo permissions, or clean the directory manually.');
+        send('[✗ provision aborted]');
+        reply.raw.end();
+        return;
+      }
+
       if (!tenant.gitRepo) {
         send('[error] Git repo URL not configured. Edit the client and set Git Repo.');
         send('[✗ provision failed]');
@@ -258,6 +292,8 @@ echo "[provision] ✓ Initial setup complete"
         return;
       }
       send('[provision] Starting deploy...');
+    } else {
+      send('[check] Existing installation found — running safe update deploy (re-provision skipped, .env untouched)');
     }
 
     // ── Deploy ──────────────────────────────────────────────────────────────
