@@ -1,0 +1,53 @@
+---
+description: Meta Facebook/Instagram OAuth scopes and resolver — do not suggest wrong permissions
+alwaysApply: true
+---
+
+# Meta OAuth — scopes and IG DM integration
+
+Source of truth: `apps/backend/src/routes/meta-oauth.ts` (`FB_SCOPES`), `apps/backend/src/services/instagram.ts`.
+
+## OAuth scopes we request (and only these)
+
+```
+business_management
+pages_show_list
+pages_read_engagement
+instagram_manage_messages
+```
+
+## Do NOT suggest adding these scopes
+
+| Scope | Why not |
+|-------|---------|
+| `instagram_business_basic` | For newer Instagram API / reading IG Graph nodes (`connected_facebook_page`). **Not** required for Page-linked IG DM via Messenger Platform. Adding it does not fix our OAuth flow. |
+| `pages_messaging` | Facebook **Page** Messenger API — **not** Instagram Direct. Our IG send/receive uses Page token + `instagram_manage_messages` → `POST /me/messages`. |
+| `instagram_basic` | Deprecated Instagram Basic Display API (personal accounts) — wrong product. |
+
+If `README.md` permission tables disagree with `FB_SCOPES` in code, **trust the code**.
+
+## How IG DM works in this project
+
+- OAuth yields **Page access token** + **Instagram Business user id** (`instagram_business_account.id`).
+- Outbound DMs: `graph.facebook.com/v25.0/me/messages` with `Authorization: Bearer {pageAccessToken}`.
+- Required permission for messaging: **`instagram_manage_messages`** on that Page/IG asset.
+
+## OAuth callback — resolving Page + IG
+
+Granular OAuth often returns Page and IG as **separate** `target_ids` in `debug_token.granular_scopes`, while `/me/accounts` omits `instagram_business_account`.
+
+**Correct resolver:** pair IDs from granular scopes (e.g. `pages_show_list` → page id, `instagram_manage_messages` → ig user id) with the Page `access_token` from `/me/accounts`. See `resolvePageFromGranularTargetIds()` in `meta-oauth.ts`.
+
+**Do NOT** treat `GET /{ig-user-id}?fields=connected_facebook_page` as the primary path — it fails without `instagram_business_basic` and is unnecessary when granular `target_ids` are present.
+
+## Tester works, third-party client fails
+
+- **App Developer/Tester** on own IG: works in **Development** mode; `/me/accounts` may include `instagram_business_account` directly.
+- **Third-party business** (client's Page + IG): needs App **Live** + **Advanced Access** for `instagram_manage_messages`. Development + Tester roles alone are insufficient for arbitrary client assets.
+- Business Suite link Page↔IG can be correct while Graph omits fields — check OAuth logs (`igTargetIds`, `granularScopes`), not only BM UI.
+
+## When debugging OAuth failures
+
+1. Read `tokenDebug.granularScopes` — both Page and IG `target_ids` should be present.
+2. Confirm resolver uses granular pairing before any `connected_facebook_page` fallback.
+3. Do not blame missing `instagram_business_basic` or `pages_messaging` unless code explicitly uses APIs that require them (it does not for IG DM).

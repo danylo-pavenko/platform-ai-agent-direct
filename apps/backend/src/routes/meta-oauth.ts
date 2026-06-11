@@ -11,6 +11,7 @@ import {
   importRecentIgConversations,
 } from '../services/ig-connection.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
+import { clearWebhookRoutingOnHub, syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 
 // ── Facebook Login for Business endpoints ────────────────────────────────────
 const FB_AUTHORIZE_URL = 'https://www.facebook.com/dialog/oauth';
@@ -561,36 +562,8 @@ async function persistMetaOAuthConnection(
     'Facebook OAuth credentials saved',
   );
 
-  if (
-    input.igUserId &&
-    config.SA_INTERNAL_URL &&
-    config.INSTANCE_ID &&
-    config.SUPERVISOR_SHARED_SECRET
-  ) {
-    const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;
-    fetch(syncUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET,
-      },
-      body: JSON.stringify({
-        instagramUserId: input.igUserId,
-        facebookAppSecret: meta.facebookAppSecret,
-      }),
-      signal: AbortSignal.timeout(8_000),
-    })
-      .then(async (res) => {
-        if (res.ok) {
-          app.log.info({ igUserId: input.igUserId }, 'Webhook config auto-synced to platform hub');
-        } else {
-          const txt = await res.text().catch(() => '');
-          app.log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Hub webhook-config sync failed');
-        }
-      })
-      .catch((err) => {
-        app.log.warn({ err }, 'Hub webhook-config sync error (non-fatal)');
-      });
+  if (input.igUserId && meta.facebookAppSecret) {
+    syncWebhookRoutingToHub(input.igUserId, meta.facebookAppSecret, app.log);
   }
 }
 
@@ -1199,25 +1172,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
     // Step 3 — clear webhook routing on the platform hub (non-fatal) so the
     // IG account can be re-connected by this or another tenant later.
-    if (config.SA_INTERNAL_URL && config.INSTANCE_ID && config.SUPERVISOR_SHARED_SECRET) {
-      const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;
-      fetch(syncUrl, {
-        method: 'DELETE',
-        headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
-        signal: AbortSignal.timeout(8_000),
-      })
-        .then(async (res) => {
-          if (res.ok) {
-            app.log.info('Webhook config cleared on platform hub');
-          } else {
-            const txt = await res.text().catch(() => '');
-            app.log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Hub webhook-config clear failed');
-          }
-        })
-        .catch((err) => {
-          app.log.warn({ err }, 'Hub webhook-config clear error (non-fatal)');
-        });
-    }
+    clearWebhookRoutingOnHub(app.log);
 
     return { ok: true };
   });

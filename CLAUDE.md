@@ -87,3 +87,4 @@ platform-ai-agent-direct/
 8. **Ціни 1₴** у категорії "Індивідуальне нанесення" — службові. Реальна вартість: принт 400–600₴, вишивка 1000–1500₴.
 9. **Повернення/обмін** — політика не оприлюднена. Завжди ескалювати до менеджера.
 10. **Max 30 повідомлень** в conversationHistory для Claude. Довші розмови — останні 30 + summary.
+11. **Meta OAuth / IG DM:** лише scope `business_management`, `pages_show_list`, `pages_read_engagement`, `instagram_manage_messages`. **Не** пропонувати `instagram_business_basic`, `pages_messaging`, `instagram_basic`. IG DM = Page token + `instagram_manage_messages` → `/me/messages`. Granular OAuth: зшивати Page+IG з `debug_token.granular_scopes`, не покладатися на `connected_facebook_page`. Деталі: `.cursor/rules/meta-oauth-scopes.mdc`.

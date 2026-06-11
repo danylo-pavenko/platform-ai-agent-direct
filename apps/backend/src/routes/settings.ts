@@ -10,6 +10,8 @@ import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
+import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -159,6 +161,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       if (key === 'integration_meta') {
         const pageId = merged.pageId;
         const pageAccessToken = merged.pageAccessToken;
+        const igUserId = merged.igUserId;
         if (
           typeof pageId === 'string' &&
           pageId &&
@@ -180,6 +183,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
             .catch((err) => {
               app.log.warn({ err, pageId }, 'Manual meta save: webhook subscription error');
             });
+        }
+        if (typeof igUserId === 'string' && igUserId) {
+          const { meta } = await getIntegrationConfig();
+          if (meta.facebookAppSecret) {
+            syncWebhookRoutingToHub(igUserId, meta.facebookAppSecret, app.log);
+          }
         }
       }
     }

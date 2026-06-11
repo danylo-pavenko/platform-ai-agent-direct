@@ -15,6 +15,7 @@ import {
   getPageWebhookSubscription,
   subscribePageToMetaWebhooks,
 } from '../lib/meta-page-subscribe.js';
+import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { importIgConversationHistory } from './ig-history.js';
 import { fetchIgUserProfile } from './ig-profile.js';
 
@@ -322,6 +323,10 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       } catch {
         // non-fatal
       }
+    }
+
+    if (resolved.ig.id && meta.facebookAppSecret) {
+      syncWebhookRoutingToHub(resolved.ig.id, meta.facebookAppSecret, log);
     }
 
     return {
