@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { exec, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
+import { normalizeInstagramRoutingIds } from '../lib/tenant-webhook-routing.js';
 
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
@@ -21,7 +22,8 @@ const tenantSchema = z.object({
   gitRepo: z.string().min(1).optional(),
   envExtra: z.string().optional(),
   // Instagram / Meta webhook routing
-  instagramUserId: z.string().optional(),
+  instagramUserId: z.union([z.literal(''), z.string().regex(/^\d+$/)]).optional(),
+  instagramRoutingIds: z.array(z.string().regex(/^\d+$/)).optional(),
   facebookAppSecret: z.string().optional(),
   // Admin-panel access: null = unlimited (default), ISO datetime = until then.
   // z.null() must come first — z.coerce.date() would coerce null to 1970.
@@ -40,6 +42,53 @@ function resolveAccess(tenant: { status: string; accessExpiresAt: Date | null })
     return { allowed: false, reason: 'expired' as const };
   }
   return { allowed: true, reason: null };
+}
+
+function formatZodError(error: z.ZodError): string {
+  return error.issues.map((i) => `${i.path.join('.') || 'field'}: ${i.message}`).join('; ');
+}
+
+function formatPrismaError(err: unknown): { status: number; error: string } {
+  const e = err as { code?: string; meta?: { target?: string[] }; message?: string };
+  if (e.code === 'P2002') {
+    const field = e.meta?.target?.join(', ') ?? 'unique field';
+    return {
+      status: 409,
+      error: `Це значення вже використовується іншим клієнтом (${field}). Для webhook додайте ID у «Додаткові routing ID», не замінюйте основний.`,
+    };
+  }
+  if (e.code === 'P2025') {
+    return { status: 404, error: 'Клієнт не знайдено' };
+  }
+  const msg = e.message ?? 'Database error';
+  if (msg.includes('instagram_routing_ids')) {
+    return {
+      status: 500,
+      error:
+        'Потрібна міграція БД super-admin: npx prisma migrate deploy (колонка instagram_routing_ids)',
+    };
+  }
+  return { status: 500, error: msg };
+}
+
+function prepareTenantWriteData(
+  input: z.infer<typeof tenantSchema> | Partial<z.infer<typeof tenantSchema>>,
+) {
+  const data: Record<string, unknown> = { ...input };
+
+  if (data.instagramUserId === '') data.instagramUserId = null;
+
+  if (data.facebookAppSecret === '') delete data.facebookAppSecret;
+
+  if (data.instagramRoutingIds !== undefined) {
+    const primary = typeof data.instagramUserId === 'string' ? data.instagramUserId : '';
+    data.instagramRoutingIds = normalizeInstagramRoutingIds(
+      primary,
+      data.instagramRoutingIds as string[],
+    );
+  }
+
+  return data;
 }
 
 export async function tenantsRoutes(app: FastifyInstance) {
@@ -65,22 +114,40 @@ export async function tenantsRoutes(app: FastifyInstance) {
   // Create tenant
   app.post('/api/tenants', auth, async (req, reply) => {
     const body = tenantSchema.safeParse(req.body);
-    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    if (!body.success) {
+      return reply.status(400).send({ error: formatZodError(body.error) });
+    }
 
-    const tenant = await prisma.tenant.create({ data: body.data });
-    return reply.status(201).send(tenant);
+    try {
+      const tenant = await prisma.tenant.create({
+        data: prepareTenantWriteData(body.data) as Parameters<typeof prisma.tenant.create>[0]['data'],
+      });
+      return reply.status(201).send(tenant);
+    } catch (err) {
+      app.log.error({ err }, 'Failed to create tenant');
+      const { status, error } = formatPrismaError(err);
+      return reply.status(status).send({ error });
+    }
   });
 
   // Update tenant
   app.put<{ Params: { id: string } }>('/api/tenants/:id', auth, async (req, reply) => {
     const body = tenantSchema.partial().safeParse(req.body);
-    if (!body.success) return reply.status(400).send({ error: body.error.flatten() });
+    if (!body.success) {
+      return reply.status(400).send({ error: formatZodError(body.error) });
+    }
 
-    const tenant = await prisma.tenant.update({
-      where: { id: req.params.id },
-      data: body.data,
-    });
-    return tenant;
+    try {
+      const tenant = await prisma.tenant.update({
+        where: { id: req.params.id },
+        data: prepareTenantWriteData(body.data) as Parameters<typeof prisma.tenant.update>[0]['data'],
+      });
+      return tenant;
+    } catch (err) {
+      app.log.error({ err }, 'Failed to update tenant');
+      const { status, error } = formatPrismaError(err);
+      return reply.status(status).send({ error });
+    }
   });
 
   // Delete tenant
@@ -371,14 +438,18 @@ echo "[provision] ✓ Initial setup complete"
   // Auth: X-Supervisor-Token (same shared secret used for /supervisor/* routes).
   app.post<{
     Params: { instanceId: string };
-    Body: { instagramUserId: string; facebookAppSecret: string };
+    Body: {
+      instagramUserId: string;
+      facebookAppSecret: string;
+      instagramRoutingIds?: string[];
+    };
   }>('/api/tenants/by-instance/:instanceId/webhook-config', async (req, reply) => {
     const token = req.headers['x-supervisor-token'];
     if (!config.SUPERVISOR_SHARED_SECRET || token !== config.SUPERVISOR_SHARED_SECRET) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
 
-    const { instagramUserId, facebookAppSecret } = req.body ?? {};
+    const { instagramUserId, facebookAppSecret, instagramRoutingIds } = req.body ?? {};
     if (!instagramUserId || !facebookAppSecret) {
       return reply.status(400).send({ error: 'instagramUserId and facebookAppSecret are required' });
     }
@@ -386,17 +457,27 @@ echo "[provision] ✓ Initial setup complete"
     const tenant = await prisma.tenant.findUnique({ where: { instanceId: req.params.instanceId } });
     if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
 
+    const routingIds = normalizeInstagramRoutingIds(instagramUserId, instagramRoutingIds);
+
     const updated = await prisma.tenant.update({
       where: { id: tenant.id },
-      data: { instagramUserId, facebookAppSecret },
+      data: {
+        instagramUserId,
+        facebookAppSecret,
+        instagramRoutingIds: routingIds,
+      },
     });
 
     app.log.info(
-      { instanceId: req.params.instanceId, instagramUserId },
+      { instanceId: req.params.instanceId, instagramUserId, instagramRoutingIds: routingIds },
       'Webhook config auto-synced from tenant OAuth',
     );
 
-    return { ok: true, instagramUserId: updated.instagramUserId };
+    return {
+      ok: true,
+      instagramUserId: updated.instagramUserId,
+      instagramRoutingIds: updated.instagramRoutingIds,
+    };
   });
 
   // Clear webhook routing config when the tenant disconnects their Instagram.
@@ -415,7 +496,7 @@ echo "[provision] ✓ Initial setup complete"
 
     await prisma.tenant.update({
       where: { id: tenant.id },
-      data: { instagramUserId: null },
+      data: { instagramUserId: null, instagramRoutingIds: [] },
     });
 
     app.log.info(

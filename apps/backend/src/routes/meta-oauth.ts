@@ -563,7 +563,12 @@ async function persistMetaOAuthConnection(
   );
 
   if (input.igUserId && meta.facebookAppSecret) {
-    syncWebhookRoutingToHub(input.igUserId, meta.facebookAppSecret, app.log);
+    syncWebhookRoutingToHub(
+      input.igUserId,
+      meta.facebookAppSecret,
+      app.log,
+      input.pageAccessToken,
+    );
   }
 }
 

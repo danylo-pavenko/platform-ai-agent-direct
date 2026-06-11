@@ -26,8 +26,10 @@ model Tenant {
   //   Auto-populated when the tenant completes Facebook OAuth in their admin panel.
   // facebookAppSecret: tenant's Meta App Secret for hub HMAC verification.
   //   Auto-populated on OAuth success; can also be set manually by super-admin.
-  instagramUserId   String?  @unique @map("instagram_user_id")
-  facebookAppSecret String?  @map("facebook_app_secret")
+  instagramUserId     String?  @unique @map("instagram_user_id")
+  // Additional IDs seen in webhook recipient.id / entry.id (Graph ig_id, etc.)
+  instagramRoutingIds Json     @default("[]") @map("instagram_routing_ids")
+  facebookAppSecret   String?  @map("facebook_app_secret")
   // Admin-panel access control (subscription-ready).
   // null = unlimited (perpetual) access — the default for every tenant.
   // A timestamp = access allowed until that moment; afterwards the tenant's

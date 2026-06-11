@@ -326,7 +326,12 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
     }
 
     if (resolved.ig.id && meta.facebookAppSecret) {
-      syncWebhookRoutingToHub(resolved.ig.id, meta.facebookAppSecret, log);
+      syncWebhookRoutingToHub(
+        resolved.ig.id,
+        meta.facebookAppSecret,
+        log,
+        meta.pageAccessToken,
+      );
     }
 
     return {

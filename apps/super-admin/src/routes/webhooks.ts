@@ -3,7 +3,7 @@
  *
  * Architecture: ONE Meta App → ONE Callback URL (this endpoint) → routes
  * each event to the correct tenant's backend by matching entry[].id (PAGE_ID)
- * against the facebookPageId stored on each Tenant record.
+ * against instagramUserId + instagramRoutingIds on each Tenant record.
  *
  * Flow:
  *   GET  /webhooks/instagram  → Meta challenge verification
@@ -18,6 +18,10 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { config } from '../config.js';
+import {
+  collectTenantInstagramRoutingIds,
+  tenantMatchesWebhookCandidates,
+} from '../lib/tenant-webhook-routing.js';
 
 const prisma = new PrismaClient();
 
@@ -161,33 +165,32 @@ export async function webhookRoutes(app: FastifyInstance) {
     const seenTenants = new Set<string>();
     let forwardedCount = 0;
 
-    for (const pageId of candidateIds) {
-      const tenant = await prisma.tenant.findFirst({
-        where: { instagramUserId: pageId, status: { not: 'suspended' } },
-      });
+    const activeTenants = await prisma.tenant.findMany({
+      where: { status: { not: 'suspended' }, instagramUserId: { not: null } },
+    });
 
-      if (!tenant) {
-        app.log.debug({ pageId }, 'Webhook hub: no tenant for candidate id');
-        continue;
-      }
-
+    for (const tenant of activeTenants) {
+      if (!tenantMatchesWebhookCandidates(tenant, candidateIds)) continue;
       if (seenTenants.has(tenant.id)) continue;
       seenTenants.add(tenant.id);
+
+      const routingIds = collectTenantInstagramRoutingIds(tenant);
+      const matchedId = [...candidateIds].find((id) => routingIds.has(id)) ?? tenant.instagramUserId;
 
       // Verify HMAC with the platform-level App Secret (one shared Meta App for all tenants).
       // If PLATFORM_FACEBOOK_APP_SECRET is not set, skip verification and let the tenant
       // backend verify independently with its own FACEBOOK_APP_SECRET.
       if (config.PLATFORM_FACEBOOK_APP_SECRET) {
         if (!signature) {
-          app.log.warn({ pageId, tenantId: tenant.id }, 'Webhook hub: missing X-Hub-Signature-256, skipping');
+          app.log.warn({ matchedId, tenantId: tenant.id }, 'Webhook hub: missing X-Hub-Signature-256, skipping');
           continue;
         }
         if (!verifyHmac(rawBody, signature, config.PLATFORM_FACEBOOK_APP_SECRET)) {
-          app.log.warn({ pageId, tenantId: tenant.id }, 'Webhook hub: HMAC verification failed');
+          app.log.warn({ matchedId, tenantId: tenant.id }, 'Webhook hub: HMAC verification failed');
           continue;
         }
       } else {
-        app.log.debug({ pageId }, 'Webhook hub: PLATFORM_FACEBOOK_APP_SECRET not set, skipping HMAC check');
+        app.log.debug({ matchedId }, 'Webhook hub: PLATFORM_FACEBOOK_APP_SECRET not set, skipping HMAC check');
       }
 
       // Forward raw payload to tenant backend via internal localhost routing.
@@ -209,7 +212,8 @@ export async function webhookRoutes(app: FastifyInstance) {
           forwardedCount++;
           app.log.info(
             {
-              pageId,
+              matchedId,
+              tenantRoutingIds: [...routingIds].slice(0, 6),
               tenantId: tenant.id,
               instanceId: tenant.instanceId,
               port: tenant.apiPort,
@@ -221,7 +225,7 @@ export async function webhookRoutes(app: FastifyInstance) {
           const bodyText = await res.text().catch(() => '');
           app.log.warn(
             {
-              pageId,
+              matchedId,
               tenantId: tenant.id,
               instanceId: tenant.instanceId,
               port: tenant.apiPort,
@@ -233,7 +237,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         }
       } catch (err) {
         app.log.error(
-          { err, pageId, tenantId: tenant.id, port: tenant.apiPort },
+          { err, matchedId, tenantId: tenant.id, port: tenant.apiPort },
           'Webhook hub: failed to forward event to tenant',
         );
       }

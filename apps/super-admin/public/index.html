@@ -588,15 +588,28 @@
       <!-- Instagram / Meta webhook routing -->
       <hr class="modal-sep" />
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Instagram / Meta Webhook</div>
+      <div class="field-hint" style="font-size:12px;line-height:1.45;color:var(--muted);margin:-4px 0 12px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06)">
+        <strong style="color:var(--text)">Як маршрутизуються DM webhook</strong><br />
+        Hub шукає tenant за ID з payload Meta. У повідомленнях це часто <code>recipient.id</code> у логах SA-api
+        (<code>candidateIds</code>), а не обовʼязково той самий ID, що показує OAuth (<code>178414…</code>).<br /><br />
+        <strong>Основний ID</strong> — Graph API / OAuth з адмінки тенанта (зазвичай <code>178414…</code>).<br />
+        <strong>Додаткові routing ID</strong> — якщо в логах hub інший <code>recipient.id</code> (напр. <code>1971149…</code>),
+        додайте його нижче через кому. Не замінюйте основний ID, якщо він уже зайнятий іншим клієнтом.<br />
+        Після OAuth або «Перевірити підключення» в tenant admin додаткові ID синхронізуються автоматично.
+      </div>
       <div class="form-row">
         <div class="field">
-          <label>Instagram Business Account ID <span style="color:var(--muted);font-weight:400">(entry[].id у вебхуку)</span></label>
-          <input v-model="modal.form.instagramUserId" placeholder="17841410659012767" style="font-family:monospace;font-size:12px" />
+          <label>Instagram Business Account ID <span style="color:var(--muted);font-weight:400">(Graph API / OAuth)</span></label>
+          <input v-model="modal.form.instagramUserId" placeholder="17841437228550639" style="font-family:monospace;font-size:12px" />
         </div>
         <div class="field">
           <label>Facebook App Secret <span style="color:var(--muted);font-weight:400">(HMAC верифікація)</span></label>
-          <input v-model="modal.form.facebookAppSecret" placeholder="abc123..." type="password" style="font-family:monospace;font-size:12px" />
+          <input v-model="modal.form.facebookAppSecret" placeholder="залиште порожнім, щоб не змінювати" type="password" style="font-family:monospace;font-size:12px" />
         </div>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label>Додаткові routing ID для webhook <span style="color:var(--muted);font-weight:400">(через кому, recipient.id з логів)</span></label>
+        <input v-model="modal.form.instagramRoutingIdsText" placeholder="1971149383793917" style="font-family:monospace;font-size:12px" />
       </div>
 
       <!-- Advanced (one-time server setup) -->
@@ -712,7 +725,7 @@ createApp({
     });
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
     }
 
     // ISO string → value for <input type="datetime-local"> (local time)
@@ -812,6 +825,9 @@ createApp({
         gitRepo: t.gitRepo || '',
         envExtra: t.envExtra || '',
         instagramUserId: t.instagramUserId || '',
+        instagramRoutingIdsText: Array.isArray(t.instagramRoutingIds)
+          ? t.instagramRoutingIds.filter((id) => id && id !== t.instagramUserId).join(', ')
+          : '',
         facebookAppSecret: t.facebookAppSecret || '',
         accessMode: t.accessExpiresAt ? 'until' : 'unlimited',
         accessExpiresAt: t.accessExpiresAt ? isoToLocalInput(t.accessExpiresAt) : '',
@@ -829,13 +845,23 @@ createApp({
       try {
         const url = modal.editing ? `${BASE}/tenants/${modal.editing}` : `${BASE}/tenants`;
         const method = modal.editing ? 'PUT' : 'POST';
-        const { accessMode, accessExpiresAt, ...rest } = modal.form;
+        const { accessMode, accessExpiresAt, instagramRoutingIdsText, ...rest } = modal.form;
+        const routingExtra = (instagramRoutingIdsText || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => /^\d+$/.test(s));
         const payload = {
           ...rest,
           accessExpiresAt: accessMode === 'until' ? new Date(accessExpiresAt).toISOString() : null,
+          ...(routingExtra.length > 0 ? { instagramRoutingIds: routingExtra } : { instagramRoutingIds: [] }),
         };
         const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(payload) });
-        if (!r.ok) { alert('Error saving'); return; }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          const msg = typeof err.error === 'string' ? err.error : JSON.stringify(err.error || err);
+          alert(msg || 'Error saving');
+          return;
+        }
         modal.open = false;
         await loadTenants();
       } finally { modal.saving = false; }
