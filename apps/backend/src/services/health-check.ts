@@ -58,17 +58,26 @@ async function checkInstagram(): Promise<HealthCheckItem> {
   }
 
   const username = status.igAccount?.username;
+  let message = username
+    ? `Підключено @${username}`
+    : `Підключено (IG ID: ${status.igAccount?.id ?? meta.igUserId})`;
+  if (status.webhook && !status.webhook.subscribed) {
+    message += ' · webhook не повністю підписано';
+  }
   return {
     id: 'instagram',
     label,
     status: 'ok',
-    message: username
-      ? `Підключено @${username}`
-      : `Підключено (IG ID: ${status.igAccount?.id ?? meta.igUserId})`,
+    message,
     details: {
       igUserId: status.igAccount?.id ?? meta.igUserId,
       igUsername: username ?? meta.igUsername,
+      pageId: status.page?.id ?? meta.pageId,
+      igSource: status.igAccount?.source,
       conversationsSample: status.conversationsCount,
+      webhookSubscribed: status.webhook?.subscribed,
+      webhookFields: status.webhook?.fields,
+      warnings: status.warnings,
     },
   };
 }

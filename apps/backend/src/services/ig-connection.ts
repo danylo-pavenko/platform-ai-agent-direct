@@ -10,7 +10,11 @@
 
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
-import { getIntegrationConfig } from '../lib/integration-config.js';
+import { getIntegrationConfig, type IntegrationMeta } from '../lib/integration-config.js';
+import {
+  getPageWebhookSubscription,
+  subscribePageToMetaWebhooks,
+} from '../lib/meta-page-subscribe.js';
 import { importIgConversationHistory } from './ig-history.js';
 import { fetchIgUserProfile } from './ig-profile.js';
 
@@ -22,18 +26,178 @@ const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 
 export interface IgConnectionStatus {
   connected: boolean;
+  page?: {
+    id: string;
+    name?: string;
+  };
   igAccount?: {
     id: string;
     username?: string;
     name?: string;
     accountType?: string;
+    source?: 'graph_page' | 'graph_ig_node' | 'configured';
+  };
+  webhook?: {
+    subscribed: boolean;
+    fields: string[];
+    autoSubscribed?: boolean;
+    error?: string;
   };
   business?: {
     id: string;
     name: string;
   };
   conversationsCount?: number;
+  warnings?: string[];
   error?: string;
+}
+
+interface ResolvedIgAccount {
+  id: string;
+  username?: string;
+  name?: string;
+  source: NonNullable<IgConnectionStatus['igAccount']>['source'];
+}
+
+async function graphGet<T>(
+  path: string,
+  pageAccessToken: string,
+  fields?: string,
+): Promise<{ ok: boolean; status: number; data?: T; body?: string }> {
+  const url = new URL(`${FB_GRAPH_BASE}/${path}`);
+  if (fields) url.searchParams.set('fields', fields);
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${pageAccessToken}` },
+    signal: AbortSignal.timeout(8_000),
+  });
+  const body = await res.text().catch(() => '');
+  if (!res.ok) {
+    return { ok: false, status: res.status, body: body.slice(0, 300) };
+  }
+  try {
+    return { ok: true, status: res.status, data: JSON.parse(body) as T };
+  } catch {
+    return { ok: false, status: res.status, body: body.slice(0, 300) };
+  }
+}
+
+/**
+ * Resolve IG Business account from Graph and/or values saved in integration_meta
+ * (manual IG ID entry when Page node omits instagram_business_account).
+ */
+async function resolveIgAccountForStatus(
+  meta: IntegrationMeta,
+  pageAccessToken: string,
+): Promise<{
+  pageId?: string;
+  pageName?: string;
+  ig?: ResolvedIgAccount;
+  warnings: string[];
+  tokenError?: string;
+}> {
+  const warnings: string[] = [];
+
+  const me = await graphGet<{
+    id?: string;
+    name?: string;
+    instagram_business_account?: { id?: string; username?: string; name?: string };
+  }>('me', pageAccessToken, 'id,name,instagram_business_account{id,username,name}');
+
+  if (!me.ok) {
+    return {
+      warnings,
+      tokenError: `Page Access Token недійсний (${me.status}): ${me.body ?? 'помилка Graph API'}`,
+    };
+  }
+
+  const pageIdFromMe = me.data?.id;
+  const pageName = me.data?.name;
+  let ig: ResolvedIgAccount | undefined;
+
+  const fromMe = me.data?.instagram_business_account;
+  if (fromMe?.id) {
+    ig = {
+      id: fromMe.id,
+      username: fromMe.username,
+      name: fromMe.name,
+      source: 'graph_page',
+    };
+  }
+
+  const pageId = meta.pageId || pageIdFromMe || '';
+  if (!ig?.id && pageId) {
+    const pageProbe = await graphGet<{
+      id?: string;
+      name?: string;
+      instagram_business_account?: { id?: string; username?: string; name?: string };
+    }>(pageId, pageAccessToken, 'id,name,instagram_business_account{id,username,name}');
+
+    if (pageProbe.ok) {
+      const fromPage = pageProbe.data?.instagram_business_account;
+      if (fromPage?.id) {
+        ig = {
+          id: fromPage.id,
+          username: fromPage.username,
+          name: fromPage.name,
+          source: 'graph_page',
+        };
+      }
+    }
+  }
+
+  if (!ig?.id && meta.igUserId) {
+    const igProbe = await graphGet<{ id?: string; username?: string; name?: string }>(
+      meta.igUserId,
+      pageAccessToken,
+      'id,username,name',
+    );
+
+    if (igProbe.ok && igProbe.data?.id) {
+      ig = {
+        id: igProbe.data.id,
+        username: igProbe.data.username ?? meta.igUsername ?? undefined,
+        name: igProbe.data.name,
+        source: 'graph_ig_node',
+      };
+      warnings.push(
+        'Graph не повернув instagram_business_account на Page — підключення підтверджено за збереженим Instagram User ID.',
+      );
+    } else if (!igProbe.ok) {
+      warnings.push(
+        `Не вдалося перевірити збережений Instagram User ID ${meta.igUserId} (${igProbe.status}).`,
+      );
+    }
+  }
+
+  if (!ig?.id && meta.igUserId && meta.pageAccessToken) {
+    ig = {
+      id: meta.igUserId,
+      username: meta.igUsername || undefined,
+      source: 'configured',
+    };
+    warnings.push(
+      'Instagram User ID взято з налаштувань без прямого підтвердження Graph — перевірте «Діагностика API» або надішліть тестовий DM.',
+    );
+  }
+
+  if (ig?.id && meta.igUserId && ig.id !== meta.igUserId && ig.source === 'graph_page') {
+    warnings.push(
+      `Збережений Instagram User ID (${meta.igUserId}) відрізняється від Graph (${ig.id}). Рекомендуємо зберегти оновлені дані.`,
+    );
+  }
+
+  if (pageId && pageIdFromMe && pageId !== pageIdFromMe) {
+    warnings.push(
+      `Збережений Page ID (${pageId}) відрізняється від токена (${pageIdFromMe}).`,
+    );
+  }
+
+  return {
+    pageId: pageId || pageIdFromMe,
+    pageName,
+    ig,
+    warnings,
+  };
 }
 
 export interface ImportRecentResult {
@@ -55,55 +219,92 @@ export interface ImportRecentResult {
 // ── Connection status ────────────────────────────────────────────────────────
 
 /**
- * Verifies the configured Page Access Token is still valid and returns
- * the connected Instagram Business account info.
- *
- * Calls: GET /me?fields=id,name,instagram_business_account{id,username,name}
+ * Verifies Page Access Token, Instagram account (Graph or saved IDs), webhook
+ * subscription, and optional conversations API access.
  */
 export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
   const { meta } = await getIntegrationConfig();
 
   if (!meta.pageAccessToken) {
-    return { connected: false, error: 'Facebook авторизацію не виконано — натисніть «Авторизуватись через Facebook»' };
+    return {
+      connected: false,
+      error: 'Page Access Token відсутній — OAuth або вставте токен і збережіть Instagram',
+    };
   }
 
   try {
-    const url = new URL(`${FB_GRAPH_BASE}/me`);
-    url.searchParams.set('fields', 'id,name,instagram_business_account{id,username,name}');
+    const resolved = await resolveIgAccountForStatus(meta, meta.pageAccessToken);
+    if (resolved.tokenError) {
+      return { connected: false, error: resolved.tokenError, warnings: resolved.warnings };
+    }
 
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
-      signal: AbortSignal.timeout(8_000),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      log.warn(
-        { status: res.status, body: body.slice(0, 300) },
-        'IG status check failed',
-      );
+    if (!resolved.ig?.id) {
       return {
         connected: false,
-        error: `Facebook API: ${res.status} — ${body.slice(0, 160) || 'помилка'}`,
+        error:
+          'Не вдалося підтвердити Instagram Business акаунт. Вкажіть Instagram User ID вручну або повторіть OAuth.',
+        page: resolved.pageId ? { id: resolved.pageId, name: resolved.pageName } : undefined,
+        warnings: resolved.warnings,
       };
     }
 
-    const data = (await res.json()) as {
-      id?: string;
-      name?: string;
-      instagram_business_account?: { id?: string; username?: string; name?: string };
-      error?: { message?: string };
-    };
+    const pageId = resolved.pageId ?? meta.pageId;
+    const warnings = [...resolved.warnings];
 
-    const igAccount = data.instagram_business_account;
-    if (!igAccount?.id) {
-      return {
-        connected: false,
-        error: 'Facebook Сторінку не підключено до Instagram Business акаунту',
+    let webhook: IgConnectionStatus['webhook'];
+    if (pageId) {
+      let sub = await getPageWebhookSubscription(pageId, meta.pageAccessToken);
+      if (sub.ok && !sub.subscribed) {
+        const fix = await subscribePageToMetaWebhooks(pageId, meta.pageAccessToken);
+        if (fix.ok) {
+          sub = await getPageWebhookSubscription(pageId, meta.pageAccessToken);
+          if (sub.subscribed) {
+            log.info({ pageId }, 'Webhook subscription restored during status check');
+          }
+        } else {
+          warnings.push(
+            `Webhook не підписано на Page (${fix.status ?? 'помилка'}). Callback: /webhooks/instagram`,
+          );
+        }
+      }
+
+      webhook = {
+        subscribed: sub.subscribed,
+        fields: sub.fields,
+        ...(sub.ok && !sub.subscribed && sub.body ? { error: sub.body } : {}),
       };
+
+      if (!sub.ok) {
+        warnings.push(`Не вдалося перевірити webhook підписку (${sub.status ?? 'помилка'})`);
+      } else if (!sub.subscribed) {
+        warnings.push(
+          'Page webhook не має усіх полів (messages, standby, …). Перевірте Meta Dashboard і OAuth.',
+        );
+      }
+    } else {
+      warnings.push('Page ID не задано — webhook і імпорт діалогів можуть не працювати.');
     }
 
-    // Fetch business info to exercise business_management scope.
+    let conversationsCount: number | undefined;
+    if (pageId) {
+      const convUrl = new URL(`${FB_GRAPH_BASE}/${pageId}/conversations`);
+      convUrl.searchParams.set('platform', 'instagram');
+      convUrl.searchParams.set('limit', '5');
+      convUrl.searchParams.set('fields', 'id,updated_time');
+      const convRes = await fetch(convUrl.toString(), {
+        headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
+        signal: AbortSignal.timeout(6_000),
+      });
+      if (convRes.ok) {
+        const convData = (await convRes.json()) as { data?: unknown[] };
+        conversationsCount = convData.data?.length ?? 0;
+      } else if (resolved.ig.source === 'configured') {
+        warnings.push(
+          'API діалогів не відповів — при ручному IG ID це може бути нормально до першого вхідного DM.',
+        );
+      }
+    }
+
     let business: IgConnectionStatus['business'];
     if (meta.userAccessToken) {
       try {
@@ -123,37 +324,20 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       }
     }
 
-    // Fetch recent conversations to exercise instagram_manage_messages scope.
-    let conversationsCount: number | undefined;
-    if (meta.pageId) {
-      try {
-        const convUrl = new URL(`${FB_GRAPH_BASE}/${meta.pageId}/conversations`);
-        convUrl.searchParams.set('platform', 'instagram');
-        convUrl.searchParams.set('limit', '5');
-        convUrl.searchParams.set('fields', 'id,updated_time');
-        const convRes = await fetch(convUrl.toString(), {
-          headers: { Authorization: `Bearer ${meta.pageAccessToken}` },
-          signal: AbortSignal.timeout(6_000),
-        });
-        if (convRes.ok) {
-          const convData = (await convRes.json()) as { data?: unknown[] };
-          conversationsCount = convData.data?.length ?? 0;
-        }
-      } catch {
-        // non-fatal
-      }
-    }
-
     return {
       connected: true,
+      page: pageId ? { id: pageId, name: resolved.pageName } : undefined,
       igAccount: {
-        id: igAccount.id,
-        username: igAccount.username,
-        name: igAccount.name,
+        id: resolved.ig.id,
+        username: resolved.ig.username ?? meta.igUsername ?? undefined,
+        name: resolved.ig.name,
         accountType: 'BUSINESS',
+        source: resolved.ig.source,
       },
+      webhook,
       ...(business && { business }),
       ...(conversationsCount !== undefined && { conversationsCount }),
+      ...(warnings.length > 0 && { warnings }),
     };
   } catch (err) {
     const msg =

@@ -745,12 +745,36 @@
                 label="Page Access Token"
                 variant="outlined"
                 density="compact"
-                hide-details
-                :type="showSecrets.metaPageToken ? 'text' : 'password'"
-                :placeholder="metaPageTokenMasked ? '•••••• (збережено)' : 'Заповниться після OAuth'"
-                :append-inner-icon="showSecrets.metaPageToken ? 'mdi-eye-off' : 'mdi-eye'"
+                :readonly="metaPageTokenMasked && !metaPageTokenReplacing"
+                :type="
+                  metaPageTokenMasked && !metaPageTokenReplacing
+                    ? 'text'
+                    : showSecrets.metaPageToken
+                      ? 'text'
+                      : 'password'
+                "
+                :placeholder="metaPageTokenReplacing ? 'Вставте новий Page Access Token' : 'Заповниться після OAuth'"
+                hint="Після збереження повний токен не повертається з API (як пароль) — лише індикатор «збережено»."
+                persistent-hint
+                :append-inner-icon="
+                  metaPageTokenMasked && !metaPageTokenReplacing
+                    ? undefined
+                    : showSecrets.metaPageToken
+                      ? 'mdi-eye-off'
+                      : 'mdi-eye'
+                "
                 @click:append-inner="showSecrets.metaPageToken = !showSecrets.metaPageToken"
               />
+              <v-btn
+                v-if="metaPageTokenMasked && !metaPageTokenReplacing"
+                size="x-small"
+                variant="text"
+                color="primary"
+                class="px-0 mt-1"
+                @click="startPageTokenReplace"
+              >
+                Вставити новий токен
+              </v-btn>
             </v-col>
             <v-col cols="12">
               <v-btn
@@ -774,11 +798,6 @@
               <span class="text-caption text-medium-emphasis ml-3">
                 Зберігає Page ID, токен і Instagram-поля; підписка webhook оновиться автоматично.
               </span>
-            </v-col>
-            <v-col v-if="metaPageTokenMasked && !integrations.meta.pageAccessToken" cols="12">
-              <v-alert type="success" variant="tonal" density="compact" class="text-caption">
-                Page Access Token збережено на сервері. Залиште поле порожнім, щоб не перезаписувати, або вставте новий токен.
-              </v-alert>
             </v-col>
           </v-row>
 
@@ -844,6 +863,11 @@
             density="compact"
             class="text-body-2"
           >
+            <div v-if="igStatus.page">
+              <strong>Facebook Page:</strong>
+              {{ igStatus.page.name || igStatus.page.id }}
+              <span class="text-medium-emphasis">(ID: {{ igStatus.page.id }})</span>
+            </div>
             <div>
               <strong>Instagram:</strong>
               {{ igStatus.igAccount.name || igStatus.igAccount.username || igStatus.igAccount.id }}
@@ -852,7 +876,39 @@
             <div v-if="igStatus.igAccount.accountType">
               <strong>Тип:</strong> {{ igStatus.igAccount.accountType }}
             </div>
-            <div><strong>User ID:</strong> {{ igStatus.igAccount.id }}</div>
+            <div><strong>Instagram User ID:</strong> {{ igStatus.igAccount.id }}</div>
+            <div v-if="igStatus.webhook">
+              <strong>Webhook:</strong>
+              <v-chip
+                :color="igStatus.webhook.subscribed ? 'success' : 'warning'"
+                size="x-small"
+                class="ml-1"
+              >
+                {{ igStatus.webhook.subscribed ? 'підписано' : 'не повністю підписано' }}
+              </v-chip>
+              <span
+                v-if="igStatus.webhook.fields?.length"
+                class="text-caption text-medium-emphasis ml-1"
+              >
+                ({{ igStatus.webhook.fields.join(', ') }})
+              </span>
+            </div>
+            <div v-if="igStatus.conversationsCount !== undefined">
+              <strong>Діалоги (вибірка API):</strong> {{ igStatus.conversationsCount }}
+            </div>
+          </v-alert>
+
+          <v-alert
+            v-if="igStatus?.connected && igStatus.warnings?.length"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            <div class="font-weight-bold mb-1">Зауваження</div>
+            <ul class="pl-4 mb-0" style="line-height:1.6;">
+              <li v-for="(w, i) in igStatus.warnings" :key="i">{{ w }}</li>
+            </ul>
           </v-alert>
 
           <v-alert
@@ -1380,6 +1436,14 @@ const showMetaManualHelp = ref(false);
 const savingMeta = ref(false);
 const metaSaved = ref(false);
 const metaPageTokenMasked = ref(false);
+const metaPageTokenReplacing = ref(false);
+const META_TOKEN_MASK = '•••••• (збережено на сервері)';
+
+function startPageTokenReplace() {
+  metaPageTokenReplacing.value = true;
+  integrations.value.meta.pageAccessToken = '';
+  showSecrets.metaPageToken = true;
+}
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
 
@@ -1447,12 +1511,21 @@ async function runHealthCheck() {
 
 interface IgStatus {
   connected: boolean;
+  page?: { id: string; name?: string };
   igAccount?: {
     id: string;
     username?: string;
     name?: string;
     accountType?: string;
+    source?: string;
   };
+  webhook?: {
+    subscribed: boolean;
+    fields: string[];
+    error?: string;
+  };
+  conversationsCount?: number;
+  warnings?: string[];
   error?: string;
 }
 
@@ -1749,6 +1822,8 @@ async function saveMetaIntegration() {
     return;
   }
   const tokenDraft = integrations.value.meta.pageAccessToken.trim();
+  const tokenIsMask =
+    tokenDraft === '••••••' || tokenDraft === META_TOKEN_MASK || tokenDraft.startsWith('••••••');
   if (!tokenDraft && !metaPageTokenMasked.value) {
     showOAuthSnackbar('Потрібен Page Access Token — OAuth або вставте токен вручну', 'error');
     return;
@@ -1764,7 +1839,7 @@ async function saveMetaIntegration() {
       igUsername: integrations.value.meta.igUsername.trim().replace(/^@+/, ''),
     };
     const token = integrations.value.meta.pageAccessToken.trim();
-    if (token && token !== '••••••') {
+    if (token && !tokenIsMask) {
       payload.pageAccessToken = token;
     }
 
@@ -1772,6 +1847,7 @@ async function saveMetaIntegration() {
       integration_meta: payload,
     });
     metaSaved.value = true;
+    metaPageTokenReplacing.value = false;
     await fetchIntegrations();
     showOAuthSnackbar('Instagram / Meta збережено', 'success');
   } catch (e: any) {
@@ -1813,6 +1889,7 @@ async function disconnectMeta() {
       igUsername: '',
     };
     metaPageTokenMasked.value = false;
+    metaPageTokenReplacing.value = false;
     igStatus.value = null;
     igImportResult.value = null;
     igDebugResult.value = null;
@@ -2082,9 +2159,10 @@ async function fetchIntegrations() {
     const np = data.integration_novaposhta ?? {};
 
     metaPageTokenMasked.value = m.pageAccessToken === '••••••';
+    metaPageTokenReplacing.value = false;
     integrations.value.meta = {
       pageId:          m.pageId          ?? '',
-      pageAccessToken: metaPageTokenMasked.value ? '' : (m.pageAccessToken ?? ''),
+      pageAccessToken: metaPageTokenMasked.value ? META_TOKEN_MASK : (m.pageAccessToken ?? ''),
       igUserId:        m.igUserId        ?? '',
       igUsername:      m.igUsername      ?? '',
     };
