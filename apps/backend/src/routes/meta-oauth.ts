@@ -1162,32 +1162,39 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
     };
 
     const probes = await Promise.all([
-      // Page info + connected IG account
+      // Page token /me — often returns Page node without nested IG (granular OAuth).
       probe(
         '/me?fields=id,name,instagram_business_account (Bearer)',
-        `${FB_GRAPH_BASE}/me?fields=id,name,instagram_business_account{id,username,name}`,
+        `${FB_GRAPH_BASE}/me?fields=id,name,instagram_business_account{id,username,name,ig_id}`,
       ),
-      // Conversations via pageId
+      // Prefer Page node for IG linkage + ig_id (webhook recipient.id).
+      pageId
+        ? probe(
+            `/${pageId}?fields=instagram_business_account (Bearer)`,
+            `${FB_GRAPH_BASE}/${pageId}?fields=instagram_business_account{id,username,name,ig_id}`,
+          )
+        : Promise.resolve({ label: 'page_instagram', error: 'pageId not set' }),
+      // Conversations — best proof that IG DM API works for this Page token.
       pageId
         ? probe(
             `/${pageId}/conversations?platform=instagram (Bearer)`,
             `${FB_GRAPH_BASE}/${pageId}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
           )
         : Promise.resolve({ label: 'conversations', error: 'pageId not set' }),
-      // Webhook subscriptions
+      // Read webhook subscription — often 403 without pages_manage_metadata (expected).
       pageId
         ? probe(
             `/${pageId}/subscribed_apps (Bearer)`,
             `${FB_GRAPH_BASE}/${pageId}/subscribed_apps`,
           )
         : Promise.resolve({ label: 'subscribed_apps', error: 'pageId not set' }),
-      // IG account details
+      // Direct IG node — frequently 400 with Page token; non-blocking if conversations OK.
       igUserId
         ? probe(
             `/${igUserId}?fields=id,username,name (Bearer)`,
             `${FB_GRAPH_BASE}/${igUserId}?fields=id,username,name`,
           )
-        : Promise.resolve({ label: 'ig_account', error: 'igUserId not set' }),
+        : Promise.resolve({ label: 'ig_account_direct', error: 'igUserId not set' }),
     ]);
 
     // debug_token — shows actual scopes on the page token
@@ -1210,11 +1217,53 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    type ProbeRow = { label?: string; status?: number; body?: unknown; error?: string };
+    const rows = probes as ProbeRow[];
+    const convOk = rows.some((p) => p.label?.includes('conversations') && p.status === 200);
+    const pageIgBody = rows.find((p) => p.label?.includes('page_instagram'))?.body as
+      | { instagram_business_account?: { id?: string; ig_id?: string | number; username?: string } }
+      | undefined;
+    const pageIg = pageIgBody?.instagram_business_account;
+    const subProbe = rows.find((p) => p.label?.includes('subscribed_apps'));
+    const sub403 =
+      subProbe?.status === 403 &&
+      JSON.stringify(subProbe.body ?? '').includes('pages_manage_metadata');
+
+    const notes: string[] = [];
+    if (convOk) {
+      notes.push(
+        'IG DM API працює (conversations 200) — зовнішні клієнти можуть писати в DM без реєстрації в нашій БД.',
+      );
+    }
+    if (pageIg?.id) {
+      notes.push(
+        `Instagram з Page node: id=${pageIg.id}` +
+          (pageIg.ig_id != null ? `, ig_id=${pageIg.ig_id} (часто recipient.id у webhook)` : '') +
+          (pageIg.username ? `, @${pageIg.username}` : ''),
+      );
+    } else if (igUserId && convOk) {
+      notes.push(
+        'Graph не повернув instagram_business_account на Page — використовуйте збережений IG User ID; перевірте hub routing (ig_id).',
+      );
+    }
+    if (sub403) {
+      notes.push(
+        'subscribed_apps 403 — очікувано без pages_manage_metadata; підписка webhook при OAuth може працювати, але перевірка статусу в UI обмежена.',
+      );
+    }
+    const igDirect = rows.find((p) => p.label === 'ig_account_direct');
+    if (igDirect?.status === 400 && convOk) {
+      notes.push(
+        'Прямий GET /{ig-user-id} 400 з Page token — не критично; орієнтуйтесь на conversations і Page node.',
+      );
+    }
+
     return {
       pageId,
       igUserId,
       igUsername: meta.igUsername,
-      apiVersion: 'v22.0 (graph.facebook.com)',
+      apiVersion: 'v25.0 (graph.facebook.com)',
+      summary: { okForDm: convOk, notes },
       tokenDebug,
       probes,
     };
