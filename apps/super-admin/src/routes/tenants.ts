@@ -9,6 +9,9 @@ import { normalizeInstagramRoutingIds } from '../lib/tenant-webhook-routing.js';
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
 
+/** Platform monorepo — same for all tenants unless overridden in Server setup. */
+export const DEFAULT_TENANT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
+
 const tenantSchema = z.object({
   instanceId: z.string().min(1).max(10).regex(/^[a-z0-9]+$/),
   name: z.string().min(1),
@@ -19,7 +22,7 @@ const tenantSchema = z.object({
   linuxUser: z.string().min(1),
   appDir: z.string().min(1),
   status: z.enum(['provisioned', 'active', 'suspended']).default('provisioned'),
-  gitRepo: z.string().min(1).optional(),
+  gitRepo: z.union([z.literal(''), z.string().min(1)]).optional(),
   envExtra: z.string().optional(),
   // Instagram / Meta webhook routing
   instagramUserId: z.union([z.literal(''), z.string().regex(/^\d+$/)]).optional(),
@@ -80,6 +83,9 @@ function prepareTenantWriteData(
 
   if (data.facebookAppSecret === '') delete data.facebookAppSecret;
 
+  // Empty gitRepo on edit = leave unchanged; create path fills DEFAULT_TENANT_GIT_REPO below.
+  if (data.gitRepo === '') delete data.gitRepo;
+
   if (data.instagramRoutingIds !== undefined) {
     const primary = typeof data.instagramUserId === 'string' ? data.instagramUserId : '';
     data.instagramRoutingIds = normalizeInstagramRoutingIds(
@@ -119,8 +125,11 @@ export async function tenantsRoutes(app: FastifyInstance) {
     }
 
     try {
+      const prepared = prepareTenantWriteData(body.data) as Record<string, unknown>;
+      if (!prepared.gitRepo) prepared.gitRepo = DEFAULT_TENANT_GIT_REPO;
+
       const tenant = await prisma.tenant.create({
-        data: prepareTenantWriteData(body.data) as Parameters<typeof prisma.tenant.create>[0]['data'],
+        data: prepared as Parameters<typeof prisma.tenant.create>[0]['data'],
       });
       return reply.status(201).send(tenant);
     } catch (err) {
@@ -269,7 +278,8 @@ export async function tenantsRoutes(app: FastifyInstance) {
         return;
       }
 
-      if (!tenant.gitRepo) {
+      const gitRepo = tenant.gitRepo || DEFAULT_TENANT_GIT_REPO;
+      if (!gitRepo) {
         send('[error] Git repo URL not configured. Edit the client and set Git Repo.');
         send('[✗ provision failed]');
         reply.raw.end();
@@ -299,7 +309,7 @@ set -euo pipefail
 
 TENANT_USER='${tenant.linuxUser}'
 APP_DIR='${tenant.appDir}'
-GIT_REPO='${tenant.gitRepo}'
+GIT_REPO='${gitRepo}'
 # Current user home (agentsadmin)
 CURRENT_HOME=$(eval echo "~$(whoami)")
 TENANT_HOME=$(eval echo "~$TENANT_USER")

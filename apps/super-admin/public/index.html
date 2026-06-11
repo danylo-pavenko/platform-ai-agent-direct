@@ -631,7 +631,7 @@
         </div>
         <div class="field">
           <label>Git Repo URL <span style="color:var(--muted);font-weight:400">(for first deploy / clone)</span></label>
-          <input v-model="modal.form.gitRepo" placeholder="git@github.com:org/platform-ai-agent-direct.git" />
+          <input v-model="modal.form.gitRepo" :placeholder="DEFAULT_GIT_REPO" />
         </div>
       </div>
 
@@ -724,8 +724,10 @@ createApp({
       form: emptyForm(),
     });
 
+    const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
+
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo: DEFAULT_GIT_REPO, envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
     }
 
     // ISO string → value for <input type="datetime-local"> (local time)
@@ -822,7 +824,7 @@ createApp({
         linuxUser: t.linuxUser,
         appDir: t.appDir,
         status: t.status,
-        gitRepo: t.gitRepo || '',
+        gitRepo: t.gitRepo || DEFAULT_GIT_REPO,
         envExtra: t.envExtra || '',
         instagramUserId: t.instagramUserId || '',
         instagramRoutingIdsText: Array.isArray(t.instagramRoutingIds)
@@ -1002,7 +1004,7 @@ createApp({
 
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
-      chat, chatMessages, modal, claudeHealth,
+      chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
     };
