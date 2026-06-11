@@ -61,6 +61,55 @@ function getApiBaseUrl(): string {
   return `https://${config.API_DOMAIN}`;
 }
 
+interface MetaPageRow {
+  id: string;
+  name: string;
+  access_token?: string;
+  instagram_business_account?: { id: string; username?: string; name?: string };
+}
+
+/** Safe page list for logs — never includes access_token. */
+function summarizePagesList(pages: MetaPageRow[]) {
+  return pages.map((p) => ({
+    pageId: p.id,
+    pageName: p.name,
+    hasInstagram: Boolean(p.instagram_business_account?.id),
+    igUserId: p.instagram_business_account?.id ?? null,
+    igUsername: p.instagram_business_account?.username ?? null,
+  }));
+}
+
+/** Graph debug_token — scopes / validity (no secret values). */
+async function debugFacebookToken(
+  inputToken: string,
+  appId: string,
+  appSecret: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const debugUrl = new URL(`${FB_GRAPH_BASE}/debug_token`);
+    debugUrl.searchParams.set('input_token', inputToken);
+    debugUrl.searchParams.set('access_token', `${appId}|${appSecret}`);
+    const res = await fetch(debugUrl.toString(), { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) {
+      return { httpStatus: res.status };
+    }
+    const json = (await res.json()) as { data?: Record<string, unknown> };
+    const d = json.data ?? {};
+    return {
+      isValid: d.is_valid,
+      type: d.type,
+      appId: d.app_id,
+      userId: d.user_id,
+      expiresAt: d.expires_at,
+      scopes: d.scopes,
+      granularScopes: d.granular_scopes,
+      error: d.error,
+    };
+  } catch (err) {
+    return { probeError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 function buildPopupHtml(message: Record<string, unknown>): string {
   const json = JSON.stringify(message);
   return `<!DOCTYPE html>
@@ -189,6 +238,13 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const userAccessToken = tokenData.access_token;
+      app.log.info(
+        {
+          expiresIn: tokenData.expires_in ?? null,
+          tokenType: tokenData.token_type ?? null,
+        },
+        'Facebook OAuth: user access token obtained',
+      );
 
       // Step 2 — get Pages the user manages, with their Instagram Business Accounts.
       // We need both the Page Access Token and the connected IG account ID.
@@ -203,24 +259,56 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         signal: AbortSignal.timeout(10_000),
       });
       const pagesData = (await pagesRes.json()) as {
-        data?: Array<{
-          id: string;
-          name: string;
-          access_token: string;
-          instagram_business_account?: { id: string; username?: string; name?: string };
-        }>;
-        error?: { message?: string };
+        data?: MetaPageRow[];
+        paging?: { next?: string };
+        error?: { message?: string; type?: string; code?: number };
       };
 
       if (!pagesRes.ok || !pagesData.data) {
+        app.log.warn(
+          {
+            httpStatus: pagesRes.status,
+            graphError: pagesData.error?.message,
+            graphErrorType: pagesData.error?.type,
+            graphErrorCode: pagesData.error?.code,
+          },
+          'Facebook OAuth: /me/accounts request failed',
+        );
         throw new Error(
           pagesData.error?.message ?? `Failed to fetch pages: ${pagesRes.status}`,
         );
       }
 
+      const pagesSummary = summarizePagesList(pagesData.data);
+      app.log.debug(
+        {
+          pageCount: pagesData.data.length,
+          pagesWithInstagram: pagesSummary.filter((p) => p.hasInstagram).length,
+          pages: pagesSummary,
+          hasPagingNext: Boolean(pagesData.paging?.next),
+        },
+        'Facebook OAuth: /me/accounts response',
+      );
+
       // Pick the first page that has a connected Instagram Business Account
       const pageWithIg = pagesData.data.find((p) => p.instagram_business_account?.id);
       if (!pageWithIg) {
+        const tokenDebug = await debugFacebookToken(
+          userAccessToken,
+          meta.facebookAppId,
+          meta.facebookAppSecret,
+        );
+        app.log.warn(
+          {
+            pageCount: pagesData.data.length,
+            pagesWithInstagram: 0,
+            pages: pagesSummary,
+            hasPagingNext: Boolean(pagesData.paging?.next),
+            requestedScopes: FB_SCOPES,
+            tokenDebug,
+          },
+          'Facebook OAuth: no Page with linked Instagram Business account',
+        );
         throw new Error(
           'Не знайдено Facebook Сторінку з підключеним Instagram Business акаунтом. ' +
           'Переконайтесь що сторінка підключена до Instagram Business у Business Manager.',

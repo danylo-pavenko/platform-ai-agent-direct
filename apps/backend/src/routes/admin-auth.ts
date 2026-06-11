@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma.js';
+import { checkPlatformAccess } from '../lib/platform-access.js';
+import { platformAccessError } from '../lib/auth.js';
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   // POST /auth/login
@@ -21,6 +23,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: 'Invalid credentials' });
+    }
+
+    // Platform-level access (subscription / manual block by super-admin).
+    // Checked after credentials so we don't leak access status to strangers.
+    const access = await checkPlatformAccess();
+    if (!access.allowed) {
+      return reply.code(403).send(platformAccessError(access));
     }
 
     const token = app.jwt.sign({

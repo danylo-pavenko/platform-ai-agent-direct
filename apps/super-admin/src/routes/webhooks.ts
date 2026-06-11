@@ -148,11 +148,18 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
     }
 
-    if (candidateIds.size === 0) return;
+    if (candidateIds.size === 0) {
+      app.log.warn(
+        { summary: summarizeHubIgWebhook(body) },
+        'Webhook hub: no routing candidate ids in payload',
+      );
+      return;
+    }
 
     // Find all active tenants matching any candidate ID. Deduplicate by tenant
     // so we forward the payload exactly once per tenant even if multiple IDs match.
     const seenTenants = new Set<string>();
+    let forwardedCount = 0;
 
     for (const pageId of candidateIds) {
       const tenant = await prisma.tenant.findFirst({
@@ -198,22 +205,50 @@ export async function webhookRoutes(app: FastifyInstance) {
           signal: AbortSignal.timeout(10_000),
         });
 
-        app.log.debug(
-          {
-            pageId,
-            tenantId: tenant.id,
-            instanceId: tenant.instanceId,
-            port: tenant.apiPort,
-            status: res.status,
-          },
-          'Webhook hub: event forwarded to tenant',
-        );
+        if (res.ok) {
+          forwardedCount++;
+          app.log.info(
+            {
+              pageId,
+              tenantId: tenant.id,
+              instanceId: tenant.instanceId,
+              port: tenant.apiPort,
+              status: res.status,
+            },
+            'Webhook hub: event forwarded to tenant',
+          );
+        } else {
+          const bodyText = await res.text().catch(() => '');
+          app.log.warn(
+            {
+              pageId,
+              tenantId: tenant.id,
+              instanceId: tenant.instanceId,
+              port: tenant.apiPort,
+              status: res.status,
+              body: bodyText.slice(0, 200),
+            },
+            'Webhook hub: tenant returned non-OK status',
+          );
+        }
       } catch (err) {
         app.log.error(
           { err, pageId, tenantId: tenant.id, port: tenant.apiPort },
           'Webhook hub: failed to forward event to tenant',
         );
       }
+    }
+
+    if (forwardedCount === 0) {
+      app.log.warn(
+        {
+          candidateIds: [...candidateIds].slice(0, 12),
+          candidateCount: candidateIds.size,
+          matchedTenantCount: seenTenants.size,
+          summary: summarizeHubIgWebhook(body),
+        },
+        'Webhook hub: event not delivered to any tenant',
+      );
     }
   });
 }

@@ -34,6 +34,17 @@
           />
         </div>
 
+        <v-alert
+          v-if="accessBlocked"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-4"
+          icon="mdi-credit-card-off-outline"
+        >
+          {{ accessBlockedMessage }}
+        </v-alert>
+
         <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-4">
           {{ error }}
         </v-alert>
@@ -57,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 
 const authStore = useAuthStore();
@@ -67,13 +78,50 @@ const loading = ref(false);
 const error = ref('');
 const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent Platform';
 
+// Set when the user was kicked out mid-session because platform access
+// was revoked (subscription expired / blocked by the platform admin).
+const accessBlocked = ref<{ code: string; accessExpiresAt: string | null } | null>(
+  readAccessBlock(),
+);
+
+function readAccessBlock() {
+  try {
+    const raw = localStorage.getItem('access_block');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+const accessBlockedMessage = computed(() => accessMessage(accessBlocked.value));
+
+function accessMessage(block: { code: string; accessExpiresAt?: string | null } | null): string {
+  if (!block) return '';
+  if (block.code === 'ACCESS_SUSPENDED') {
+    return 'Доступ до панелі заблоковано адміністратором платформи. Зверніться до адміністратора платформи.';
+  }
+  const until = block.accessExpiresAt
+    ? ` (діяв до ${new Date(block.accessExpiresAt).toLocaleDateString('uk')})`
+    : '';
+  return `Термін доступу до панелі завершився${until}. Схоже, є проблема з оплатою — зверніться до адміністратора платформи, щоб продовжити доступ.`;
+}
+
 async function handleLogin() {
   error.value = '';
   loading.value = true;
   try {
     await authStore.login(username.value, password.value);
-  } catch {
-    error.value = 'Невірний логін або пароль';
+    // Successful login = access restored; clear the stale banner.
+    localStorage.removeItem('access_block');
+    accessBlocked.value = null;
+  } catch (e: any) {
+    const data = e?.response?.data;
+    if (data?.code === 'ACCESS_EXPIRED' || data?.code === 'ACCESS_SUSPENDED') {
+      accessBlocked.value = { code: data.code, accessExpiresAt: data.accessExpiresAt ?? null };
+      localStorage.setItem('access_block', JSON.stringify(accessBlocked.value));
+    } else {
+      error.value = 'Невірний логін або пароль';
+    }
   } finally {
     loading.value = false;
   }

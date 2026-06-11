@@ -23,7 +23,24 @@ const tenantSchema = z.object({
   // Instagram / Meta webhook routing
   instagramUserId: z.string().optional(),
   facebookAppSecret: z.string().optional(),
+  // Admin-panel access: null = unlimited (default), ISO datetime = until then.
+  // z.null() must come first — z.coerce.date() would coerce null to 1970.
+  accessExpiresAt: z
+    .union([z.null(), z.coerce.date()])
+    .optional(),
 });
+
+// Single source of truth for the access decision, reused by the
+// access endpoint and (later) by payment automation.
+function resolveAccess(tenant: { status: string; accessExpiresAt: Date | null }) {
+  if (tenant.status === 'suspended') {
+    return { allowed: false, reason: 'suspended' as const };
+  }
+  if (tenant.accessExpiresAt && tenant.accessExpiresAt.getTime() <= Date.now()) {
+    return { allowed: false, reason: 'expired' as const };
+  }
+  return { allowed: true, reason: null };
+}
 
 export async function tenantsRoutes(app: FastifyInstance) {
   const auth = { onRequest: [app.authenticate] };
@@ -372,6 +389,35 @@ echo "[provision] ✓ Initial setup complete"
 
     return { ok: true };
   });
+
+  // Access check for tenant admin panels.
+  // Called by tenant backends (login + authenticated requests, cached) to learn
+  // whether their admin panel is still allowed to operate. Auth via the same
+  // shared secret used for the other by-instance endpoints.
+  // null accessExpiresAt = unlimited access. status 'suspended' = hard block.
+  app.get<{ Params: { instanceId: string } }>(
+    '/api/tenants/by-instance/:instanceId/access',
+    async (req, reply) => {
+      const token = req.headers['x-supervisor-token'];
+      if (!config.SUPERVISOR_SHARED_SECRET || token !== config.SUPERVISOR_SHARED_SECRET) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { instanceId: req.params.instanceId },
+        select: { status: true, accessExpiresAt: true },
+      });
+      if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+
+      const access = resolveAccess(tenant);
+      return {
+        allowed: access.allowed,
+        reason: access.reason,
+        status: tenant.status,
+        accessExpiresAt: tenant.accessExpiresAt?.toISOString() ?? null,
+      };
+    },
+  );
 
   // Proxy Claude CLI health probe to tenant backend.
   // Returns { ok, path, version, error } — lets super-admin see whether

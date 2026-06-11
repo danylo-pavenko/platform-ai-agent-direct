@@ -28,6 +28,12 @@ model Tenant {
   //   Auto-populated on OAuth success; can also be set manually by super-admin.
   instagramUserId   String?  @unique @map("instagram_user_id")
   facebookAppSecret String?  @map("facebook_app_secret")
+  // Admin-panel access control (subscription-ready).
+  // null = unlimited (perpetual) access — the default for every tenant.
+  // A timestamp = access allowed until that moment; afterwards the tenant's
+  // admin panel rejects logins/requests with a "payment required" message.
+  // Manual blocking is done via status = 'suspended' (wins over any date).
+  accessExpiresAt   DateTime? @map("access_expires_at")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 

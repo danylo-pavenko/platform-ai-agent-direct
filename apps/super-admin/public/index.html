@@ -368,13 +368,14 @@
                   <th>Client</th>
                   <th>API Domain</th>
                   <th>Status</th>
+                  <th>Access</th>
                   <th>Health</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="tenants.length===0" class="empty-row">
-                  <td colspan="5">No clients yet. Add your first client.</td>
+                  <td colspan="6">No clients yet. Add your first client.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
                   <td class="cell-primary">
@@ -383,6 +384,7 @@
                   </td>
                   <td data-label="API Domain" style="color:var(--muted);font-size:12px;word-break:break-all">{{ t.apiDomain }}</td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
                   <td data-label="Health">
                     <span>
                       <span class="online-dot" :class="{online: health[t.id]}"></span>
@@ -423,12 +425,12 @@
               <thead>
                 <tr>
                   <th>Client</th><th>API Domain</th><th>Admin Domain</th>
-                  <th>Ports</th><th>Status</th><th>Actions</th>
+                  <th>Ports</th><th>Status</th><th>Access</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="tenants.length===0" class="empty-row">
-                  <td colspan="6">No clients yet.</td>
+                  <td colspan="7">No clients yet.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
                   <td class="cell-primary">
@@ -439,6 +441,7 @@
                   <td data-label="Admin Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.adminDomain }}</td>
                   <td data-label="Ports" style="font-size:12px;color:var(--muted)">:{{ t.apiPort }} / :{{ t.adminPort }}</td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
                   <td data-label="Actions">
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот">🩺 Chat</button>
@@ -542,12 +545,30 @@
         </div>
       </div>
       <div class="field">
-        <label>Status</label>
+        <label>Status <span style="color:var(--muted);font-weight:400">— suspended = повне блокування доступу до адмінки</span></label>
         <select v-model="modal.form.status">
           <option value="provisioned">Provisioned</option>
           <option value="active">Active</option>
-          <option value="suspended">Suspended</option>
+          <option value="suspended">Suspended (заблоковано)</option>
         </select>
+      </div>
+
+      <!-- Admin panel access (subscription) -->
+      <div class="form-row">
+        <div class="field">
+          <label>Доступ до адмінки</label>
+          <select v-model="modal.form.accessMode">
+            <option value="unlimited">∞ Вічний (без обмежень)</option>
+            <option value="until">До дати (підписка)</option>
+          </select>
+        </div>
+        <div class="field" v-if="modal.form.accessMode==='until'">
+          <label>Доступ діє до *</label>
+          <input v-model="modal.form.accessExpiresAt" type="datetime-local" />
+        </div>
+      </div>
+      <div v-if="modal.form.accessMode==='until'" style="font-size:11px;color:var(--muted);margin:-8px 0 14px">
+        Після цієї дати тенант не зможе увійти в свою адмін-панель, доки дату не продовжать (вручну або через оплату).
       </div>
 
       <!-- Env vars -->
@@ -689,7 +710,28 @@ createApp({
     });
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', facebookAppSecret:'' };
+      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo:'', envExtra:'', instagramUserId:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
+    }
+
+    // ISO string → value for <input type="datetime-local"> (local time)
+    function isoToLocalInput(iso) {
+      const d = new Date(iso);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function accessLabel(t) {
+      if (t.status === 'suspended') return 'Blocked';
+      if (!t.accessExpiresAt) return '∞ Unlimited';
+      const d = new Date(t.accessExpiresAt);
+      if (d.getTime() <= Date.now()) return 'Expired ' + d.toLocaleDateString('uk');
+      return 'until ' + d.toLocaleDateString('uk');
+    }
+
+    function accessClass(t) {
+      if (t.status === 'suspended') return 'badge-suspended';
+      if (!t.accessExpiresAt) return 'badge-active';
+      return new Date(t.accessExpiresAt).getTime() <= Date.now() ? 'badge-suspended' : 'badge-provisioned';
     }
 
     function headers() {
@@ -767,17 +809,28 @@ createApp({
         envExtra: t.envExtra || '',
         instagramUserId: t.instagramUserId || '',
         facebookAppSecret: t.facebookAppSecret || '',
+        accessMode: t.accessExpiresAt ? 'until' : 'unlimited',
+        accessExpiresAt: t.accessExpiresAt ? isoToLocalInput(t.accessExpiresAt) : '',
       };
       modal.advancedOpen = false;
       modal.open = true;
     }
 
     async function saveTenant() {
+      if (modal.form.accessMode === 'until' && !modal.form.accessExpiresAt) {
+        alert('Вкажіть дату, до якої діє доступ, або оберіть "Вічний".');
+        return;
+      }
       modal.saving = true;
       try {
         const url = modal.editing ? `${BASE}/tenants/${modal.editing}` : `${BASE}/tenants`;
         const method = modal.editing ? 'PUT' : 'POST';
-        const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(modal.form) });
+        const { accessMode, accessExpiresAt, ...rest } = modal.form;
+        const payload = {
+          ...rest,
+          accessExpiresAt: accessMode === 'until' ? new Date(accessExpiresAt).toISOString() : null,
+        };
+        const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(payload) });
         if (!r.ok) { alert('Error saving'); return; }
         modal.open = false;
         await loadTenants();
@@ -921,7 +974,7 @@ createApp({
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
-      triggerDeploy, openChat, sendChat, checkClaudeHealth,
+      triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
     };
   }
 }).mount('#app');

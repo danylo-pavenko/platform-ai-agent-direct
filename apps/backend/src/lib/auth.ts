@@ -1,6 +1,24 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 import { prisma } from './prisma.js';
+import { checkPlatformAccess, type PlatformAccess } from './platform-access.js';
+
+/**
+ * Standard 403 payload for blocked/expired platform access.
+ * code is machine-readable for the admin SPA; error is a human fallback.
+ */
+export function platformAccessError(access: PlatformAccess) {
+  return access.reason === 'suspended'
+    ? {
+        error: 'Доступ до панелі заблоковано адміністратором платформи.',
+        code: 'ACCESS_SUSPENDED' as const,
+      }
+    : {
+        error: 'Термін доступу до панелі завершився. Зверніться до адміністратора платформи щодо оплати.',
+        code: 'ACCESS_EXPIRED' as const,
+        accessExpiresAt: access.accessExpiresAt,
+      };
+}
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -28,6 +46,13 @@ async function auth(app: FastifyInstance) {
         };
       } catch {
         return reply.code(401).send({ error: 'Unauthorized' });
+      }
+
+      // Platform-level access (subscription expiry / super-admin block).
+      // Cached for 60s in platform-access.ts, so this adds no per-request hub call.
+      const access = await checkPlatformAccess();
+      if (!access.allowed) {
+        return reply.code(403).send(platformAccessError(access));
       }
     },
   );
