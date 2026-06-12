@@ -44,7 +44,7 @@ interface SuggestedDiff {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildMetaAgentSystemPrompt(
+export function buildMetaAgentSystemPrompt(
   currentPromptContent: string,
   conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
 ): string {
@@ -181,7 +181,7 @@ function parseDiff(text: string): SuggestedDiff | null {
  * Returns an array (may be empty if no blocks found).
  * Each block has its own before/after/summary.
  */
-function parseAllDiffs(text: string): SuggestedDiff[] {
+export function parseAllDiffs(text: string): SuggestedDiff[] {
   const buloMarker = '--- БУЛО ---';
   const staloMarker = '--- СТАЛО ---';
   const results: SuggestedDiff[] = [];

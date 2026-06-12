@@ -15,12 +15,50 @@
       <v-btn
         variant="tonal"
         size="small"
-        icon="mdi-delete-outline"
-        class="flex-shrink-0"
-        :disabled="messages.length === 0"
-        aria-label="Очистити розмову"
-        @click="clearDialogOpen = true"
+        prepend-icon="mdi-plus-circle-outline"
+        class="flex-shrink-0 d-none d-sm-flex"
+        @click="newSessionDialogOpen = true"
+      >
+        Нова сесія
+      </v-btn>
+      <v-btn
+        variant="tonal"
+        size="small"
+        icon="mdi-plus-circle-outline"
+        class="flex-shrink-0 d-sm-none"
+        aria-label="Нова сесія"
+        @click="newSessionDialogOpen = true"
       />
+    </div>
+
+    <!-- Session info -->
+    <div v-if="sessionLoaded" class="px-1 mb-2 flex-shrink-0">
+      <div class="d-flex align-center ga-2 flex-wrap text-caption text-grey">
+        <v-chip size="x-small" variant="tonal" color="primary">
+          {{ sessionTitle || 'Поточна сесія' }}
+        </v-chip>
+        <span>{{ exchangeCount }}/{{ contextLimit }} запитів</span>
+        <span v-if="messageCount > 0" class="text-grey-lighten-1">· {{ messageCount }} повід.</span>
+      </div>
+      <v-alert
+        v-if="contextNearFull && !contextFull"
+        type="warning"
+        variant="tonal"
+        density="compact"
+        class="mt-2 text-body-2"
+      >
+        Контекст сесії майже заповнений. Рекомендуємо
+        <a href="#" class="text-warning" @click.prevent="newSessionDialogOpen = true">почати нову сесію</a>.
+      </v-alert>
+      <v-alert
+        v-if="contextFull"
+        type="error"
+        variant="tonal"
+        density="compact"
+        class="mt-2 text-body-2"
+      >
+        Досягнуто ліміт {{ contextLimit }} запитів у сесії. Почніть нову сесію, щоб продовжити.
+      </v-alert>
     </div>
 
     <!-- Main content -->
@@ -37,9 +75,13 @@
           class="flex-grow-1 overflow-y-auto pa-3 pa-md-4"
           style="min-height: 0;"
         >
+          <div v-if="sessionLoading" class="d-flex justify-center align-center pa-6" style="height: 100%;">
+            <v-progress-circular indeterminate color="primary" size="32" />
+          </div>
+
           <!-- Empty state -->
           <div
-            v-if="messages.length === 0 && !loading"
+            v-else-if="messages.length === 0 && !loading"
             class="d-flex flex-column align-center justify-center text-center"
             style="height: 100%;"
           >
@@ -114,7 +156,7 @@
               max-rows="4"
               auto-grow
               hide-details
-              :disabled="loading"
+              :disabled="loading || contextFull || sessionLoading"
               @keydown.enter.exact.prevent="sendMessage"
               @keydown.shift.enter.stop
             />
@@ -123,7 +165,7 @@
               icon="mdi-send"
               class="agent-send-btn"
               :loading="loading"
-              :disabled="!inputText.trim()"
+              :disabled="!inputText.trim() || contextFull || sessionLoading"
               aria-label="Надіслати"
               @click="sendMessage"
             />
@@ -196,17 +238,36 @@
       </v-card>
     </v-bottom-sheet>
 
-    <!-- Clear chat confirmation -->
-    <v-dialog v-model="clearDialogOpen" max-width="400" class="dialog-actions-stack">
+    <!-- New session confirmation -->
+    <v-dialog v-model="newSessionDialogOpen" max-width="440" class="dialog-actions-stack">
       <v-card>
-        <v-card-title class="text-subtitle-1">Очистити розмову?</v-card-title>
+        <v-card-title class="text-subtitle-1">Почати нову сесію?</v-card-title>
         <v-card-text class="text-body-2">
-          Історія чату та незастосовані пропозиції змін будуть видалені. Цю дію не можна скасувати.
+          Поточна сесія буде збережена в історії. Ви почнете з чистого контексту — це рекомендовано,
+          коли діалог стає довгим і мета-агенту важче враховувати всі попередні повідомлення.
         </v-card-text>
         <v-card-actions class="dialog-actions-stack">
           <v-spacer class="d-none d-sm-flex" />
-          <v-btn variant="text" @click="clearDialogOpen = false">Скасувати</v-btn>
-          <v-btn color="error" variant="flat" @click="confirmClearChat">Очистити</v-btn>
+          <v-btn variant="text" @click="newSessionDialogOpen = false">Скасувати</v-btn>
+          <v-btn color="primary" variant="flat" :loading="startingNewSession" @click="confirmNewSession">
+            Нова сесія
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Context full — must start new session -->
+    <v-dialog v-model="contextFullDialogOpen" max-width="440" persistent class="dialog-actions-stack">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Контекст сесії заповнений</v-card-title>
+        <v-card-text class="text-body-2">
+          У цій сесії вже {{ contextLimit }} запитів до мета-агента. Щоб продовжити навчання,
+          почніть нову сесію — попередня залишиться збереженою в базі.
+        </v-card-text>
+        <v-card-actions class="dialog-actions-stack">
+          <v-btn color="primary" variant="flat" :loading="startingNewSession" @click="confirmNewSession">
+            Почати нову сесію
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -262,6 +323,18 @@ interface ChatMessage {
   content: string;
 }
 
+interface TeachSessionState {
+  id: string;
+  title: string | null;
+  messageCount: number;
+  exchangeCount: number;
+  contextLimit: number;
+  contextWarnAt: number;
+  contextFull: boolean;
+  contextNearFull: boolean;
+  messages: ChatMessage[];
+}
+
 interface SuggestedDiff {
   before: string;
   after: string;
@@ -275,6 +348,16 @@ interface AppliedResult {
 }
 
 const messages = ref<ChatMessage[]>([]);
+const sessionId = ref<string | null>(null);
+const sessionTitle = ref<string | null>(null);
+const messageCount = ref(0);
+const exchangeCount = ref(0);
+const contextLimit = ref(15);
+const contextNearFull = ref(false);
+const contextFull = ref(false);
+const sessionLoaded = ref(false);
+const sessionLoading = ref(true);
+const startingNewSession = ref(false);
 const inputText = ref('');
 const loading = ref(false);
 const currentDiffs = ref<SuggestedDiff[]>([]);
@@ -288,7 +371,8 @@ const activeBasePromptId = ref<string | null>(null);
 const activeBaseVersion = ref<number | null>(null);
 
 const confirmActivate = ref<{ diffIdx: number } | null>(null);
-const clearDialogOpen = ref(false);
+const newSessionDialogOpen = ref(false);
+const contextFullDialogOpen = ref(false);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -326,6 +410,54 @@ async function scrollToBottom() {
   }
 }
 
+function applySessionState(session: TeachSessionState) {
+  sessionId.value = session.id;
+  sessionTitle.value = session.title;
+  messageCount.value = session.messageCount;
+  exchangeCount.value = session.exchangeCount;
+  contextLimit.value = session.contextLimit;
+  contextNearFull.value = session.contextNearFull;
+  contextFull.value = session.contextFull;
+  messages.value = session.messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+}
+
+async function loadSession() {
+  sessionLoading.value = true;
+  try {
+    const { data } = await api.get('/meta-agent/teach/session');
+    applySessionState(data.session);
+    sessionLoaded.value = true;
+    await scrollToBottom();
+  } catch (e: any) {
+    showSnackbar(e.response?.data?.error || 'Не вдалося завантажити сесію', 'error');
+  } finally {
+    sessionLoading.value = false;
+  }
+}
+
+async function confirmNewSession() {
+  startingNewSession.value = true;
+  try {
+    const { data } = await api.post('/meta-agent/teach/session/new');
+    applySessionState(data.session);
+    currentDiffs.value = [];
+    appliedResults.value = new Map();
+    inputText.value = '';
+    diffSheetOpen.value = false;
+    newSessionDialogOpen.value = false;
+    contextFullDialogOpen.value = false;
+    showSnackbar('Нову сесію розпочато');
+    await scrollToBottom();
+  } catch (e: any) {
+    showSnackbar(e.response?.data?.error || 'Не вдалося створити сесію', 'error');
+  } finally {
+    startingNewSession.value = false;
+  }
+}
+
 async function loadActiveBase() {
   try {
     const { data } = await api.get('/prompts');
@@ -346,9 +478,15 @@ async function loadActiveBase() {
 
 async function sendMessage() {
   const text = inputText.value.trim();
-  if (!text || loading.value) return;
+  if (!text || loading.value || sessionLoading.value) return;
 
-  messages.value.push({ role: 'user', content: text });
+  if (contextFull.value) {
+    contextFullDialogOpen.value = true;
+    return;
+  }
+
+  const optimisticUser: ChatMessage = { role: 'user', content: text };
+  messages.value.push(optimisticUser);
   inputText.value = '';
   loading.value = true;
   currentDiffs.value = [];
@@ -359,12 +497,15 @@ async function sendMessage() {
   await loadActiveBase();
 
   try {
-    const { data } = await api.post('/meta-agent/chat', {
+    const { data } = await api.post('/meta-agent/teach/chat', {
       message: text,
-      history: messages.value.slice(0, -1),
     });
 
-    messages.value.push({ role: 'assistant', content: data.reply });
+    if (data.session) {
+      applySessionState(data.session);
+    } else {
+      messages.value.push({ role: 'assistant', content: data.reply });
+    }
 
     if (data.suggestedDiffs && data.suggestedDiffs.length > 0) {
       currentDiffs.value = data.suggestedDiffs;
@@ -372,9 +513,18 @@ async function sendMessage() {
       currentDiffs.value = [data.suggestedDiff];
     }
   } catch (e: any) {
-    const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
-    messages.value.push({ role: 'assistant', content: `Помилка: ${errorMsg}` });
-    showSnackbar(errorMsg, 'error');
+    const status = e.response?.status;
+    const code = e.response?.data?.code;
+    if (status === 409 && code === 'CONTEXT_FULL') {
+      messages.value = messages.value.filter((m) => m !== optimisticUser);
+      contextFull.value = true;
+      contextFullDialogOpen.value = true;
+      showSnackbar('Контекст сесії заповнений — почніть нову сесію', 'warning');
+    } else {
+      await loadSession();
+      const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
+      showSnackbar(errorMsg, 'error');
+    }
   } finally {
     loading.value = false;
     await scrollToBottom();
@@ -498,17 +648,8 @@ function onMobileRejectDiff() {
   rejectDiff();
 }
 
-function confirmClearChat() {
-  clearDialogOpen.value = false;
-  messages.value = [];
-  currentDiffs.value = [];
-  appliedResults.value = new Map();
-  inputText.value = '';
-  diffSheetOpen.value = false;
-}
-
-onMounted(() => {
-  loadActiveBase();
+onMounted(async () => {
+  await Promise.all([loadSession(), loadActiveBase()]);
 });
 </script>
 

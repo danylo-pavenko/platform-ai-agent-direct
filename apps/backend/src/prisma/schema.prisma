@@ -216,7 +216,53 @@ model AdminUser {
   tgUserId      String?   @map("tg_user_id")
   createdAt     DateTime  @default(now()) @map("created_at")
 
+  metaAgentTeachSessions MetaAgentTeachSession[]
+
   @@map("admin_users")
+}
+
+// ── Meta-agent teach chat (admin "Навчання агента" tab) ──
+//
+// Per-admin-user sessions. Full transcript is stored in DB; Claude receives
+// only the tail of the session (see TEACH_CONTEXT_LIMIT in meta-agent-teach.ts).
+
+model MetaAgentTeachSession {
+  id            String    @id @default(uuid()) @db.Uuid
+  adminUserId   String    @map("admin_user_id") @db.Uuid
+  title         String?
+  isActive      Boolean   @default(true) @map("is_active")
+  closedAt      DateTime? @map("closed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastMessageAt DateTime? @map("last_message_at")
+
+  adminUser     AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  messages      MetaAgentTeachMessage[]
+
+  @@index([adminUserId, isActive])
+  @@index([adminUserId, lastMessageAt])
+  @@map("meta_agent_teach_sessions")
+}
+
+enum MetaAgentTeachMessageRole {
+  user
+  assistant
+
+  @@map("meta_agent_teach_message_role")
+}
+
+model MetaAgentTeachMessage {
+  id             String                    @id @default(uuid()) @db.Uuid
+  sessionId      String                    @map("session_id") @db.Uuid
+  role           MetaAgentTeachMessageRole
+  content        String
+  suggestedDiffs Json?                     @map("suggested_diffs") @db.JsonB
+  createdAt      DateTime                  @default(now()) @map("created_at")
+
+  session        MetaAgentTeachSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+  @@map("meta_agent_teach_messages")
 }
 
 // ── Settings (key-value) ──
