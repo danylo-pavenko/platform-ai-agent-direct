@@ -7,6 +7,7 @@ import 'vuetify/styles';
 import '@mdi/font/css/materialdesignicons.css';
 import './styles/global.css';
 import './styles/meta-agent-md.css';
+import './styles/mobile-agent-ui.css';
 
 import App from './App.vue';
 import router from './router';

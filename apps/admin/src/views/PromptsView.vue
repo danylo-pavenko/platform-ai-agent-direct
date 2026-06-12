@@ -5,8 +5,13 @@
         <div class="page-title">Промпти</div>
       </v-col>
       <v-col cols="auto">
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openNewDialog">
-          Нова версія
+        <v-btn
+          color="primary"
+          :prepend-icon="mobile ? undefined : 'mdi-plus'"
+          :icon="mobile ? 'mdi-plus' : undefined"
+          @click="openNewDialog"
+        >
+          <span v-if="!mobile">Нова версія</span>
         </v-btn>
       </v-col>
     </v-row>
@@ -76,28 +81,32 @@
       scrollable
       persistent
     >
-      <v-card style="display:flex;flex-direction:column;max-height:90vh;">
-        <v-card-title class="d-flex align-center ga-2">
+      <v-card
+        class="agent-dialog-card"
+        :class="{ 'agent-dialog-card--fullscreen': mobile }"
+        :style="mobile ? undefined : { maxHeight: '90vh' }"
+      >
+        <v-card-title class="d-flex align-center ga-2 flex-shrink-0">
           Нова версія промпту
           <v-spacer />
           <v-btn icon="mdi-close" variant="text" size="small" @click="closeDialog" :disabled="saving" />
         </v-card-title>
 
         <!-- Tabs: manual edit vs meta-agent -->
-        <v-tabs v-model="editTab" color="primary" density="compact" class="px-4">
+        <v-tabs v-model="editTab" color="primary" density="compact" class="px-2 px-sm-4 flex-shrink-0">
           <v-tab value="manual">
             <v-icon start size="18">mdi-pencil</v-icon>
             Вручну
           </v-tab>
           <v-tab value="agent">
             <v-icon start size="18">mdi-robot-outline</v-icon>
-            Через агента
+            Агент
           </v-tab>
         </v-tabs>
 
         <v-divider />
 
-        <v-card-text style="flex:1 1 auto;overflow-y:auto;min-height:0;">
+        <v-card-text class="agent-dialog-body">
           <!-- Manual tab -->
           <div v-if="editTab === 'manual'">
             <v-alert
@@ -136,10 +145,9 @@
 
           <!-- Agent tab -->
           <div v-if="editTab === 'agent'" class="agent-tab">
-            <div class="text-caption text-grey mb-3">
-              Опишіть що потрібно змінити - агент запропонує правки до промпту.
-              Після застосування змін перейдіть на вкладку "Вручну" для перегляду та збереження.
-            </div>
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3 text-body-2">
+              Опишіть зміни — агент запропонує правки. Після «Застосувати» перейдіть на вкладку «Вручну» і збережіть версію.
+            </v-alert>
 
             <!-- Agent messages -->
             <div ref="agentMessagesEl" class="agent-messages mb-3">
@@ -184,38 +192,43 @@
 
             <!-- Suggested diff -->
             <v-card v-if="agentDiff" variant="outlined" class="mb-3 pa-3">
-              <div class="d-flex align-center mb-2">
-                <v-icon color="warning" size="18" class="mr-2">mdi-file-compare</v-icon>
-                <span class="text-subtitle-2">Пропоновані зміни</span>
-                <v-spacer />
-                <v-btn
-                  size="small"
-                  color="primary"
-                  variant="flat"
-                  :disabled="agentLoading"
-                  @click="applyAgentDiff"
-                >
-                  <v-icon start size="16">mdi-check</v-icon>
-                  Застосувати
-                </v-btn>
-                <v-btn
-                  size="small"
-                  variant="text"
-                  class="ml-1"
-                  @click="agentDiff = null"
-                >
-                  Відхилити
-                </v-btn>
+              <div class="d-flex align-center mb-2 flex-wrap ga-2">
+                <div class="d-flex align-center">
+                  <v-icon color="warning" size="18" class="mr-2">mdi-file-compare</v-icon>
+                  <span class="text-subtitle-2">Пропоновані зміни</span>
+                </div>
+                <v-spacer v-if="!mobile" />
+                <div class="d-flex ga-2" :class="mobile ? 'w-100' : ''">
+                  <v-btn
+                    size="small"
+                    color="primary"
+                    variant="flat"
+                    :block="mobile"
+                    :disabled="agentLoading"
+                    @click="applyAgentDiff"
+                  >
+                    <v-icon start size="16">mdi-check</v-icon>
+                    Застосувати
+                  </v-btn>
+                  <v-btn
+                    size="small"
+                    variant="outlined"
+                    :block="mobile"
+                    @click="agentDiff = null"
+                  >
+                    Відхилити
+                  </v-btn>
+                </div>
               </div>
               <v-alert type="info" variant="tonal" density="compact" class="mb-2 text-body-2">
                 {{ agentDiff.summary }}
               </v-alert>
-              <div class="d-flex ga-2 flex-wrap">
-                <div class="flex-grow-1" style="min-width: 200px;">
+              <div class="diff-columns d-flex ga-2" :class="mobile ? 'flex-column' : 'flex-wrap'">
+                <div class="flex-grow-1 diff-column">
                   <div class="text-caption font-weight-bold text-error mb-1">БУЛО</div>
                   <pre class="diff-block diff-before">{{ agentDiff.before }}</pre>
                 </div>
-                <div class="flex-grow-1" style="min-width: 200px;">
+                <div class="flex-grow-1 diff-column">
                   <div class="text-caption font-weight-bold text-success mb-1">СТАЛО</div>
                   <pre class="diff-block diff-after">{{ agentDiff.after }}</pre>
                 </div>
@@ -223,26 +236,27 @@
             </v-card>
 
             <!-- Agent input -->
-            <div class="d-flex ga-2 align-end">
+            <div class="agent-chat-input d-flex ga-2 align-end">
               <v-textarea
                 v-model="agentInput"
                 placeholder="Опишіть зміни до промпту..."
                 variant="outlined"
                 density="compact"
                 rows="1"
-                max-rows="3"
+                max-rows="4"
                 auto-grow
                 hide-details
                 :disabled="agentLoading"
-                @keydown.ctrl.enter="sendToAgent"
-                @keydown.meta.enter="sendToAgent"
+                @keydown.enter.exact.prevent="sendToAgent"
+                @keydown.shift.enter.stop
               />
               <v-btn
                 color="primary"
                 icon="mdi-send"
+                class="agent-send-btn"
                 :loading="agentLoading"
                 :disabled="!agentInput.trim()"
-                size="small"
+                aria-label="Надіслати"
                 @click="sendToAgent"
               />
             </div>
@@ -250,18 +264,30 @@
         </v-card-text>
 
         <v-divider />
-        <v-card-actions>
-          <v-spacer />
+        <v-card-actions class="agent-dialog-footer dialog-actions-stack">
+          <div v-if="editTab === 'agent'" class="text-caption text-grey w-100 mb-1 d-sm-none">
+            Збереження — на вкладці «Вручну» після застосування змін
+          </div>
+          <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" @click="closeDialog" :disabled="saving">
             Скасувати
           </v-btn>
           <v-btn
+            v-if="editTab === 'manual'"
             color="primary"
             :loading="saving"
             :disabled="!newContent.trim() || !newChangeSummary.trim()"
             @click="createPrompt"
           >
             Зберегти нову версію
+          </v-btn>
+          <v-btn
+            v-else
+            color="primary"
+            variant="tonal"
+            @click="editTab = 'manual'"
+          >
+            Перейти до збереження
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -494,14 +520,23 @@ onMounted(() => {
 .agent-tab {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  height: 100%;
 }
 
 .agent-messages {
-  max-height: min(300px, 40dvh);
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: min(320px, 42dvh);
   overflow-y: auto;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
   padding: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.diff-column {
+  min-width: 0;
 }
 
 .diff-block {
@@ -512,7 +547,7 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: 'Roboto Mono', 'Courier New', monospace;
-  max-height: 150px;
+  max-height: min(150px, 22dvh);
   overflow-y: auto;
 }
 
@@ -528,7 +563,11 @@ onMounted(() => {
 
 @media (max-width: 960px) {
   .agent-messages {
-    max-height: min(240px, 35dvh);
+    max-height: min(280px, 38dvh);
+  }
+
+  .agent-tab {
+    min-height: calc(100dvh - 220px);
   }
 }
 </style>

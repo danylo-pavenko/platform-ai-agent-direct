@@ -1,16 +1,24 @@
 <template>
-  <v-container fluid class="d-flex flex-column pa-2 pa-md-4" style="height: calc(100vh - 64px);">
+  <v-container
+    fluid
+    class="agent-page-shell pa-2 pa-md-4"
+  >
     <!-- Header -->
-    <div class="d-flex align-center ga-3 mb-3 px-1">
-      <div class="flex-grow-1">
+    <div class="agent-page-header-compact d-flex align-center ga-2 mb-2 mb-md-3 px-1 flex-shrink-0">
+      <div class="flex-grow-1 min-width-0">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
         <div class="page-subtitle d-none d-sm-block">Опишіть зміни - мета-агент запропонує правки до промпту</div>
+        <div v-if="mobile" class="page-subtitle-mobile d-sm-none">
+          Опишіть зміни — агент запропонує правки
+        </div>
       </div>
       <v-btn
         variant="tonal"
         size="small"
         icon="mdi-delete-outline"
+        class="flex-shrink-0"
         :disabled="messages.length === 0"
+        aria-label="Очистити розмову"
         @click="clearDialogOpen = true"
       />
     </div>
@@ -19,8 +27,7 @@
     <div class="flex-grow-1 d-flex flex-column flex-md-row ga-2 ga-md-3" style="min-height: 0; overflow: hidden;">
       <!-- Chat panel -->
       <v-card
-        class="d-flex flex-column"
-        :class="currentDiffs.length > 0 ? 'chat-with-diff' : 'flex-grow-1'"
+        class="d-flex flex-column flex-grow-1"
         flat
         style="min-height: 0;"
       >
@@ -39,8 +46,17 @@
             <v-icon size="48" color="grey-lighten-1" class="mb-3">mdi-chat-outline</v-icon>
             <div class="text-body-1 text-grey-darken-1 mb-1">Почніть розмову</div>
             <div class="text-body-2 text-grey px-4" style="max-width: 360px;">
-              Наприклад: "Додай правило про безкоштовну доставку від 2000 грн"
+              Наприклад: «Додай правило про безкоштовну доставку від 2000 грн»
             </div>
+            <v-chip
+              v-if="mobile"
+              class="hint-chip-touch mt-3"
+              size="small"
+              variant="outlined"
+              @click="inputText = 'Додай правило про безкоштовну доставку від 2000 грн'"
+            >
+              Спробувати приклад
+            </v-chip>
           </div>
 
           <!-- Messages -->
@@ -50,7 +66,7 @@
             class="mb-3 d-flex"
             :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
           >
-            <div :style="{ maxWidth: mobile ? '90%' : '75%' }">
+            <div :style="{ maxWidth: mobile ? '92%' : '75%' }">
               <div
                 class="text-caption text-grey mb-1"
                 :class="msg.role === 'user' ? 'text-right' : ''"
@@ -59,7 +75,7 @@
               </div>
               <v-card
                 :color="msg.role === 'user' ? 'primary' : 'grey-lighten-4'"
-                :variant="msg.role === 'user' ? 'flat' : 'flat'"
+                variant="flat"
                 rounded="lg"
                 class="pa-3"
               >
@@ -74,7 +90,7 @@
 
           <!-- Typing indicator -->
           <div v-if="loading" class="mb-3 d-flex justify-start">
-            <div :style="{ maxWidth: mobile ? '90%' : '75%' }">
+            <div :style="{ maxWidth: mobile ? '92%' : '75%' }">
               <div class="text-caption text-grey mb-1">Мета-агент</div>
               <v-card color="grey-lighten-4" variant="flat" rounded="lg" class="pa-3">
                 <div class="typing-dots">
@@ -87,7 +103,7 @@
 
         <!-- Input -->
         <v-divider />
-        <div class="pa-2 pa-md-3">
+        <div class="agent-chat-input pa-2 pa-md-3">
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="inputText"
@@ -99,158 +115,96 @@
               auto-grow
               hide-details
               :disabled="loading"
-              @keydown.ctrl.enter="sendMessage"
-              @keydown.meta.enter="sendMessage"
+              @keydown.enter.exact.prevent="sendMessage"
+              @keydown.shift.enter.stop
             />
             <v-btn
               color="primary"
               icon="mdi-send"
+              class="agent-send-btn"
               :loading="loading"
               :disabled="!inputText.trim()"
-              size="small"
+              aria-label="Надіслати"
               @click="sendMessage"
             />
           </div>
+          <div v-if="!mobile" class="text-caption text-grey mt-1 d-none d-md-block">
+            Enter — надіслати, Shift+Enter — новий рядок
+          </div>
         </div>
       </v-card>
 
-      <!-- Diff panel(s) -->
-      <v-card v-if="currentDiffs.length > 0" class="diff-panel d-flex flex-column" flat style="min-height: 0;">
-        <v-card-title class="text-subtitle-2 pa-3 d-flex align-center">
-          <v-icon start color="warning" size="20">mdi-file-compare</v-icon>
-          Пропоновані зміни
-          <v-chip v-if="currentDiffs.length > 1" size="x-small" color="warning" variant="tonal" class="ml-2">
-            {{ currentDiffs.length }} зміни
-          </v-chip>
-        </v-card-title>
-
-        <div class="flex-grow-1 overflow-y-auto px-3 pb-3">
-          <div
-            v-for="(diff, idx) in currentDiffs"
-            :key="idx"
-            class="diff-item mb-4"
-            :class="{ 'diff-item-applied': appliedResults.has(idx) }"
-          >
-            <!-- Зміна N / Applied badge -->
-            <div class="d-flex align-center ga-2 mb-2">
-              <span class="text-caption font-weight-bold text-grey">
-                {{ currentDiffs.length > 1 ? `ЗМІНА ${idx + 1}` : 'ЗМІНА' }}
-              </span>
-              <v-chip
-                v-if="appliedResults.get(idx)?.activated"
-                size="x-small"
-                color="success"
-                variant="flat"
-              >
-                <v-icon start size="10">mdi-check</v-icon>
-                v{{ appliedResults.get(idx)?.version }} активна
-              </v-chip>
-              <v-chip
-                v-else-if="appliedResults.has(idx)"
-                size="x-small"
-                color="info"
-                variant="tonal"
-              >
-                <v-icon start size="10">mdi-file-document-edit-outline</v-icon>
-                чернетка v{{ appliedResults.get(idx)?.version }}
-              </v-chip>
-            </div>
-
-            <v-alert v-if="diff.summary" type="info" variant="tonal" density="compact" class="mb-2 text-body-2">
-              {{ diff.summary }}
-            </v-alert>
-
-            <div class="text-caption font-weight-bold mb-1 text-error d-flex align-center">
-              <v-icon size="14" color="error" class="mr-1">mdi-minus-circle</v-icon>
-              БУЛО
-            </div>
-            <pre class="diff-block diff-before mb-2">{{ diff.before || '(порожньо - нове правило)' }}</pre>
-
-            <div class="text-caption font-weight-bold mb-1 text-success d-flex align-center">
-              <v-icon size="14" color="success" class="mr-1">mdi-plus-circle</v-icon>
-              СТАЛО
-            </div>
-            <pre class="diff-block diff-after mb-2">{{ diff.after }}</pre>
-
-            <!-- Per-diff action row: default is safe draft, activation opt-in -->
-            <div class="d-flex justify-end ga-2 flex-wrap">
-              <template v-if="!appliedResults.has(idx)">
-                <v-btn
-                  color="primary"
-                  size="x-small"
-                  variant="tonal"
-                  :loading="applyingIndex === idx"
-                  :disabled="applyingIndex !== null && applyingIndex !== idx"
-                  @click="applyDiffAt(idx, { activate: false })"
-                >
-                  <v-icon start size="14">mdi-file-document-edit-outline</v-icon>
-                  Зберегти як чернетку
-                </v-btn>
-                <v-btn
-                  color="warning"
-                  size="x-small"
-                  variant="outlined"
-                  :disabled="applyingIndex !== null"
-                  @click="openActivateConfirm(idx)"
-                >
-                  <v-icon start size="14">mdi-flash</v-icon>
-                  Зберегти і активувати
-                </v-btn>
-              </template>
-              <v-btn
-                v-else-if="!appliedResults.get(idx)?.activated"
-                color="warning"
-                size="x-small"
-                variant="outlined"
-                :loading="activatingPromptId === appliedResults.get(idx)?.promptId"
-                :disabled="activatingPromptId !== null"
-                @click="openActivateConfirm(idx)"
-              >
-                <v-icon start size="14">mdi-flash</v-icon>
-                Активувати зараз
-              </v-btn>
-            </div>
-          </div>
-        </div>
-
-        <v-divider />
-        <div class="pa-3">
-          <div
-            v-if="activeBaseVersion !== null"
-            class="text-caption text-grey mb-2"
-          >
-            Зміни застосовуються до активної v{{ activeBaseVersion }}. Чернетки не впливають на прод — активуйте явно.
-          </div>
-          <div class="d-flex ga-2 align-center">
-            <v-btn variant="outlined" size="small" :disabled="applyingIndex !== null" @click="rejectDiff">
-              {{ appliedResults.size > 0 ? 'Закрити' : 'Відхилити всі' }}
-            </v-btn>
-            <v-spacer />
-            <v-btn
-              v-if="unappliedDiffs.length > 1"
-              color="primary"
-              size="small"
-              variant="tonal"
-              :loading="applyingIndex !== null"
-              @click="applyAllDiffs"
-            >
-              <v-icon start size="16">mdi-check-all</v-icon>
-              Зберегти всі як чернетки ({{ unappliedDiffs.length }})
-            </v-btn>
-          </div>
-        </div>
+      <!-- Desktop: inline diff panel -->
+      <v-card
+        v-if="currentDiffs.length > 0 && !mobile"
+        class="diff-panel d-flex flex-column flex-grow-1"
+        flat
+        style="min-height: 0;"
+      >
+        <meta-agent-diff-panel
+          :diffs="currentDiffs"
+          :applied-results="appliedResults"
+          :applying-index="applyingIndex"
+          :activating-prompt-id="activatingPromptId"
+          :active-base-version="activeBaseVersion"
+          :unapplied-count="unappliedDiffs.length"
+          show-title
+          @apply="applyDiffAt"
+          @activate-confirm="openActivateConfirm"
+          @reject="rejectDiff"
+          @apply-all="applyAllDiffs"
+        />
       </v-card>
     </div>
 
+    <!-- Mobile: reopen diff chip when sheet closed -->
+    <v-chip
+      v-if="mobile && currentDiffs.length > 0 && !diffSheetOpen"
+      class="diff-open-chip"
+      color="warning"
+      variant="flat"
+      prepend-icon="mdi-file-compare"
+      @click="diffSheetOpen = true"
+    >
+      Зміни ({{ currentDiffs.length }})
+    </v-chip>
+
+    <!-- Mobile: diff bottom sheet -->
+    <v-bottom-sheet
+      v-if="mobile"
+      v-model="diffSheetOpen"
+      inset
+      scrollable
+    >
+      <v-card class="diff-sheet-card">
+        <meta-agent-diff-panel
+          :diffs="currentDiffs"
+          :applied-results="appliedResults"
+          :applying-index="applyingIndex"
+          :activating-prompt-id="activatingPromptId"
+          :active-base-version="activeBaseVersion"
+          :unapplied-count="unappliedDiffs.length"
+          sheet
+          stack-actions
+          show-title
+          @apply="applyDiffAt"
+          @activate-confirm="openActivateConfirm"
+          @reject="onMobileRejectDiff"
+          @apply-all="applyAllDiffs"
+          @close="diffSheetOpen = false"
+        />
+      </v-card>
+    </v-bottom-sheet>
+
     <!-- Clear chat confirmation -->
-    <v-dialog v-model="clearDialogOpen" max-width="400">
+    <v-dialog v-model="clearDialogOpen" max-width="400" class="dialog-actions-stack">
       <v-card>
         <v-card-title class="text-subtitle-1">Очистити розмову?</v-card-title>
         <v-card-text class="text-body-2">
           Історія чату та незастосовані пропозиції змін будуть видалені. Цю дію не можна скасувати.
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" @click="clearDialogOpen = false">Скасувати</v-btn>
           <v-btn color="error" variant="flat" @click="confirmClearChat">Очистити</v-btn>
         </v-card-actions>
@@ -258,7 +212,7 @@
     </v-dialog>
 
     <!-- Activate confirmation -->
-    <v-dialog v-model="activateDialogOpen" max-width="480" persistent>
+    <v-dialog v-model="activateDialogOpen" max-width="480" persistent class="dialog-actions-stack">
       <v-card>
         <v-card-title class="text-subtitle-1">
           Активувати зміну одразу?
@@ -267,8 +221,8 @@
           Активна версія промпту буде змінена миттєво — бот почне використовувати новий текст з наступного повідомлення клієнта.
           Попередня активна версія залишиться в історії як неактивна, її можна буде повернути.
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" @click="confirmActivate = null">Скасувати</v-btn>
           <v-btn
             color="warning"
@@ -282,17 +236,24 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
+    <v-snackbar
+      v-model="snackbar"
+      :color="snackbarColor"
+      :timeout="3000"
+      location="bottom"
+      :style="{ marginBottom: mobile ? 'env(safe-area-inset-bottom)' : undefined }"
+    >
       {{ snackbarText }}
     </v-snackbar>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted } from 'vue';
+import { ref, computed, nextTick, onMounted, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
+import MetaAgentDiffPanel from '@/components/MetaAgentDiffPanel.vue';
 
 const { mobile } = useDisplay();
 
@@ -317,21 +278,15 @@ const messages = ref<ChatMessage[]>([]);
 const inputText = ref('');
 const loading = ref(false);
 const currentDiffs = ref<SuggestedDiff[]>([]);
-// Maps diff index → what was created when the user applied it.
-// Used to render "v{N} • чернетка" badge and the "Активувати зараз" button.
 const appliedResults = ref<Map<number, AppliedResult>>(new Map());
 const applyingIndex = ref<number | null>(null);
 const activatingPromptId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
+const diffSheetOpen = ref(false);
 
-// Optimistic concurrency: the id of the active prompt at the moment the
-// user's diff was generated. Sent with /apply so a stale diff (another admin
-// activated something in between) is rejected with 409 instead of silently
-// rebasing onto the new active.
 const activeBasePromptId = ref<string | null>(null);
 const activeBaseVersion = ref<number | null>(null);
 
-// Confirmation dialog for direct activation.
 const confirmActivate = ref<{ diffIdx: number } | null>(null);
 const clearDialogOpen = ref(false);
 
@@ -348,6 +303,16 @@ const activateDialogOpen = computed({
   set: (v) => { if (!v) confirmActivate.value = null; },
 });
 
+watch(currentDiffs, (diffs) => {
+  if (mobile.value && diffs.length > 0) {
+    diffSheetOpen.value = true;
+  }
+});
+
+watch(mobile, (isMobile) => {
+  if (!isMobile) diffSheetOpen.value = false;
+});
+
 function showSnackbar(text: string, color = 'success') {
   snackbarText.value = text;
   snackbarColor.value = color;
@@ -361,7 +326,6 @@ async function scrollToBottom() {
   }
 }
 
-/** Fetch currently active prompt id/version for optimistic concurrency. */
 async function loadActiveBase() {
   try {
     const { data } = await api.get('/prompts');
@@ -375,7 +339,6 @@ async function loadActiveBase() {
       activeBaseVersion.value = null;
     }
   } catch {
-    // Non-fatal: we'll just skip concurrency check if we couldn't load.
     activeBasePromptId.value = null;
     activeBaseVersion.value = null;
   }
@@ -390,9 +353,9 @@ async function sendMessage() {
   loading.value = true;
   currentDiffs.value = [];
   appliedResults.value = new Map();
+  diffSheetOpen.value = false;
   await scrollToBottom();
 
-  // Refresh base-id on every new chat turn so 409s track the actual live state.
   await loadActiveBase();
 
   try {
@@ -441,7 +404,6 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
     });
     appliedResults.value = next;
 
-    // If we just activated, this version is now the base for any follow-ups.
     if (data.isActive) {
       activeBasePromptId.value = data.id;
       activeBaseVersion.value = data.version;
@@ -456,11 +418,10 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
     const status = e.response?.status;
     const errorMsg = e.response?.data?.error || 'Не вдалося застосувати';
     if (status === 409) {
-      // Someone else activated a new version in the meantime. Clear diffs,
-      // refresh base, tell the user to restate the request.
       const newActive = e.response?.data?.currentActiveVersion;
       currentDiffs.value = [];
       appliedResults.value = new Map();
+      diffSheetOpen.value = false;
       await loadActiveBase();
       showSnackbar(
         newActive
@@ -479,7 +440,6 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
 async function applyAllDiffs() {
   for (let i = 0; i < currentDiffs.value.length; i++) {
     if (!appliedResults.value.has(i)) {
-      // Bail out of the loop if one apply failed (409 clears diffs entirely).
       if (currentDiffs.value.length === 0) return;
       await applyDiffAt(i, { activate: false });
     }
@@ -496,8 +456,6 @@ async function confirmActivateNow() {
   const idx = confirmActivate.value.diffIdx;
   confirmActivate.value = null;
 
-  // If this diff was already saved as a draft, just activate that row
-  // instead of creating yet another version with identical content.
   const existing = appliedResults.value.get(idx);
   if (existing && !existing.activated) {
     await activateExistingDraft(existing.promptId);
@@ -512,7 +470,6 @@ async function activateExistingDraft(promptId: string) {
   activatingPromptId.value = promptId;
   try {
     await api.post(`/prompts/${promptId}/activate`);
-    // Mark the local entry as activated so the UI hides the "активувати" button.
     const next = new Map(appliedResults.value);
     for (const [idx, r] of next.entries()) {
       if (r.promptId === promptId) {
@@ -534,6 +491,11 @@ async function activateExistingDraft(promptId: string) {
 function rejectDiff() {
   currentDiffs.value = [];
   appliedResults.value = new Map();
+  diffSheetOpen.value = false;
+}
+
+function onMobileRejectDiff() {
+  rejectDiff();
 }
 
 function confirmClearChat() {
@@ -542,6 +504,7 @@ function confirmClearChat() {
   currentDiffs.value = [];
   appliedResults.value = new Map();
   inputText.value = '';
+  diffSheetOpen.value = false;
 }
 
 onMounted(() => {
@@ -550,48 +513,18 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.chat-with-diff {
-  flex: 1 1 55%;
-  min-width: 0;
-}
-
 .diff-panel {
   flex: 1 1 45%;
   min-width: 0;
 }
 
-/* Mobile: stack vertically */
-@media (max-width: 960px) {
-  .chat-with-diff {
-    flex: 1 1 55%;
-    min-height: 0;
-  }
-  .diff-panel {
-    flex: 1 1 45%;
-    min-height: 180px;
-  }
+.diff-sheet-card {
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
 }
 
-.diff-block {
-  padding: 10px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: 'Roboto Mono', 'Courier New', monospace;
-  max-height: 250px;
-  overflow-y: auto;
-}
-
-.diff-before {
-  background-color: #fef2f2;
-  border: 1px solid #fecaca;
-}
-
-.diff-after {
-  background-color: #f0fdf4;
-  border: 1px solid #bbf7d0;
+.min-width-0 {
+  min-width: 0;
 }
 
 .typing-dots {

@@ -8,7 +8,10 @@
         size="small"
         @click="showCasesDrawer = true"
       />
-      <div class="text-subtitle-2 flex-grow-1">Пісочниця</div>
+      <div class="flex-grow-1 min-width-0">
+        <div class="text-subtitle-2 text-truncate">Тестування агента</div>
+        <div class="text-caption text-grey text-truncate">Пісочниця</div>
+      </div>
       <v-btn
         icon="mdi-tune"
         variant="text"
@@ -36,7 +39,7 @@
       <!-- Center: Chat -->
       <div class="chat-area d-flex flex-column">
         <!-- Chat header -->
-        <div class="chat-header d-flex align-center pa-3 ga-2">
+        <div class="chat-header d-flex align-center pa-2 pa-md-3 ga-2">
           <v-avatar size="36" color="pink-lighten-4">
             <v-icon color="pink-darken-1">mdi-account</v-icon>
           </v-avatar>
@@ -74,7 +77,7 @@
               size="small"
               title="Скинути діалог"
               :disabled="chatMessages.length === 0"
-              @click="resetChat"
+              @click="openResetDialog"
             />
             <v-btn
               v-if="!mobile"
@@ -106,7 +109,7 @@
                 :key="hint"
                 size="small"
                 variant="outlined"
-                class="cursor-pointer"
+                class="cursor-pointer hint-chip-touch"
                 @click="sendQuickHint(hint)"
               >
                 {{ hint }}
@@ -151,7 +154,7 @@
         </div>
 
         <!-- Replay step confirmation -->
-        <div v-if="replayMode && !replayWaitingResponse" class="replay-bar pa-3 d-flex align-center ga-2">
+        <div v-if="replayMode && !replayWaitingResponse" class="replay-bar pa-2 pa-md-3 d-flex align-center ga-2 flex-wrap">
           <v-icon size="18" color="warning">mdi-replay</v-icon>
           <div class="flex-grow-1 text-body-2">
             <template v-if="replayStep < replayMessages.length">
@@ -179,7 +182,7 @@
         </div>
 
         <!-- Input area -->
-        <div v-if="!replayMode" class="input-area pa-2 pa-md-3">
+        <div v-if="!replayMode" class="input-area agent-chat-input pa-2 pa-md-3">
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="inputText"
@@ -197,9 +200,10 @@
             <v-btn
               color="primary"
               icon="mdi-send"
+              class="agent-send-btn"
               :loading="loading"
               :disabled="!inputText.trim()"
-              size="small"
+              aria-label="Надіслати"
               @click="sendMessage"
             />
           </div>
@@ -207,9 +211,26 @@
       </div>
 
       <!-- Right: Prompt panel (desktop only, or mobile bottom sheet) -->
-      <v-bottom-sheet v-if="mobile" v-model="showPromptPanel" inset>
-        <v-card class="pa-3 prompt-mobile-sheet">
-          <prompt-editor />
+      <v-bottom-sheet v-if="mobile" v-model="showPromptPanel" inset scrollable>
+        <v-card class="prompt-mobile-sheet">
+          <div class="prompt-sheet-handle" />
+          <div class="prompt-sheet-header d-flex align-center pa-3 pb-2">
+            <div class="flex-grow-1">
+              <div class="text-subtitle-2">Системний промпт</div>
+              <div class="text-caption text-grey">Редагування та мета-агент</div>
+            </div>
+            <v-btn
+              icon="mdi-close"
+              variant="text"
+              size="small"
+              aria-label="Закрити"
+              @click="showPromptPanel = false"
+            />
+          </div>
+          <v-divider />
+          <div class="prompt-sheet-body pa-3 pt-2">
+            <prompt-editor />
+          </div>
         </v-card>
       </v-bottom-sheet>
 
@@ -217,6 +238,21 @@
         <prompt-editor />
       </div>
     </div>
+
+    <!-- Reset chat confirmation -->
+    <v-dialog v-model="showResetDialog" max-width="400">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Скинути діалог?</v-card-title>
+        <v-card-text class="text-body-2">
+          Усі повідомлення тестового чату будуть видалені. Прогонку кейсу також буде зупинено.
+        </v-card-text>
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
+          <v-btn variant="text" @click="showResetDialog = false">Скасувати</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmResetChat">Скинути</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Save case dialog -->
     <v-dialog v-model="showSaveDialog" max-width="400">
@@ -237,8 +273,8 @@
             Відповіді агента будуть скинуті при прогонці.
           </div>
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" @click="showSaveDialog = false">Скасувати</v-btn>
           <v-btn color="primary" :disabled="!saveCaseName.trim()" @click="saveCase">
             Зберегти
@@ -265,8 +301,8 @@
             @keydown.enter="saveOverrideAsVersion"
           />
         </v-card-text>
-        <v-card-actions>
-          <v-spacer />
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" :disabled="savingVersion" @click="showSaveVersionDialog = false">Скасувати</v-btn>
           <v-btn
             color="primary"
@@ -280,7 +316,12 @@
       </v-card>
     </v-dialog>
 
-    <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
+    <v-snackbar
+      v-model="snackbar"
+      :color="snackbarColor"
+      :timeout="3000"
+      location="bottom"
+    >
       {{ snackbarText }}
     </v-snackbar>
   </v-container>
@@ -332,6 +373,7 @@ const messagesArea = ref<HTMLElement | null>(null);
 const cases = ref<SandboxCase[]>([]);
 const showCasesDrawer = ref(false);
 const showSaveDialog = ref(false);
+const showResetDialog = ref(false);
 const saveCaseName = ref('');
 const selectedCaseId = ref<string | null>(null);
 
@@ -536,8 +578,11 @@ function sendQuickHint(text: string) {
   sendChatMessage(text);
 }
 
+function openResetDialog() {
+  showResetDialog.value = true;
+}
+
 function resetChat() {
-  // Abort any in-flight request
   if (currentAbortController.value) {
     currentAbortController.value.abort();
     currentAbortController.value = null;
@@ -546,6 +591,11 @@ function resetChat() {
   chatMessages.value = [];
   replayMode.value = false;
   replayStep.value = 0;
+}
+
+function confirmResetChat() {
+  showResetDialog.value = false;
+  resetChat();
 }
 
 // ---------------------------------------------------------------------------
@@ -1022,7 +1072,9 @@ const PromptEditor = defineComponent({
                         h('div', { class: 'text-caption font-weight-bold mb-1' },
                           diff.summary || `Зміна ${i + 1}`,
                         ),
-                        h('div', { class: 'd-flex ga-1' }, [
+                        h('div', {
+                          class: ['d-flex ga-1', mobile.value ? 'flex-column' : ''],
+                        }, [
                           h('button', {
                             class: 'prompt-agent-apply-btn',
                             onClick: () => applyPromptAgentDiff(i),
@@ -1095,14 +1147,6 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.sandbox-root {
-  height: 100dvh;
-  overflow: hidden;
-}
-.sandbox-root.mobile {
-  height: calc(100dvh - 56px);
-}
-
 .sandbox-mobile-header {
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
@@ -1111,12 +1155,12 @@ onMounted(async () => {
 
 .sandbox-layout {
   display: flex;
-  height: 100%;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 .sandbox-root.mobile .sandbox-layout {
-  height: calc(100% - 48px);
+  flex: 1 1 auto;
 }
 
 .cases-sidebar {
@@ -1576,7 +1620,8 @@ onMounted(async () => {
   background: rgb(var(--v-theme-primary));
   color: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  padding: 8px 12px;
+  min-height: 40px;
   border-radius: 4px;
   cursor: pointer;
 }
@@ -1587,7 +1632,8 @@ onMounted(async () => {
   border: 1px solid #ccc;
   background: #fff;
   font-size: 12px;
-  padding: 4px 12px;
+  padding: 8px 12px;
+  min-height: 40px;
   border-radius: 4px;
   cursor: pointer;
   color: #666;
@@ -1616,11 +1662,14 @@ onMounted(async () => {
   color: #fff;
   cursor: pointer;
   padding: 6px;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 0;
+  flex-shrink: 0;
 }
 .prompt-agent-send-btn:disabled {
   opacity: 0.4;
@@ -1651,14 +1700,47 @@ onMounted(async () => {
 }
 
 .prompt-mobile-sheet {
-  height: min(80dvh, 720px);
+  max-height: 88dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  border-radius: 16px 16px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.prompt-sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.15);
+  margin: 8px auto 0;
+  flex-shrink: 0;
+}
+
+.prompt-sheet-header {
+  flex-shrink: 0;
+}
+
+.prompt-sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .prompt-mobile-sheet .prompt-editor {
   min-height: 0;
   flex: 1 1 auto;
+  height: min(72dvh, 640px);
+}
+
+/* Sheet header already shows title — hide duplicate inside editor */
+.prompt-sheet-body .prompt-editor > div:first-child > .text-subtitle-2 {
+  display: none;
+}
+
+.min-width-0 {
+  min-width: 0;
 }
 </style>
