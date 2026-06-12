@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { isCrmWriteReady } from '../lib/crm-write.js';
 
 const PERIODS = ['24h', '7d', '30d', '90d', 'all'] as const;
 type Period = (typeof PERIODS)[number];
@@ -240,6 +241,8 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       clientMessages: Number(r.client_in),
     }));
 
+    const crmWrite = await isCrmWriteReady();
+
     const briefsTotal = Number(briefStats.total);
     const briefsHighCompleteness = Number(briefStats.high_completeness);
 
@@ -286,6 +289,10 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         botRecentlyActive: lastBotMessage
           ? Date.now() - lastBotMessage.createdAt.getTime() < 48 * 3600000
           : false,
+        crmWriteReady: crmWrite.ready,
+        crmWriteEnabled: crmWrite.enabled,
+        crmWriteSource: crmWrite.source,
+        crmWriteMessage: crmWrite.reason ?? null,
       },
       series,
     };

@@ -44,6 +44,8 @@
             Остання відповідь бота: {{ formatRelative(summary?.health?.lastBotReplyAt) }}
             <span class="health-dot">·</span>
             Каталог (sync): {{ formatRelative(summary?.health?.lastCatalogSyncAt) }}
+            <span class="health-dot">·</span>
+            CRM write: {{ crmWriteLabel }}
           </span>
         </div>
       </div>
@@ -346,6 +348,10 @@ interface Summary {
     lastCatalogSyncAt: string | null;
     botActiveInPeriod: boolean;
     botRecentlyActive: boolean;
+    crmWriteReady?: boolean;
+    crmWriteEnabled?: boolean;
+    crmWriteSource?: string;
+    crmWriteMessage?: string | null;
   };
   series: Array<{ date: string; botReplies: number; clientMessages: number }>;
 }
@@ -415,6 +421,14 @@ const healthOk = computed(() => {
   const h = summary.value?.health;
   if (!h) return false;
   return h.botRecentlyActive || h.botActiveInPeriod;
+});
+
+const crmWriteLabel = computed(() => {
+  const h = summary.value?.health;
+  if (!h) return '—';
+  if (h.crmWriteReady) return 'активний';
+  if (h.crmWriteEnabled) return h.crmWriteMessage ?? 'помилка';
+  return 'вимкнено';
 });
 
 const chartBars = computed(() => {

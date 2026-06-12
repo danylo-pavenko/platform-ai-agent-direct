@@ -51,6 +51,11 @@ export function getSalesAgentPromptPath(): string {
   return resolve(getTenantKnowledgeDir(), 'prompts', 'sales-agent.txt');
 }
 
+/** Shortcut: CLAUDE.md orientation file for the sales agent workspace. */
+export function getWorkspaceClaudeMdPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'CLAUDE.md');
+}
+
 /** Shortcut: the corresponding template path (used by seed / bootstrap). */
 export function getSalesAgentTemplatePath(): string {
   return resolve(TEMPLATES_DIR, 'prompts', 'sales-agent.txt');

@@ -1143,6 +1143,23 @@
               />
             </v-col>
           </v-row>
+
+          <v-switch
+            v-model="featureFlags.crm_write_enabled"
+            color="primary"
+            hide-details
+            class="mt-4"
+          >
+            <template #label>
+              <div>
+                <strong>Записувати замовлення в KeyCRM</strong>
+                <div class="text-caption text-medium-emphasis">
+                  Каталог синхронізується завжди (read). Цей перемикач вмикає створення замовлень і клієнтів у CRM.
+                  Альтернатива: <code>CRM_WRITE_ENABLED=true</code> у .env на сервері.
+                </div>
+              </div>
+            </template>
+          </v-switch>
         </v-card-text>
       </v-card>
 
@@ -2154,6 +2171,7 @@ const handoffKeywords = ref('');
 const featureFlags = ref({
   auto_handoff: true,
   send_typing_indicator: false,
+  crm_write_enabled: false,
 });
 
 function hoursPerDay(day: DaySchedule): string {
@@ -2318,12 +2336,17 @@ async function saveIntegrations() {
   integrationsSaved.value = false;
   error.value = '';
   try {
-    await api.put('/settings/integrations', {
-      integration_meta:        integrations.value.meta,
-      integration_telegram:    integrations.value.telegram,
-      integration_keycrm:      integrations.value.keycrm,
-      integration_novaposhta:  integrations.value.novaposhta,
-    });
+    await Promise.all([
+      api.put('/settings/integrations', {
+        integration_meta:        integrations.value.meta,
+        integration_telegram:    integrations.value.telegram,
+        integration_keycrm:      integrations.value.keycrm,
+        integration_novaposhta:  integrations.value.novaposhta,
+      }),
+      api.put('/settings', {
+        feature_flags: featureFlags.value,
+      }),
+    ]);
     integrationsSaved.value = true;
   } catch {
     error.value = 'Не вдалося зберегти інтеграції';

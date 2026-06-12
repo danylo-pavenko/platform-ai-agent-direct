@@ -10,6 +10,7 @@ import {
   TEACH_SESSION_EXCHANGE_LIMIT,
 } from '../services/meta-agent-teach.js';
 import { buildMetaAgentSystemPrompt, parseAllDiffs } from './meta-agent.js';
+import { loadCatalogSnippet } from '../services/prompt-builder.js';
 
 interface TeachChatBody {
   message: string;
@@ -91,7 +92,12 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
 
       const history = buildClaudeHistoryFromMessages(priorMessages);
 
-      const metaAgentPrompt = buildMetaAgentSystemPrompt(activePrompt.content);
+      const catalogSnippet = await loadCatalogSnippet();
+      const metaAgentPrompt = buildMetaAgentSystemPrompt(
+        activePrompt.content,
+        undefined,
+        catalogSnippet,
+      );
 
       let response;
       try {

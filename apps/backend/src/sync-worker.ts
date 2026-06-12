@@ -25,6 +25,7 @@ import { config } from './config.js';
 import { prisma } from './lib/prisma.js';
 import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
+import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
 import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -519,6 +520,11 @@ export async function runSync(): Promise<void> {
     }
 
     log.info('KeyCRM sync completed successfully');
+
+    const mirrorStats = await retryPendingCrmMirrors();
+    if (mirrorStats.attempted > 0) {
+      log.info(mirrorStats, 'CRM order mirror retry pass finished');
+    }
   } catch (err) {
     log.error({ err }, 'KeyCRM sync failed');
     await prisma.keycrmSyncRun.update({

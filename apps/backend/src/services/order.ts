@@ -2,6 +2,7 @@ import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from './instagram.js';
 import { notifyOrder } from './telegram-notify.js';
+import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 
@@ -50,6 +51,8 @@ export async function handleCollectOrder(
     qty: item.qty ?? 1,
   }));
 
+  const crmWrites = await isCrmWriteEnabled();
+
   // 1. Create order in DB
   const order = await prisma.order.create({
     data: {
@@ -64,6 +67,7 @@ export async function handleCollectOrder(
       note,
       status: 'submitted',
       submittedToManagerAt: new Date(),
+      crmSyncStatus: crmWrites ? 'pending' : 'skipped',
     },
   });
 

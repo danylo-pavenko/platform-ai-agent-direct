@@ -12,6 +12,7 @@ import { runTenantHealthCheck } from '../services/health-check.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
+import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -64,6 +65,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     }
     if ('runtime_mode' in filtered) {
       invalidateRuntimeConfigCache();
+    }
+    if ('feature_flags' in filtered) {
+      invalidateCrmWriteCache();
     }
 
     const settings = await prisma.setting.findMany({

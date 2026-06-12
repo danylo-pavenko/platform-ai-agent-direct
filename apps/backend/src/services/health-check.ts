@@ -7,11 +7,12 @@ import {
   probeAgentLatency,
 } from './claude.js';
 import { getCrmAdapter } from './crm/registry.js';
+import { isCrmWriteReady } from '../lib/crm-write.js';
 
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'crm' | 'agent_latency';
+  id: 'instagram' | 'claude' | 'crm' | 'crm_write' | 'agent_latency';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -117,7 +118,7 @@ async function checkClaude(): Promise<HealthCheckItem> {
 }
 
 async function checkCrm(): Promise<HealthCheckItem> {
-  const label = 'CRM';
+  const label = 'CRM (каталог, read)';
   const provider = (config.CRM_PROVIDER ?? 'keycrm').toLowerCase();
 
   if (provider === 'none') {
@@ -163,6 +164,42 @@ async function checkCrm(): Promise<HealthCheckItem> {
   }
 }
 
+async function checkCrmWrite(): Promise<HealthCheckItem> {
+  const label = 'CRM (замовлення, write)';
+  const write = await isCrmWriteReady();
+
+  if (!write.enabled) {
+    return {
+      id: 'crm_write',
+      label,
+      status: 'not_configured',
+      message: 'Запис замовлень у CRM вимкнено',
+      details: { source: write.source },
+    };
+  }
+
+  if (!write.ready) {
+    return {
+      id: 'crm_write',
+      label,
+      status: 'error',
+      message: write.reason ?? 'CRM write недоступний',
+      details: { source: write.source },
+    };
+  }
+
+  const sourceLabel =
+    write.source === 'env' ? 'увімкнено в .env' : 'увімкнено в Налаштуваннях';
+
+  return {
+    id: 'crm_write',
+    label,
+    status: 'ok',
+    message: `Запис у CRM активний (${sourceLabel})`,
+    details: { source: write.source },
+  };
+}
+
 async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem> {
   const label = 'Швидкість агента';
   const maxMs = config.CLAUDE_TIMEOUT_MS;
@@ -202,16 +239,17 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, crm] = await Promise.all([
+  const [instagram, claude, crm, crmWrite] = await Promise.all([
     checkInstagram(),
     checkClaude(),
     checkCrm(),
+    checkCrmWrite(),
   ]);
 
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
 
-  const checks = [instagram, claude, crm, agentLatency];
+  const checks = [instagram, claude, crm, crmWrite, agentLatency];
   const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
 
   return {

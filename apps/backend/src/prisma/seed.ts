@@ -45,6 +45,7 @@ async function main() {
     feature_flags: {
       auto_handoff: true,
       send_typing_indicator: false,
+      crm_write_enabled: false,
     },
   };
 

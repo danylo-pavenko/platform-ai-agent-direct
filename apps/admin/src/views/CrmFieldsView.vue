@@ -26,7 +26,7 @@
     </v-row>
 
     <v-alert v-if="!writeEnabledHint" type="info" variant="tonal" density="compact" class="mb-4">
-      Мапінги впливають на бота лише коли в <code>.env</code> виставлено <code>CRM_WRITE_ENABLED=true</code>.
+      Мапінги впливають на бота лише коли увімкнено запис у CRM: <code>CRM_WRITE_ENABLED=true</code> у .env або перемикач у Налаштування → KeyCRM.
     </v-alert>
 
     <v-card>

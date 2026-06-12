@@ -123,6 +123,22 @@ const CLASSIFY_INTENT: ToolDefinition = {
 
 // ── Sales-mode-only tools ──────────────────────────────────────────────────
 
+const SEARCH_CATALOG: ToolDefinition = {
+  name: 'search_catalog',
+  description:
+    'Живий пошук товару в каталозі (наявність, ціни, варіанти розміру/кольору). Викликай, коли клієнт питає про конкретний товар, модель, розмір, колір або наявність — не покладайся лише на знімок каталогу в промпті.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Ключові слова з запиту клієнта (назва, модель, колір)',
+      },
+    },
+    required: ['query'],
+  },
+};
+
 const GET_DELIVERY_COST: ToolDefinition = {
   name: 'get_delivery_cost',
   description:
@@ -374,6 +390,7 @@ export function buildAgentTools(
     updateClientInfo,
     TAG_CLIENT,
     REQUEST_HANDOFF,
+    SEARCH_CATALOG,
     GET_DELIVERY_COST,
     COLLECT_ORDER,
   ];

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { config } from '../config.js';
+import { loadCatalogSnippet } from '../services/prompt-builder.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -47,6 +48,7 @@ interface SuggestedDiff {
 export function buildMetaAgentSystemPrompt(
   currentPromptContent: string,
   conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  catalogSnippet?: string,
 ): string {
   let contextBlock = '';
   if (conversationContext && conversationContext.length > 0) {
@@ -59,6 +61,14 @@ ${formatted}
 </active_conversation>
 
 Врахуй цей діалог при пропозиції змін — він показує, як агент зараз відповідає. Пропонуй зміни, які виправлять або покращать саме таку поведінку.`;
+  }
+
+  let catalogBlock = '';
+  if (catalogSnippet?.trim()) {
+    catalogBlock = `\n\n<catalog_snapshot>
+Орієнтовний знімок каталогу (для контексту при редагуванні промпту — не джерело цін для клієнта):
+${catalogSnippet.trim()}
+</catalog_snapshot>`;
   }
 
   return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
@@ -104,7 +114,7 @@ ${formatted}
 
 <current_prompt>
 ${currentPromptContent}
-</current_prompt>${contextBlock}`;
+</current_prompt>${contextBlock}${catalogBlock}`;
 }
 
 /**
@@ -264,10 +274,12 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         promptContent = activePrompt.content;
       }
 
-      // 2. Build meta-agent system prompt
+      // 2. Build meta-agent system prompt (catalog snapshot for product-aware edits)
+      const catalogSnippet = await loadCatalogSnippet();
       const metaAgentPrompt = buildMetaAgentSystemPrompt(
         promptContent,
         Array.isArray(conversationContext) ? conversationContext : undefined,
+        catalogSnippet,
       );
 
       // 3. Call Claude

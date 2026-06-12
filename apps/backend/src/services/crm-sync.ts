@@ -16,8 +16,8 @@
  */
 
 import pino from 'pino';
-import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
+import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { getCrmAdapter } from './crm/index.js';
 import type {
   CrmClientInput,
@@ -40,7 +40,7 @@ export async function mirrorClientToCrm(
   clientId: string,
   extractedCustomFields: Record<string, unknown> = {},
 ): Promise<void> {
-  if (!config.CRM_WRITE_ENABLED) return;
+  if (!(await isCrmWriteEnabled())) return;
 
   const crm = getCrmAdapter();
   if (!crm.upsertClient || !crm.findClient) {
@@ -146,7 +146,7 @@ export async function mirrorClientToCrm(
  * first (pre-mirror) so the CRM-side order record ties to the right buyer.
  */
 export async function mirrorOrderToCrm(orderId: string): Promise<void> {
-  if (!config.CRM_WRITE_ENABLED) return;
+  if (!(await isCrmWriteEnabled())) return;
 
   const crm = getCrmAdapter();
   if (!crm.createOrder) {
@@ -168,8 +168,23 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
       { orderId, keycrmOrderId: order.keycrmOrderId },
       'Order already mirrored — skipping',
     );
+    if (order.crmSyncStatus !== 'synced') {
+      await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          crmSyncStatus: 'synced',
+          crmSyncError: null,
+          crmSyncedAt: order.crmSyncedAt ?? new Date(),
+        },
+      });
+    }
     return;
   }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { crmSyncStatus: 'pending', crmSyncError: null },
+  });
 
   // Ensure the buyer is in the CRM first. If this fails, we still try
   // to create the order (KeyCRM will create/match a buyer from the
@@ -227,10 +242,15 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
       })
       .filter((v): v is string => v !== null)
       .join('\n');
+    const errMessage = err instanceof Error ? err.message : String(err);
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { crmSyncStatus: 'failed', crmSyncError: errMessage.slice(0, 500) },
+    });
     notifyCrmFallback({
       kind: 'order',
       entityId: orderId,
-      reason: err instanceof Error ? err.message : String(err),
+      reason: errMessage,
       clientIgUserId: order.client.igUserId,
       snapshot: [
         { label: "Ім'я", value: order.customerName },
@@ -247,7 +267,12 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
 
   await prisma.order.update({
     where: { id: orderId },
-    data: { keycrmOrderId: result.crmOrderId },
+    data: {
+      keycrmOrderId: result.crmOrderId,
+      crmSyncStatus: 'synced',
+      crmSyncError: null,
+      crmSyncedAt: new Date(),
+    },
   });
 
   log.info(
@@ -271,7 +296,7 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
  * handler before we were called.
  */
 export async function mirrorBriefToCrm(briefId: string): Promise<void> {
-  if (!config.CRM_WRITE_ENABLED) return;
+  if (!(await isCrmWriteEnabled())) return;
 
   const crm = getCrmAdapter();
   if (!crm.createLead) {

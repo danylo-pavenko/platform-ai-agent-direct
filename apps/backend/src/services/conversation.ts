@@ -1,5 +1,5 @@
 import pino from 'pino';
-import { config } from '../config.js';
+import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from './claude.js';
 import { sendText } from './instagram.js';
@@ -186,11 +186,10 @@ async function handleIncomingMessageImpl(
   // hints) and the tool schema (update_client_info.custom_fields). Cache
   // TTL inside the module keeps this at ~0 cost on hot paths.
   //
-  // Gated on CRM_WRITE_ENABLED so the extended surface only appears when
-  // we can actually persist what Claude extracts. Keeping hints off when
-  // writes are off avoids teasing the bot with fields whose values would
-  // be silently discarded.
-  const crmMappings = config.CRM_WRITE_ENABLED
+  // Gated on CRM writes so the extended surface only appears when we can
+  // persist what Claude extracts.
+  const crmWritesEnabled = await isCrmWriteEnabled();
+  const crmMappings = crmWritesEnabled
     ? await getActiveCrmFieldMappings()
     : null;
 
@@ -467,9 +466,62 @@ async function handleIncomingMessageImpl(
       );
     }
 
-    // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
+    // search_catalog — live CRM/catalog lookup, then re-invoke Claude
+    const searchCatalogCall = response.toolCalls.find((tc) => tc.name === 'search_catalog');
     const deliveryCostCall = response.toolCalls.find((tc) => tc.name === 'get_delivery_cost');
-    if (deliveryCostCall && !handoff && !collectOrder) {
+
+    if (searchCatalogCall && !handoff && !collectOrder && !deliveryCostCall) {
+      const query =
+        typeof searchCatalogCall.args.query === 'string'
+          ? searchCatalogCall.args.query.trim()
+          : '';
+
+      let toolResultContent: string;
+      if (!query) {
+        toolResultContent = '[search_catalog] ПОМИЛКА: порожній запит';
+      } else {
+        try {
+          const { contextBlock, matchCount } = await searchActiveProductsForContext(query);
+          toolResultContent =
+            matchCount > 0
+              ? `[search_catalog] РЕЗУЛЬТАТ:\n${contextBlock}`
+              : `[search_catalog] Нічого не знайдено за «${query}». Уточни у клієнта назву/модель або запропонуй схожі з каталогу.`;
+        } catch (err) {
+          log.error({ err, query }, 'search_catalog failed');
+          toolResultContent =
+            '[search_catalog] ПОМИЛКА: каталог тимчасово недоступний. Відповідай за знімком каталогу в промпті.';
+        }
+      }
+
+      const historyWithResult = [
+        ...history,
+        { role: 'user' as const, content: enrichedMessageText },
+        {
+          role: 'assistant' as const,
+          content: response.text || `[Шукаю в каталозі: ${query}]`,
+        },
+      ];
+
+      const response2 = await askClaude(
+        {
+          systemPrompt: prompt,
+          conversationHistory: historyWithResult,
+          userMessage: toolResultContent,
+          tools,
+        },
+        {
+          channel: conversation.channel,
+          conversationId,
+          clientId: client.id,
+        },
+      );
+
+      responseText = response2.text;
+      log.info({ conversationId, query }, 'Catalog search completed and Claude re-invoked');
+    }
+
+    // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
+    if (deliveryCostCall && !handoff && !collectOrder && !searchCatalogCall) {
       const city = typeof deliveryCostCall.args.city === 'string' ? deliveryCostCall.args.city : '';
       const weightKg = typeof deliveryCostCall.args.weight_kg === 'number'
         ? deliveryCostCall.args.weight_kg
