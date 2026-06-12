@@ -8,6 +8,7 @@ import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.
 import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import { isRemoteMediaUrl, persistRemoteMediaUrls } from '../services/media.js';
 import {
   getRuntimeConfig,
   shouldProcessIncoming,
@@ -430,6 +431,20 @@ async function processMessageEvent(
     mediaUrls.unshift(sharedPost.imageUrl);
   }
 
+  // ── Persist media to local uploads/ (IG CDN URLs expire in minutes) ──
+  const remoteUrls = mediaUrls.filter(isRemoteMediaUrl);
+  const storedResults =
+    remoteUrls.length > 0 ? await persistRemoteMediaUrls(remoteUrls) : [];
+  const storedMediaKeys = storedResults.filter((k): k is string => k !== null);
+
+  if (sharedPost?.imageUrl && isRemoteMediaUrl(sharedPost.imageUrl)) {
+    const idx = remoteUrls.indexOf(sharedPost.imageUrl);
+    const localKey = idx >= 0 ? storedResults[idx] : null;
+    if (localKey) {
+      sharedPost = { ...sharedPost, imageUrl: localKey };
+    }
+  }
+
   // ── Upsert client ──
   // isNew = true means this is the first message from this user ever.
   const existingClient = await prisma.client.findUnique({ where: { igUserId } });
@@ -532,7 +547,7 @@ async function processMessageEvent(
         direction: 'in',
         sender: 'client',
         text: redacted || null,
-        mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
+        mediaUrls: storedMediaKeys.length > 0 ? storedMediaKeys : undefined,
         // Store raw shared post metadata for audit / future reference.
         // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
         // accept typed interfaces with optional fields directly.
@@ -574,7 +589,7 @@ async function processMessageEvent(
       igMessageId,
       conversationId: conversation.id,
       hasSharedPost: !!sharedPost,
-      mediaCount: mediaUrls.length,
+      mediaCount: storedMediaKeys.length,
     },
     'Persisted incoming Instagram message',
   );
@@ -597,7 +612,7 @@ async function processMessageEvent(
   handleIncomingMessage(
     conversation.id,
     redacted || '',
-    mediaUrls,
+    storedMediaKeys,
     sharedPost ?? undefined,
   ).catch((err) => {
     app.log.error({ err, conversationId: conversation.id }, 'Error in conversation handler');

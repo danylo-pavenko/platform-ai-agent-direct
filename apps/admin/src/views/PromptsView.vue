@@ -69,7 +69,13 @@
     </v-card>
 
     <!-- New/Edit prompt dialog -->
-    <v-dialog v-model="dialogOpen" max-width="1000" persistent>
+    <v-dialog
+      v-model="dialogOpen"
+      :fullscreen="mobile"
+      :max-width="mobile ? undefined : 1000"
+      scrollable
+      persistent
+    >
       <v-card style="display:flex;flex-direction:column;max-height:90vh;">
         <v-card-title class="d-flex align-center ga-2">
           Нова версія промпту
@@ -149,7 +155,7 @@
                 class="mb-2 d-flex"
                 :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
               >
-                <div style="max-width: 80%;">
+                <div :style="{ maxWidth: mobile ? '90%' : '80%' }">
                   <div class="text-caption text-grey mb-1" :class="msg.role === 'user' ? 'text-right' : ''">
                     {{ msg.role === 'user' ? 'Ви' : 'Мета-агент' }}
                   </div>
@@ -160,9 +166,9 @@
                     class="pa-3"
                   >
                     <div
-                      class="text-body-2"
-                      :class="{ 'text-white': msg.role === 'user' }"
-                      v-html="formatAgentMsg(msg.content)"
+                      class="meta-agent-md"
+                      :class="{ 'meta-agent-md--on-primary': msg.role === 'user' }"
+                      v-html="formatMetaAgentMarkdown(msg.content)"
                     />
                   </v-card>
                 </div>
@@ -273,7 +279,11 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted } from 'vue';
+import { useDisplay } from 'vuetify';
 import api from '@/api';
+import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
+
+const { mobile } = useDisplay();
 
 interface Prompt {
   id: string;
@@ -337,19 +347,6 @@ function showSnack(text: string, color = 'success') {
 function formatDate(dateStr: string): string {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('uk-UA');
-}
-
-function formatAgentMsg(text: string): string {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/^(---\s*.+?\s*---)/gm, '<strong class="text-primary">$1</strong>');
-  html = html.replace(/^(ПОЯСНЕННЯ:)/gm, '<strong class="text-info">$1</strong>');
-  html = html.replace(/\n/g, '<br>');
-  return html;
 }
 
 function openNewDialog() {
@@ -500,7 +497,7 @@ onMounted(() => {
 }
 
 .agent-messages {
-  max-height: 300px;
+  max-height: min(300px, 40dvh);
   overflow-y: auto;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 8px;
@@ -529,10 +526,9 @@ onMounted(() => {
   border: 1px solid #bbf7d0;
 }
 
-:deep(.agent-messages code) {
-  background: rgba(0,0,0,0.06);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 0.9em;
+@media (max-width: 960px) {
+  .agent-messages {
+    max-height: min(240px, 35dvh);
+  }
 }
 </style>

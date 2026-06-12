@@ -1,0 +1,38 @@
+---
+description: Reference case — Cultura barbershop IG webhook routing that works in production
+alwaysApply: true
+---
+
+# Instagram webhook routing — verified working case (Cultura @ SB tenant)
+
+Reference tenant: **Status Blessed** instance (`sb`), client **@cultura.barbershop**.
+
+## Super-admin webhook config (sufficient — no extra routing IDs beyond ig_id)
+
+| Field | Value |
+|-------|--------|
+| Instagram Business Account ID (OAuth / Graph) | `17841437228550639` |
+| Additional routing ID (`recipient.id` in webhook logs) | `1971149383793917` |
+
+Hub matches `candidateIds` from Meta DM webhooks when **both** IDs are present.
+Do **not** add sender IDs (e.g. `17841410659012767`) — that is the client's IG, not the business.
+
+## Meta App Dashboard (Instagram API product) — required for this client in practice
+
+1. **Webhook Subscription → On** for `cultura.barbershop` in Instagram API setup.
+2. **Generate token** + authorize Cultura in Meta dashboard (one-time per IG asset if webhooks do not flow after OAuth alone).
+3. Then **OAuth / reconnect** in tenant admin Settings.
+
+App is **Live** with **App Review approved** for `instagram_manage_messages` — clients should not need Tester role when Advanced Access is active on that permission.
+
+## Tenant admin after connect
+
+- **Username** may stay empty (Graph omits `instagram_business_account` on `/me`) — set `cultura.barbershop` manually and Save.
+- If switching IG account or stale IGSIDs: **Settings → Небезпечна зона → Очистити всі діалоги**, then new inbound DM.
+- `subscribed_apps` 403 and direct `GET /{ig-id}` 400 in diagnostics are **expected** with Page token — trust `conversations` 200 and live DM flow.
+
+## ID cheat sheet (Meta uses multiple IDs — not a bug)
+
+- `17841437228550639` — Graph `instagram_business_account.id` (OAuth, super-admin primary)
+- `1971149383793917` — `ig_id` / common `recipient.id` in messaging webhooks (super-admin routing extra)
+- `17841410659012767` — example **sender** id in logs (danylo_pavenko) — never use for tenant routing

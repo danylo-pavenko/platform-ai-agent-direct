@@ -148,10 +148,53 @@
               </div>
               <v-card flat rounded="lg" class="pa-3 message-bubble-card" :class="bubbleCardClass(msg)">
                 <div
+                  v-if="msg.text"
                   class="message-bubble-text text-body-2"
                   style="word-break: break-word; line-height: 1.55; white-space: pre-wrap;"
                 >
                   {{ formatChatPlain(msg.text) }}
+                </div>
+                <div
+                  v-if="messageMediaKeys(msg).length > 0"
+                  class="message-media d-flex flex-column ga-2"
+                  :class="{ 'mt-2': msg.text }"
+                >
+                  <template v-for="(key, idx) in messageMediaKeys(msg)" :key="`${msg.id}-media-${idx}`">
+                    <video
+                      v-if="isVideoMedia(key)"
+                      :src="resolveMessageMediaSrc(key)"
+                      class="message-media-video"
+                      controls
+                      preload="metadata"
+                    />
+                    <a
+                      v-else
+                      :href="resolveMessageMediaSrc(key)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="message-media-link"
+                    >
+                      <img
+                        :src="resolveMessageMediaSrc(key)"
+                        class="message-media-image"
+                        alt="Вкладення"
+                        loading="lazy"
+                      />
+                    </a>
+                  </template>
+                </div>
+                <div v-if="msg.sharedPost?.postUrl" class="mt-2">
+                  <v-chip
+                    size="x-small"
+                    variant="outlined"
+                    :href="msg.sharedPost.postUrl"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    tag="a"
+                    prepend-icon="mdi-instagram"
+                  >
+                    Пост Instagram
+                  </v-chip>
                 </div>
               </v-card>
             </div>
@@ -239,6 +282,7 @@ import { useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatChatPlain } from '@/lib/chatDisplay';
+import { isVideoMedia, resolveMessageMediaSrc } from '@/lib/mediaUrl';
 
 const { mobile } = useDisplay();
 const router = useRouter();
@@ -247,6 +291,12 @@ const router = useRouter();
 // Types
 // ---------------------------------------------------------------------------
 
+interface SharedPostData {
+  postUrl?: string;
+  imageUrl?: string;
+  caption?: string;
+}
+
 interface Message {
   id: string;
   direction: 'in' | 'out' | 'system';
@@ -254,6 +304,8 @@ interface Message {
   text: string | null;
   createdAt: string;
   igMessageId?: string | null;
+  mediaUrls?: string[];
+  sharedPost?: SharedPostData | null;
 }
 
 interface ClientData {
@@ -408,6 +460,14 @@ const botIsThinking = computed(() => {
 
 function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
+}
+
+function messageMediaKeys(msg: Message): string[] {
+  const keys = new Set<string>();
+  for (const key of msg.mediaUrls ?? []) {
+    if (key) keys.add(key);
+  }
+  return [...keys];
 }
 
 async function scrollToBottom() {
@@ -1064,6 +1124,28 @@ const ClientProfilePanel = defineComponent({
 .message-bubble-card.bubble-out-manager {
   background: rgb(var(--v-theme-success));
   color: rgb(var(--v-theme-on-success));
+}
+
+.message-media-image {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.message-media-video {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  background: #000;
+}
+
+.message-media-link {
+  display: block;
+  line-height: 0;
 }
 
 .typing-dots {

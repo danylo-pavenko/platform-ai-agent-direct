@@ -11,7 +11,7 @@ import {
   loadCatalogSnippet,
   type ClientProfile,
 } from './prompt-builder.js';
-import { downloadAllMedia } from './media.js';
+import { resolveMediaPathsForClaude } from './media.js';
 import { notifyHandoff } from './telegram-notify.js';
 import { buildAgentTools } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
@@ -262,7 +262,7 @@ async function handleIncomingMessageImpl(
   // ── 7. Download media if present ──────────────────────────────────
   const localPaths =
     mediaUrls && mediaUrls.length > 0
-      ? await downloadAllMedia(mediaUrls)
+      ? await resolveMediaPathsForClaude(mediaUrls)
       : [];
 
   // ── 7b. Shared post - product availability lookup ─────────────────

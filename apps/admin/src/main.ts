@@ -6,6 +6,7 @@ import * as directives from 'vuetify/directives';
 import 'vuetify/styles';
 import '@mdi/font/css/materialdesignicons.css';
 import './styles/global.css';
+import './styles/meta-agent-md.css';
 
 import App from './App.vue';
 import router from './router';

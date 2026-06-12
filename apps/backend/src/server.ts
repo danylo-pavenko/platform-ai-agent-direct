@@ -18,6 +18,7 @@ import { dashboardRoutes } from './routes/dashboard.js';
 import { supervisorRoutes } from './routes/supervisor.js';
 import { crmFieldsRoutes } from './routes/crm-fields.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { mediaRoutes } from './routes/media.js';
 
 const app = Fastify({
   logger: {
@@ -63,6 +64,7 @@ await app.register(dashboardRoutes, { prefix: '/dashboard' });
 await app.register(supervisorRoutes, { prefix: '/supervisor' });
 await app.register(crmFieldsRoutes, { prefix: '/crm-fields' });
 await app.register(analyticsRoutes, { prefix: '/analytics' });
+await app.register(mediaRoutes, { prefix: '/media' });
 
 // Health check
 app.get('/health', async () => {

@@ -290,6 +290,7 @@
 import { ref, computed, nextTick, onMounted, defineComponent, h } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
+import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 
 const { mobile } = useDisplay();
 
@@ -348,6 +349,7 @@ const promptAgentLoading = ref(false);
 const promptAgentDiff = ref<Array<{ before: string; after: string; summary: string }> | null>(null);
 const promptAgentTab = ref<'edit' | 'agent'>('edit');
 const includeConversationContext = ref(true);
+const promptAgentMessagesEl = ref<HTMLElement | null>(null);
 
 // Save-as-version dialog state (for persisting the edited override to DB
 // as a draft prompt version that can later be activated from /prompts).
@@ -660,6 +662,13 @@ async function loadPromptContent(id: string) {
 // Prompt Agent (meta-agent mini-chat)
 // ---------------------------------------------------------------------------
 
+async function scrollPromptAgentMessages() {
+  await nextTick();
+  if (promptAgentMessagesEl.value) {
+    promptAgentMessagesEl.value.scrollTop = promptAgentMessagesEl.value.scrollHeight;
+  }
+}
+
 async function sendToPromptAgent() {
   const text = promptAgentInput.value.trim();
   if (!text || promptAgentLoading.value) return;
@@ -668,6 +677,7 @@ async function sendToPromptAgent() {
   promptAgentInput.value = '';
   promptAgentLoading.value = true;
   promptAgentDiff.value = null;
+  await scrollPromptAgentMessages();
 
   try {
     // When the user has an edited override, reason over THAT — not the DB-active
@@ -700,6 +710,7 @@ async function sendToPromptAgent() {
     promptAgentMessages.value.push({ role: 'assistant', content: `Помилка: ${errorMsg}` });
   } finally {
     promptAgentLoading.value = false;
+    await scrollPromptAgentMessages();
   }
 }
 
@@ -963,19 +974,28 @@ const PromptEditor = defineComponent({
                 'Опишіть що змінити - агент запропонує правки',
               ),
               // Messages
-              h('div', { class: 'prompt-agent-messages flex-grow-1 mb-2' },
+              h('div', {
+                ref: promptAgentMessagesEl,
+                class: 'prompt-agent-messages flex-grow-1 mb-2',
+              },
                 promptAgentMessages.value.length === 0 && !promptAgentLoading.value
                   ? [h('div', { class: 'text-center text-grey pa-3 text-caption' }, 'Напишіть що змінити в промпті')]
                   : [
                       ...promptAgentMessages.value.map((msg, idx) =>
                         h('div', {
                           key: idx,
-                          class: ['prompt-agent-msg mb-1', msg.role === 'user' ? 'msg-user' : 'msg-bot'],
+                          class: ['prompt-agent-msg mb-2', msg.role === 'user' ? 'msg-user' : 'msg-bot'],
                         }, [
-                          h('span', { class: 'text-caption font-weight-medium' },
-                            msg.role === 'user' ? 'Ви: ' : 'Агент: ',
+                          h('div', { class: 'text-caption font-weight-medium mb-1' },
+                            msg.role === 'user' ? 'Ви' : 'Агент',
                           ),
-                          h('span', { class: 'text-caption' }, msg.content),
+                          h('div', {
+                            class: [
+                              'meta-agent-md',
+                              msg.role === 'user' ? 'meta-agent-md--on-primary' : '',
+                            ],
+                            innerHTML: formatMetaAgentMarkdown(msg.content),
+                          }),
                         ]),
                       ),
                       promptAgentLoading.value
@@ -1031,13 +1051,21 @@ const PromptEditor = defineComponent({
                     ])
                   : null,
                 h('div', { class: 'd-flex ga-1 align-end' }, [
-                  h('input', {
+                  h('textarea', {
                     class: 'prompt-agent-input',
                     value: promptAgentInput.value,
+                    rows: 1,
                     placeholder: 'Додай правило про...',
                     disabled: promptAgentLoading.value,
-                    onInput: (e: Event) => { promptAgentInput.value = (e.target as HTMLInputElement).value; },
-                    onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') sendToPromptAgent(); },
+                    onInput: (e: Event) => {
+                      promptAgentInput.value = (e.target as HTMLTextAreaElement).value;
+                    },
+                    onKeydown: (e: KeyboardEvent) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendToPromptAgent();
+                      }
+                    },
                   }),
                   h('button', {
                     class: 'prompt-agent-send-btn',
@@ -1492,12 +1520,16 @@ onMounted(async () => {
   word-break: break-word;
 }
 .prompt-agent-msg {
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
   line-height: 1.4;
 }
 .prompt-agent-msg.msg-user {
-  background: rgba(var(--v-theme-primary), 0.06);
+  background: rgb(var(--v-theme-primary));
+  color: #fff;
+}
+.prompt-agent-msg.msg-user .text-caption {
+  color: rgba(255, 255, 255, 0.85);
 }
 .prompt-agent-msg.msg-bot {
   background: #f5f5f5;
@@ -1563,11 +1595,17 @@ onMounted(async () => {
 
 .prompt-agent-input {
   flex: 1;
+  min-width: 0;
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   border-radius: 6px;
   padding: 6px 10px;
   font-size: 12px;
+  line-height: 1.4;
+  font-family: inherit;
+  resize: none;
   outline: none;
+  max-height: 96px;
+  overflow-y: auto;
 }
 .prompt-agent-input:focus {
   border-color: rgb(var(--v-theme-primary));
@@ -1613,8 +1651,14 @@ onMounted(async () => {
 }
 
 .prompt-mobile-sheet {
-  height: 70dvh;
+  height: min(80dvh, 720px);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+.prompt-mobile-sheet .prompt-editor {
+  min-height: 0;
+  flex: 1 1 auto;
 }
 </style>

@@ -11,7 +11,7 @@
         size="small"
         icon="mdi-delete-outline"
         :disabled="messages.length === 0"
-        @click="clearChat"
+        @click="clearDialogOpen = true"
       />
     </div>
 
@@ -64,9 +64,9 @@
                 class="pa-3"
               >
                 <div
-                  class="text-body-2 msg-content"
-                  :class="{ 'text-white': msg.role === 'user' }"
-                  v-html="formatMessage(msg.content)"
+                  class="meta-agent-md"
+                  :class="{ 'meta-agent-md--on-primary': msg.role === 'user' }"
+                  v-html="formatMetaAgentMarkdown(msg.content)"
                 />
               </v-card>
             </div>
@@ -242,6 +242,21 @@
       </v-card>
     </div>
 
+    <!-- Clear chat confirmation -->
+    <v-dialog v-model="clearDialogOpen" max-width="400">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Очистити розмову?</v-card-title>
+        <v-card-text class="text-body-2">
+          Історія чату та незастосовані пропозиції змін будуть видалені. Цю дію не можна скасувати.
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="clearDialogOpen = false">Скасувати</v-btn>
+          <v-btn color="error" variant="flat" @click="confirmClearChat">Очистити</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Activate confirmation -->
     <v-dialog v-model="activateDialogOpen" max-width="480" persistent>
       <v-card>
@@ -277,6 +292,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
+import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 
 const { mobile } = useDisplay();
 
@@ -317,6 +333,7 @@ const activeBaseVersion = ref<number | null>(null);
 
 // Confirmation dialog for direct activation.
 const confirmActivate = ref<{ diffIdx: number } | null>(null);
+const clearDialogOpen = ref(false);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -335,23 +352,6 @@ function showSnackbar(text: string, color = 'success') {
   snackbarText.value = text;
   snackbarColor.value = color;
   snackbar.value = true;
-}
-
-/** Format message text: convert markdown-like markers to styled HTML */
-function formatMessage(text: string): string {
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/```([\s\S]*?)```/g, '<pre class="code-inline">$1</pre>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/^(---\s*.+?\s*---)/gm, '<strong class="text-primary">$1</strong>');
-  html = html.replace(/^(ПОЯСНЕННЯ(?:\s*\d+)?:)/gm, '<strong class="text-info">$1</strong>');
-  html = html.replace(/\n/g, '<br>');
-
-  return html;
 }
 
 async function scrollToBottom() {
@@ -536,7 +536,8 @@ function rejectDiff() {
   appliedResults.value = new Map();
 }
 
-function clearChat() {
+function confirmClearChat() {
+  clearDialogOpen.value = false;
   messages.value = [];
   currentDiffs.value = [];
   appliedResults.value = new Map();
@@ -562,10 +563,12 @@ onMounted(() => {
 /* Mobile: stack vertically */
 @media (max-width: 960px) {
   .chat-with-diff {
-    flex: 1 1 60%;
+    flex: 1 1 55%;
+    min-height: 0;
   }
   .diff-panel {
-    flex: 0 0 40%;
+    flex: 1 1 45%;
+    min-height: 180px;
   }
 }
 
@@ -589,33 +592,6 @@ onMounted(() => {
 .diff-after {
   background-color: #f0fdf4;
   border: 1px solid #bbf7d0;
-}
-
-:deep(.msg-content) {
-  line-height: 1.6;
-  word-break: break-word;
-}
-
-:deep(.msg-content br + br) {
-  display: block;
-  content: '';
-  margin-top: 4px;
-}
-
-:deep(.msg-content code) {
-  background: rgba(0,0,0,0.06);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 0.9em;
-}
-
-:deep(.msg-content pre.code-inline) {
-  background: rgba(0,0,0,0.06);
-  padding: 8px 12px;
-  border-radius: 6px;
-  margin: 8px 0;
-  font-size: 12px;
-  overflow-x: auto;
 }
 
 .typing-dots {
