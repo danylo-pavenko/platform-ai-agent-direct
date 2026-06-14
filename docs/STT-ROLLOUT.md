@@ -24,14 +24,26 @@ sudo apt install -y ffmpeg python3.12 python3.12-venv
 
 Also needed (~2 GB disk for Whisper `small` model + tenant venv — created by deploy).
 
+### Multi-tenant on one VPS (required)
+
+Each tenant **must** have its own whisper port. Formula: **`WHISPER_SERVICE_PORT = API_PORT + 5000`**.
+
+| Tenant | API_PORT | WHISPER_SERVICE_PORT |
+|--------|----------|----------------------|
+| SB (Status Blessed) | 3100 | **8100** |
+| TKP (Tviy KP) | 3200 | **8200** |
+| next client | 3300 | **8300** |
+
+If two tenants use `:8100`, the second whisper crashes with `address already in use` and voice STT silently fails.
+
 ## 1. Update `.env`
 
-Add (adjust port if multiple tenants on one host — use `API_PORT + 5000`):
+Add — **replace port with `API_PORT + 5000` for this tenant** (not always 8100):
 
 ```env
 STT_ENABLED=true
-WHISPER_SERVICE_URL=http://127.0.0.1:8100
-WHISPER_SERVICE_PORT=8100
+WHISPER_SERVICE_URL=http://127.0.0.1:8200
+WHISPER_SERVICE_PORT=8200
 WHISPER_SERVICE_TOKEN=<openssl rand -hex 24>
 WHISPER_MODEL=small
 WHISPER_LANGUAGE=uk
@@ -86,7 +98,9 @@ In admin → Settings → health check: row **«Голосові (STT / Whisper)
 | Symptom | Fix |
 |---------|-----|
 | Whisper health fail | `pm2 logs SB-whisper`; first start downloads model (minutes) |
+| `address already in use` / `:8100` | Another tenant owns the port — set `WHISPER_SERVICE_PORT=API_PORT+5000` |
 | Empty transcript | Check `ffmpeg`; IG CDN URL must download before expiry |
+| `400` in whisper logs | `Path outside UPLOADS_DIR` — set same absolute `UPLOADS_DIR` in `.env` for API+whisper, redeploy |
 | `413` in logs | Voice > `WHISPER_MAX_SECONDS` — ask client to type or shorten |
 | Duplicate STT load | Normal on first message; retries use in-memory cache |
 | STT disabled | `STT_ENABLED=false` skips whisper PM2 app |

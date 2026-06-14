@@ -133,6 +133,16 @@ else
   echo "[9/10] Admin panel not built yet — skipping"
 fi
 
+# ── 9b. Whisper port sanity (multi-tenant VPS) ──
+if [ "${STT_ENABLED:-true}" = "true" ]; then
+  RECOMMENDED_WHISPER_PORT=$((API_PORT + 5000))
+  WHISPER_PORT="${WHISPER_SERVICE_PORT:-8100}"
+  if [ "${WHISPER_PORT}" != "${RECOMMENDED_WHISPER_PORT}" ]; then
+    echo "  WARN: WHISPER_SERVICE_PORT=${WHISPER_PORT} — on shared VPS use API_PORT+5000=${RECOMMENDED_WHISPER_PORT}" >&2
+    echo "        (SB on :8100, TKP on :8200, etc. — one whisper port per tenant)" >&2
+  fi
+fi
+
 # ── 10. Restart PM2 ──
 echo "[10/10] Restarting PM2 processes..."
 PM2_PREFIX="${INSTANCE_ID_UPPER}"
@@ -194,6 +204,11 @@ if [ "${STT_ENABLED:-true}" = "true" ]; then
   done
   if [ "${WHISPER_OK}" = "0" ]; then
     echo "  WARN: Whisper STT did not respond on :${WHISPER_PORT} (voice notes may fail)" >&2
+    if command -v ss >/dev/null 2>&1 && ss -tlnH "sport = :${WHISPER_PORT}" 2>/dev/null | grep -q .; then
+      echo "  Port :${WHISPER_PORT} already in use — likely another tenant's whisper (EADDRINUSE)." >&2
+      ss -tlnpH "sport = :${WHISPER_PORT}" 2>&1 || true
+      echo "  Fix in .env: WHISPER_SERVICE_PORT=\$((API_PORT + 5000)) and matching WHISPER_SERVICE_URL" >&2
+    fi
     pm2 logs "${PM2_PREFIX}-whisper" --lines 15 --nostream 2>&1 || true
   fi
 fi

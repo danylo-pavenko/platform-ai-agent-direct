@@ -9,8 +9,19 @@ const prefix = (process.env.INSTANCE_ID || 'sb').toUpperCase();
 const apiPort = process.env.API_PORT || '3100';
 const adminPort = process.env.ADMIN_PORT || '3101';
 const sttEnabled = (process.env.STT_ENABLED || 'true').toLowerCase() === 'true';
-const whisperPort = process.env.WHISPER_SERVICE_PORT || '8100';
 const projectRoot = path.resolve(__dirname);
+
+/** Whisper port: API_PORT+5000; ignore legacy 8100 when API_PORT is not 3100 (multi-tenant VPS). */
+function resolveWhisperPort(apiPortStr, envPortStr) {
+  const api = Number(apiPortStr) || 3100;
+  const derived = api + 5000;
+  if (!envPortStr) return String(derived);
+  const envPort = Number(envPortStr);
+  if (envPort === 8100 && api !== 3100) return String(derived);
+  return String(envPort);
+}
+
+const whisperPort = resolveWhisperPort(apiPort, process.env.WHISPER_SERVICE_PORT);
 
 const apps = [
   {
@@ -19,7 +30,11 @@ const apps = [
     script: 'dist/server.js',
     node_args: '--enable-source-maps',
     instances: 1,
-    env: { NODE_ENV: 'production', API_PORT: apiPort },
+    env: {
+      NODE_ENV: 'production',
+      API_PORT: apiPort,
+      UPLOADS_DIR: process.env.UPLOADS_DIR || path.join(projectRoot, 'uploads'),
+    },
     max_memory_restart: '512M',
     log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
   },

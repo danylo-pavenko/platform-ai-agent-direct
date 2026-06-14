@@ -221,7 +221,43 @@ async function checkStt(): Promise<HealthCheckItem> {
     };
   }
 
-  const { pingWhisperService } = await import('./transcribe.js');
+  const { pingWhisperService, getWhisperHealth } = await import('./transcribe.js');
+  const { getUploadsRoot } = await import('./media.js');
+  const { resolve: resolvePath } = await import('node:path');
+
+  const whisperHealth = await getWhisperHealth();
+  if (!whisperHealth.ok) {
+    return {
+      id: 'stt',
+      label,
+      status: 'error',
+      message: `Whisper недоступний на ${config.WHISPER_SERVICE_URL}`,
+      details: {
+        url: config.WHISPER_SERVICE_URL,
+        model: config.WHISPER_MODEL,
+        maxSeconds: config.WHISPER_MAX_SECONDS,
+      },
+    };
+  }
+
+  const apiUploads = resolvePath(getUploadsRoot());
+  const whisperUploads = whisperHealth.uploadsDir
+    ? resolvePath(whisperHealth.uploadsDir)
+    : null;
+  if (whisperUploads && whisperUploads !== apiUploads) {
+    return {
+      id: 'stt',
+      label,
+      status: 'error',
+      message: 'UPLOADS_DIR не збігається між API і Whisper',
+      details: {
+        apiUploadsDir: apiUploads,
+        whisperUploadsDir: whisperUploads,
+        hint: 'Встановіть однаковий абсолютний UPLOADS_DIR у .env і pm2 restart --update-env',
+      },
+    };
+  }
+
   const ok = await pingWhisperService();
   if (!ok) {
     return {

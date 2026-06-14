@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { config } from '../config.js';
 import { getCachedStt, setCachedStt } from '../lib/stt-cache.js';
-import { resolveStorageKey } from './media.js';
+import { resolveStorageKey, getUploadsRoot } from './media.js';
 
 const log = pino({ name: 'transcribe' });
 
@@ -55,7 +55,8 @@ export async function transcribeStorageKey(storageKey: string): Promise<Transcri
         'Content-Type': 'application/json',
         'X-Whisper-Token': config.WHISPER_SERVICE_TOKEN,
       },
-      body: JSON.stringify({ path: absolutePath }),
+      // storageKey — whisper resolves under its own UPLOADS_DIR (avoids cwd mismatch).
+      body: JSON.stringify({ storageKey }),
       signal: controller.signal,
     });
 
@@ -67,7 +68,15 @@ export async function transcribeStorageKey(storageKey: string): Promise<Transcri
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      log.warn({ status: res.status, storageKey, body: body.slice(0, 200) }, 'Whisper STT failed');
+      log.warn(
+        {
+          status: res.status,
+          storageKey,
+          uploadsRoot: getUploadsRoot(),
+          body: body.slice(0, 300),
+        },
+        'Whisper STT failed',
+      );
       setCachedStt(storageKey, null, 'failed');
       return null;
     }
@@ -117,5 +126,24 @@ export async function pingWhisperService(): Promise<boolean> {
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+/** Fetch whisper /health payload (uploadsDir alignment checks). */
+export async function getWhisperHealth(): Promise<{
+  ok: boolean;
+  uploadsDir?: string;
+  model?: string;
+}> {
+  if (!config.STT_ENABLED) return { ok: false };
+  const baseUrl = config.WHISPER_SERVICE_URL.replace(/\/$/, '');
+  if (!baseUrl) return { ok: false };
+  try {
+    const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return { ok: false };
+    const data = (await res.json()) as { uploadsDir?: string; model?: string };
+    return { ok: true, uploadsDir: data.uploadsDir, model: data.model };
+  } catch {
+    return { ok: false };
   }
 }

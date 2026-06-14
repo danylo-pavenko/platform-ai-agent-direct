@@ -1,11 +1,13 @@
 import { createWriteStream } from 'node:fs';
 import { mkdir, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join, resolve, relative, normalize, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { config } from '../config.js';
+import { REPO_ROOT } from '../lib/paths.js';
 import {
   igTypeToMediaKind,
   type MediaKind,
@@ -69,8 +71,20 @@ function pickExtension(contentType: string, igType?: string): string {
   return '.bin';
 }
 
+/** Absolute uploads root — relative UPLOADS_DIR is anchored to repo root, not PM2 cwd. */
+export function getUploadsRoot(): string {
+  const raw = config.UPLOADS_DIR.trim();
+  if (raw.startsWith('~/')) {
+    return resolve(homedir(), raw.slice(2));
+  }
+  if (raw.startsWith('/')) {
+    return resolve(raw);
+  }
+  return resolve(REPO_ROOT, raw);
+}
+
 function uploadsRoot(): string {
-  return resolve(config.UPLOADS_DIR);
+  return getUploadsRoot();
 }
 
 /** Relative path under UPLOADS_DIR (stored in DB), e.g. `2026/06/uuid.jpg`. */

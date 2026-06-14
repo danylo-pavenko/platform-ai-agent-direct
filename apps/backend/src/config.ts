@@ -90,8 +90,8 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v.toLowerCase() === 'true'),
-  WHISPER_SERVICE_URL: z.string().default('http://127.0.0.1:8100'),
-  WHISPER_SERVICE_PORT: z.coerce.number().default(8100),
+  WHISPER_SERVICE_URL: z.string().default(''),
+  WHISPER_SERVICE_PORT: z.coerce.number().optional(),
   WHISPER_SERVICE_TOKEN: z.string().default(''),
   WHISPER_MODEL: z.string().default('small'),
   WHISPER_LANGUAGE: z.string().default('uk'),
@@ -117,5 +117,23 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const config = parsed.data;
-export type Config = z.infer<typeof envSchema>;
+/** Per-tenant whisper port on shared VPS: API_PORT + 5000 (8100 only for API 3100). */
+function resolveWhisperPort(apiPort: number, envPort?: number): number {
+  const derived = apiPort + 5000;
+  if (envPort == null) return derived;
+  if (envPort === 8100 && apiPort !== 3100) return derived;
+  return envPort;
+}
+
+const _raw = parsed.data;
+const _whisperPort = resolveWhisperPort(_raw.API_PORT, _raw.WHISPER_SERVICE_PORT);
+const _whisperUrl =
+  _raw.WHISPER_SERVICE_URL.trim() ||
+  `http://127.0.0.1:${_whisperPort}`;
+
+export const config = {
+  ..._raw,
+  WHISPER_SERVICE_PORT: _whisperPort,
+  WHISPER_SERVICE_URL: _whisperUrl,
+};
+export type Config = typeof config;

@@ -6,13 +6,16 @@ Binds to 127.0.0.1 only. Accepts absolute paths under UPLOADS_DIR (shared with b
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+log = logging.getLogger("whisper")
 
 app = FastAPI(title="Tenant Whisper STT", version="1.0.0")
 
@@ -21,7 +24,22 @@ _model_name: Optional[str] = None
 
 
 class TranscribeRequest(BaseModel):
-    path: str = Field(..., description="Absolute path to an audio file under UPLOADS_DIR")
+    path: Optional[str] = Field(
+        default=None,
+        description="Legacy absolute path under UPLOADS_DIR",
+    )
+    storageKey: Optional[str] = Field(
+        default=None,
+        description="Relative path under UPLOADS_DIR, e.g. 2026/06/uuid.m4a",
+    )
+
+    @model_validator(mode="after")
+    def require_path_or_key(self) -> "TranscribeRequest":
+        if not self.path and not self.storageKey:
+            raise ValueError("path or storageKey is required")
+        if self.path and self.storageKey:
+            raise ValueError("provide path or storageKey, not both")
+        return self
 
 
 class TranscribeResponse(BaseModel):
@@ -45,8 +63,35 @@ def _validate_path(file_path: str) -> Path:
     try:
         candidate.relative_to(uploads)
     except ValueError as exc:
+        log.warning("Path outside UPLOADS_DIR: file=%s uploads=%s", candidate, uploads)
         raise HTTPException(status_code=400, detail="Path outside UPLOADS_DIR") from exc
     if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return candidate
+
+
+def _resolve_audio(body: TranscribeRequest) -> Path:
+    uploads = _uploads_root()
+    if body.storageKey:
+        key = body.storageKey.replace("\\", "/").lstrip("/")
+        if not key or ".." in key.split("/"):
+            raise HTTPException(status_code=400, detail="Invalid storageKey")
+        candidate = (uploads / key).resolve()
+        try:
+            candidate.relative_to(uploads)
+        except ValueError as exc:
+            log.warning(
+                "storageKey outside UPLOADS_DIR: key=%s file=%s uploads=%s",
+                key,
+                candidate,
+                uploads,
+            )
+            raise HTTPException(status_code=400, detail="Path outside UPLOADS_DIR") from exc
+    else:
+        candidate = _validate_path(body.path or "")
+
+    if not candidate.is_file():
+        log.warning("Audio file not found: %s (uploads=%s)", candidate, uploads)
         raise HTTPException(status_code=404, detail="File not found")
     return candidate
 
@@ -124,7 +169,7 @@ def transcribe(
     x_whisper_token: Optional[str] = Header(default=None, alias="X-Whisper-Token"),
 ) -> TranscribeResponse:
     _check_token(x_whisper_token)
-    audio_path = _validate_path(body.path)
+    audio_path = _resolve_audio(body)
 
     max_seconds = float(_env("WHISPER_MAX_SECONDS", "90") or "90")
     duration = _probe_duration_sec(audio_path)
