@@ -164,6 +164,11 @@ SA_ADMIN_PASSWORD=${SA_PASS}
 
 CONTACT_EMAIL=hello@direct-ai-agents.com
 LOG_LEVEL=info
+
+# Landing contact form (Resend) — https://resend.com
+RESEND_API_KEY=
+RESEND_FROM=Direct AI Agents <onboarding@resend.dev>
+LANDING_CONTACT_TO=help@depsoftware.com
 EOF
   chown "${LINUX_USER}:${LINUX_USER}" "${ENV_FILE}"
   chmod 600 "${ENV_FILE}"

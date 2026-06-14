@@ -1,4 +1,10 @@
+import { config as loadDotenv } from 'dotenv';
+import { resolve } from 'node:path';
 import { z } from 'zod';
+
+// Load .env.super-admin from repo root when running locally (PM2 injects env in production).
+loadDotenv({ path: resolve(process.cwd(), '.env') });
+loadDotenv({ path: resolve(process.cwd(), '../../.env.super-admin') });
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -21,6 +27,10 @@ const schema = z.object({
   // If empty, HMAC verification is skipped (not recommended for production).
   PLATFORM_FACEBOOK_APP_SECRET: z.string().default(''),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  // Landing contact form (Resend)
+  RESEND_API_KEY: z.string().default(''),
+  RESEND_FROM: z.string().default('Direct AI Agents <onboarding@resend.dev>'),
+  LANDING_CONTACT_TO: z.string().email().default('help@depsoftware.com'),
 });
 
 const parsed = schema.safeParse(process.env);

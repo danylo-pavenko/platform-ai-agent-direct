@@ -620,6 +620,117 @@
   }
   .footer-big { display: none; }
 
+  /* ---------- CONTACT FORM ---------- */
+  .contact-section {
+    padding: 88px 0;
+    background: var(--bg);
+    scroll-margin-top: 80px;
+  }
+  .contact-layout {
+    display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: start;
+  }
+  .contact-aside {
+    padding: 28px; border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, var(--primary-soft), var(--bg-soft));
+    border: 1px solid var(--rule);
+  }
+  .contact-aside h3 {
+    font-family: var(--display); font-size: 22px; font-weight: 800;
+    margin: 0 0 12px; color: var(--ink);
+  }
+  .contact-aside p { margin: 0 0 16px; font-size: 15px; color: var(--ink-2); line-height: 1.6; }
+  .contact-perks { list-style: none; padding: 0; margin: 0; }
+  .contact-perks li {
+    padding: 10px 0; font-size: 14px; color: var(--ink-2);
+    border-top: 1px solid var(--rule);
+  }
+  .contact-perks li::before { content: '✓ '; color: var(--success); font-weight: 700; }
+
+  .contact-form {
+    padding: 28px; border-radius: var(--radius-lg);
+    background: var(--bg); border: 1px solid var(--rule);
+    box-shadow: var(--shadow-lg);
+  }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-field { display: flex; flex-direction: column; gap: 6px; }
+  .form-field.full { grid-column: 1 / -1; }
+  .form-field label {
+    font-size: 13px; font-weight: 600; color: var(--ink);
+  }
+  .form-field label span.opt { font-weight: 500; color: var(--ink-3); }
+  .form-field input, .form-field textarea, .form-field select {
+    padding: 12px 14px; border-radius: 10px;
+    border: 1px solid var(--rule); background: var(--bg-soft);
+    font-family: inherit; font-size: 16px; color: var(--ink);
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .form-field input:focus, .form-field textarea:focus, .form-field select:focus {
+    outline: none; border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79,70,229,.15);
+  }
+  .form-field textarea { min-height: 96px; resize: vertical; }
+  .form-hint {
+    font-size: 13px; color: var(--ink-3); margin: 0 0 16px; line-height: 1.5;
+  }
+  .form-error {
+    display: none; margin-bottom: 12px; padding: 10px 14px;
+    border-radius: 8px; background: var(--danger-soft);
+    color: var(--danger); font-size: 14px; font-weight: 500;
+  }
+  .form-error.show { display: block; }
+  .form-actions { margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .form-actions .btn { flex: 1; min-width: 140px; justify-content: center; }
+  .hp { position: absolute; left: -9999px; opacity: 0; height: 0; overflow: hidden; }
+
+  /* Modals */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(15,23,42,.55);
+    backdrop-filter: blur(4px);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-card {
+    width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto;
+    background: var(--bg); border-radius: var(--radius-lg);
+    padding: 28px; box-shadow: var(--shadow-lg);
+    animation: modalIn .2s ease;
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(.96) translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  .modal-card h3 {
+    font-family: var(--display); font-size: 20px; font-weight: 800;
+    margin: 0 0 8px; color: var(--ink);
+  }
+  .modal-card p { margin: 0 0 16px; font-size: 15px; color: var(--ink-2); line-height: 1.55; }
+  .confirm-list {
+    list-style: none; padding: 0; margin: 0 0 20px;
+    background: var(--bg-soft); border-radius: var(--radius);
+    border: 1px solid var(--rule);
+  }
+  .confirm-list li {
+    padding: 10px 14px; font-size: 14px; color: var(--ink-2);
+    border-bottom: 1px solid var(--rule);
+    display: flex; gap: 8px;
+  }
+  .confirm-list li:last-child { border-bottom: 0; }
+  .confirm-list li strong { color: var(--ink); min-width: 88px; flex-shrink: 0; }
+  .modal-actions { display: flex; gap: 10px; }
+  .modal-actions .btn { flex: 1; justify-content: center; }
+  .modal-success-icon {
+    width: 56px; height: 56px; border-radius: 50%;
+    background: var(--success-soft); color: var(--success);
+    display: grid; place-items: center; font-size: 28px;
+    margin: 0 auto 16px;
+  }
+  .modal-card.success { text-align: center; }
+  .btn.loading { opacity: .7; pointer-events: none; }
+
+  a.contact-cta { cursor: pointer; }
+
   /* ---------- MOBILE NAV ---------- */
   .nav-burger {
     display: none; width: 40px; height: 40px; border-radius: 10px;
@@ -675,6 +786,9 @@
     .footer-bottom { flex-direction: column; gap: 8px; }
     section { padding: 64px 0; }
     .hero-cta .btn.lg { flex: 1 1 auto; }
+    .contact-layout { grid-template-columns: 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+    .form-actions .btn { width: 100%; }
   }
   @media (max-width: 600px) {
     .steps { grid-template-columns: 1fr; }
@@ -696,6 +810,7 @@
       <a href="#how" data-i="nav_how">Як</a>
       <a href="#features" data-i="nav_features">Можливості</a>
       <a href="#pricing" data-i="nav_pricing">Тарифи</a>
+      <a href="#contact" data-i="nav_contact">Контакт</a>
       <a href="#faq" data-i="nav_faq">Питання</a>
     </div>
     <div class="nav-right">
@@ -703,7 +818,7 @@
         <button class="active" data-lang="uk">UA</button>
         <button data-lang="en">EN</button>
       </div>
-      <a class="btn red" href="mailto:help@depsoftware.com" data-i="nav_demo">Замовити демо</a>
+      <a class="btn red contact-cta" href="#contact" data-i="nav_demo">Замовити демо</a>
       <button class="nav-burger" aria-label="Menu" aria-expanded="false" aria-controls="navPanel">
         <span></span><span></span><span></span>
       </button>
@@ -713,6 +828,7 @@
     <a href="#how" data-i="nav_how">Як</a>
     <a href="#features" data-i="nav_features">Можливості</a>
     <a href="#pricing" data-i="nav_pricing">Тарифи</a>
+    <a href="#contact" data-i="nav_contact">Контакт</a>
     <a href="#faq" data-i="nav_faq">Питання</a>
     <div class="lang">
       <button class="active" data-lang="uk">UA</button>
@@ -738,7 +854,7 @@
         </h1>
         <p class="hero-sub" data-i="hero_sub">AI-продавець для Instagram DM: відповідає кожному клієнту за 4 секунди, 24/7, і доводить діалог до замовлення. Ви отримуєте більше продажів з тієї ж реклами — без додаткових менеджерів.</p>
         <div class="hero-cta">
-          <a class="btn red lg" href="mailto:help@depsoftware.com" data-i="hero_cta1">Запустити за 48 год ↗</a>
+          <a class="btn red lg contact-cta" href="#contact" data-i="hero_cta1">Запустити за 48 год ↗</a>
           <a class="btn lg" href="#how" data-i="hero_cta2">Подивитись, як працює</a>
           <span class="micro" data-i="hero_micro">14 днів безкоштовно · без банківської картки</span>
         </div>
@@ -1058,7 +1174,7 @@
           <li><span class="ck">+</span><span data-i="p1_f4">Telegram-бот для менеджера</span></li>
           <li><span class="ck">+</span><span data-i="p1_f5">Email-підтримка</span></li>
         </ul>
-        <button class="price-cta" onclick="location.href='mailto:help@depsoftware.com'" data-i="p1_cta">Почати безкоштовно ↗</button>
+        <button class="price-cta contact-cta" type="button" data-plan="Starter" data-i="p1_cta">Почати безкоштовно ↗</button>
       </div>
       <div class="price-col featured">
         <div class="price-pill" data-i="p2_pill">НАЙПОПУЛЯРНІШИЙ</div>
@@ -1074,7 +1190,7 @@
           <li><span class="ck">+</span><span data-i="p2_f6">Аналітика + редактор промптів</span></li>
           <li><span class="ck">+</span><span data-i="p2_f7">Telegram-підтримка · 12 год</span></li>
         </ul>
-        <button class="price-cta" onclick="location.href='mailto:help@depsoftware.com'" data-i="p2_cta">Замовити демо ↗</button>
+        <button class="price-cta contact-cta" type="button" data-plan="Business" data-i="p2_cta">Замовити демо ↗</button>
       </div>
       <div class="price-col">
         <div class="price-name" data-i="p3_name">AGENCY · WHITE-LABEL</div>
@@ -1088,7 +1204,7 @@
           <li><span class="ck">+</span><span data-i="p3_f5">Recurring revenue</span></li>
           <li><span class="ck">+</span><span data-i="p3_f6">Виділений менеджер</span></li>
         </ul>
-        <button class="price-cta" onclick="location.href='mailto:help@depsoftware.com'" data-i="p3_cta">Стати партнером ↗</button>
+        <button class="price-cta contact-cta" type="button" data-plan="Agency" data-i="p3_cta">Стати партнером ↗</button>
       </div>
     </div>
   </div>
@@ -1105,7 +1221,7 @@
       </div>
     </div>
     <div class="faq-layout">
-      <p class="sec-lede" style="margin:0" data-i="faq_sub">Не знайшли відповідь? Напишіть на <a href="mailto:help@depsoftware.com" style="color:var(--red)">help@depsoftware.com</a> — відповідаємо швидко.</p>
+      <p class="sec-lede" style="margin:0" data-i="faq_sub">Не знайшли відповідь? <a href="#contact" style="color:var(--primary)">Напишіть нам у формі</a> — відповідаємо швидко.</p>
       <div class="faq-list">
         <div class="faq-item open">
           <div class="faq-q">
@@ -1154,6 +1270,100 @@
   </div>
 </section>
 
+<!-- ============ CONTACT ============ -->
+<section id="contact" class="contact-section">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-head-text">
+        <div class="sec-label" data-i="contact_eyebrow">Звʼязок</div>
+        <h2 class="sec-title"><span data-i="contact_t1">Залиште контакт —</span> <span class="red" data-i="contact_t2">ми напишемо за 24 год</span></h2>
+        <p class="sec-lede" data-i="contact_sub">Достатньо Instagram, email або мессенджера. Менеджер підбере тариф і покаже демо.</p>
+      </div>
+    </div>
+
+    <div class="contact-layout">
+      <aside class="contact-aside">
+        <h3 data-i="contact_aside_h">Що далі?</h3>
+        <p data-i="contact_aside_p">Після заявки звʼяжемось у зручному для вас каналі, уточнимо каталог і запустимо пілот за 48 годин.</p>
+        <ul class="contact-perks">
+          <li data-i="contact_p1">14 днів безкоштовно, без карти</li>
+          <li data-i="contact_p2">Підключення Instagram + CRM</li>
+          <li data-i="contact_p3">Окремий інстанс у ЄС</li>
+        </ul>
+      </aside>
+
+      <form id="contactForm" class="contact-form" novalidate>
+        <p class="form-hint" data-i="contact_hint">Вкажіть хоча б один спосіб звʼязку — email, Instagram або мессенджер.</p>
+        <div class="form-error" id="formError" role="alert"></div>
+
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="cf-name"><span data-i="cf_name">Імʼя / бренд</span> <span class="opt" data-i="cf_opt">(необовʼязково)</span></label>
+            <input id="cf-name" name="name" type="text" autocomplete="name" maxlength="120" />
+          </div>
+          <div class="form-field">
+            <label for="cf-plan" data-i="cf_plan">Цікавить</label>
+            <select id="cf-plan" name="plan">
+              <option value="Demo" data-i="cf_plan_demo">Демо / консультація</option>
+              <option value="Starter" data-i="cf_plan_starter">Starter</option>
+              <option value="Business" data-i="cf_plan_business">Business</option>
+              <option value="Agency" data-i="cf_plan_agency">Agency / white-label</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="cf-email"><span data-i="cf_email">Email</span> <span class="opt" data-i="cf_opt2">(або Instagram нижче)</span></label>
+            <input id="cf-email" name="email" type="email" autocomplete="email" maxlength="254" inputmode="email" />
+          </div>
+          <div class="form-field">
+            <label for="cf-instagram" data-i="cf_ig">Instagram</label>
+            <input id="cf-instagram" name="instagram" type="text" placeholder="@yourbrand" maxlength="120" autocapitalize="off" />
+          </div>
+          <div class="form-field full">
+            <label for="cf-messenger"><span data-i="cf_msg">Мессенджер</span> <span class="opt" data-i="cf_opt">(Telegram, WhatsApp…)</span></label>
+            <input id="cf-messenger" name="messenger" type="text" placeholder="Telegram @nick" maxlength="200" />
+          </div>
+          <div class="form-field full">
+            <label for="cf-message"><span data-i="cf_message">Коментар</span> <span class="opt" data-i="cf_opt">(необовʼязково)</span></label>
+            <textarea id="cf-message" name="message" maxlength="2000" data-i-placeholder="cf_message_ph"></textarea>
+          </div>
+        </div>
+
+        <div class="hp" aria-hidden="true">
+          <label for="cf-website">Website</label>
+          <input id="cf-website" name="website" type="text" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn red lg" id="contactSubmit" data-i="cf_submit">Надіслати заявку</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div class="modal-card">
+    <h3 id="confirmTitle" data-i="confirm_t">Перевірте дані</h3>
+    <p data-i="confirm_p">Усе правильно? Після підтвердження заявку отримає наша команда.</p>
+    <ul class="confirm-list" id="confirmList"></ul>
+    <div class="modal-actions">
+      <button type="button" class="btn" id="confirmBack" data-i="confirm_back">Редагувати</button>
+      <button type="button" class="btn red" id="confirmSend" data-i="confirm_send">Так, надіслати</button>
+    </div>
+  </div>
+</div>
+
+<!-- Success modal -->
+<div class="modal-overlay" id="successModal" role="dialog" aria-modal="true" aria-labelledby="successTitle">
+  <div class="modal-card success">
+    <div class="modal-success-icon">✓</div>
+    <h3 id="successTitle" data-i="success_t">Заявку надіслано!</h3>
+    <p data-i="success_p">Дякуємо. Звʼяжемось протягом 24 годин у зручному для вас каналі.</p>
+    <button type="button" class="btn red" id="successClose" data-i="success_close">Чудово</button>
+  </div>
+</div>
+
 <!-- ============ CTA ============ -->
 <section class="cta-section">
   <div class="wrap">
@@ -1165,7 +1375,7 @@
     </h2>
     <p class="cta-sub" data-i="cta_sub">Запустимо AI-агента за 48 годин. 14 днів безкоштовно. Не зайде — не платите.</p>
     <div class="cta-row">
-      <a class="btn red lg" href="mailto:help@depsoftware.com" data-i="cta_btn1">Замовити демо ↗</a>
+      <a class="btn red lg contact-cta" href="#contact" data-i="cta_btn1">Замовити демо ↗</a>
       <a class="btn lg" href="#pricing" data-i="cta_btn2">Подивитися тарифи</a>
       <span class="micro" data-i="cta_micro">help@depsoftware.com · ceo@depsoftware.com</span>
     </div>
@@ -1218,7 +1428,7 @@
         <a href="mailto:help@depsoftware.com" data-i="foot_c1">Про нас</a>
         <a href="mailto:help@depsoftware.com" data-i="foot_c2">Кейси</a>
         <a href="mailto:help@depsoftware.com" data-i="foot_c3">Партнерам</a>
-        <a href="mailto:help@depsoftware.com" data-i="foot_c4">Контакти</a>
+        <a href="#contact" data-i="foot_c4">Контакти</a>
       </div>
       <div class="footer-col">
         <h5 data-i="foot_lg">Юридично</h5>
@@ -1240,7 +1450,7 @@
   // ============ I18N ============
   const I18N = {
     uk: {
-      nav_how: "Як", nav_features: "Можливості", nav_pricing: "Тарифи", nav_faq: "Питання",
+      nav_how: "Як", nav_features: "Можливості", nav_pricing: "Тарифи", nav_contact: "Контакт", nav_faq: "Питання",
       nav_demo: "Замовити демо ↗",
 
       hero_eyebrow: "AI-продавець для Instagram Direct · 24/7",
@@ -1347,7 +1557,6 @@
 
       faq_eyebrow: "Питання",
       faq_t1: "Питання, які", faq_t2: "завжди задають.",
-      faq_sub: 'Не знайшли відповідь? Напишіть на <a href="mailto:help@depsoftware.com" style="color:var(--red)">help@depsoftware.com</a> — відповідаємо швидко.',
       faq1_q: "Чи відрізнить клієнт, що це AI?",
       faq1_a: "Більшість — ні. Налаштовується під ваш фірмовий стиль. Радимо чесно вказати в bio, що відповідає AI — це підвищує довіру.",
       faq2_q: "Що зі складними запитами?",
@@ -1371,9 +1580,34 @@
       foot_co: "Компанія", foot_c1: "Про нас", foot_c2: "Кейси", foot_c3: "Партнерам", foot_c4: "Контакти",
       foot_lg: "Юридично", foot_l1: "Приватність", foot_l2: "Умови", foot_l5: "Видалення даних", foot_l3: "DPA", foot_l4: "Безпека",
       foot_made: "Зроблено в Києві, Україна",
+
+      contact_eyebrow: "Звʼязок",
+      contact_t1: "Залиште контакт —", contact_t2: "ми напишемо за 24 год",
+      contact_sub: "Достатньо Instagram, email або мессенджера. Менеджер підбере тариф і покаже демо.",
+      contact_aside_h: "Що далі?",
+      contact_aside_p: "Після заявки звʼяжемось у зручному для вас каналі, уточнимо каталог і запустимо пілот за 48 годин.",
+      contact_p1: "14 днів безкоштовно, без карти",
+      contact_p2: "Підключення Instagram + CRM",
+      contact_p3: "Окремий інстанс у ЄС",
+      contact_hint: "Вкажіть хоча б один спосіб звʼязку — email, Instagram або мессенджер.",
+      cf_name: "Імʼя / бренд", cf_opt: "(необовʼязково)", cf_opt2: "(або Instagram нижче)",
+      cf_plan: "Цікавить", cf_plan_demo: "Демо / консультація", cf_plan_starter: "Starter",
+      cf_plan_business: "Business", cf_plan_agency: "Agency / white-label",
+      cf_email: "Email", cf_ig: "Instagram", cf_msg: "Мессенджер", cf_message: "Коментар",
+      cf_message_ph: "Розкажіть коротко про магазин або запитання…",
+      cf_submit: "Надіслати заявку",
+      confirm_t: "Перевірте дані", confirm_p: "Усе правильно? Після підтвердження заявку отримає наша команда.",
+      confirm_back: "Редагувати", confirm_send: "Так, надіслати",
+      success_t: "Заявку надіслано!", success_p: "Дякуємо. Звʼяжемось протягом 24 годин у зручному для вас каналі.",
+      success_close: "Чудово",
+      err_contact_required: "Вкажіть email, Instagram або мессенджер — хоча б один спосіб звʼязку.",
+      err_email_invalid: "Перевірте формат email.",
+      err_send: "Не вдалося надіслати. Спробуйте ще раз або напишіть на help@depsoftware.com",
+      cf_l_name: "Імʼя", cf_l_email: "Email", cf_l_ig: "Instagram", cf_l_msg: "Мессенджер", cf_l_plan: "Тариф", cf_l_comment: "Коментар",
+      faq_sub: 'Не знайшли відповідь? <a href="#contact" style="color:var(--primary)">Напишіть нам у формі</a> — відповідаємо швидко.',
     },
     en: {
-      nav_how: "How", nav_features: "Features", nav_pricing: "Pricing", nav_faq: "FAQ",
+      nav_how: "How", nav_features: "Features", nav_pricing: "Pricing", nav_contact: "Contact", nav_faq: "FAQ",
       nav_demo: "Book demo ↗",
       hero_eyebrow: "AI salesperson for Instagram Direct · 24/7",
       hero_t1: "Instagram DM", hero_t2: "that", hero_t3: "sells", hero_t4: "on its own",
@@ -1469,7 +1703,6 @@
       p3_cta: "Become partner ↗",
       faq_eyebrow: "FAQ",
       faq_t1: "Questions you'll", faq_t2: "definitely have.",
-      faq_sub: 'Didn\'t find an answer? Email <a href="mailto:help@depsoftware.com" style="color:var(--red)">help@depsoftware.com</a>',
       faq1_q: "Will customers know they're talking to AI?",
       faq1_a: "Most won't. The agent is tuned to your brand voice. We recommend disclosing it in your bio — honesty builds trust.",
       faq2_q: "What about complex requests?",
@@ -1491,6 +1724,31 @@
       foot_co: "Company", foot_c1: "About", foot_c2: "Cases", foot_c3: "Partners", foot_c4: "Contact",
       foot_lg: "Legal", foot_l1: "Privacy", foot_l2: "Terms", foot_l5: "Data Deletion", foot_l3: "DPA", foot_l4: "Security",
       foot_made: "Made in Kyiv, Ukraine",
+
+      contact_eyebrow: "Contact",
+      contact_t1: "Leave your details —", contact_t2: "we'll reply within 24h",
+      contact_sub: "Email, Instagram or messenger is enough. We'll suggest a plan and walk you through a demo.",
+      contact_aside_h: "What happens next?",
+      contact_aside_p: "We'll reach out on your preferred channel, review your catalog, and launch a pilot in 48 hours.",
+      contact_p1: "14 days free, no card",
+      contact_p2: "Instagram + CRM setup",
+      contact_p3: "Dedicated EU instance",
+      contact_hint: "Provide at least one contact method — email, Instagram or messenger.",
+      cf_name: "Name / brand", cf_opt: "(optional)", cf_opt2: "(or Instagram below)",
+      cf_plan: "Interested in", cf_plan_demo: "Demo / consultation", cf_plan_starter: "Starter",
+      cf_plan_business: "Business", cf_plan_agency: "Agency / white-label",
+      cf_email: "Email", cf_ig: "Instagram", cf_msg: "Messenger", cf_message: "Message",
+      cf_message_ph: "Tell us briefly about your shop or question…",
+      cf_submit: "Send request",
+      confirm_t: "Review your details", confirm_p: "Everything correct? Our team will receive your request after you confirm.",
+      confirm_back: "Edit", confirm_send: "Yes, send",
+      success_t: "Request sent!", success_p: "Thank you. We'll get back within 24 hours on your preferred channel.",
+      success_close: "Great",
+      err_contact_required: "Provide email, Instagram or messenger — at least one contact method.",
+      err_email_invalid: "Please check the email format.",
+      err_send: "Could not send. Try again or email help@depsoftware.com",
+      cf_l_name: "Name", cf_l_email: "Email", cf_l_ig: "Instagram", cf_l_msg: "Messenger", cf_l_plan: "Plan", cf_l_comment: "Message",
+      faq_sub: 'Didn\'t find an answer? <a href="#contact" style="color:var(--primary)">Use the contact form</a> — we reply quickly.',
     }
   };
 
@@ -1499,11 +1757,16 @@
       const k = el.getAttribute("data-i");
       if (I18N[lang] && I18N[lang][k] != null) el.innerHTML = I18N[lang][k];
     });
+    document.querySelectorAll("[data-i-placeholder]").forEach(el => {
+      const k = el.getAttribute("data-i-placeholder");
+      if (I18N[lang] && I18N[lang][k] != null) el.placeholder = I18N[lang][k];
+    });
     document.documentElement.setAttribute("lang", lang);
     document.querySelectorAll(".lang button").forEach(b => {
       b.classList.toggle("active", b.dataset.lang === lang);
     });
     localStorage.setItem("dal_lang", lang);
+    window.__dalLang = lang;
   }
   document.querySelectorAll(".lang button").forEach(b => {
     b.addEventListener("click", () => applyLang(b.dataset.lang));
@@ -1527,6 +1790,158 @@
     });
     panel.querySelectorAll("a").forEach(a => a.addEventListener("click", close));
     window.addEventListener("resize", () => { if (window.innerWidth > 960) close(); });
+  })();
+
+  // Contact form + confirmation modal
+  (function () {
+    const form = document.getElementById("contactForm");
+    if (!form) return;
+
+    const confirmModal = document.getElementById("confirmModal");
+    const successModal = document.getElementById("successModal");
+    const confirmList = document.getElementById("confirmList");
+    const formError = document.getElementById("formError");
+    const confirmSend = document.getElementById("confirmSend");
+    const planSelect = document.getElementById("cf-plan");
+
+    const API_BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? "http://127.0.0.1:4000"
+      : "";
+
+    function t(key) {
+      const lang = window.__dalLang || localStorage.getItem("dal_lang") || "uk";
+      return (I18N[lang] && I18N[lang][key]) || key;
+    }
+
+    function showError(msg) {
+      formError.textContent = msg;
+      formError.classList.add("show");
+    }
+    function clearError() {
+      formError.textContent = "";
+      formError.classList.remove("show");
+    }
+
+    function getPayload() {
+      return {
+        name: form.name.value.trim() || undefined,
+        email: form.email.value.trim() || undefined,
+        instagram: form.instagram.value.trim() || undefined,
+        messenger: form.messenger.value.trim() || undefined,
+        message: form.message.value.trim() || undefined,
+        plan: form.plan.value || undefined,
+        lang: window.__dalLang || localStorage.getItem("dal_lang") || "uk",
+        pageUrl: location.href,
+        website: form.website.value.trim() || undefined,
+      };
+    }
+
+    function validateClient(payload) {
+      if (!payload.email && !payload.instagram && !payload.messenger) {
+        showError(t("err_contact_required"));
+        return false;
+      }
+      if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
+        showError(t("err_email_invalid"));
+        return false;
+      }
+      clearError();
+      return true;
+    }
+
+    function buildConfirmList(payload) {
+      const rows = [
+        ["cf_l_name", payload.name],
+        ["cf_l_email", payload.email],
+        ["cf_l_ig", payload.instagram],
+        ["cf_l_msg", payload.messenger],
+        ["cf_l_plan", payload.plan],
+        ["cf_l_comment", payload.message],
+      ];
+      confirmList.innerHTML = rows
+        .filter(([, v]) => v)
+        .map(([k, v]) => `<li><strong>${t(k)}</strong><span>${escapeHtml(v)}</span></li>`)
+        .join("");
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function openModal(el) {
+      el.classList.add("open");
+      document.body.style.overflow = "hidden";
+    }
+    function closeModal(el) {
+      el.classList.remove("open");
+      document.body.style.overflow = "";
+    }
+
+    document.querySelectorAll(".contact-cta[data-plan]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const plan = btn.getAttribute("data-plan");
+        if (plan && planSelect) planSelect.value = plan;
+        location.hash = "contact";
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+
+    document.querySelectorAll('a.contact-cta[href="#contact"]').forEach(a => {
+      a.addEventListener("click", () => {
+        setTimeout(() => form.querySelector("input,textarea")?.focus(), 400);
+      });
+    });
+
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const payload = getPayload();
+      if (!validateClient(payload)) return;
+      buildConfirmList(payload);
+      openModal(confirmModal);
+    });
+
+    document.getElementById("confirmBack")?.addEventListener("click", () => closeModal(confirmModal));
+
+    confirmModal?.addEventListener("click", (e) => {
+      if (e.target === confirmModal) closeModal(confirmModal);
+    });
+    successModal?.addEventListener("click", (e) => {
+      if (e.target === successModal) closeModal(successModal);
+    });
+
+    confirmSend?.addEventListener("click", async () => {
+      const payload = getPayload();
+      if (!validateClient(payload)) {
+        closeModal(confirmModal);
+        return;
+      }
+      confirmSend.classList.add("loading");
+      confirmSend.disabled = true;
+      try {
+        const res = await fetch(`${API_BASE}/api/landing/contact`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "send failed");
+        closeModal(confirmModal);
+        form.reset();
+        openModal(successModal);
+      } catch {
+        closeModal(confirmModal);
+        showError(t("err_send"));
+      } finally {
+        confirmSend.classList.remove("loading");
+        confirmSend.disabled = false;
+      }
+    });
+
+    document.getElementById("successClose")?.addEventListener("click", () => closeModal(successModal));
+
+    if (location.hash === "#contact") {
+      setTimeout(() => form.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    }
   })();
 </script>
 

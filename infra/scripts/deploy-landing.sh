@@ -8,6 +8,9 @@
 # Regenerate OG preview image (after editing og-image.html):
 #   npx playwright screenshot infra/landing/og-image.html infra/landing/og.png --viewport-size=1200,630 --wait-for-timeout=2000
 #
+# After changing infra/nginx/platform.conf (e.g. /api/ proxy), reload nginx on server:
+#   sudo nginx -t && sudo systemctl reload nginx
+#
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

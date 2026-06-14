@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { authRoutes } from './routes/auth.js';
 import { tenantsRoutes } from './routes/tenants.js';
 import { webhookRoutes } from './routes/webhooks.js';
+import { landingContactRoutes } from './routes/landing-contact.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +48,7 @@ await app.register(tenantsRoutes);
 // Webhook dispatcher — public (no auth), verified via Meta HMAC per tenant.
 // Responds 200 immediately then forwards to the correct tenant backend.
 await app.register(webhookRoutes);
+await app.register(landingContactRoutes);
 
 // Health check
 app.get('/api/health', async () => ({ status: 'ok', service: 'super-admin' }));
