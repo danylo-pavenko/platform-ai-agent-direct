@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DPA — Data Processing Agreement | Direct AI Agents</title>
+<meta name="description" content="Data Processing Agreement (DPA) for Direct AI Agents B2B clients. GDPR-compliant processor terms, sub-processors, security measures." />
+<link rel="canonical" href="https://direct-ai-agents.com/dpa" />
+<meta name="robots" content="index, follow" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><rect x='1' y='1' width='30' height='30' fill='none' stroke='%23ffffff' stroke-width='1.5'/><circle cx='9' cy='9' r='2.8' fill='%23ffffff'/><circle cx='16' cy='16' r='2.8' fill='%23D42F2F'/><circle cx='23' cy='23' r='2.8' fill='%23ffffff'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000; --bg-2: #0A0A0A; --bg-3: #141414;
+    --ink: #FFFFFF; --ink-2: #CFCFCF; --ink-3: #8A8A8A; --ink-4: #4F4F4F;
+    --rule: #1C1C1C; --rule-2: #2A2A2A;
+    --red: #D42F2F; --red-2: #FF3B30;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; line-height: 1.6; letter-spacing: 0.01em; -webkit-font-smoothing: antialiased; }
+  body { background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.04) 0.8px, transparent 1px); background-size: 14px 14px; }
+  ::selection { background: var(--red); color: #fff; }
+  a { color: var(--red); text-decoration: none; }
+  a:hover { color: var(--red-2); }
+  .nav { position: sticky; top: 0; z-index: 80; background: rgba(0,0,0,0.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--rule); }
+  .nav-inner { display: flex; align-items: center; gap: 20px; height: 56px; max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+  .brand-mark { width: 24px; height: 24px; border: 1px solid var(--ink); display: grid; place-items: center; position: relative; }
+  .brand-mark::before, .brand-mark::after { content: ''; position: absolute; width: 3.5px; height: 3.5px; background: var(--ink); border-radius: 50%; }
+  .brand-mark::before { top: 5px; left: 5px; }
+  .brand-mark::after { bottom: 5px; right: 5px; }
+  .brand-mark span { width: 3.5px; height: 3.5px; background: var(--red); border-radius: 50%; }
+  .brand-name { font-size: 10px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+  .brand-name em { font-style: normal; color: var(--ink-3); }
+  .nav-back { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); }
+  .nav-back:hover { color: var(--ink); }
+  .nav-sep { color: var(--ink-4); font-size: 10px; }
+  .nav-ml { margin-left: auto; }
+  .lang { display: flex; border: 1px solid var(--rule-2); }
+  .lang button { padding: 5px 9px; font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase; border: 0; background: transparent; cursor: pointer; }
+  .lang button.active { background: var(--ink); color: var(--bg); }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .page-header { padding: 56px 0 40px; border-bottom: 1px solid var(--rule); margin-bottom: 48px; }
+  .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 16px; }
+  .page-title { font-size: clamp(28px, 5vw, 44px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 16px; }
+  .page-meta { font-size: 11px; color: var(--ink-3); letter-spacing: 0.1em; }
+  .content { padding-bottom: 80px; }
+  .section { margin-bottom: 48px; }
+  .section-num { font-size: 9.5px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; }
+  h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; color: var(--ink); }
+  p { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; }
+  ul, ol { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .divider { border: none; border-top: 1px solid var(--rule); margin: 48px 0; }
+  .highlight-box { background: var(--bg-3); border-left: 2px solid var(--red); padding: 16px 20px; margin: 20px 0; }
+  .highlight-box p { margin: 0; font-size: 12px; }
+  .contact-box { background: var(--bg-2); border: 1px solid var(--rule-2); padding: 28px 32px; margin-top: 24px; }
+  .contact-box h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 16px; }
+  .email-btn { display: inline-block; margin-top: 12px; padding: 12px 24px; background: var(--red); color: #fff; font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; text-decoration: none; }
+  .email-btn:hover { background: var(--red-2); color: #fff; }
+  strong { color: var(--ink); font-weight: 600; }
+  .page-footer { border-top: 1px solid var(--rule); padding: 28px 0; }
+  .page-footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .footer-links a { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-4); }
+  .footer-links a:hover { color: var(--ink-3); }
+  .footer-copy { font-size: 10px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase; }
+  @media (max-width: 600px) {
+    .page-header { padding: 36px 0 28px; margin-bottom: 32px; }
+    .page-footer .wrap { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="brand">
+      <span class="brand-mark"><span></span></span>
+      <span class="brand-name">Direct AI<em> / Agents</em></span>
+    </a>
+    <span class="nav-sep">·</span>
+    <a href="/" class="nav-back" data-i="back">← Назад</a>
+    <div class="nav-ml">
+      <div class="lang">
+        <button data-lang="uk" class="active">UK</button>
+        <button data-lang="en">EN</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="eyebrow" data-i="eyebrow">Юридично</div>
+    <h1 class="page-title" data-i="title">DPA</h1>
+    <div class="page-meta" data-i="meta">Data Processing Agreement · Набув чинності: 14 червня 2026 р.</div>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="content">
+
+  <div class="highlight-box">
+    <p data-i="intro"><strong>Коротко:</strong> Цей документ описує умови обробки персональних даних, коли ви (Клієнт / Controller) використовуєте Direct AI Agents для автоматизації Instagram Direct. DEP Software виступає Обробником (Processor) відповідно до GDPR.</p>
+  </div>
+
+  <div class="section" id="s1">
+    <div class="section-num" data-i="s1_num">01</div>
+    <h2 data-i="s1_title">Сторони та ролі</h2>
+    <ul>
+      <li data-i="s1_l1"><strong>Controller (Відповідальний):</strong> Клієнт-підприємець — юридична або фізична особа-підприємець, яка підключає Instagram-акаунт і визначає цілі обробки даних своїх покупців.</li>
+      <li data-i="s1_l2"><strong>Processor (Обробник):</strong> DEP Software (Direct AI Agents), CEO Данило Павенко, <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a> — обробляє дані лише за інструкціями Клієнта та для надання сервісу.</li>
+    </ul>
+    <p data-i="s1_p1">Цей DPA є невід'ємною частиною <a href="/terms">Умов використання</a> та <a href="/privacy-policy">Політики конфіденційності</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s2">
+    <div class="section-num" data-i="s2_num">02</div>
+    <h2 data-i="s2_title">Предмет, тривалість і характер обробки</h2>
+    <ul>
+      <li data-i="s2_l1"><strong>Предмет:</strong> Автоматизація Instagram Direct — прийом і відправка повідомлень, збір замовлень, синхронізація з CRM.</li>
+      <li data-i="s2_l2"><strong>Тривалість:</strong> На період дії підписки Клієнта плюс 30 днів після її завершення (для видалення даних).</li>
+      <li data-i="s2_l3"><strong>Характер:</strong> Автоматизована обробка повідомлень з участю AI-моделі; зберігання в PostgreSQL на ізольованому інстансі Клієнта.</li>
+      <li data-i="s2_l4"><strong>Мета:</strong> Надання сервісу Direct AI Agents відповідно до обраного тарифу.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s3">
+    <div class="section-num" data-i="s3_num">03</div>
+    <h2 data-i="s3_title">Категорії даних та суб'єктів</h2>
+    <p data-i="s3_p1">Обробляються дані кінцевих користувачів Instagram (покупців Клієнта):</p>
+    <ul>
+      <li data-i="s3_l1">Instagram User ID (IGSID), ім'я/username, фото профілю (якщо доступно через Meta API)</li>
+      <li data-i="s3_l2">Вміст повідомлень Direct (DM)</li>
+      <li data-i="s3_l3">Дані замовлення: ім'я, телефон, адреса доставки, товари, ціни</li>
+      <li data-i="s3_l4">Метадані повідомлень (час, статус)</li>
+    </ul>
+    <p data-i="s3_p2">Спеціальні категорії даних (здоров'я, біометрія тощо) ми навмисно не збираємо. Клієнт зобов'язаний не передавати такі дані через DM.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s4">
+    <div class="section-num" data-i="s4_num">04</div>
+    <h2 data-i="s4_title">Зобов'язання Обробника</h2>
+    <ul>
+      <li data-i="s4_l1">Обробляти дані лише за документованими інструкціями Клієнта (налаштування платформи, промпти, правила ескалації).</li>
+      <li data-i="s4_l2">Забезпечити конфіденційність — доступ лише уповноваженим співробітникам.</li>
+      <li data-i="s4_l3">Застосовувати технічні та організаційні заходи безпеки (див. <a href="/security">Безпека</a>): фаервол, шифрування TLS і at rest, ізольовані інстанси.</li>
+      <li data-i="s4_l4">Не залучати субобробників без повідомлення Клієнта (перелік нижче).</li>
+      <li data-i="s4_l5">Допомагати Клієнту виконувати запити суб'єктів даних (доступ, видалення, переносимість).</li>
+      <li data-i="s4_l6">Видалити або повернути дані Клієнта після завершення договору, якщо інше не вимагає закон.</li>
+      <li data-i="s4_l7">Повідомляти Клієнта про інциденти безпеки без невиправданої затримки.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s5">
+    <div class="section-num" data-i="s5_num">05</div>
+    <h2 data-i="s5_title">Субобробники</h2>
+    <p data-i="s5_p1">Клієнт уповноважує DEP Software залучати таких субобробників:</p>
+    <ul>
+      <li data-i="s5_l1"><strong>Meta Platforms, Inc.</strong> — Instagram / Facebook API (Ірландія / США, SCC застосовуються Meta)</li>
+      <li data-i="s5_l2"><strong>Anthropic PBC</strong> — AI-модель Claude (США, обробка вмісту повідомлень для генерації відповідей)</li>
+      <li data-i="s5_l3"><strong>KeyCRM</strong> — CRM-синхронізація (за налаштуванням Клієнта)</li>
+      <li data-i="s5_l4"><strong>Resend, Inc.</strong> — email-доставка</li>
+      <li data-i="s5_l5"><strong>Хостинг-провайдер ЄС</strong> — інфраструктура серверів (eu-central-1)</li>
+    </ul>
+    <p data-i="s5_p2">Про суттєві зміни в переліку субобробників ми повідомляємо Клієнта електронною поштою. Клієнт може заперечити проти нового субобробника, надіславши запит на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s6">
+    <div class="section-num" data-i="s6_num">06</div>
+    <h2 data-i="s6_title">Міжнародні передачі</h2>
+    <p data-i="s6_p1">Основне зберігання — ЄС. Передача до Anthropic (США) та Meta можлива для надання сервісу. Такі передачі здійснюються з відповідними гарантіями (Standard Contractual Clauses, політики постачальників).</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s7">
+    <div class="section-num" data-i="s7_num">07</div>
+    <h2 data-i="s7_title">Підписаний DPA</h2>
+    <p data-i="s7_p1">Для юридичних осіб, які потребують окремого підписаного DPA (PDF), надішліть запит із реквізитами компанії:</p>
+    <div class="contact-box">
+      <h3 data-i="s7_box">Запит на DPA</h3>
+      <p data-i="s7_p2">Email: <a href="mailto:help@depsoftware.com?subject=DPA%20request">help@depsoftware.com</a><br>
+      Вкажіть: назву компанії, адресу, контактну особу, тариф.</p>
+      <a href="mailto:help@depsoftware.com?subject=DPA%20request" class="email-btn" data-i="s7_btn">Надіслати запит →</a>
+    </div>
+    <p data-i="s7_p3">Використання сервісу після реєстрації означає прийняття цього DPA у веб-версії, якщо окремий підпис не погоджено.</p>
+  </div>
+
+</div>
+</div>
+
+<footer class="page-footer">
+  <div class="wrap">
+    <div class="footer-links">
+      <a href="/" data-i="foot_home">Головна</a>
+      <a href="/privacy-policy" data-i="foot_privacy">Конфіденційність</a>
+      <a href="/terms" data-i="foot_terms">Умови</a>
+      <a href="/data-deletion" data-i="foot_data_deletion">Видалення даних</a>
+      <a href="/dpa" data-i="foot_dpa">DPA</a>
+      <a href="/security" data-i="foot_security">Безпека</a>
+    </div>
+    <span class="footer-copy">© 2026 DEP SOFTWARE · DIRECT AI AGENTS</span>
+  </div>
+</footer>
+
+<script>
+const I18N = {
+  uk: {
+    back: "← Назад", eyebrow: "Юридично", title: "DPA",
+    meta: "Data Processing Agreement · Набув чинності: 14 червня 2026 р.",
+    intro: "<strong>Коротко:</strong> Цей документ описує умови обробки персональних даних, коли ви (Клієнт / Controller) використовуєте Direct AI Agents для автоматизації Instagram Direct. DEP Software виступає Обробником (Processor) відповідно до GDPR.",
+    s1_num: "01", s1_title: "Сторони та ролі",
+    s1_l1: "<strong>Controller (Відповідальний):</strong> Клієнт-підприємець — юридична або фізична особа-підприємець, яка підключає Instagram-акаунт і визначає цілі обробки даних своїх покупців.",
+    s1_l2: '<strong>Processor (Обробник):</strong> DEP Software (Direct AI Agents), CEO Данило Павенко, <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a> — обробляє дані лише за інструкціями Клієнта та для надання сервісу.',
+    s1_p1: 'Цей DPA є невід\'ємною частиною <a href="/terms">Умов використання</a> та <a href="/privacy-policy">Політики конфіденційності</a>.',
+    s2_num: "02", s2_title: "Предмет, тривалість і характер обробки",
+    s2_l1: "<strong>Предмет:</strong> Автоматизація Instagram Direct — прийом і відправка повідомлень, збір замовлень, синхронізація з CRM.",
+    s2_l2: "<strong>Тривалість:</strong> На період дії підписки Клієнта плюс 30 днів після її завершення (для видалення даних).",
+    s2_l3: "<strong>Характер:</strong> Автоматизована обробка повідомлень з участю AI-моделі; зберігання в PostgreSQL на ізольованому інстансі Клієнта.",
+    s2_l4: "<strong>Мета:</strong> Надання сервісу Direct AI Agents відповідно до обраного тарифу.",
+    s3_num: "03", s3_title: "Категорії даних та суб'єктів",
+    s3_p1: "Обробляються дані кінцевих користувачів Instagram (покупців Клієнта):",
+    s3_l1: "Instagram User ID (IGSID), ім'я/username, фото профілю (якщо доступно через Meta API)",
+    s3_l2: "Вміст повідомлень Direct (DM)",
+    s3_l3: "Дані замовлення: ім'я, телефон, адреса доставки, товари, ціни",
+    s3_l4: "Метадані повідомлень (час, статус)",
+    s3_p2: "Спеціальні категорії даних (здоров'я, біометрія тощо) ми навмисно не збираємо. Клієнт зобов'язаний не передавати такі дані через DM.",
+    s4_num: "04", s4_title: "Зобов'язання Обробника",
+    s4_l1: "Обробляти дані лише за документованими інструкціями Клієнта (налаштування платформи, промпти, правила ескалації).",
+    s4_l2: "Забезпечити конфіденційність — доступ лише уповноваженим співробітникам.",
+    s4_l3: 'Застосовувати технічні та організаційні заходи безпеки (див. <a href="/security">Безпека</a>): фаервол, шифрування TLS і at rest, ізольовані інстанси.',
+    s4_l4: "Не залучати субобробників без повідомлення Клієнта (перелік нижче).",
+    s4_l5: "Допомагати Клієнту виконувати запити суб'єктів даних (доступ, видалення, переносимість).",
+    s4_l6: "Видалити або повернути дані Клієнта після завершення договору, якщо інше не вимагає закон.",
+    s4_l7: "Повідомляти Клієнта про інциденти безпеки без невиправданої затримки.",
+    s5_num: "05", s5_title: "Субобробники",
+    s5_p1: "Клієнт уповноважує DEP Software залучати таких субобробників:",
+    s5_l1: "<strong>Meta Platforms, Inc.</strong> — Instagram / Facebook API (Ірландія / США, SCC застосовуються Meta)",
+    s5_l2: "<strong>Anthropic PBC</strong> — AI-модель Claude (США, обробка вмісту повідомлень для генерації відповідей)",
+    s5_l3: "<strong>KeyCRM</strong> — CRM-синхронізація (за налаштуванням Клієнта)",
+    s5_l4: "<strong>Resend, Inc.</strong> — email-доставка",
+    s5_l5: "<strong>Хостинг-провайдер ЄС</strong> — інфраструктура серверів (eu-central-1)",
+    s5_p2: 'Про суттєві зміни в переліку субобробників ми повідомляємо Клієнта електронною поштою. Клієнт може заперечити проти нового субобробника, надіславши запит на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s6_num: "06", s6_title: "Міжнародні передачі",
+    s6_p1: "Основне зберігання — ЄС. Передача до Anthropic (США) та Meta можлива для надання сервісу. Такі передачі здійснюються з відповідними гарантіями (Standard Contractual Clauses, політики постачальників).",
+    s7_num: "07", s7_title: "Підписаний DPA",
+    s7_p1: "Для юридичних осіб, які потребують окремого підписаного DPA (PDF), надішліть запит із реквізитами компанії:",
+    s7_box: "Запит на DPA",
+    s7_p2: 'Email: <a href="mailto:help@depsoftware.com?subject=DPA%20request">help@depsoftware.com</a><br>Вкажіть: назву компанії, адресу, контактну особу, тариф.',
+    s7_btn: "Надіслати запит →",
+    s7_p3: "Використання сервісу після реєстрації означає прийняття цього DPA у веб-версії, якщо окремий підпис не погоджено.",
+    foot_home: "Головна", foot_privacy: "Конфіденційність", foot_terms: "Умови",
+    foot_data_deletion: "Видалення даних", foot_dpa: "DPA", foot_security: "Безпека",
+  },
+  en: {
+    back: "← Back", eyebrow: "Legal", title: "DPA",
+    meta: "Data Processing Agreement · Effective: 14 June 2026",
+    intro: "<strong>In short:</strong> This document describes how personal data is processed when you (Client / Controller) use Direct AI Agents to automate Instagram Direct. DEP Software acts as Processor under GDPR.",
+    s1_num: "01", s1_title: "Parties and roles",
+    s1_l1: "<strong>Controller:</strong> The merchant client — legal entity or sole trader who connects an Instagram account and determines the purposes of processing their buyers' data.",
+    s1_l2: '<strong>Processor:</strong> DEP Software (Direct AI Agents), CEO Danylo Pavenko, <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a> — processes data only on Client instructions and to provide the service.',
+    s1_p1: 'This DPA forms an integral part of our <a href="/terms">Terms of Service</a> and <a href="/privacy-policy">Privacy Policy</a>.',
+    s2_num: "02", s2_title: "Subject matter, duration, and nature",
+    s2_l1: "<strong>Subject:</strong> Instagram Direct automation — receiving and sending messages, order collection, CRM sync.",
+    s2_l2: "<strong>Duration:</strong> For the subscription period plus 30 days after termination (for data deletion).",
+    s2_l3: "<strong>Nature:</strong> Automated message processing with AI; storage in PostgreSQL on the Client's isolated instance.",
+    s2_l4: "<strong>Purpose:</strong> Providing the Direct AI Agents service under the selected plan.",
+    s3_num: "03", s3_title: "Categories of data and data subjects",
+    s3_p1: "We process Instagram end-user data (the Client's customers):",
+    s3_l1: "Instagram User ID (IGSID), name/username, profile photo (if available via Meta API)",
+    s3_l2: "Direct message (DM) content",
+    s3_l3: "Order data: name, phone, delivery address, products, prices",
+    s3_l4: "Message metadata (time, status)",
+    s3_p2: "We do not intentionally collect special categories of data (health, biometrics, etc.). The Client must not send such data via DM.",
+    s4_num: "04", s4_title: "Processor obligations",
+    s4_l1: "Process data only on documented Client instructions (platform settings, prompts, escalation rules).",
+    s4_l2: "Ensure confidentiality — access limited to authorised staff.",
+    s4_l3: 'Apply technical and organisational security measures (see <a href="/security">Security</a>): firewall, TLS and at-rest encryption, isolated instances.',
+    s4_l4: "Not engage sub-processors without notifying the Client (list below).",
+    s4_l5: "Assist the Client with data subject requests (access, deletion, portability).",
+    s4_l6: "Delete or return Client data after contract end unless law requires retention.",
+    s4_l7: "Notify the Client of security incidents without undue delay.",
+    s5_num: "05", s5_title: "Sub-processors",
+    s5_p1: "The Client authorises DEP Software to engage these sub-processors:",
+    s5_l1: "<strong>Meta Platforms, Inc.</strong> — Instagram / Facebook API (Ireland / US, Meta SCCs apply)",
+    s5_l2: "<strong>Anthropic PBC</strong> — Claude AI model (US, message content for reply generation)",
+    s5_l3: "<strong>KeyCRM</strong> — CRM sync (per Client configuration)",
+    s5_l4: "<strong>Resend, Inc.</strong> — email delivery",
+    s5_l5: "<strong>EU hosting provider</strong> — server infrastructure (eu-central-1)",
+    s5_p2: 'We notify Clients by email of material sub-processor changes. Clients may object by contacting <a href="mailto:help@depsoftware.com">help@depsoftware.com</a>.',
+    s6_num: "06", s6_title: "International transfers",
+    s6_p1: "Primary storage is in the EU. Transfers to Anthropic (US) and Meta may occur to provide the service, with appropriate safeguards (SCCs, vendor policies).",
+    s7_num: "07", s7_title: "Signed DPA",
+    s7_p1: "Legal entities requiring a separately signed DPA (PDF) may request one with company details:",
+    s7_box: "DPA request",
+    s7_p2: 'Email: <a href="mailto:help@depsoftware.com?subject=DPA%20request">help@depsoftware.com</a><br>Include: company name, address, contact person, plan.',
+    s7_btn: "Send request →",
+    s7_p3: "Using the service after registration constitutes acceptance of this web DPA unless a separate signature is agreed.",
+    foot_home: "Home", foot_privacy: "Privacy", foot_terms: "Terms",
+    foot_data_deletion: "Data Deletion", foot_dpa: "DPA", foot_security: "Security",
+  }
+};
+
+let lang = localStorage.getItem("da_lang") || "uk";
+function applyLang(l) {
+  lang = l;
+  localStorage.setItem("da_lang", l);
+  document.documentElement.lang = l === "uk" ? "uk" : "en";
+  document.querySelectorAll("[data-i]").forEach(el => {
+    const k = el.getAttribute("data-i");
+    if (I18N[l][k]) el.innerHTML = I18N[l][k];
+  });
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("active", b.dataset.lang === l));
+}
+document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => applyLang(b.dataset.lang)));
+applyLang(lang);
+</script>
+</body>
+</html>

@@ -281,8 +281,8 @@
     <div class="section-num" data-i="s6_num">06</div>
     <h2 data-i="s6_title">Зберігання та безпека</h2>
     <ul>
-      <li data-i="s6_l1"><strong>Розташування:</strong> Усі дані зберігаються на серверах у Євросоюзі (eu-central-1). Кожен клієнт-підприємець отримує ізольований інстанс із власною базою даних.</li>
-      <li data-i="s6_l2"><strong>Шифрування:</strong> Передача даних захищена TLS 1.3. Паролі та токени зберігаються у хешованому вигляді.</li>
+      <li data-i="s6_l1"><strong>Розташування:</strong> Усі дані зберігаються на власних серверах у Євросоюзі (eu-central-1), захищених фаерволом. Кожен клієнт-підприємець отримує ізольований інстанс із власною базою даних.</li>
+      <li data-i="s6_l2"><strong>Шифрування:</strong> Передача даних захищена TLS 1.3. Бази даних і резервні копії зберігаються у зашифрованому вигляді (encryption at rest). Паролі та токени — у хешованому або зашифрованому вигляді. Деталі — на сторінці <a href="/security">Безпека</a>.</li>
       <li data-i="s6_l3"><strong>Термін зберігання:</strong> Дані повідомлень зберігаються максимум 90 днів або відповідно до налаштувань клієнта-підприємця. Токени доступу Meta анульовуються при відключенні інтеграції.</li>
       <li data-i="s6_l4"><strong>Видалення:</strong> Після розірвання договору з клієнтом-підприємцем усі дані видаляються протягом 30 днів.</li>
       <li data-i="s6_l5"><strong>Доступ:</strong> До даних мають доступ лише уповноважені співробітники в рамках виконання своїх обов'язків.</li>
@@ -354,6 +354,8 @@
       <a href="/privacy-policy" data-i="foot_privacy">Конфіденційність</a>
       <a href="/terms" data-i="foot_terms">Умови</a>
       <a href="/data-deletion" data-i="foot_data_deletion">Видалення даних</a>
+      <a href="/dpa" data-i="foot_dpa">DPA</a>
+      <a href="/security" data-i="foot_security">Безпека</a>
     </div>
     <span class="footer-copy">© 2026 DEP SOFTWARE · DIRECT AI AGENTS</span>
   </div>
@@ -425,8 +427,8 @@ const I18N = {
     s5_l3: "Хмарний провайдер (EU) — сервери для зберігання даних у зоні eu-central-1.",
     s5_note: "Ми не продаємо, не обмінюємо та не передаємо персональні дані комерційним третім сторонам. Передача відбувається лише в обсязі, необхідному для надання сервісу, та на підставі укладених угод про обробку даних (DPA).",
     s6_num: "06", s6_title: "Зберігання та безпека",
-    s6_l1: "<strong>Розташування:</strong> Усі дані зберігаються на серверах у Євросоюзі (eu-central-1). Кожен клієнт-підприємець отримує ізольований інстанс із власною базою даних.",
-    s6_l2: "<strong>Шифрування:</strong> Передача даних захищена TLS 1.3. Паролі та токени зберігаються у хешованому вигляді.",
+    s6_l1: "<strong>Розташування:</strong> Усі дані зберігаються на власних серверах у Євросоюзі (eu-central-1), захищених фаерволом. Кожен клієнт-підприємець отримує ізольований інстанс із власною базою даних.",
+    s6_l2: '<strong>Шифрування:</strong> Передача даних захищена TLS 1.3. Бази даних і резервні копії зберігаються у зашифрованому вигляді (encryption at rest). Паролі та токени — у хешованому або зашифрованому вигляді. Деталі — на сторінці <a href="/security">Безпека</a>.',
     s6_l3: "<strong>Термін зберігання:</strong> Дані повідомлень зберігаються максимум 90 днів або відповідно до налаштувань клієнта-підприємця. Токени доступу Meta анульовуються при відключенні інтеграції.",
     s6_l4: "<strong>Видалення:</strong> Після розірвання договору з клієнтом-підприємцем усі дані видаляються протягом 30 днів.",
     s6_l5: "<strong>Доступ:</strong> До даних мають доступ лише уповноважені співробітники в рамках виконання своїх обов'язків.",
@@ -451,6 +453,7 @@ const I18N = {
     s10_ceo: "Генеральний директор:",
     s10_web: "Вебсайт:",
     foot_home: "Головна", foot_privacy: "Конфіденційність", foot_terms: "Умови", foot_data_deletion: "Видалення даних",
+    foot_dpa: "DPA", foot_security: "Безпека",
   },
   en: {
     back: "← Home",
@@ -516,8 +519,8 @@ const I18N = {
     s5_l3: "Cloud provider (EU) — servers for data storage in the eu-central-1 region.",
     s5_note: "We do not sell, trade, or transfer personal data to commercial third parties. Transfers occur only to the extent required to deliver the service and are governed by Data Processing Agreements (DPA).",
     s6_num: "06", s6_title: "Storage and security",
-    s6_l1: "<strong>Location:</strong> All data is stored on servers in the European Union (eu-central-1). Each merchant client receives an isolated instance with its own database.",
-    s6_l2: "<strong>Encryption:</strong> Data transmission is protected with TLS 1.3. Passwords and tokens are stored in hashed form.",
+    s6_l1: "<strong>Location:</strong> All data is stored on our own servers in the European Union (eu-central-1), protected by a firewall. Each merchant client receives an isolated instance with its own database.",
+    s6_l2: '<strong>Encryption:</strong> Data transmission is protected with TLS 1.3. Databases and backups are stored encrypted (encryption at rest). Passwords and tokens are hashed or encrypted. Details on our <a href="/security">Security</a> page.',
     s6_l3: "<strong>Retention period:</strong> Message data is retained for a maximum of 90 days or as configured by the merchant. Meta access tokens are revoked when the integration is disconnected.",
     s6_l4: "<strong>Deletion:</strong> Upon contract termination with a merchant, all data is deleted within 30 days.",
     s6_l5: "<strong>Access:</strong> Data is accessible only to authorised staff as part of their duties.",
@@ -542,6 +545,7 @@ const I18N = {
     s10_ceo: "Chief Executive Officer:",
     s10_web: "Website:",
     foot_home: "Home", foot_privacy: "Privacy", foot_terms: "Terms", foot_data_deletion: "Data Deletion",
+    foot_dpa: "DPA", foot_security: "Security",
   }
 };
 

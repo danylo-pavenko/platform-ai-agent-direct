@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Security — Direct AI Agents</title>
+<meta name="description" content="Security practices for Direct AI Agents: EU hosting, firewall-protected servers, encryption in transit and at rest, isolated instances per client." />
+<link rel="canonical" href="https://direct-ai-agents.com/security" />
+<meta name="robots" content="index, follow" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><rect x='1' y='1' width='30' height='30' fill='none' stroke='%23ffffff' stroke-width='1.5'/><circle cx='9' cy='9' r='2.8' fill='%23ffffff'/><circle cx='16' cy='16' r='2.8' fill='%23D42F2F'/><circle cx='23' cy='23' r='2.8' fill='%23ffffff'/></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000; --bg-2: #0A0A0A; --bg-3: #141414;
+    --ink: #FFFFFF; --ink-2: #CFCFCF; --ink-3: #8A8A8A; --ink-4: #4F4F4F;
+    --rule: #1C1C1C; --rule-2: #2A2A2A;
+    --red: #D42F2F; --red-2: #FF3B30;
+    --mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 13px; line-height: 1.6; letter-spacing: 0.01em; -webkit-font-smoothing: antialiased; }
+  body { background-image: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.04) 0.8px, transparent 1px); background-size: 14px 14px; }
+  ::selection { background: var(--red); color: #fff; }
+  a { color: var(--red); text-decoration: none; }
+  a:hover { color: var(--red-2); }
+  .nav { position: sticky; top: 0; z-index: 80; background: rgba(0,0,0,0.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--rule); }
+  .nav-inner { display: flex; align-items: center; gap: 20px; height: 56px; max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; }
+  .brand-mark { width: 24px; height: 24px; border: 1px solid var(--ink); display: grid; place-items: center; position: relative; }
+  .brand-mark::before, .brand-mark::after { content: ''; position: absolute; width: 3.5px; height: 3.5px; background: var(--ink); border-radius: 50%; }
+  .brand-mark::before { top: 5px; left: 5px; }
+  .brand-mark::after { bottom: 5px; right: 5px; }
+  .brand-mark span { width: 3.5px; height: 3.5px; background: var(--red); border-radius: 50%; }
+  .brand-name { font-size: 10px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+  .brand-name em { font-style: normal; color: var(--ink-3); }
+  .nav-back { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-3); }
+  .nav-back:hover { color: var(--ink); }
+  .nav-sep { color: var(--ink-4); font-size: 10px; }
+  .nav-ml { margin-left: auto; }
+  .lang { display: flex; border: 1px solid var(--rule-2); }
+  .lang button { padding: 5px 9px; font-family: var(--mono); font-size: 9.5px; font-weight: 500; color: var(--ink-3); letter-spacing: 0.18em; text-transform: uppercase; border: 0; background: transparent; cursor: pointer; }
+  .lang button.active { background: var(--ink); color: var(--bg); }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+  .page-header { padding: 56px 0 40px; border-bottom: 1px solid var(--rule); margin-bottom: 48px; }
+  .eyebrow { font-size: 10px; font-weight: 500; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 16px; }
+  .page-title { font-size: clamp(28px, 5vw, 44px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 16px; }
+  .page-meta { font-size: 11px; color: var(--ink-3); letter-spacing: 0.1em; }
+  .content { padding-bottom: 80px; }
+  .section { margin-bottom: 48px; }
+  .section-num { font-size: 9.5px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; color: var(--red); margin-bottom: 8px; }
+  h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 18px; color: var(--ink); }
+  p { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; }
+  ul, ol { font-size: 12.5px; color: var(--ink-2); line-height: 1.75; margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  .divider { border: none; border-top: 1px solid var(--rule); margin: 48px 0; }
+  .highlight-box { background: var(--bg-3); border-left: 2px solid var(--red); padding: 16px 20px; margin: 20px 0; }
+  .highlight-box p { margin: 0; font-size: 12px; }
+  .contact-box { background: var(--bg-2); border: 1px solid var(--rule-2); padding: 28px 32px; margin-top: 48px; }
+  .contact-box h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; margin: 0 0 16px; }
+  .contact-row { display: flex; flex-direction: column; gap: 8px; }
+  .contact-item { font-size: 12px; color: var(--ink-3); }
+  .contact-item strong { color: var(--ink); }
+  strong { color: var(--ink); font-weight: 600; }
+  .page-footer { border-top: 1px solid var(--rule); padding: 28px 0; }
+  .page-footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  .footer-links { display: flex; gap: 20px; flex-wrap: wrap; }
+  .footer-links a { font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; color: var(--ink-4); }
+  .footer-links a:hover { color: var(--ink-3); }
+  .footer-copy { font-size: 10px; color: var(--ink-4); letter-spacing: 0.12em; text-transform: uppercase; }
+  @media (max-width: 600px) {
+    .page-header { padding: 36px 0 28px; margin-bottom: 32px; }
+    .page-footer .wrap { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/" class="brand">
+      <span class="brand-mark"><span></span></span>
+      <span class="brand-name">Direct AI<em> / Agents</em></span>
+    </a>
+    <span class="nav-sep">·</span>
+    <a href="/" class="nav-back" data-i="back">← Назад</a>
+    <div class="nav-ml">
+      <div class="lang">
+        <button data-lang="uk" class="active">UK</button>
+        <button data-lang="en">EN</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+  <div class="page-header">
+    <div class="eyebrow" data-i="eyebrow">Юридично</div>
+    <h1 class="page-title" data-i="title">Безпека</h1>
+    <div class="page-meta" data-i="meta">Оновлено: 14 червня 2026 р. · DEP Software</div>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="content">
+
+  <div class="highlight-box">
+    <p data-i="intro"><strong>Коротко:</strong> Direct AI Agents працює на власній інфраструктурі в ЄС. Кожен клієнт отримує ізольований інстанс. Сервери захищені фаерволом, зовнішній трафік — лише через HTTPS. Усі дані шифруються під час передачі та зберігання.</p>
+  </div>
+
+  <div class="section" id="s1">
+    <div class="section-num" data-i="s1_num">01</div>
+    <h2 data-i="s1_title">Інфраструктура та ізоляція</h2>
+    <ul>
+      <li data-i="s1_l1"><strong>Розташування:</strong> Продакшн-сервери розміщені в Європейському Союзі (регіон eu-central-1). Дані клієнтів не покидають ЄС без явної згоди.</li>
+      <li data-i="s1_l2"><strong>Ізольовані інстанси:</strong> Кожен бренд-клієнт отримує окремий інстанс платформи з власною базою PostgreSQL, процесами та конфігурацією. Дані одного клієнта недоступні іншим.</li>
+      <li data-i="s1_l3"><strong>Мережева безпека:</strong> Сервери знаходяться за фаерволом. Відкриті лише необхідні порти (HTTPS 443, SSH для адміністрування з обмеженого списку IP). Прямий доступ до баз даних з інтернету заблоковано.</li>
+      <li data-i="s1_l4"><strong>Reverse proxy:</strong> Nginx термінує TLS, застосовує rate limiting і проксіює запити до внутрішніх сервісів, які не доступні напряму ззовні.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s2">
+    <div class="section-num" data-i="s2_num">02</div>
+    <h2 data-i="s2_title">Шифрування даних</h2>
+    <ul>
+      <li data-i="s2_l1"><strong>У транзиті:</strong> Увесь зовнішній трафік (вебсайт, API, адмін-панель) захищений TLS 1.2+ (рекомендовано TLS 1.3). Сертифікати Let's Encrypt з автоматичним оновленням.</li>
+      <li data-i="s2_l2"><strong>У спокої:</strong> Бази даних PostgreSQL зберігаються на зашифрованих дисках (encryption at rest). Резервні копії також зберігаються у зашифрованому вигляді.</li>
+      <li data-i="s2_l3"><strong>Секрети та паролі:</strong> Паролі адміністраторів зберігаються у вигляді bcrypt-хешів. OAuth-токени Meta та API-ключі зберігаються у зашифрованому вигляді в базі та не потрапляють у логи.</li>
+      <li data-i="s2_l4"><strong>Сесії:</strong> JWT-токени адмін-панелі мають обмежений термін дії. Секрети підпису зберігаються лише на сервері в змінних оточення, не в коді.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s3">
+    <div class="section-num" data-i="s3_num">03</div>
+    <h2 data-i="s3_title">Контроль доступу</h2>
+    <ul>
+      <li data-i="s3_l1"><strong>Мінімальні привілеї:</strong> Доступ до серверів і баз даних мають лише уповноважені інженери DEP Software у межах виконання робіт.</li>
+      <li data-i="s3_l2"><strong>Аутентифікація:</strong> SSH-доступ — лише за ключами, без паролів. Адмін-панель клієнта — окремі облікові записи з ролями.</li>
+      <li data-i="s3_l3"><strong>Cross-conversation isolation:</strong> AI-агент обробляє повідомлення лише поточної розмови. Дані різних клієнтів Instagram ніколи не змішуються в одному контексті.</li>
+      <li data-i="s3_l4"><strong>Логування:</strong> Журнали не містять секретів, токенів або повного вмісту DM. Використовуються для діагностики та виявлення зловживань.</li>
+    </ul>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s4">
+    <div class="section-num" data-i="s4_num">04</div>
+    <h2 data-i="s4_title">Резервні копії та відновлення</h2>
+    <p data-i="s4_p1">Бази даних резервуються регулярно. Копії зберігаються окремо від основного сервера у зашифрованому вигляді. У разі інциденту ми можемо відновити дані клієнта з резервної копії.</p>
+    <p data-i="s4_p2">Після припинення співпраці дані клієнта видаляються протягом 30 днів відповідно до <a href="/privacy-policy">Політики конфіденційності</a> та <a href="/data-deletion">інструкції з видалення</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s5">
+    <div class="section-num" data-i="s5_num">05</div>
+    <h2 data-i="s5_title">Субобробники та інтеграції</h2>
+    <p data-i="s5_p1">Для роботи платформи ми передаємо дані лише необхідним постачальникам:</p>
+    <ul>
+      <li data-i="s5_l1"><strong>Meta Platform</strong> — Instagram Direct API (повідомлення, профіль).</li>
+      <li data-i="s5_l2"><strong>Anthropic (Claude)</strong> — генерація відповідей AI-агента.</li>
+      <li data-i="s5_l3"><strong>KeyCRM</strong> — за налаштуванням клієнта (замовлення, контакти).</li>
+      <li data-i="s5_l4"><strong>Resend</strong> — транзакційні email з лендингу та сповіщення.</li>
+    </ul>
+    <p data-i="s5_p2">Повний перелік та умови обробки — у <a href="/dpa">DPA (Data Processing Agreement)</a> та <a href="/privacy-policy">Політиці конфіденційності</a>.</p>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section" id="s6">
+    <div class="section-num" data-i="s6_num">06</div>
+    <h2 data-i="s6_title">Повідомлення про інциденти</h2>
+    <p data-i="s6_p1">У разі інциденту безпеки, що впливає на персональні дані клієнтів, ми повідомляємо уражених клієнтів-підприємців без невиправданої затримки та, за потреби, відповідний наглядовий орган відповідно до GDPR.</p>
+    <p data-i="s6_p2">Підозрілі активності або вразливості можна повідомити на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a> з темою «Security report».</p>
+  </div>
+
+  <div class="section" id="s7">
+    <div class="section-num" data-i="s7_num">07</div>
+    <h2 data-i="s7_title">Контакти</h2>
+    <div class="contact-box">
+      <h3 data-i="s7_box">DEP Software — Direct AI Agents</h3>
+      <div class="contact-row">
+        <div class="contact-item"><strong data-i="s7_sec">Питання безпеки:</strong> <a href="mailto:help@depsoftware.com">help@depsoftware.com</a></div>
+        <div class="contact-item"><strong data-i="s7_ceo">CEO:</strong> Данило Павенко — <a href="mailto:ceo@depsoftware.com">ceo@depsoftware.com</a></div>
+        <div class="contact-item"><strong data-i="s7_dpa">DPA для B2B-клієнтів:</strong> <a href="/dpa">direct-ai-agents.com/dpa</a></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<footer class="page-footer">
+  <div class="wrap">
+    <div class="footer-links">
+      <a href="/" data-i="foot_home">Головна</a>
+      <a href="/privacy-policy" data-i="foot_privacy">Конфіденційність</a>
+      <a href="/terms" data-i="foot_terms">Умови</a>
+      <a href="/data-deletion" data-i="foot_data_deletion">Видалення даних</a>
+      <a href="/dpa" data-i="foot_dpa">DPA</a>
+      <a href="/security" data-i="foot_security">Безпека</a>
+    </div>
+    <span class="footer-copy">© 2026 DEP SOFTWARE · DIRECT AI AGENTS</span>
+  </div>
+</footer>
+
+<script>
+const I18N = {
+  uk: {
+    back: "← Назад", eyebrow: "Юридично", title: "Безпека",
+    meta: "Оновлено: 14 червня 2026 р. · DEP Software",
+    intro: "<strong>Коротко:</strong> Direct AI Agents працює на власній інфраструктурі в ЄС. Кожен клієнт отримує ізольований інстанс. Сервери захищені фаерволом, зовнішній трафік — лише через HTTPS. Усі дані шифруються під час передачі та зберігання.",
+    s1_num: "01", s1_title: "Інфраструктура та ізоляція",
+    s1_l1: "<strong>Розташування:</strong> Продакшн-сервери розміщені в Європейському Союзі (регіон eu-central-1). Дані клієнтів не покидають ЄС без явної згоди.",
+    s1_l2: "<strong>Ізольовані інстанси:</strong> Кожен бренд-клієнт отримує окремий інстанс платформи з власною базою PostgreSQL, процесами та конфігурацією. Дані одного клієнта недоступні іншим.",
+    s1_l3: "<strong>Мережева безпека:</strong> Сервери знаходяться за фаерволом. Відкриті лише необхідні порти (HTTPS 443, SSH для адміністрування з обмеженого списку IP). Прямий доступ до баз даних з інтернету заблоковано.",
+    s1_l4: "<strong>Reverse proxy:</strong> Nginx термінує TLS, застосовує rate limiting і проксіює запити до внутрішніх сервісів, які не доступні напряму ззовні.",
+    s2_num: "02", s2_title: "Шифрування даних",
+    s2_l1: "<strong>У транзиті:</strong> Увесь зовнішній трафік (вебсайт, API, адмін-панель) захищений TLS 1.2+ (рекомендовано TLS 1.3). Сертифікати Let's Encrypt з автоматичним оновленням.",
+    s2_l2: "<strong>У спокої:</strong> Бази даних PostgreSQL зберігаються на зашифрованих дисках (encryption at rest). Резервні копії також зберігаються у зашифрованому вигляді.",
+    s2_l3: "<strong>Секрети та паролі:</strong> Паролі адміністраторів зберігаються у вигляді bcrypt-хешів. OAuth-токени Meta та API-ключі зберігаються у зашифрованому вигляді в базі та не потрапляють у логи.",
+    s2_l4: "<strong>Сесії:</strong> JWT-токени адмін-панелі мають обмежений термін дії. Секрети підпису зберігаються лише на сервері в змінних оточення, не в коді.",
+    s3_num: "03", s3_title: "Контроль доступу",
+    s3_l1: "<strong>Мінімальні привілеї:</strong> Доступ до серверів і баз даних мають лише уповноважені інженери DEP Software у межах виконання робіт.",
+    s3_l2: "<strong>Аутентифікація:</strong> SSH-доступ — лише за ключами, без паролів. Адмін-панель клієнта — окремі облікові записи з ролями.",
+    s3_l3: "<strong>Cross-conversation isolation:</strong> AI-агент обробляє повідомлення лише поточної розмови. Дані різних клієнтів Instagram ніколи не змішуються в одному контексті.",
+    s3_l4: "<strong>Логування:</strong> Журнали не містять секретів, токенів або повного вмісту DM. Використовуються для діагностики та виявлення зловживань.",
+    s4_num: "04", s4_title: "Резервні копії та відновлення",
+    s4_p1: "Бази даних резервуються регулярно. Копії зберігаються окремо від основного сервера у зашифрованому вигляді. У разі інциденту ми можемо відновити дані клієнта з резервної копії.",
+    s4_p2: 'Після припинення співпраці дані клієнта видаляються протягом 30 днів відповідно до <a href="/privacy-policy">Політики конфіденційності</a> та <a href="/data-deletion">інструкції з видалення</a>.',
+    s5_num: "05", s5_title: "Субобробники та інтеграції",
+    s5_p1: "Для роботи платформи ми передаємо дані лише необхідним постачальникам:",
+    s5_l1: "<strong>Meta Platform</strong> — Instagram Direct API (повідомлення, профіль).",
+    s5_l2: "<strong>Anthropic (Claude)</strong> — генерація відповідей AI-агента.",
+    s5_l3: "<strong>KeyCRM</strong> — за налаштуванням клієнта (замовлення, контакти).",
+    s5_l4: "<strong>Resend</strong> — транзакційні email з лендингу та сповіщення.",
+    s5_p2: 'Повний перелік та умови обробки — у <a href="/dpa">DPA (Data Processing Agreement)</a> та <a href="/privacy-policy">Політиці конфіденційності</a>.',
+    s6_num: "06", s6_title: "Повідомлення про інциденти",
+    s6_p1: "У разі інциденту безпеки, що впливає на персональні дані клієнтів, ми повідомляємо уражених клієнтів-підприємців без невиправданої затримки та, за потреби, відповідний наглядовий орган відповідно до GDPR.",
+    s6_p2: 'Підозрілі активності або вразливості можна повідомити на <a href="mailto:help@depsoftware.com">help@depsoftware.com</a> з темою «Security report».',
+    s7_num: "07", s7_title: "Контакти", s7_box: "DEP Software — Direct AI Agents",
+    s7_sec: "Питання безпеки:", s7_ceo: "CEO:", s7_dpa: "DPA для B2B-клієнтів:",
+    foot_home: "Головна", foot_privacy: "Конфіденційність", foot_terms: "Умови",
+    foot_data_deletion: "Видалення даних", foot_dpa: "DPA", foot_security: "Безпека",
+  },
+  en: {
+    back: "← Back", eyebrow: "Legal", title: "Security",
+    meta: "Updated: 14 June 2026 · DEP Software",
+    intro: "<strong>In short:</strong> Direct AI Agents runs on our own EU infrastructure. Each client gets an isolated instance. Servers sit behind a firewall; external traffic is HTTPS only. All data is encrypted in transit and at rest.",
+    s1_num: "01", s1_title: "Infrastructure and isolation",
+    s1_l1: "<strong>Location:</strong> Production servers are hosted in the European Union (eu-central-1). Client data does not leave the EU without explicit consent.",
+    s1_l2: "<strong>Isolated instances:</strong> Each brand client receives a dedicated platform instance with its own PostgreSQL database, processes, and configuration. One client's data is never accessible to others.",
+    s1_l3: "<strong>Network security:</strong> Servers are protected by a firewall. Only required ports are open (HTTPS 443, SSH for administration from an allowlisted IP range). Direct database access from the internet is blocked.",
+    s1_l4: "<strong>Reverse proxy:</strong> Nginx terminates TLS, applies rate limiting, and proxies requests to internal services that are not directly exposed.",
+    s2_num: "02", s2_title: "Data encryption",
+    s2_l1: "<strong>In transit:</strong> All external traffic (website, API, admin panel) is protected with TLS 1.2+ (TLS 1.3 recommended). Let's Encrypt certificates with automatic renewal.",
+    s2_l2: "<strong>At rest:</strong> PostgreSQL databases are stored on encrypted volumes. Backups are also stored encrypted.",
+    s2_l3: "<strong>Secrets and passwords:</strong> Admin passwords are stored as bcrypt hashes. Meta OAuth tokens and API keys are stored encrypted in the database and never logged.",
+    s2_l4: "<strong>Sessions:</strong> Admin panel JWT tokens have a limited lifetime. Signing secrets live only in server environment variables, not in code.",
+    s3_num: "03", s3_title: "Access control",
+    s3_l1: "<strong>Least privilege:</strong> Only authorised DEP Software engineers may access servers and databases, and only as needed for their work.",
+    s3_l2: "<strong>Authentication:</strong> SSH access is key-based only. Client admin panel uses separate accounts with roles.",
+    s3_l3: "<strong>Cross-conversation isolation:</strong> The AI agent processes only the current conversation. Instagram end-user data from different chats is never mixed in one context.",
+    s3_l4: "<strong>Logging:</strong> Logs do not contain secrets, tokens, or full DM content. They are used for diagnostics and abuse detection.",
+    s4_num: "04", s4_title: "Backups and recovery",
+    s4_p1: "Databases are backed up regularly. Copies are stored separately from the primary server, encrypted. We can restore client data from backup if needed.",
+    s4_p2: 'After contract termination, client data is deleted within 30 days per our <a href="/privacy-policy">Privacy Policy</a> and <a href="/data-deletion">data deletion instructions</a>.',
+    s5_num: "05", s5_title: "Sub-processors and integrations",
+    s5_p1: "We share data only with providers required to operate the platform:",
+    s5_l1: "<strong>Meta Platform</strong> — Instagram Direct API (messages, profile).",
+    s5_l2: "<strong>Anthropic (Claude)</strong> — AI reply generation.",
+    s5_l3: "<strong>KeyCRM</strong> — per client configuration (orders, contacts).",
+    s5_l4: "<strong>Resend</strong> — transactional email from the landing page and notifications.",
+    s5_p2: 'Full list and processing terms are in our <a href="/dpa">DPA</a> and <a href="/privacy-policy">Privacy Policy</a>.',
+    s6_num: "06", s6_title: "Incident notification",
+    s6_p1: "If a security incident affects personal data, we notify affected merchant clients without undue delay and, where required, the relevant supervisory authority under GDPR.",
+    s6_p2: 'Report suspicious activity or vulnerabilities to <a href="mailto:help@depsoftware.com">help@depsoftware.com</a> with subject line «Security report».',
+    s7_num: "07", s7_title: "Contact", s7_box: "DEP Software — Direct AI Agents",
+    s7_sec: "Security enquiries:", s7_ceo: "CEO:", s7_dpa: "DPA for B2B clients:",
+    foot_home: "Home", foot_privacy: "Privacy", foot_terms: "Terms",
+    foot_data_deletion: "Data Deletion", foot_dpa: "DPA", foot_security: "Security",
+  }
+};
+
+let lang = localStorage.getItem("da_lang") || "uk";
+function applyLang(l) {
+  lang = l;
+  localStorage.setItem("da_lang", l);
+  document.documentElement.lang = l === "uk" ? "uk" : "en";
+  document.querySelectorAll("[data-i]").forEach(el => {
+    const k = el.getAttribute("data-i");
+    if (I18N[l][k]) el.innerHTML = I18N[l][k];
+  });
+  document.querySelectorAll(".lang button").forEach(b => b.classList.toggle("active", b.dataset.lang === l));
+}
+document.querySelectorAll(".lang button").forEach(b => b.addEventListener("click", () => applyLang(b.dataset.lang)));
+applyLang(lang);
+</script>
+</body>
+</html>
