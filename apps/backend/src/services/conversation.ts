@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { config } from '../config.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from './claude.js';
@@ -351,6 +352,20 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 8. Call Claude ────────────────────────────────────────────────
+  const hasVoiceTranscript = (mediaAttachments ?? []).some(
+    (a) => a.kind === 'audio' && a.sttStatus === 'ok' && !!a.transcript?.trim(),
+  );
+  const claudeTimeoutMs = hasVoiceTranscript
+    ? config.CLAUDE_VOICE_TIMEOUT_MS
+    : undefined;
+
+  if (hasVoiceTranscript) {
+    log.info(
+      { conversationId, timeoutMs: claudeTimeoutMs },
+      'Voice turn — using extended Claude timeout',
+    );
+  }
+
   const response = await askClaude(
     {
       systemPrompt: prompt,
@@ -363,6 +378,7 @@ async function handleIncomingMessageImpl(
       channel: conversation.channel,
       conversationId,
       clientId: client.id,
+      timeoutMs: claudeTimeoutMs,
     },
   );
 

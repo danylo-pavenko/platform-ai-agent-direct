@@ -54,7 +54,10 @@ const envSchema = z.object({
 
   // Claude
   CLAUDE_MAX_CONCURRENCY: z.coerce.number().default(2),
-  CLAUDE_TIMEOUT_MS: z.coerce.number().default(30000),
+  // IG/TG customer turns — catalog tool calls on a VPS often exceed 30s.
+  CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
+  // Voice notes: STT already consumed wall time; allow a longer Claude window.
+  CLAUDE_VOICE_TIMEOUT_MS: z.coerce.number().default(90000),
   // Admin-facing channels (meta_agent, sandbox, supervisor) work with much
   // larger inputs (full system prompt, diagnostic snapshots) and expect
   // structured multi-section output. The 30s customer timeout is too tight

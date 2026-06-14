@@ -49,6 +49,8 @@ export interface ClaudeCallContext {
   channel: AgentChannel;
   conversationId?: string;
   clientId?: string;
+  /** Per-call override (e.g. voice turns after STT). */
+  timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +92,9 @@ function fallbackFor(
 }
 
 function timeoutFor(context?: ClaudeCallContext): number {
+  if (context?.timeoutMs != null) {
+    return context.timeoutMs;
+  }
   if (context && ADMIN_CHANNELS.has(context.channel)) {
     return config.CLAUDE_ADMIN_TIMEOUT_MS;
   }
@@ -428,6 +433,7 @@ export async function askClaude(
         toolCalls: response.toolCalls?.length ?? 0,
         fallback: response.fallback ?? null,
         channel: context?.channel ?? null,
+        timeoutMs: timeoutFor(context),
       },
       'Claude invocation complete',
     );
