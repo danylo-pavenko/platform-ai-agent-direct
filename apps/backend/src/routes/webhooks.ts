@@ -10,6 +10,7 @@ import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import {
   type StoredMediaAttachment,
+  storedMediaAttachmentsForDb,
   visualStorageKeys,
 } from '../lib/media-attachments.js';
 import { isRemoteMediaUrl, persistIncomingMediaItems } from '../services/media.js';
@@ -638,7 +639,7 @@ async function processMessageEvent(
         sender: 'client',
         text: redacted || null,
         mediaUrls: storedMediaKeys.length > 0 ? storedMediaKeys : undefined,
-        mediaAttachments: mediaAttachments.length > 0 ? mediaAttachments : undefined,
+        mediaAttachments: storedMediaAttachmentsForDb(mediaAttachments),
         // Store raw shared post metadata for audit / future reference.
         // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
         // accept typed interfaces with optional fields directly.

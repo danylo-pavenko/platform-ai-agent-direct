@@ -1,3 +1,5 @@
+import type { Prisma } from '../generated/prisma/client.js';
+
 /** Normalized media kind for admin UI and Claude routing. */
 export type MediaKind = 'image' | 'video' | 'audio' | 'file' | 'unknown';
 
@@ -82,6 +84,14 @@ export function visualStorageKeys(
   return (legacyMediaUrls ?? []).filter((key) =>
     isVisualMediaKind(inferKindFromStorageKey(key)),
   );
+}
+
+/** Prisma JSONB write — typed interfaces are not assignable to InputJsonValue directly. */
+export function storedMediaAttachmentsForDb(
+  attachments: StoredMediaAttachment[],
+): Prisma.InputJsonValue | undefined {
+  if (attachments.length === 0) return undefined;
+  return attachments as unknown as Prisma.InputJsonValue;
 }
 
 /** Build attachment views from legacy mediaUrls only (pre-migration messages). */
