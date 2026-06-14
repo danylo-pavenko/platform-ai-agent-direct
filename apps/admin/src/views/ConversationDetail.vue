@@ -155,32 +155,87 @@
                   {{ formatChatPlain(msg.text) }}
                 </div>
                 <div
-                  v-if="messageMediaKeys(msg).length > 0"
+                  v-if="getMessageMediaItems(msg).length > 0"
                   class="message-media d-flex flex-column ga-2"
                   :class="{ 'mt-2': msg.text }"
                 >
-                  <template v-for="(key, idx) in messageMediaKeys(msg)" :key="`${msg.id}-media-${idx}`">
+                  <template
+                    v-for="(item, idx) in getMessageMediaItems(msg)"
+                    :key="`${msg.id}-media-${idx}`"
+                  >
                     <video
-                      v-if="isVideoMedia(key)"
-                      :src="resolveMessageMediaSrc(key)"
+                      v-if="item.playable && item.kind === 'video' && item.src"
+                      :src="item.src"
                       class="message-media-video"
                       controls
                       preload="metadata"
                     />
+                    <div
+                      v-else-if="item.kind === 'audio'"
+                      class="message-audio-block d-flex flex-column ga-1"
+                    >
+                      <audio
+                        v-if="item.playable && item.src"
+                        :src="item.src"
+                        class="message-media-audio"
+                        controls
+                        preload="metadata"
+                      />
+                      <div
+                        v-else
+                        class="message-media-placeholder d-flex align-center ga-2 pa-2"
+                      >
+                        <v-icon size="small" color="grey" :icon="mediaKindIcon('audio')" />
+                        <span class="text-body-2 text-medium-emphasis">
+                          {{ item.unavailableLabel }}
+                        </span>
+                      </div>
+                      <div
+                        v-if="item.transcript"
+                        class="message-voice-transcript text-caption text-medium-emphasis"
+                      >
+                        📝 {{ item.transcript }}
+                      </div>
+                      <div
+                        v-else-if="item.playable && item.sttStatus === 'failed'"
+                        class="message-voice-transcript text-caption text-medium-emphasis"
+                      >
+                        Транскрипція недоступна — прослухайте аудіо вище
+                      </div>
+                    </div>
                     <a
-                      v-else
-                      :href="resolveMessageMediaSrc(key)"
+                      v-else-if="item.playable && item.kind === 'image' && item.src"
+                      :href="item.src"
                       target="_blank"
                       rel="noopener noreferrer"
                       class="message-media-link"
                     >
                       <img
-                        :src="resolveMessageMediaSrc(key)"
+                        :src="item.src"
                         class="message-media-image"
                         alt="Вкладення"
                         loading="lazy"
                       />
                     </a>
+                    <a
+                      v-else-if="item.playable && item.kind === 'file' && item.downloadHref"
+                      :href="item.downloadHref"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="message-media-file-link text-body-2"
+                    >
+                      <v-icon size="small" class="mr-1">mdi-paperclip</v-icon>
+                      Завантажити файл
+                    </a>
+                    <div
+                      v-else
+                      class="message-media-placeholder d-flex align-center ga-2 pa-2"
+                    >
+                      <v-icon size="small" color="grey" :icon="mediaKindIcon(item.kind)" />
+                      <span class="text-body-2 text-medium-emphasis">
+                        {{ item.unavailableLabel }}
+                      </span>
+                    </div>
                   </template>
                 </div>
                 <div v-if="msg.sharedPost?.postUrl" class="mt-2">
@@ -282,7 +337,11 @@ import { useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatChatPlain } from '@/lib/chatDisplay';
-import { isVideoMedia, resolveMessageMediaSrc } from '@/lib/mediaUrl';
+import {
+  getMessageMediaItems,
+  mediaKindIcon,
+  type StoredMediaAttachment,
+} from '@/lib/messageMedia';
 
 const { mobile } = useDisplay();
 const router = useRouter();
@@ -305,6 +364,7 @@ interface Message {
   createdAt: string;
   igMessageId?: string | null;
   mediaUrls?: string[];
+  mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData | null;
 }
 
@@ -460,14 +520,6 @@ const botIsThinking = computed(() => {
 
 function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
-}
-
-function messageMediaKeys(msg: Message): string[] {
-  const keys = new Set<string>();
-  for (const key of msg.mediaUrls ?? []) {
-    if (key) keys.add(key);
-  }
-  return [...keys];
 }
 
 async function scrollToBottom() {
@@ -1141,6 +1193,30 @@ const ClientProfilePanel = defineComponent({
   max-height: 320px;
   border-radius: 8px;
   background: #000;
+}
+
+.message-media-audio {
+  display: block;
+  width: 100%;
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.message-media-placeholder {
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.message-media-file-link {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 500;
+}
+.message-media-file-link:hover {
+  text-decoration: underline;
 }
 
 .message-media-link {

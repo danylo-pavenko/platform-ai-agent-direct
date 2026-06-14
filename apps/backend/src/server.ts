@@ -71,10 +71,15 @@ await app.register(mediaRoutes, { prefix: '/media' });
 // Health check
 app.get('/health', async () => {
   await prisma.$queryRawUnsafe('SELECT 1');
+  const { pingWhisperService } = await import('./services/transcribe.js');
+  const sttOk = config.STT_ENABLED ? await pingWhisperService() : null;
   return {
     status: 'ok',
     instance: config.INSTANCE_ID,
     timestamp: new Date().toISOString(),
+    stt: config.STT_ENABLED
+      ? { enabled: true, whisperReachable: sttOk }
+      : { enabled: false },
   };
 });
 

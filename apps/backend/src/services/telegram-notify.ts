@@ -3,6 +3,7 @@ import { InlineKeyboard } from 'grammy';
 import { getBot, getManagerGroupId } from '../lib/telegram.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
+import { adminConversationUrl } from '../lib/admin-urls.js';
 
 const log = pino({ name: 'telegram-notify' });
 
@@ -50,14 +51,16 @@ export async function notifyHandoff(params: {
   conversationId: string;
   clientIgUserId: string;
   reason: string;
-  lastMessages: Array<{ sender: string; text: string }>;
+  lastMessages: Array<{ sender: string; text: string; isVoice?: boolean }>;
 }): Promise<void> {
   const { conversationId, clientIgUserId, reason, lastMessages } = params;
   const shortId = conversationId.slice(0, 8);
+  const adminUrl = adminConversationUrl(conversationId);
 
   const messagesBlock = lastMessages
     .map((m) => {
-      const icon = m.sender === 'bot' ? '🤖 Бот' : '👤 Клієнт';
+      const icon =
+        m.sender === 'bot' ? '🤖 Бот' : m.isVoice ? '👤 Клієнт (🎤)' : '👤 Клієнт';
       return `${icon}: ${escapeHtml(m.text)}`;
     })
     .join('\n');
@@ -70,7 +73,9 @@ export async function notifyHandoff(params: {
     `Причина: ${escapeHtml(reason)}`,
     ``,
     `<b>Останні повідомлення:</b>`,
-    messagesBlock,
+    messagesBlock || '<i>(немає тексту)</i>',
+    ``,
+    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
   ].join('\n');
 
   const keyboard = new InlineKeyboard()

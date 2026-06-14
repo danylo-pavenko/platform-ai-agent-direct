@@ -125,6 +125,7 @@ model Message {
   sender          MessageSender
   text            String?
   mediaUrls       Json?             @map("media_urls") @db.JsonB
+  mediaAttachments Json?            @map("media_attachments") @db.JsonB
   sharedPost      Json?             @map("shared_post") @db.JsonB
   igMessageId     String?           @unique @map("ig_message_id")
   claudeTurnId    String?           @map("claude_turn_id")

@@ -11,6 +11,8 @@ dist/
 
 # Uploads & data
 uploads/
+.whisper-venv/
+.whisper-models/
 data/
 
 # IDE

@@ -25,18 +25,19 @@ if [ ! -f .env ]; then
 fi
 # Parse .env manually: handles unquoted values with spaces, inline comments,
 # and always overrides stale values already set in the daemon environment.
-while IFS= read -r _line || [ -n "$_line" ]; do
-  # skip comment and blank lines
-  [[ "$_line" =~ ^[[:space:]]*# ]] && continue
-  [[ -z "${_line// }" ]] && continue
-  _key="${_line%%=*}"          # everything before the first =
-  _val="${_line#*=}"           # everything after the first =
-  _key="${_key//[[:space:]]/}" # strip any spaces from key
-  # strip surrounding quotes from value (optional quoting in .env)
-  _val="${_val#\"}" ; _val="${_val%\"}"
-  _val="${_val#\'}" ; _val="${_val%\'}"
-  export "$_key=$_val"
-done < .env
+load_env_file() {
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    [[ "$_line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${_line// }" ]] && continue
+    _key="${_line%%=*}"
+    _val="${_line#*=}"
+    _key="${_key//[[:space:]]/}"
+    _val="${_val#\"}" ; _val="${_val%\"}"
+    _val="${_val#\'}" ; _val="${_val%\'}"
+    export "$_key=$_val"
+  done < .env
+}
+load_env_file
 
 # Validate required fields so a misconfigured .env fails fast with a clear message.
 _missing=()
@@ -57,37 +58,46 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "══════════════════════════════════════════════"
 
 # ── 1. Pull latest ──
-echo "[1/9] Pulling latest code..."
+echo "[1/10] Pulling latest code..."
 git pull --ff-only
 
 # ── 2. Install dependencies ──
-echo "[2/9] Installing dependencies..."
+echo "[2/10] Installing dependencies..."
 npm ci --prefer-offline
 
+# ── 2b. faster-whisper STT (idempotent) ──
+echo "[3/10] Setting up faster-whisper STT (idempotent)..."
+if [ "${STT_ENABLED:-true}" = "true" ]; then
+  bash "${SCRIPT_DIR}/setup-whisper.sh"
+  load_env_file
+else
+  echo "  STT_ENABLED=false — skipping whisper setup"
+fi
+
 # ── 3. Generate Prisma client ──
-echo "[3/9] Generating Prisma client..."
+echo "[4/10] Generating Prisma client..."
 cd apps/backend
 npx prisma generate
 cd "${PROJECT_ROOT}"
 
 # ── 4. Run migrations ──
-echo "[4/9] Running database migrations..."
+echo "[5/10] Running database migrations..."
 cd apps/backend
 npx prisma migrate deploy
 cd "${PROJECT_ROOT}"
 
 # ── 5. Seed admin user + default settings ──
-echo "[5/9] Seeding admin user and default settings..."
+echo "[6/10] Seeding admin user and default settings..."
 cd apps/backend
 npx prisma db seed
 cd "${PROJECT_ROOT}"
 
 # ── 6. Bootstrap tenant knowledge (seed missing files only) ──
-echo "[6/9] Bootstrapping tenant knowledge..."
+echo "[7/10] Bootstrapping tenant knowledge..."
 npm run bootstrap:knowledge
 
 # ── 7. Build backend ──
-echo "[7/9] Building backend..."
+echo "[8/10] Building backend..."
 if ! npm run build:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Build failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
@@ -99,9 +109,16 @@ if [ ! -f "${BACKEND_ENTRY}" ]; then
   exit 1
 fi
 
+echo "[8b/10] Running backend unit tests..."
+if ! npm run test:backend >>"${DEPLOY_LOG}" 2>&1; then
+  echo "  Unit tests failed — see ${DEPLOY_LOG}" >&2
+  tail -40 "${DEPLOY_LOG}" >&2
+  exit 1
+fi
+
 # ── 8. Build admin panel ──
 if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
-  echo "[8/9] Building admin panel..."
+  echo "[9/10] Building admin panel..."
   if ! npm run build:admin >>"${DEPLOY_LOG}" 2>&1; then
     echo "  Admin build failed — see ${DEPLOY_LOG}" >&2
     tail -40 "${DEPLOY_LOG}" >&2
@@ -113,11 +130,11 @@ if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
     exit 1
   fi
 else
-  echo "[8/9] Admin panel not built yet — skipping"
+  echo "[9/10] Admin panel not built yet — skipping"
 fi
 
-# ── 9. Restart PM2 ──
-echo "[9/9] Restarting PM2 processes..."
+# ── 10. Restart PM2 ──
+echo "[10/10] Restarting PM2 processes..."
 PM2_PREFIX="${INSTANCE_ID_UPPER}"
 
 # Use full restart (not graceful reload): cluster-mode reload performs a
@@ -159,6 +176,27 @@ wait_for_port() {
 
 API_OK=0
 ADMIN_OK=0
+WHISPER_OK=1
+
+# Whisper STT health (when enabled)
+if [ "${STT_ENABLED:-true}" = "true" ]; then
+  WHISPER_PORT="${WHISPER_SERVICE_PORT:-8100}"
+  WHISPER_OK=0
+  for ((i = 1; i <= 45; i++)); do
+    WHISPER_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://127.0.0.1:${WHISPER_PORT}/health" 2>/dev/null || printf '000')
+    WHISPER_STATUS="${WHISPER_STATUS:0:3}"
+    if [ "${WHISPER_STATUS}" = "200" ]; then
+      echo "  Whisper /health OK on :${WHISPER_PORT} (HTTP 200)"
+      WHISPER_OK=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "${WHISPER_OK}" = "0" ]; then
+    echo "  WARN: Whisper STT did not respond on :${WHISPER_PORT} (voice notes may fail)" >&2
+    pm2 logs "${PM2_PREFIX}-whisper" --lines 15 --nostream 2>&1 || true
+  fi
+fi
 
 # API-specific /health check with retry.
 for ((i = 1; i <= 30; i++)); do
@@ -185,9 +223,12 @@ else
   pm2 logs "${PM2_PREFIX}-admin" --lines 20 --nostream 2>&1 || true
 fi
 
-if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ]; then
+if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ] && [ "${WHISPER_OK}" = "1" ]; then
   pm2 save
   HEALTH_STATE="OK"
+elif [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ]; then
+  pm2 save
+  HEALTH_STATE="OK (Whisper STT degraded)"
 else
   HEALTH_STATE="FAILED"
 fi
@@ -206,6 +247,7 @@ echo ""
 echo "  Logs:"
 echo "    pm2 logs ${PM2_PREFIX}-api"
 echo "    pm2 logs ${PM2_PREFIX}-bot"
+echo "    pm2 logs ${PM2_PREFIX}-whisper"
 echo "    Full deploy log: ${DEPLOY_LOG}"
 echo ""
 

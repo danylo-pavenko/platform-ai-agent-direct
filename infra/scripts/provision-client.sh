@@ -198,6 +198,19 @@ SUPERVISOR_SHARED_SECRET=
 # ── File storage ──
 UPLOADS_DIR=${APP_DIR}/uploads
 
+# ── Speech-to-text (local faster-whisper) ──
+STT_ENABLED=true
+WHISPER_SERVICE_URL=http://127.0.0.1:$((API_PORT + 5000))
+WHISPER_SERVICE_PORT=$((API_PORT + 5000))
+WHISPER_SERVICE_TOKEN=$(openssl rand -hex 24)
+WHISPER_MODEL=small
+WHISPER_LANGUAGE=uk
+WHISPER_MAX_SECONDS=90
+WHISPER_TIMEOUT_MS=120000
+WHISPER_DEVICE=cpu
+WHISPER_COMPUTE_TYPE=int8
+WHISPER_CACHE_DIR=${APP_DIR}/.whisper-models
+
 # Per-tenant knowledge dir (leave empty to auto-resolve to \$HOME/tenant_knowledge).
 TENANT_KNOWLEDGE_DIR=
 

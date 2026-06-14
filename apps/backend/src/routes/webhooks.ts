@@ -8,7 +8,15 @@ import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.
 import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { getAgentConfig } from '../lib/agent-config.js';
-import { isRemoteMediaUrl, persistRemoteMediaUrls } from '../services/media.js';
+import {
+  type StoredMediaAttachment,
+  visualStorageKeys,
+} from '../lib/media-attachments.js';
+import { isRemoteMediaUrl, persistIncomingMediaItems } from '../services/media.js';
+import {
+  mergeMessageTextWithTranscripts,
+  transcribeAudioAttachments,
+} from '../services/voice-ingest.js';
 import {
   getRuntimeConfig,
   shouldProcessIncoming,
@@ -49,6 +57,7 @@ interface MetaMessagingEvent {
     // subscription includes these echoes — we must skip them to avoid
     // the bot processing its own outgoing messages as incoming client messages.
     is_echo?: boolean;
+    is_unsupported?: boolean;
     attachments?: MetaAttachment[];
   };
 }
@@ -79,6 +88,7 @@ interface MetaWebhookChange {
       mid: string;
       text?: string;
       is_echo?: boolean;
+      is_unsupported?: boolean;
       attachments?: MetaAttachment[];
     };
     // field=message_edit (ignored — no re-processing)
@@ -310,7 +320,13 @@ async function processWebhookEvents(
       }
 
       app.log.debug(
-        { mid: event.message.mid, senderId: event.sender.id, hasText: !!event.message.text },
+        {
+          mid: event.message.mid,
+          senderId: event.sender.id,
+          hasText: !!event.message.text,
+          attachmentTypes: (event.message.attachments ?? []).map((a) => a.type),
+          isUnsupported: event.message.is_unsupported === true,
+        },
         'Processing incoming message event',
       );
 
@@ -337,6 +353,28 @@ async function processMessageEvent(
   const igMessageId = message.mid;
   const rawText = message.text ?? '';
   const attachments = message.attachments ?? [];
+  const isUnsupported = message.is_unsupported === true;
+
+  // Phase 0: structured attachment inventory for troubleshooting voice/video payloads.
+  app.log.info(
+    {
+      igUserId,
+      igMessageId,
+      hasText: rawText.trim().length > 0,
+      textLen: rawText.length,
+      attachmentCount: attachments.length,
+      attachmentTypes: attachments.map((a) => a.type),
+      isUnsupported,
+    },
+    'Incoming IG message media inventory',
+  );
+
+  if (isUnsupported && attachments.length === 0) {
+    app.log.warn(
+      { igUserId, igMessageId },
+      'Meta marked message as unsupported media (no attachment URLs)',
+    );
+  }
 
   // ── Deduplicate by ig_message_id ──
   const existingMessage = await prisma.message.findUnique({
@@ -387,15 +425,11 @@ async function processMessageEvent(
     );
   }
 
-  // ── Sanitize & redact ──
-  const sanitized = sanitizeMessage(rawText);
-  const redacted = redactSensitive(sanitized);
-
-  // ── Detect injection (log only, never block) ──
-  if (detectInjection(rawText)) {
+  // ── Detect injection on typed text early (voice transcript checked later) ──
+  if (rawText && detectInjection(rawText)) {
     app.log.warn(
       { igUserId, igMessageId },
-      'Possible prompt injection detected in incoming message',
+      'Possible prompt injection detected in incoming message text',
     );
   }
 
@@ -418,31 +452,87 @@ async function processMessageEvent(
     );
   }
 
-  // ── Extract direct media URLs (images/videos the user sends directly) ──
-  // Exclude "share" attachments here - shared post image is handled separately
-  const mediaUrls = attachments
+  // ── Extract direct media (images / video / audio / file; not share) ──
+  const directMediaItems = attachments
     .filter((a) => a.type !== 'share')
-    .map((a) => (a.payload as MediaAttachmentPayload | undefined)?.url)
-    .filter((url): url is string => !!url);
+    .map((a) => {
+      const url = (a.payload as MediaAttachmentPayload | undefined)?.url;
+      return url ? { url, igType: a.type } : null;
+    })
+    .filter((item): item is { url: string; igType: string } => item !== null);
 
-  // If the shared post has an image, include it in mediaUrls so Claude can see it.
-  // Image CDN URLs from IG expire quickly - we download them in conversation.ts.
-  if (sharedPost?.imageUrl) {
-    mediaUrls.unshift(sharedPost.imageUrl);
+  let mediaAttachments: StoredMediaAttachment[] = [];
+
+  if (isUnsupported && directMediaItems.length === 0 && !attachments.some((a) => a.type === 'share')) {
+    mediaAttachments.push({
+      kind: 'unknown',
+      igType: 'unsupported',
+      status: 'unsupported',
+      reason: 'unsupported',
+    });
   }
 
-  // ── Persist media to local uploads/ (IG CDN URLs expire in minutes) ──
-  const remoteUrls = mediaUrls.filter(isRemoteMediaUrl);
-  const storedResults =
-    remoteUrls.length > 0 ? await persistRemoteMediaUrls(remoteUrls) : [];
-  const storedMediaKeys = storedResults.filter((k): k is string => k !== null);
+  if (directMediaItems.length > 0) {
+    const persisted = await persistIncomingMediaItems(directMediaItems);
+    mediaAttachments = mediaAttachments.concat(persisted);
+    app.log.info(
+      {
+        igMessageId,
+        persisted: persisted.map((a) => ({
+          igType: a.igType,
+          kind: a.kind,
+          status: a.status,
+          storageKey: a.storageKey,
+        })),
+      },
+      'IG direct media persist results',
+    );
+  }
 
+  // Shared post preview image (separate from share attachment payload)
   if (sharedPost?.imageUrl && isRemoteMediaUrl(sharedPost.imageUrl)) {
-    const idx = remoteUrls.indexOf(sharedPost.imageUrl);
-    const localKey = idx >= 0 ? storedResults[idx] : null;
-    if (localKey) {
-      sharedPost = { ...sharedPost, imageUrl: localKey };
+    const [shareImage] = await persistIncomingMediaItems([
+      { url: sharedPost.imageUrl, igType: 'share_image' },
+    ]);
+    if (shareImage?.status === 'ready' && shareImage.storageKey) {
+      sharedPost = { ...sharedPost, imageUrl: shareImage.storageKey };
+      mediaAttachments.unshift(shareImage);
+    } else if (shareImage) {
+      mediaAttachments.unshift(shareImage);
     }
+  }
+
+  const storedMediaKeys = mediaAttachments
+    .filter((a) => a.status === 'ready' && a.storageKey)
+    .map((a) => a.storageKey!);
+
+  // ── Phase 2/3: STT for voice notes → merge into message text ──
+  if (mediaAttachments.some((a) => a.kind === 'audio' && a.status === 'ready')) {
+    mediaAttachments = await transcribeAudioAttachments(mediaAttachments);
+    app.log.info(
+      {
+        igMessageId,
+        stt: mediaAttachments
+          .filter((a) => a.kind === 'audio')
+          .map((a) => ({
+            status: a.sttStatus,
+            textLen: a.transcript?.length ?? 0,
+            storageKey: a.storageKey,
+          })),
+      },
+      'Voice STT results',
+    );
+  }
+
+  const combinedRaw = mergeMessageTextWithTranscripts(rawText, mediaAttachments);
+  const sanitized = sanitizeMessage(combinedRaw);
+  const redacted = redactSensitive(sanitized);
+
+  if (combinedRaw !== rawText && detectInjection(combinedRaw)) {
+    app.log.warn(
+      { igUserId, igMessageId },
+      'Possible prompt injection detected after voice merge',
+    );
   }
 
   // ── Upsert client ──
@@ -548,6 +638,7 @@ async function processMessageEvent(
         sender: 'client',
         text: redacted || null,
         mediaUrls: storedMediaKeys.length > 0 ? storedMediaKeys : undefined,
+        mediaAttachments: mediaAttachments.length > 0 ? mediaAttachments : undefined,
         // Store raw shared post metadata for audit / future reference.
         // Cast via unknown: Prisma's InputJsonValue is a recursive union that doesn't
         // accept typed interfaces with optional fields directly.
@@ -590,6 +681,11 @@ async function processMessageEvent(
       conversationId: conversation.id,
       hasSharedPost: !!sharedPost,
       mediaCount: storedMediaKeys.length,
+      mediaAttachmentSummary: mediaAttachments.map((a) => ({
+        kind: a.kind,
+        status: a.status,
+        igType: a.igType,
+      })),
     },
     'Persisted incoming Instagram message',
   );
@@ -614,6 +710,8 @@ async function processMessageEvent(
     redacted || '',
     storedMediaKeys,
     sharedPost ?? undefined,
+    mediaAttachments.length > 0 ? mediaAttachments : undefined,
+    igMessageId,
   ).catch((err) => {
     app.log.error({ err, conversationId: conversation.id }, 'Error in conversation handler');
   });

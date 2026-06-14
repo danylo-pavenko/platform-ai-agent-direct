@@ -11,7 +11,11 @@ import {
   loadCatalogSnippet,
   type ClientProfile,
 } from './prompt-builder.js';
-import { resolveMediaPathsForClaude } from './media.js';
+import { resolveVisualMediaPathsForClaude } from './media.js';
+import type { StoredMediaAttachment } from '../lib/media-attachments.js';
+import { visualStorageKeys } from '../lib/media-attachments.js';
+import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
+import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { notifyHandoff } from './telegram-notify.js';
 import { buildAgentTools } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
@@ -51,17 +55,28 @@ const MAX_HISTORY_MESSAGES = 30;
  *
  * @param conversationId  The DB conversation UUID.
  * @param messageText     Sanitized message text (may be empty for image-only messages).
- * @param mediaUrls       Local paths to downloaded media files (images, videos).
- * @param sharedPost      Parsed metadata if the user forwarded an IG post.
+ * @param mediaUrls         Storage keys for successfully downloaded media.
+ * @param sharedPost        Parsed metadata if the user forwarded an IG post.
+ * @param mediaAttachments  Structured attachment metadata (kind, playback status).
+ * @param sourceIgMessageId Meta message id — excludes duplicate from Claude history.
  */
 export function handleIncomingMessage(
   conversationId: string,
   messageText: string,
   mediaUrls?: string[],
   sharedPost?: SharedPostData,
+  mediaAttachments?: StoredMediaAttachment[],
+  sourceIgMessageId?: string,
 ): Promise<void> {
   return runConversationTurnSerialized(conversationId, () =>
-    handleIncomingMessageImpl(conversationId, messageText, mediaUrls, sharedPost),
+    handleIncomingMessageImpl(
+      conversationId,
+      messageText,
+      mediaUrls,
+      sharedPost,
+      mediaAttachments,
+      sourceIgMessageId,
+    ),
   );
 }
 
@@ -70,6 +85,8 @@ async function handleIncomingMessageImpl(
   messageText: string,
   mediaUrls?: string[],
   sharedPost?: SharedPostData,
+  mediaAttachments?: StoredMediaAttachment[],
+  sourceIgMessageId?: string,
 ): Promise<void> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   const conversation = await prisma.conversation.findUnique({
@@ -148,11 +165,18 @@ async function handleIncomingMessageImpl(
       'Message in handoff mode, skipping bot response',
     );
     // Forward message to Telegram manager group for handoff conversations
+    const handoffLine = formatHandoffMessageLine({
+      sender: 'client',
+      text: messageText,
+      mediaAttachments,
+    });
     notifyHandoff({
       conversationId,
       clientIgUserId: client.igUserId!,
       reason: conversation.handoffReason || 'Клієнт написав під час хендофу',
-      lastMessages: [{ sender: 'client', text: messageText }],
+      lastMessages: handoffLine
+        ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
+        : [],
     }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
     return;
   }
@@ -250,19 +274,15 @@ async function handleIncomingMessageImpl(
 
   const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
 
-  // Chronological order & filter out system / empty
-  const history = dedupedAsc
-    .filter((m) => m.direction !== 'system' && m.text)
-    .map((m) => ({
-      role: (m.direction === 'in' ? 'user' : 'assistant') as 'user' | 'assistant',
-      content: m.text!,
-    }));
+  // Exclude current turn from history — it is passed separately as userMessage (Phase 4).
+  const history = buildClaudeHistoryTurns(dedupedAsc, messageText, {
+    excludeIgMessageId: sourceIgMessageId,
+  });
 
-  // ── 7. Download media if present ──────────────────────────────────
+  // ── 7. Resolve visual media for Claude (images/video only — not audio) ──
+  const visualKeys = visualStorageKeys(mediaAttachments, mediaUrls);
   const localPaths =
-    mediaUrls && mediaUrls.length > 0
-      ? await resolveMediaPathsForClaude(mediaUrls)
-      : [];
+    visualKeys.length > 0 ? await resolveVisualMediaPathsForClaude(visualKeys) : [];
 
   // ── 7b. Shared post - product availability lookup ─────────────────
   // When a user forwards an IG post, we search KeyCRM for matching active
@@ -319,6 +339,15 @@ async function handleIncomingMessageImpl(
       },
       'Message enriched with shared post context',
     );
+  } else if (!messageText.trim() && localPaths.length === 0) {
+    const audioItems = (mediaAttachments ?? []).filter((a) => a.kind === 'audio');
+    const hasTranscript = audioItems.some((a) => a.transcript?.trim());
+    if (audioItems.length > 0 && !hasTranscript) {
+      const anyPlayable = audioItems.some((a) => a.status === 'ready' && a.storageKey);
+      enrichedMessageText = anyPlayable
+        ? '[Клієнт надіслав голосове повідомлення. Транскрипція не вдалась — відповідай коротко українською та запропонуй написати текстом.]'
+        : '[Клієнт надіслав голосове повідомлення, але прослухати його поки неможливо — відповідай коротко та запропонуй написати текстом.]';
+    }
   }
 
   // ── 8. Call Claude ────────────────────────────────────────────────
@@ -427,16 +456,28 @@ async function handleIncomingMessageImpl(
         where: { conversationId },
         orderBy: { createdAt: 'desc' },
         take: 5,
-        select: { sender: true, text: true },
+        select: { sender: true, text: true, mediaAttachments: true },
       });
+      const lastMessages = recentMsgs
+        .reverse()
+        .map((m) =>
+          formatHandoffMessageLine({
+            sender: m.sender,
+            text: m.text,
+            mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
+          }),
+        )
+        .filter((line): line is NonNullable<typeof line> => line !== null)
+        .map((line) => ({
+          sender: line.sender,
+          text: line.text,
+          isVoice: line.isVoice,
+        }));
       notifyHandoff({
         conversationId,
         clientIgUserId: client.igUserId!,
         reason,
-        lastMessages: recentMsgs
-          .reverse()
-          .filter((m) => m.text)
-          .map((m) => ({ sender: m.sender, text: m.text! })),
+        lastMessages,
       }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
       return;
     }

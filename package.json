@@ -17,7 +17,8 @@
     "db:seed": "cd apps/backend && npx tsx src/prisma/seed.ts",
     "db:migrate": "cd apps/backend && npx prisma migrate dev",
     "db:studio": "cd apps/backend && npx prisma studio",
-    "bootstrap:knowledge": "cd apps/backend && npx tsx src/scripts/bootstrap-tenant-knowledge.ts"
+    "bootstrap:knowledge": "cd apps/backend && npx tsx src/scripts/bootstrap-tenant-knowledge.ts",
+    "test:backend": "npm run test -w apps/backend"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -82,6 +82,22 @@ const envSchema = z.object({
   // File storage
   UPLOADS_DIR: z.string().default('./uploads'),
 
+  // Speech-to-text (local faster-whisper PM2 service)
+  STT_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  WHISPER_SERVICE_URL: z.string().default('http://127.0.0.1:8100'),
+  WHISPER_SERVICE_PORT: z.coerce.number().default(8100),
+  WHISPER_SERVICE_TOKEN: z.string().default(''),
+  WHISPER_MODEL: z.string().default('small'),
+  WHISPER_LANGUAGE: z.string().default('uk'),
+  WHISPER_MAX_SECONDS: z.coerce.number().default(90),
+  WHISPER_TIMEOUT_MS: z.coerce.number().default(120000),
+  WHISPER_DEVICE: z.string().default('cpu'),
+  WHISPER_COMPUTE_TYPE: z.string().default('int8'),
+  WHISPER_CACHE_DIR: z.string().default(''),
+
   // Per-tenant knowledge & prompts dir. When empty, resolves to
   // <os.homedir()>/tenant_knowledge at runtime (see lib/paths.ts).
   TENANT_KNOWLEDGE_DIR: z.string().default(''),

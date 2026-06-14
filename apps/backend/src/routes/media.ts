@@ -1,21 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { resolveStorageKey } from '../services/media.js';
-
-const MIME_BY_EXT: Record<string, string> = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.mp4': 'video/mp4',
-};
-
-function mimeForPath(filePath: string): string {
-  const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase();
-  return MIME_BY_EXT[ext] ?? 'application/octet-stream';
-}
+import { mimeForStorageKey, resolveStorageKey } from '../services/media.js';
 
 export async function mediaRoutes(app: FastifyInstance): Promise<void> {
   /** Allow <img src> with ?access_token=… in addition to Authorization header. */
@@ -54,7 +40,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: 'Not found' });
       }
 
-      reply.type(mimeForPath(filePath));
+      reply.type(mimeForStorageKey(storageKey));
       reply.header('Cache-Control', 'private, max-age=86400');
       return reply.send(createReadStream(filePath));
     },

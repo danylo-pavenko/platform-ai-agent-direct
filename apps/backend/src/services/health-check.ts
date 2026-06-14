@@ -12,7 +12,7 @@ import { isCrmWriteReady } from '../lib/crm-write.js';
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'crm' | 'crm_write' | 'agent_latency';
+  id: 'instagram' | 'claude' | 'crm' | 'crm_write' | 'agent_latency' | 'stt';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -200,6 +200,56 @@ async function checkCrmWrite(): Promise<HealthCheckItem> {
   };
 }
 
+async function checkStt(): Promise<HealthCheckItem> {
+  const label = 'Голосові (STT / Whisper)';
+
+  if (!config.STT_ENABLED) {
+    return {
+      id: 'stt',
+      label,
+      status: 'not_configured',
+      message: 'STT вимкнено (STT_ENABLED=false)',
+    };
+  }
+
+  if (!config.WHISPER_SERVICE_TOKEN) {
+    return {
+      id: 'stt',
+      label,
+      status: 'error',
+      message: 'WHISPER_SERVICE_TOKEN не задано в .env',
+    };
+  }
+
+  const { pingWhisperService } = await import('./transcribe.js');
+  const ok = await pingWhisperService();
+  if (!ok) {
+    return {
+      id: 'stt',
+      label,
+      status: 'error',
+      message: `Whisper недоступний на ${config.WHISPER_SERVICE_URL}`,
+      details: {
+        url: config.WHISPER_SERVICE_URL,
+        model: config.WHISPER_MODEL,
+        maxSeconds: config.WHISPER_MAX_SECONDS,
+      },
+    };
+  }
+
+  return {
+    id: 'stt',
+    label,
+    status: 'ok',
+    message: `Whisper OK (${config.WHISPER_MODEL}, ≤${config.WHISPER_MAX_SECONDS}s)`,
+    details: {
+      url: config.WHISPER_SERVICE_URL,
+      model: config.WHISPER_MODEL,
+      language: config.WHISPER_LANGUAGE,
+    },
+  };
+}
+
 async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem> {
   const label = 'Швидкість агента';
   const maxMs = config.CLAUDE_TIMEOUT_MS;
@@ -239,17 +289,18 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, crm, crmWrite] = await Promise.all([
+  const [instagram, claude, crm, crmWrite, stt] = await Promise.all([
     checkInstagram(),
     checkClaude(),
     checkCrm(),
     checkCrmWrite(),
+    checkStt(),
   ]);
 
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
 
-  const checks = [instagram, claude, crm, crmWrite, agentLatency];
+  const checks = [instagram, claude, crm, crmWrite, stt, agentLatency];
   const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
 
   return {

@@ -13,5 +13,13 @@ export function resolveMessageMediaSrc(key: string): string {
 }
 
 export function isVideoMedia(key: string): boolean {
-  return /\.mp4(\?|$)/i.test(key);
+  return /\.(mp4|mov|webm)(\?|$)/i.test(key);
+}
+
+export function isAudioMedia(key: string): boolean {
+  return /\.(m4a|aac|mp3|ogg|wav)(\?|$)/i.test(key);
+}
+
+export function isImageMedia(key: string): boolean {
+  return /\.(jpe?g|png|gif|webp)(\?|$)/i.test(key);
 }

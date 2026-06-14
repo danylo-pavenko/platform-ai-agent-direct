@@ -6,6 +6,11 @@ import { Readable } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { config } from '../config.js';
+import {
+  igTypeToMediaKind,
+  type MediaKind,
+  type StoredMediaAttachment,
+} from '../lib/media-attachments.js';
 
 const log = pino({ name: 'media' });
 
@@ -15,7 +20,54 @@ const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/gif': '.gif',
   'image/webp': '.webp',
   'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'audio/mp4': '.m4a',
+  'audio/m4a': '.m4a',
+  'audio/aac': '.aac',
+  'audio/mpeg': '.mp3',
+  'audio/ogg': '.ogg',
+  'audio/x-m4a': '.m4a',
 };
+
+/** Fallback extension when CDN omits Content-Type (common for IG voice notes). */
+const IG_TYPE_EXT_HINT: Record<string, string> = {
+  audio: '.m4a',
+  video: '.mp4',
+  image: '.jpg',
+  sticker: '.jpg',
+  file: '.bin',
+};
+
+export const MIME_BY_EXT: Record<string, string> = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+};
+
+export function mimeForStorageKey(storageKey: string): string {
+  const dot = storageKey.lastIndexOf('.');
+  if (dot < 0) return 'application/octet-stream';
+  return MIME_BY_EXT[storageKey.slice(dot).toLowerCase()] ?? 'application/octet-stream';
+}
+
+function pickExtension(contentType: string, igType?: string): string {
+  if (contentType && CONTENT_TYPE_TO_EXT[contentType]) {
+    return CONTENT_TYPE_TO_EXT[contentType];
+  }
+  if (igType && IG_TYPE_EXT_HINT[igType]) {
+    return IG_TYPE_EXT_HINT[igType];
+  }
+  return '.bin';
+}
 
 function uploadsRoot(): string {
   return resolve(config.UPLOADS_DIR);
@@ -54,23 +106,29 @@ export function isRemoteMediaUrl(value: string): boolean {
  */
 export async function downloadMedia(
   url: string,
-  _originalFilename?: string,
-): Promise<string | null> {
+  options?: { igType?: string },
+): Promise<{ storageKey: string; contentType: string; kind: MediaKind } | null> {
+  const igType = options?.igType ?? 'unknown';
+  const kind = igTypeToMediaKind(igType);
+
   try {
     const response = await fetch(url);
 
     if (!response.ok) {
-      log.warn({ status: response.status, url }, 'Media download failed: non-OK status');
+      log.warn(
+        { status: response.status, url, igType, kind },
+        'Media download failed: non-OK status',
+      );
       return null;
     }
 
     if (!response.body) {
-      log.warn({ url }, 'Media download failed: empty response body');
+      log.warn({ url, igType, kind }, 'Media download failed: empty response body');
       return null;
     }
 
     const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
-    const ext = CONTENT_TYPE_TO_EXT[contentType] ?? '.bin';
+    const ext = pickExtension(contentType, igType);
 
     const now = new Date();
     const yyyy = String(now.getFullYear());
@@ -89,22 +147,73 @@ export async function downloadMedia(
     const fileStat = await stat(filePath);
     const storageKey = toStorageKey(filePath);
     log.info(
-      { storageKey, size: fileStat.size, contentType, ext },
+      { storageKey, size: fileStat.size, contentType, ext, igType, kind },
       `Media downloaded: ${fileStat.size} bytes`,
     );
 
-    return storageKey;
+    return { storageKey, contentType: contentType || mimeForStorageKey(storageKey), kind };
   } catch (err) {
-    log.error({ err, url }, 'Media download failed');
+    log.error({ err, url, igType, kind }, 'Media download failed');
     return null;
   }
+}
+
+export interface IncomingMediaItem {
+  url: string;
+  igType: string;
+}
+
+/**
+ * Download IG CDN attachments and return structured records (includes failures).
+ */
+export async function persistIncomingMediaItems(
+  items: IncomingMediaItem[],
+): Promise<StoredMediaAttachment[]> {
+  const results: StoredMediaAttachment[] = [];
+
+  for (const item of items) {
+    const kind = igTypeToMediaKind(item.igType);
+    const downloaded = await downloadMedia(item.url, { igType: item.igType });
+
+    if (downloaded) {
+      results.push({
+        kind: downloaded.kind,
+        igType: item.igType,
+        status: 'ready',
+        storageKey: downloaded.storageKey,
+      });
+      continue;
+    }
+
+    results.push({
+      kind,
+      igType: item.igType,
+      status: 'unavailable',
+      reason: 'download_failed',
+    });
+  }
+
+  return results;
 }
 
 /**
  * Download remote URLs and return storage keys in the same order (null = failed).
  */
 export async function persistRemoteMediaUrls(urls: string[]): Promise<(string | null)[]> {
-  return Promise.all(urls.map((url) => downloadMedia(url)));
+  const results = await Promise.all(
+    urls.map((url) => downloadMedia(url).then((r) => r?.storageKey ?? null)),
+  );
+  return results;
+}
+
+/**
+ * Resolve visual media (image/video) for Claude vision. Audio/file keys are excluded.
+ */
+export async function resolveVisualMediaPathsForClaude(
+  visualKeys: string[],
+): Promise<string[]> {
+  if (visualKeys.length === 0) return [];
+  return resolveMediaPathsForClaude(visualKeys);
 }
 
 /**

@@ -30,6 +30,7 @@ echo "[1/8] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
   curl git build-essential nginx certbot python3-certbot-nginx \
+  ffmpeg python3-venv \
   postgresql postgresql-contrib ufw
 
 # ── 2. Node.js via NodeSource ──
