@@ -166,8 +166,9 @@ CONTACT_EMAIL=hello@direct-ai-agents.com
 LOG_LEVEL=info
 
 # Landing contact form (Resend) — https://resend.com
+# IMPORTANT: quote values that contain spaces or < >
 RESEND_API_KEY=
-RESEND_FROM=Direct AI Agents <onboarding@resend.dev>
+RESEND_FROM="Direct AI Agents <onboarding@resend.dev>"
 LANDING_CONTACT_TO=help@depsoftware.com
 EOF
   chown "${LINUX_USER}:${LINUX_USER}" "${ENV_FILE}"

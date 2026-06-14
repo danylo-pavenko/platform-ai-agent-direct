@@ -24,7 +24,7 @@ if [ ! -f "${ENV_FILE}" ]; then
   exit 1
 fi
 
-# Load env
+# Load env (values with spaces or < > must be quoted in .env.super-admin)
 set -a; source "${ENV_FILE}"; set +a
 
 # ── 1. Pull latest ──
@@ -79,9 +79,8 @@ if pm2 list 2>/dev/null | grep -q "SA-api"; then
   pm2 delete SA-api 2>/dev/null || true
 fi
 
-# Start with environment loaded from file
-env $(grep -v '^#' "${ENV_FILE}" | grep -v '^$' | xargs) \
-  pm2 start ecosystem.super-admin.config.cjs
+# Start PM2 — env already exported by `source` above
+pm2 start ecosystem.super-admin.config.cjs
 
 pm2 save
 
