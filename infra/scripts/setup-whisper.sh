@@ -46,16 +46,9 @@ echo "  [whisper] Model: ${WHISPER_MODEL} (${WHISPER_DEVICE}/${WHISPER_COMPUTE_T
 if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
   echo "  [whisper] ffmpeg/ffprobe: OK"
 else
-  echo "  [whisper] ffmpeg/ffprobe missing — attempting install..."
-  if command -v apt-get >/dev/null 2>&1 && [ "$(id -u)" -eq 0 ]; then
-    apt-get update -qq
-    apt-get install -y -qq ffmpeg
-  elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq ffmpeg
-  else
-    echo "  WARN: Install ffmpeg manually (required for IG voice notes): apt install ffmpeg" >&2
-  fi
+  echo "  [whisper] ffmpeg/ffprobe missing" >&2
+  echo "  Run once as root: sudo bash ${SCRIPT_DIR}/install-whisper-system-deps.sh" >&2
+  exit 1
 fi
 
 # ── Python 3.10+ ──
@@ -74,6 +67,7 @@ done
 
 if [ -z "${PYTHON}" ]; then
   echo "  ERROR: Python 3.10+ required for faster-whisper" >&2
+  echo "  Run as root: sudo bash ${SCRIPT_DIR}/install-whisper-system-deps.sh" >&2
   exit 1
 fi
 echo "  [whisper] Python: $(${PYTHON} --version)"

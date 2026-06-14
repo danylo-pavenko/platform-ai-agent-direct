@@ -4,9 +4,25 @@ Checklist for deploying voice transcription to a tenant that already runs in pro
 
 ## Prerequisites (server)
 
-- Python 3.10+
-- `ffmpeg` + `ffprobe` (`apt install ffmpeg`)
-- ~2 GB free disk (Whisper `small` model + venv)
+Run **once as root** on the VPS (idempotent):
+
+```bash
+sudo bash infra/scripts/install-whisper-system-deps.sh
+```
+
+Installs via apt: `ffmpeg`, `ffprobe`, and Python 3.10+ with `python3.x-venv`
+(prefers `python3.12-venv` when available).
+
+Manual equivalent:
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg python3.12 python3.12-venv
+# Ubuntu 22.04 example if 3.12 unavailable:
+# sudo apt install -y ffmpeg python3.10 python3.10-venv
+```
+
+Also needed (~2 GB disk for Whisper `small` model + tenant venv — created by deploy).
 
 ## 1. Update `.env`
 
