@@ -96,6 +96,12 @@ fi
 install_pkg_if_missing "${SELECTED_PYTHON}"
 install_pkg_if_missing "${SELECTED_VENV_PKG}"
 
+# Minimal python3.x packages on Ubuntu omit ensurepip; venv then has no pip.
+FULL_PKG="${SELECTED_PYTHON}-full"
+if apt-cache show "${FULL_PKG}" >/dev/null 2>&1; then
+  install_pkg_if_missing "${FULL_PKG}"
+fi
+
 if ! command -v "${SELECTED_PYTHON}" >/dev/null 2>&1; then
   echo "ERROR: ${SELECTED_PYTHON} not found after install" >&2
   exit 1

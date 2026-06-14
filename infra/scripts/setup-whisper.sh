@@ -11,6 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${PROJECT_ROOT}"
 
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  echo "  ERROR: Do not run setup-whisper.sh as root/sudo." >&2
+  echo "  Run as the tenant user: bash ${SCRIPT_DIR}/setup-whisper.sh" >&2
+  echo "  System packages only: sudo bash ${SCRIPT_DIR}/install-whisper-system-deps.sh" >&2
+  exit 1
+fi
+
 # Load .env if present (deploy-client already exported vars; this covers manual runs).
 if [ -f .env ]; then
   while IFS= read -r _line || [ -n "$_line" ]; do
@@ -72,20 +79,51 @@ if [ -z "${PYTHON}" ]; then
 fi
 echo "  [whisper] Python: $(${PYTHON} --version)"
 
+VENV_PYTHON="${WHISPER_VENV}/bin/python"
+
+# Ubuntu/Debian often create venv without bin/pip — bootstrap via ensurepip.
+ensure_venv_pip() {
+  if ! [ -x "${VENV_PYTHON}" ]; then
+    return 1
+  fi
+  if "${VENV_PYTHON}" -m pip --version >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "  [whisper] Bootstrapping pip in venv (ensurepip)..."
+  if ! "${VENV_PYTHON}" -m ensurepip --upgrade >/dev/null 2>&1; then
+    return 1
+  fi
+  "${VENV_PYTHON}" -m pip --version >/dev/null 2>&1
+}
+
+create_whisper_venv() {
+  echo "  [whisper] Creating venv at ${WHISPER_VENV}"
+  rm -rf "${WHISPER_VENV}"
+  "${PYTHON}" -m venv "${WHISPER_VENV}"
+  if ! ensure_venv_pip; then
+    echo "  ERROR: venv has no pip — install venv support for ${PYTHON}:" >&2
+    echo "  sudo bash ${SCRIPT_DIR}/install-whisper-system-deps.sh" >&2
+    exit 1
+  fi
+}
+
 # ── venv + pip deps (idempotent) ──
 NEED_PIP=0
-if [ ! -d "${WHISPER_VENV}" ]; then
-  echo "  [whisper] Creating venv at ${WHISPER_VENV}"
-  "${PYTHON}" -m venv "${WHISPER_VENV}"
+if [ ! -x "${VENV_PYTHON}" ]; then
+  create_whisper_venv
   NEED_PIP=1
-elif ! "${WHISPER_VENV}/bin/python" -c "import faster_whisper" 2>/dev/null; then
+elif ! ensure_venv_pip; then
+  echo "  [whisper] Broken venv (no pip) — recreating..."
+  create_whisper_venv
+  NEED_PIP=1
+elif ! "${VENV_PYTHON}" -c "import faster_whisper" 2>/dev/null; then
   NEED_PIP=1
 fi
 
 if [ "${NEED_PIP}" -eq 1 ]; then
   echo "  [whisper] Installing Python dependencies..."
-  "${WHISPER_VENV}/bin/pip" install --upgrade pip wheel
-  "${WHISPER_VENV}/bin/pip" install -r "${REQUIREMENTS}"
+  "${VENV_PYTHON}" -m pip install --upgrade pip wheel
+  "${VENV_PYTHON}" -m pip install -r "${REQUIREMENTS}"
 else
   echo "  [whisper] venv + faster-whisper: already installed"
 fi
@@ -99,7 +137,7 @@ if [ -f "${MODEL_MARKER}" ]; then
   echo "  [whisper] Model cache marker present — skipping warmup"
 else
   echo "  [whisper] Downloading / warming model (first run may take a few minutes)..."
-  "${WHISPER_VENV}/bin/python" "${PROJECT_ROOT}/apps/whisper-server/warmup_model.py"
+  "${VENV_PYTHON}" "${PROJECT_ROOT}/apps/whisper-server/warmup_model.py"
   touch "${MODEL_MARKER}"
   echo "  [whisper] Model ready — marker ${MODEL_MARKER}"
 fi
