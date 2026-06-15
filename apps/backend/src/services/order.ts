@@ -102,6 +102,7 @@ export async function handleCollectOrder(
   const existing = await prisma.order.findFirst({
     where: {
       conversationId,
+      isArchived: false,
       status: { notIn: ['draft', 'cancelled'] },
     },
     select: { id: true },

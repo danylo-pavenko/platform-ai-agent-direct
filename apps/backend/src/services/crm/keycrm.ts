@@ -100,6 +100,32 @@ interface RawCustomField {
   options?: Array<{ id: number; value: string }>;
 }
 
+interface RawOrderStatus {
+  id: number;
+  name: string;
+  alias: string;
+  is_closing_order?: boolean;
+}
+
+export interface RawKeycrmOrderSnapshot {
+  id: number;
+  closed_at: string | null;
+  status?: RawOrderStatus;
+}
+
+export async function fetchKeycrmOrderSnapshot(
+  orderId: string,
+): Promise<RawKeycrmOrderSnapshot | null> {
+  try {
+    return await keycrmGet<RawKeycrmOrderSnapshot>(`/order/${orderId}`, {
+      include: 'status',
+    });
+  } catch (err) {
+    log.warn({ err, orderId }, 'Failed to fetch KeyCRM order snapshot');
+    return null;
+  }
+}
+
 // ── Mappers ─────────────────────────────────────────────────────────────────
 
 function mapCategory(r: RawCategory): CrmCategory {

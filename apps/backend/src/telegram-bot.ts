@@ -564,7 +564,11 @@ bot.on('callback_query:data', async (ctx) => {
 
       await prisma.order.update({
         where: { id: orderId },
-        data: { status: 'cancelled' },
+        data: {
+          status: 'cancelled',
+          isArchived: true,
+          archivedAt: new Date(),
+        },
       });
 
       if (order.client.igUserId) {

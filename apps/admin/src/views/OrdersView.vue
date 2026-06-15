@@ -21,6 +21,14 @@
               hide-details
             />
           </v-col>
+          <v-col cols="12" sm="4" md="3" class="d-flex align-center">
+            <v-checkbox
+              v-model="includeArchived"
+              label="Показати архівовані"
+              density="compact"
+              hide-details
+            />
+          </v-col>
         </v-row>
 
         <v-data-table-server
@@ -41,6 +49,15 @@
           </template>
 
           <template #item.status="{ item }">
+            <v-chip
+              v-if="item.isArchived"
+              color="grey"
+              size="small"
+              label
+              class="mr-1"
+            >
+              Архів
+            </v-chip>
             <v-chip
               :color="statusColor(item.status)"
               size="small"
@@ -70,6 +87,18 @@
           </template>
 
           <template #item.actions="{ item }">
+            <v-btn
+              v-if="item.keycrmOrderUrl"
+              size="small"
+              variant="text"
+              color="primary"
+              :href="item.keycrmOrderUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              @click.stop
+            >
+              KeyCRM
+            </v-btn>
             <v-btn
               v-if="canRetryCrm(item)"
               size="small"
@@ -183,6 +212,18 @@
                         <v-list-item-subtitle v-if="item.crmSyncError" class="text-error">
                           {{ item.crmSyncError }}
                         </v-list-item-subtitle>
+                        <template v-if="item.keycrmOrderUrl" #append>
+                          <v-btn
+                            size="small"
+                            variant="tonal"
+                            color="primary"
+                            :href="item.keycrmOrderUrl"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            Відкрити в KeyCRM
+                          </v-btn>
+                        </template>
                       </v-list-item>
                     </v-list>
                   </v-col>
@@ -225,9 +266,12 @@ interface Order {
   total?: number;
   items?: OrderItem[];
   keycrmOrderId?: string | null;
+  keycrmOrderUrl?: string | null;
   crmSyncStatus?: string;
   crmSyncError?: string | null;
   crmSyncedAt?: string | null;
+  isArchived?: boolean;
+  archivedAt?: string | null;
   createdAt: string;
 }
 
@@ -237,6 +281,7 @@ const page = ref(1);
 const limit = ref(20);
 const loading = ref(false);
 const statusFilter = ref('');
+const includeArchived = ref(false);
 const syncingId = ref<string | null>(null);
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -259,7 +304,7 @@ const headers = [
   { title: 'Місто', key: 'city', sortable: false },
   { title: 'Сума', key: 'total', sortable: false, width: '100px' },
   { title: 'Дата', key: 'createdAt', sortable: false, width: '160px' },
-  { title: '', key: 'actions', sortable: false, width: '140px' },
+  { title: '', key: 'actions', sortable: false, width: '200px' },
 ];
 
 function statusColor(status: string): string {
@@ -326,6 +371,7 @@ async function fetchOrders() {
       limit: limit.value,
     };
     if (statusFilter.value) params.status = statusFilter.value;
+    if (includeArchived.value) params.includeArchived = 'true';
 
     const { data } = await api.get('/orders', { params });
     orders.value = Array.isArray(data?.data) ? data.data : [];
@@ -362,6 +408,11 @@ watch([page, limit], () => {
 });
 
 watch(statusFilter, () => {
+  page.value = 1;
+  fetchOrders();
+});
+
+watch(includeArchived, () => {
   page.value = 1;
   fetchOrders();
 });

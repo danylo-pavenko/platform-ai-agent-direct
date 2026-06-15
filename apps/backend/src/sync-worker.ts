@@ -26,6 +26,7 @@ import { prisma } from './lib/prisma.js';
 import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
 import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
+import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
 import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
 
@@ -533,6 +534,14 @@ export async function runSync(): Promise<void> {
     }
 
     log.info('KeyCRM sync completed successfully');
+
+    const orderArchiveStats = await syncOrderArchiveFlags().catch((err) => {
+      log.warn({ err }, 'Order archive sync failed (non-fatal)');
+      return { checked: 0, archived: 0 };
+    });
+    if (orderArchiveStats.archived > 0) {
+      log.info(orderArchiveStats, 'Order archive flags updated from KeyCRM');
+    }
 
     const mirrorStats = await retryPendingCrmMirrors();
     if (mirrorStats.attempted > 0) {

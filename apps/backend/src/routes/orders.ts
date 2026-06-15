@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
 import { computeOrderTotal } from '../lib/order-totals.js';
+import { keycrmOrderAppUrl } from '../lib/keycrm-urls.js';
 import { mirrorOrderToCrm } from '../services/crm-sync.js';
 
 function serializeOrder(
@@ -22,6 +23,8 @@ function serializeOrder(
     crmSyncStatus: string;
     crmSyncError: string | null;
     crmSyncedAt: Date | null;
+    isArchived: boolean;
+    archivedAt: Date | null;
     createdAt: Date;
     client?: { id: string; igUserId: string | null; displayName: string | null } | null;
     conversation?: { id: string } | null;
@@ -30,6 +33,7 @@ function serializeOrder(
   return {
     ...order,
     total: computeOrderTotal(order.items),
+    keycrmOrderUrl: order.keycrmOrderId ? keycrmOrderAppUrl(order.keycrmOrderId) : null,
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
     clientId: order.client?.id ?? order.clientId,
@@ -44,14 +48,20 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
       status?: string;
       page?: string;
       limit?: string;
+      includeArchived?: string;
     };
   }>('/', { onRequest: [app.authenticate] }, async (request) => {
     const status = request.query.status;
+    const includeArchived = request.query.includeArchived === 'true';
     const page = Math.max(1, parseInt(request.query.page ?? '1', 10));
     const limit = Math.max(1, Math.min(100, parseInt(request.query.limit ?? '20', 10)));
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {};
+
+    if (!includeArchived) {
+      where.isArchived = false;
+    }
 
     if (status) {
       where.status = status;

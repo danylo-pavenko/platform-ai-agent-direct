@@ -29,6 +29,8 @@ const envSchema = z.object({
   // Default order source_id for KeyCRM /order creation. Overridden per tenant
   // by integration_keycrm.defaultSourceId in admin Settings when set.
   KEYCRM_DEFAULT_SOURCE_ID: z.coerce.number().default(1),
+  /** Web UI base for deep links (e.g. open order in KeyCRM). */
+  KEYCRM_APP_URL: z.string().default('https://app.keycrm.app'),
   // Optional: pipeline id for leadgen-mode brief cards. When 0 (default)
   // KeyCRM picks the first pipeline in the account — fine for single-pipeline
   // setups but should be set explicitly for tenants with multiple pipelines.

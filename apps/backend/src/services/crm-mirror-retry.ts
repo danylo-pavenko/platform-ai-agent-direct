@@ -35,6 +35,7 @@ export async function retryPendingCrmMirrors(): Promise<CrmMirrorRetryStats> {
   const orders = await prisma.order.findMany({
     where: {
       keycrmOrderId: null,
+      isArchived: false,
       crmSyncStatus: { in: ['pending', 'failed'] },
       OR: [
         { crmSyncStatus: 'failed' },
