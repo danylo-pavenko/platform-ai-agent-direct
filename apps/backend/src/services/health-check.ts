@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { checkIgConnectionStatus } from './ig-connection.js';
 import {
@@ -39,11 +40,20 @@ async function checkInstagram(): Promise<HealthCheckItem> {
   }
 
   if (!meta.pageAccessToken) {
+    const row = await prisma.setting.findUnique({ where: { key: 'integration_meta' } });
+    const rawToken = (row?.value as { pageAccessToken?: string } | undefined)?.pageAccessToken;
+    const tokenCorrupted =
+      typeof rawToken === 'string' &&
+      rawToken.length > 0 &&
+      (rawToken.includes('•') || !/^[\x00-\xFF]*$/.test(rawToken));
+
     return {
       id: 'instagram',
       label,
       status: 'not_configured',
-      message: 'OAuth не виконано — натисніть «Авторизуватись через Facebook»',
+      message: tokenCorrupted
+        ? 'Page Access Token пошкоджено — повторіть «Авторизуватись через Facebook»'
+        : 'OAuth не виконано — натисніть «Авторизуватись через Facebook»',
     };
   }
 

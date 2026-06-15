@@ -18,6 +18,7 @@
 
 import { prisma } from './prisma.js';
 import { config } from '../config.js';
+import { sanitizeIntegrationSecret } from './integration-secrets.js';
 
 export interface IntegrationMeta {
   facebookAppId: string;
@@ -88,19 +89,19 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
       facebookAppId:     config.FACEBOOK_APP_ID,      // env-only, never from DB
       facebookAppSecret: config.FACEBOOK_APP_SECRET,   // env-only, never from DB
       pageId:            m.pageId            || '',
-      pageAccessToken:   m.pageAccessToken   || '',
-      userAccessToken:   m.userAccessToken   || '',
+      pageAccessToken:   sanitizeIntegrationSecret(m.pageAccessToken),
+      userAccessToken:   sanitizeIntegrationSecret(m.userAccessToken),
       igUserId:          m.igUserId          || '',
       igUsername:        m.igUsername        || '',
       verifyToken:       config.IG_WEBHOOK_VERIFY_TOKEN, // env-only
     },
     telegram: {
-      botToken:        t.botToken         || config.TELEGRAM_BOT_TOKEN,
+      botToken:        sanitizeIntegrationSecret(t.botToken) || config.TELEGRAM_BOT_TOKEN,
       managerGroupId:  t.managerGroupId   || config.TELEGRAM_MANAGER_GROUP_ID,
       adminPassword:   t.adminPassword    || config.TELEGRAM_ADMIN_PASSWORD,
     },
     keycrm: {
-      apiKey:          k.apiKey           || config.KEYCRM_API_KEY,
+      apiKey:          sanitizeIntegrationSecret(k.apiKey) || config.KEYCRM_API_KEY,
       syncIntervalMin: k.syncIntervalMin  ?? config.KEYCRM_SYNC_INTERVAL_MIN,
       defaultSourceId:
         typeof k.defaultSourceId === 'number' && k.defaultSourceId > 0
@@ -108,7 +109,7 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
           : config.KEYCRM_DEFAULT_SOURCE_ID,
     },
     novaposhta: {
-      apiKey:          np.apiKey          || config.NOVA_POSHTA_API_KEY,
+      apiKey:          sanitizeIntegrationSecret(np.apiKey) || config.NOVA_POSHTA_API_KEY,
       senderCity:      np.senderCity      || 'Київ',
       senderCityRef:   np.senderCityRef   || '8d5a980d-391c-11dd-90d9-001a92567626',
     },

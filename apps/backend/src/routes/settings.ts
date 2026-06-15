@@ -13,6 +13,7 @@ import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
+import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -148,8 +149,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       for (const [field, value] of Object.entries(incoming)) {
         // Never store env-only fields in DB
         if (envOnly.includes(field)) continue;
-        // Skip masked placeholder - keep existing value
-        if (sensitive.includes(field) && value === '••••••') continue;
+        // Skip masked placeholder — keep existing value (•••••• or •••••• (збережено…))
+        if (sensitive.includes(field) && isMaskedIntegrationSecret(value)) continue;
         merged[field] = value;
       }
 
@@ -186,7 +187,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
           pageId &&
           typeof pageAccessToken === 'string' &&
           pageAccessToken &&
-          pageAccessToken !== '••••••'
+          !isMaskedIntegrationSecret(pageAccessToken)
         ) {
           subscribePageToMetaWebhooks(pageId, pageAccessToken)
             .then((sub) => {
@@ -206,7 +207,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         if (typeof igUserId === 'string' && igUserId) {
           const { meta } = await getIntegrationConfig();
           const token =
-            typeof pageAccessToken === 'string' && pageAccessToken !== '••••••'
+            typeof pageAccessToken === 'string' && !isMaskedIntegrationSecret(pageAccessToken)
               ? pageAccessToken
               : meta.pageAccessToken;
           if (meta.facebookAppSecret) {

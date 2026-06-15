@@ -2359,12 +2359,49 @@ async function saveIntegrations() {
   integrationsSaved.value = false;
   error.value = '';
   try {
+    const metaPayload: Record<string, unknown> = {
+      pageId: integrations.value.meta.pageId,
+      igUserId: integrations.value.meta.igUserId,
+      igUsername: integrations.value.meta.igUsername,
+    };
+    const pageToken = integrations.value.meta.pageAccessToken.trim();
+    if (pageToken && !pageToken.startsWith('••••••')) {
+      metaPayload.pageAccessToken = pageToken;
+    }
+
+    const telegramPayload: Record<string, unknown> = {
+      managerGroupId: integrations.value.telegram.managerGroupId,
+      adminPassword: integrations.value.telegram.adminPassword,
+    };
+    const tgToken = integrations.value.telegram.botToken.trim();
+    if (tgToken && tgToken !== '••••••') {
+      telegramPayload.botToken = tgToken;
+    }
+
+    const keycrmPayload: Record<string, unknown> = {
+      syncIntervalMin: integrations.value.keycrm.syncIntervalMin,
+      defaultSourceId: integrations.value.keycrm.defaultSourceId,
+    };
+    const keycrmKey = integrations.value.keycrm.apiKey.trim();
+    if (keycrmKey && keycrmKey !== '••••••') {
+      keycrmPayload.apiKey = keycrmKey;
+    }
+
+    const npPayload: Record<string, unknown> = {
+      senderCity: integrations.value.novaposhta.senderCity,
+      senderCityRef: integrations.value.novaposhta.senderCityRef,
+    };
+    const npKey = integrations.value.novaposhta.apiKey.trim();
+    if (npKey && npKey !== '••••••') {
+      npPayload.apiKey = npKey;
+    }
+
     await Promise.all([
       api.put('/settings/integrations', {
-        integration_meta:        integrations.value.meta,
-        integration_telegram:    integrations.value.telegram,
-        integration_keycrm:      integrations.value.keycrm,
-        integration_novaposhta:  integrations.value.novaposhta,
+        integration_meta: metaPayload,
+        integration_telegram: telegramPayload,
+        integration_keycrm: keycrmPayload,
+        integration_novaposhta: npPayload,
       }),
       api.put('/settings', {
         feature_flags: featureFlags.value,
