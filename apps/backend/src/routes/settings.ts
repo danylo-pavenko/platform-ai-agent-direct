@@ -14,6 +14,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
+import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -169,6 +170,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
             });
           }
           merged.defaultSourceId = Math.floor(n);
+        }
+      }
+
+      if (key === 'integration_keycrm' && 'appUrl' in merged) {
+        const raw = merged.appUrl;
+        if (raw === '' || raw === null || raw === undefined) {
+          merged.appUrl = '';
+        } else if (typeof raw === 'string') {
+          const normalized = normalizeKeycrmAppUrl(raw);
+          if (!normalized) {
+            return reply.code(400).send({
+              error: 'KeyCRM app URL is invalid — use e.g. https://blessed.keycrm.app',
+            });
+          }
+          merged.appUrl = normalized;
         }
       }
 

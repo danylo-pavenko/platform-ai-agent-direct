@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
 import { computeOrderTotal } from '../lib/order-totals.js';
-import { keycrmOrderAppUrl } from '../lib/keycrm-urls.js';
+import { buildKeycrmOrderUrl, resolveKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { mirrorOrderToCrm } from '../services/crm-sync.js';
 
 function serializeOrder(
@@ -29,11 +29,14 @@ function serializeOrder(
     client?: { id: string; igUserId: string | null; displayName: string | null } | null;
     conversation?: { id: string } | null;
   },
+  keycrmAppUrl: string | null,
 ) {
   return {
     ...order,
     total: computeOrderTotal(order.items),
-    keycrmOrderUrl: order.keycrmOrderId ? keycrmOrderAppUrl(order.keycrmOrderId) : null,
+    keycrmOrderUrl: order.keycrmOrderId
+      ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)
+      : null,
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
     clientId: order.client?.id ?? order.clientId,
@@ -67,7 +70,7 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
       where.status = status;
     }
 
-    const [rows, total] = await Promise.all([
+    const [rows, total, keycrmAppUrl] = await Promise.all([
       prisma.order.findMany({
         where,
         include: {
@@ -79,10 +82,11 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
         take: limit,
       }),
       prisma.order.count({ where }),
+      resolveKeycrmAppUrl(),
     ]);
 
     return {
-      data: rows.map(serializeOrder),
+      data: rows.map((row) => serializeOrder(row, keycrmAppUrl)),
       total,
       page,
       limit,
@@ -105,7 +109,8 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Order not found' });
     }
 
-    return serializeOrder(order);
+    const keycrmAppUrl = await resolveKeycrmAppUrl();
+    return serializeOrder(order, keycrmAppUrl);
   });
 
   // POST /:id/sync-crm - Manual CRM mirror retry

@@ -19,6 +19,7 @@
 import { prisma } from './prisma.js';
 import { config } from '../config.js';
 import { sanitizeIntegrationSecret } from './integration-secrets.js';
+import { normalizeKeycrmAppUrl } from './keycrm-urls.js';
 
 export interface IntegrationMeta {
   facebookAppId: string;
@@ -42,6 +43,8 @@ export interface IntegrationKeycrm {
   syncIntervalMin: number;
   /** KeyCRM source_id for API order/lead creation (DB → .env fallback). */
   defaultSourceId: number;
+  /** Tenant web UI base, e.g. https://blessed.keycrm.app — required for order deep links. */
+  appUrl: string;
 }
 
 export interface IntegrationNovaPoshta {
@@ -107,6 +110,10 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
         typeof k.defaultSourceId === 'number' && k.defaultSourceId > 0
           ? k.defaultSourceId
           : config.KEYCRM_DEFAULT_SOURCE_ID,
+      appUrl:
+        normalizeKeycrmAppUrl(k.appUrl) ??
+        normalizeKeycrmAppUrl(config.KEYCRM_APP_URL) ??
+        '',
     },
     novaposhta: {
       apiKey:          sanitizeIntegrationSecret(np.apiKey) || config.NOVA_POSHTA_API_KEY,

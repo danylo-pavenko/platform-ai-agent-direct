@@ -345,12 +345,19 @@ export const keycrmAdapter: CrmAdapter = {
     return result.data.map(mapProduct);
   },
 
-  async searchOffers({ productId, activeOnly = true, limit = 10 }) {
+  async searchOffers({ productId, productIds, activeOnly = true, limit = 10 }) {
     const params: Record<string, string> = {
       limit: String(limit),
       page: '1',
     };
-    if (productId !== undefined) params['filter[product_id]'] = String(productId);
+
+    if (productIds && productIds.length > 0) {
+      params['filter[product_id]'] = productIds.join(',');
+      params.limit = String(Math.min(50, productIds.length * 10));
+    } else if (productId !== undefined) {
+      params['filter[product_id]'] = String(productId);
+    }
+
     if (activeOnly) params['filter[is_archived]'] = '0';
 
     const result = await keycrmGet<PaginatedResponse<RawOffer>>('/offers', params, {

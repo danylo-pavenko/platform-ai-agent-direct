@@ -1119,6 +1119,12 @@
                   Рекомендовано: <strong>30–60 хвилин</strong> (мінімум 5 хв).
                 </li>
                 <li>
+                  <strong>URL веб-інтерфейсу KeyCRM</strong> — адреса вашого акаунту (наприклад
+                  <code>https://blessed.keycrm.app</code> або <code>app.keycrm.app</code>).
+                  Потрібна для кнопки «Відкрити в KeyCRM» у замовленнях. Open API домен не повертає —
+                  вкажіть вручну те посилання, з якого ви заходите в KeyCRM.
+                </li>
+                <li>
                   <strong>ID джерела замовлень (source_id)</strong> — обовʼязковий для API при створенні замовлень ботом:
                   <ol class="pl-4 mt-1" style="line-height:1.8;">
                     <li>KeyCRM → <strong>Налаштування → Джерела</strong> (або «Джерела замовлень»).</li>
@@ -1173,6 +1179,17 @@
                 min="1"
                 placeholder="напр. 245"
                 hint="KeyCRM → Налаштування → Джерела → іконка i"
+                persistent-hint
+              />
+            </v-col>
+            <v-col cols="12">
+              <v-text-field
+                v-model="integrations.keycrm.appUrl"
+                label="URL веб-інтерфейсу KeyCRM"
+                variant="outlined"
+                density="compact"
+                placeholder="https://blessed.keycrm.app"
+                hint="Для кнопки «Відкрити в KeyCRM» у замовленнях (без URL кнопка не показується)"
                 persistent-hint
               />
             </v-col>
@@ -1527,6 +1544,7 @@ const integrations = ref({
     apiKey: '',
     syncIntervalMin: 30,
     defaultSourceId: 1,
+    appUrl: '',
   },
   novaposhta: {
     apiKey: '',
@@ -2367,6 +2385,7 @@ async function fetchIntegrations() {
       defaultSourceId:   typeof k.defaultSourceId === 'number' && k.defaultSourceId > 0
         ? k.defaultSourceId
         : 1,
+      appUrl:            typeof k.appUrl === 'string' ? k.appUrl : '',
     };
     integrations.value.novaposhta = {
       apiKey:         np.apiKey         ?? '',
@@ -2405,6 +2424,7 @@ async function saveIntegrations() {
     const keycrmPayload: Record<string, unknown> = {
       syncIntervalMin: integrations.value.keycrm.syncIntervalMin,
       defaultSourceId: integrations.value.keycrm.defaultSourceId,
+      appUrl: integrations.value.keycrm.appUrl.trim(),
     };
     const keycrmKey = integrations.value.keycrm.apiKey.trim();
     if (keycrmKey && keycrmKey !== '••••••') {

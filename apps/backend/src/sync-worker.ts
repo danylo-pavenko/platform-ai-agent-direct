@@ -28,6 +28,7 @@ import { getCrmAdapter } from './services/crm/index.js';
 import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
 import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
+import { invalidateCatalogIndexCache } from './lib/catalog-index.js';
 import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -534,6 +535,8 @@ export async function runSync(): Promise<void> {
     }
 
     log.info('KeyCRM sync completed successfully');
+
+    invalidateCatalogIndexCache();
 
     const orderArchiveStats = await syncOrderArchiveFlags().catch((err) => {
       log.warn({ err }, 'Order archive sync failed (non-fatal)');

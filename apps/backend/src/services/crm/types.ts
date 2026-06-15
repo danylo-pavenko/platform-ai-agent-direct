@@ -61,6 +61,7 @@ export interface ProductSearchParams {
 
 export interface OfferSearchParams {
   productId?: number;
+  productIds?: number[];
   activeOnly?: boolean;
   limit?: number;
 }

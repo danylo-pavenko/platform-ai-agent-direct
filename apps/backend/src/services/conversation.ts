@@ -37,6 +37,11 @@ import type { SharedPostData } from '../routes/webhooks.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
+import {
+  countConsecutiveBotFallbacks,
+  shouldHandoffAfterAgentFallback,
+} from '../lib/agent-fallback.js';
+import type { ClaudeResponse } from './claude.js';
 
 const log = pino({ name: 'conversation' });
 
@@ -45,6 +50,89 @@ const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 
 /** Max messages to include in Claude conversation history */
 const MAX_HISTORY_MESSAGES = 30;
+
+const CUSTOMER_CHANNELS = new Set(['ig', 'tg']);
+
+// ---------------------------------------------------------------------------
+// Handoff helper
+// ---------------------------------------------------------------------------
+
+async function performManagerHandoff(params: {
+  conversationId: string;
+  client: { id: string; igUserId: string | null };
+  reason: string;
+  turnStartedAt?: Date;
+}): Promise<void> {
+  const { conversationId, client, reason, turnStartedAt } = params;
+
+  if (turnStartedAt && !(await isBotTurnStillValid(conversationId, turnStartedAt))) {
+    log.info({ conversationId }, 'Handoff skipped — manager took over during turn');
+    return;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      state: 'handoff',
+      handoffReason: reason,
+      handedOffAt: new Date(),
+    },
+  });
+
+  const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
+
+  if (client.igUserId) {
+    try {
+      await sendText(client.igUserId, handoffMessage);
+    } catch (err) {
+      log.error({ err, conversationId }, 'Failed to send handoff message');
+    }
+  }
+
+  await prisma.message.create({
+    data: {
+      conversationId,
+      direction: 'out',
+      sender: 'bot',
+      text: handoffMessage,
+    },
+  });
+  markFirstOutboundAt(conversationId).catch((err) =>
+    log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+  );
+
+  log.info({ conversationId, reason }, 'Conversation handed off to manager');
+
+  if (client.igUserId) {
+    const recentMsgs = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+      select: { sender: true, text: true, mediaAttachments: true },
+    });
+    const lastMessages = recentMsgs
+      .reverse()
+      .map((m) =>
+        formatHandoffMessageLine({
+          sender: m.sender,
+          text: m.text,
+          mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
+        }),
+      )
+      .filter((line): line is NonNullable<typeof line> => line !== null)
+      .map((line) => ({
+        sender: line.sender,
+        text: line.text,
+        isVoice: line.isVoice,
+      }));
+    notifyHandoff({
+      conversationId,
+      clientIgUserId: client.igUserId,
+      reason,
+      lastMessages,
+    }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Main handler
@@ -401,6 +489,7 @@ async function handleIncomingMessageImpl(
 
   // ── 9. Handle tool calls ──────────────────────────────────────────
   let responseText = response.text;
+  let agentFallback: ClaudeResponse['fallback'] | undefined = response.fallback;
 
   if (response.toolCalls && response.toolCalls.length > 0) {
     await runSideEffectToolCalls(response.toolCalls, client.id, conversationId);
@@ -485,6 +574,7 @@ async function handleIncomingMessageImpl(
       );
 
       responseText = response2.text;
+      agentFallback = response2.fallback ?? agentFallback;
       if (response2.toolCalls?.length) {
         await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
         if (
@@ -551,6 +641,7 @@ async function handleIncomingMessageImpl(
       );
 
       responseText = response2.text;
+      agentFallback = response2.fallback ?? agentFallback;
       if (response2.toolCalls?.length) {
         await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
         if (
@@ -584,6 +675,28 @@ async function handleIncomingMessageImpl(
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
     return;
+  }
+
+  // After two consecutive agent fallbacks, escalate to a live manager.
+  if (
+    agentFallback &&
+    CUSTOMER_CHANNELS.has(conversation.channel)
+  ) {
+    const priorFallbacks = await countConsecutiveBotFallbacks(conversationId);
+    if (shouldHandoffAfterAgentFallback(priorFallbacks)) {
+      log.warn(
+        { conversationId, priorFallbacks, agentFallback },
+        'Agent fallback limit reached — handing off to manager',
+      );
+      await performManagerHandoff({
+        conversationId,
+        client,
+        reason:
+          'Агент не зміг відповісти після кількох спроб (таймаут або перевантаження). Клієнт чекає на менеджера.',
+        turnStartedAt,
+      });
+      return;
+    }
   }
 
   // Safety net: bot wrote a full order summary but omitted collect_order.
@@ -699,68 +812,12 @@ async function tryTerminalToolCalls(
         ? handoff.args.reason
         : 'Клієнт потребує менеджера';
 
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        state: 'handoff',
-        handoffReason: reason,
-        handedOffAt: new Date(),
-      },
+    await performManagerHandoff({
+      conversationId,
+      client,
+      reason,
+      turnStartedAt,
     });
-
-    const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
-
-    if (client.igUserId) {
-      try {
-        await sendText(client.igUserId, handoffMessage);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to send handoff message');
-      }
-    }
-
-    await prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'out',
-        sender: 'bot',
-        text: handoffMessage,
-      },
-    });
-    markFirstOutboundAt(conversationId).catch((err) =>
-      log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
-    );
-
-    log.info({ conversationId, reason }, 'Conversation handed off to manager');
-
-    if (client.igUserId) {
-      const recentMsgs = await prisma.message.findMany({
-        where: { conversationId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        select: { sender: true, text: true, mediaAttachments: true },
-      });
-      const lastMessages = recentMsgs
-        .reverse()
-        .map((m) =>
-          formatHandoffMessageLine({
-            sender: m.sender,
-            text: m.text,
-            mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
-          }),
-        )
-        .filter((line): line is NonNullable<typeof line> => line !== null)
-        .map((line) => ({
-          sender: line.sender,
-          text: line.text,
-          isVoice: line.isVoice,
-        }));
-      notifyHandoff({
-        conversationId,
-        clientIgUserId: client.igUserId,
-        reason,
-        lastMessages,
-      }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
-    }
     return true;
   }
 

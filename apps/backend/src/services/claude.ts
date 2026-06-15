@@ -8,6 +8,10 @@ import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
+import {
+  CUSTOMER_FALLBACK_BUSY,
+  CUSTOMER_FALLBACK_TIMEOUT,
+} from '../lib/agent-fallback.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 
 const execFileAsync = promisify(execFile);
@@ -69,8 +73,6 @@ const semaphore = new Semaphore(config.CLAUDE_MAX_CONCURRENCY);
 // and show a technical error in admin channels instead.
 const ADMIN_CHANNELS = new Set<AgentChannel>(['meta_agent', 'sandbox', 'supervisor']);
 
-const CUSTOMER_FALLBACK_BUSY = 'Дякуємо за повідомлення! Менеджер відпише трохи пізніше.';
-const CUSTOMER_FALLBACK_TIMEOUT = 'Одну хвилинку, менеджер відпише трохи пізніше.';
 const ADMIN_FALLBACK_BUSY =
   'Агент зараз перевантажений (забагато одночасних запитів). Спробуйте за хвилину.';
 const ADMIN_FALLBACK_TIMEOUT =
