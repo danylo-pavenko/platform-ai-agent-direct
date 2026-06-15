@@ -105,12 +105,17 @@ export async function searchActiveProductsForContext(
     return { contextBlock: '', matchCount: 0 };
   }
 
+  const activeProducts = products.filter((p) => !p.isArchived);
+  if (activeProducts.length === 0) {
+    log.info({ keywords: cleanKeywords }, 'Only archived products matched — skipping');
+    return { contextBlock: '', matchCount: 0 };
+  }
+
   // For each product found, fetch live offer availability in parallel.
-  // We skip products that turn out to have zero available stock.
   const productLines: string[] = [];
 
   const offerResults = await Promise.allSettled(
-    products.map(async (product) => {
+    activeProducts.map(async (product) => {
       const offers = await crm.searchOffers({
         productId: product.id,
         activeOnly: true,

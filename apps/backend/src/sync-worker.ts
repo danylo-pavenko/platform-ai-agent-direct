@@ -26,6 +26,7 @@ import { prisma } from './lib/prisma.js';
 import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
 import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
+import { activeCatalogSets } from './lib/catalog-active-filter.js';
 import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
@@ -206,7 +207,7 @@ function isServiceItem(product: CrmProduct): boolean {
  */
 function hasAnyStock(productId: number, offersByPid: Map<number, CrmOffer[]>): boolean {
   const po = offersByPid.get(productId) ?? [];
-  return po.some((o) => (o.quantity ?? 0) > 0);
+  return po.some((o) => !o.isArchived && (o.quantity ?? 0) > 0);
 }
 
 /**
@@ -224,13 +225,14 @@ function buildCatalog(
 ): string {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
-  // Filter: non-archived only
-  const live = products.filter((p) => !p.isArchived);
-  const liveIds = new Set(live.map((p) => p.id));
+  const { liveProducts: live, liveProductIds: liveIds, liveOffers } = activeCatalogSets(
+    products,
+    offers,
+  );
 
-  // Group offers by product_id (only for live products)
+  // Group offers by product_id (only for live products + active offers)
   const offersByPid = new Map<number, CrmOffer[]>();
-  for (const o of offers) {
+  for (const o of liveOffers) {
     if (liveIds.has(o.productId)) {
       const arr = offersByPid.get(o.productId);
       if (arr) arr.push(o);
@@ -260,7 +262,7 @@ function buildCatalog(
   // Count in-stock variants
   const totalInStockVariants = inStockProducts.reduce((sum, p) => {
     const po = offersByPid.get(p.id) ?? [];
-    return sum + po.filter((o) => (o.quantity ?? 0) > 0).length;
+    return sum + po.filter((o) => !o.isArchived && (o.quantity ?? 0) > 0).length;
   }, 0);
 
   const lines: string[] = [];
@@ -289,7 +291,7 @@ function buildCatalog(
     for (const p of sorted) {
       const name = (p.name ?? '').trim() || `#${p.id}`;
       const po = offersByPid.get(p.id) ?? [];
-      const inStockOffers = po.filter((o) => (o.quantity ?? 0) > 0);
+      const inStockOffers = po.filter((o) => !o.isArchived && (o.quantity ?? 0) > 0);
       const price = fmtPriceRange(p.minPrice, p.maxPrice);
 
       lines.push(`### ${name} - ${price}`);
@@ -308,7 +310,7 @@ function buildCatalog(
       }
 
       // Note which variants are OUT of stock
-      const oosOffers = po.filter((o) => (o.quantity ?? 0) <= 0);
+      const oosOffers = po.filter((o) => !o.isArchived && (o.quantity ?? 0) <= 0);
       if (oosOffers.length > 0) {
         const oosLabels = oosOffers.map((o) => variantLabel(o.properties));
         lines.push(`  [немає в наявності: ${oosLabels.join(', ')}]`);
@@ -350,7 +352,7 @@ function buildCatalog(
     for (const p of serviceItems) {
       const po = offersByPid.get(p.id) ?? [];
       const designs = po
-        .filter((o) => (o.quantity ?? 0) > 0)
+        .filter((o) => !o.isArchived && (o.quantity ?? 0) > 0)
         .map((o) => variantLabel(o.properties))
         .filter((l) => l !== '(без варіанту)');
       if (designs.length > 0) {
@@ -366,7 +368,7 @@ function buildCatalog(
   lines.push('='.repeat(60));
   lines.push('');
   lines.push('ПРАВИЛА НАЯВНОСТІ:');
-  lines.push('- Пропонуй ТІЛЬКИ товари зі списку "В НАЯВНОСТІ" вище.');
+  lines.push('- Пропонуй ТІЛЬКИ товари зі списку "В НАЯВНОСТІ" вище (архівовані в CRM не включені).');
   lines.push('- Якщо варіант позначений "мало" - попередь клієнта: "Цього розміру залишилось небагато."');
   lines.push('- Якщо варіант у списку [немає в наявності] - НЕ пропонуй його. Скажи що немає і запропонуй:');
   lines.push('  а) інший колір того ж типу одягу (якщо є в наявності);');
@@ -478,17 +480,28 @@ export async function runSync(): Promise<void> {
       'Data fetched from KeyCRM',
     );
 
-    // Save raw JSON and generated catalog atomically — if the process
-    // dies mid-write, readers see the previous-good snapshot, never a
-    // half-serialised file.
+    const { liveProducts, liveOffers } = activeCatalogSets(products, offers);
+    if (liveProducts.length !== products.length || liveOffers.length !== offers.length) {
+      log.info(
+        {
+          productsActive: liveProducts.length,
+          productsTotal: products.length,
+          offersActive: liveOffers.length,
+          offersTotal: offers.length,
+        },
+        'Filtered archived catalog rows before save',
+      );
+    }
+
+    // Save raw JSON and generated catalog atomically — only active (non-archived) rows.
     await Promise.all([
       atomicWrite(resolve(DATA_DIR, 'categories.json'), JSON.stringify(categories, null, 2)),
-      atomicWrite(resolve(DATA_DIR, 'products.json'), JSON.stringify(products, null, 2)),
-      atomicWrite(resolve(DATA_DIR, 'offers.json'), JSON.stringify(offers, null, 2)),
+      atomicWrite(resolve(DATA_DIR, 'products.json'), JSON.stringify(liveProducts, null, 2)),
+      atomicWrite(resolve(DATA_DIR, 'offers.json'), JSON.stringify(liveOffers, null, 2)),
     ]);
     log.info({ dir: DATA_DIR }, 'Raw JSON saved');
 
-    const catalogText = buildCatalog(products, offers, categories);
+    const catalogText = buildCatalog(liveProducts, liveOffers, categories);
     await atomicWrite(CATALOG_PATH, catalogText);
     log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
 
@@ -499,8 +512,8 @@ export async function runSync(): Promise<void> {
         status: 'ok',
         counts: {
           categories: categories.length,
-          products: products.length,
-          offers: offers.length,
+          products: liveProducts.length,
+          offers: liveOffers.length,
         },
       },
     });

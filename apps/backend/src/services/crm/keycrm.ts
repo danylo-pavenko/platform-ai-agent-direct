@@ -291,14 +291,17 @@ export const keycrmAdapter: CrmAdapter = {
   },
 
   async fetchProducts() {
-    log.info('Fetching products from KeyCRM');
-    const raw = await paginate<RawProduct>('/products');
+    log.info('Fetching active (non-archived) products from KeyCRM');
+    const raw = await paginate<RawProduct>('/products', { 'filter[is_archived]': '0' });
     return raw.map(mapProduct);
   },
 
   async fetchOffers() {
-    log.info('Fetching offers from KeyCRM');
-    const raw = await paginate<RawOffer>('/offers', { include: 'product' });
+    log.info('Fetching active (non-archived) offers from KeyCRM');
+    const raw = await paginate<RawOffer>('/offers', {
+      include: 'product',
+      'filter[is_archived]': '0',
+    });
     return raw.map(mapOffer);
   },
 
