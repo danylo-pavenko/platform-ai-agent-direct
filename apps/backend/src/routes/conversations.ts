@@ -181,12 +181,19 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
-    // Update conversation lastMessageAt (+ firstOutboundAt on first ever reply)
+    // Manager reply takes over the thread — abort any in-flight bot turn.
     const now = new Date();
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         lastMessageAt: now,
+        ...(conversation.state === 'bot'
+          ? {
+              state: 'handoff',
+              handoffReason: 'Менеджер відповів з адмінки',
+              handedOffAt: now,
+            }
+          : {}),
         ...(conversation.firstOutboundAt ? {} : { firstOutboundAt: now }),
       },
     });

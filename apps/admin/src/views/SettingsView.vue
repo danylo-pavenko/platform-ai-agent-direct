@@ -491,6 +491,21 @@
             placeholder="менеджер, оператор, людина, скарга, повернення"
           />
           <div class="text-caption text-medium-emphasis mt-1">Через кому. Приклад: менеджер, оператор, людина, скарга</div>
+          <v-text-field
+            v-model.number="handoffReturnToBotMinutes"
+            class="mt-4"
+            type="number"
+            min="0"
+            max="10080"
+            variant="outlined"
+            hide-details
+            suffix="хв"
+            label="Повернути боту, якщо менеджер не завершив"
+          />
+          <div class="text-caption text-medium-emphasis mt-1">
+            Після перехоплення бот знову підхопить діалог, якщо менеджер не писав клієнту вказаний час.
+            0 — вимкнено. За замовчуванням: 60 хв.
+          </div>
         </v-card-text>
       </v-card>
 
@@ -2188,6 +2203,7 @@ const outOfHoursTemplate = ref(
   "Дякуємо за повідомлення! Зараз ми не на зв'язку. Відповімо вам у робочий час.",
 );
 const handoffKeywords = ref('');
+const handoffReturnToBotMinutes = ref(60);
 const featureFlags = ref({
   auto_handoff: true,
   send_typing_indicator: false,
@@ -2240,6 +2256,10 @@ async function fetchSettings() {
       handoffKeywords.value = Array.isArray(data.handoff_keywords)
         ? data.handoff_keywords.join(', ')
         : String(data.handoff_keywords);
+    }
+
+    if (typeof data.handoff_return_to_bot_minutes === 'number') {
+      handoffReturnToBotMinutes.value = Math.max(0, Math.floor(data.handoff_return_to_bot_minutes));
     }
 
     if (data.feature_flags && typeof data.feature_flags === 'object') {
@@ -2299,6 +2319,10 @@ async function saveSettings() {
         .split(',')
         .map((k: string) => k.trim())
         .filter(Boolean),
+      handoff_return_to_bot_minutes: Math.max(
+        0,
+        Math.min(10080, Math.floor(Number(handoffReturnToBotMinutes.value) || 0)),
+      ),
       feature_flags: featureFlags.value,
       agent_config: agentConfig.value,
       runtime_mode: {

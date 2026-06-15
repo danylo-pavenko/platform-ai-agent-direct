@@ -367,6 +367,7 @@ bot.command('takeover', async (ctx) => {
         state: 'handoff',
         handedOffTo: String(ctx.from!.id),
         handoffReason: 'Менеджер взяв вручну',
+        handedOffAt: new Date(),
       },
     });
 
@@ -396,13 +397,14 @@ bot.command('return', async (ctx) => {
       return;
     }
 
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        state: 'bot',
-        handedOffTo: null,
-      },
-    });
+      await prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          state: 'bot',
+          handedOffTo: null,
+          handedOffAt: null,
+        },
+      });
 
     const id = shortId(conversation.id);
     log.info({ conversationId: conversation.id, tgUserId: ctx.from!.id }, 'Conversation returned to bot');
@@ -473,6 +475,7 @@ bot.on('callback_query:data', async (ctx) => {
           state: 'handoff',
           handedOffTo: String(ctx.from.id),
           handoffReason: 'Менеджер взяв вручну',
+          handedOffAt: new Date(),
         },
       });
 
@@ -498,6 +501,7 @@ bot.on('callback_query:data', async (ctx) => {
         data: {
           state: 'bot',
           handedOffTo: null,
+          handedOffAt: null,
         },
       });
 

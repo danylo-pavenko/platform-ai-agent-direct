@@ -46,6 +46,18 @@ export async function handleCollectOrder(
   args: Record<string, unknown>,
   options?: CollectOrderOptions,
 ): Promise<string | null> {
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { state: true },
+  });
+  if (conversation?.state !== 'bot') {
+    log.info(
+      { conversationId, state: conversation?.state ?? null },
+      'collect_order skipped — conversation not in bot mode (manager may have taken over)',
+    );
+    return null;
+  }
+
   const rawItems = args.items;
   if (!Array.isArray(rawItems) || rawItems.length === 0) {
     log.error({ conversationId, args }, 'collect_order called without items — skipping');

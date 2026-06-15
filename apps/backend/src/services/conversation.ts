@@ -23,6 +23,8 @@ import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { handleCollectOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
+import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
+import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -91,7 +93,7 @@ async function handleIncomingMessageImpl(
   sourceIgMessageId?: string,
 ): Promise<void> {
   // ── 1. Fetch conversation with client ─────────────────────────────
-  const conversation = await prisma.conversation.findUnique({
+  let conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     include: { client: true },
   });
@@ -160,27 +162,39 @@ async function handleIncomingMessageImpl(
     conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
   };
 
-  // ── 2. Handoff state - skip bot response ──────────────────────────
+  // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
   if (conversation.state === 'handoff') {
-    log.info(
-      { conversationId },
-      'Message in handoff mode, skipping bot response',
-    );
-    // Forward message to Telegram manager group for handoff conversations
-    const handoffLine = formatHandoffMessageLine({
-      sender: 'client',
-      text: messageText,
-      mediaAttachments,
-    });
-    notifyHandoff({
-      conversationId,
-      clientIgUserId: client.igUserId!,
-      reason: conversation.handoffReason || 'Клієнт написав під час хендофу',
-      lastMessages: handoffLine
-        ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
-        : [],
-    }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
-    return;
+    const returnedToBot = await autoReturnHandoffToBotIfExpired(conversation);
+    if (returnedToBot) {
+      const refreshed = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        include: { client: true },
+      });
+      if (!refreshed) {
+        log.error({ conversationId }, 'Conversation not found after handoff auto-return');
+        return;
+      }
+      conversation = refreshed;
+    } else {
+      log.info(
+        { conversationId },
+        'Message in handoff mode, skipping bot response',
+      );
+      const handoffLine = formatHandoffMessageLine({
+        sender: 'client',
+        text: messageText,
+        mediaAttachments,
+      });
+      notifyHandoff({
+        conversationId,
+        clientIgUserId: client.igUserId!,
+        reason: conversation.handoffReason || 'Клієнт написав під час хендофу',
+        lastMessages: handoffLine
+          ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
+          : [],
+      }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
+      return;
+    }
   }
 
   // ── 3. Closed / paused - ignore ──────────────────────────────────
@@ -367,6 +381,8 @@ async function handleIncomingMessageImpl(
     );
   }
 
+  const turnStartedAt = new Date();
+
   const response = await askClaude(
     {
       systemPrompt: prompt,
@@ -395,6 +411,7 @@ async function handleIncomingMessageImpl(
         client,
         agentMode: agentCfg.mode,
         clientMessage: stripMarkdownForInstagram(response.text),
+        turnStartedAt,
       })
     ) {
       return;
@@ -476,6 +493,7 @@ async function handleIncomingMessageImpl(
             client,
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
+            turnStartedAt,
           })
         ) {
           return;
@@ -541,6 +559,7 @@ async function handleIncomingMessageImpl(
             client,
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
+            turnStartedAt,
           })
         ) {
           return;
@@ -561,6 +580,11 @@ async function handleIncomingMessageImpl(
   }
 
   const clientFacingText = stripMarkdownForInstagram(responseText);
+
+  if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
+    log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
+    return;
+  }
 
   // Safety net: bot wrote a full order summary but omitted collect_order.
   if (agentCfg.mode === 'sales' && client.igUserId) {
@@ -616,6 +640,7 @@ type TerminalToolContext = {
   agentMode: 'sales' | 'leadgen';
   /** Bot reply shown to the client — used as the order confirmation when collect_order fires. */
   clientMessage?: string;
+  turnStartedAt: Date;
 };
 
 /** Fire-and-forget profile / intent writes — never ends the conversation turn. */
@@ -660,7 +685,12 @@ async function tryTerminalToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   ctx: TerminalToolContext,
 ): Promise<boolean> {
-  const { conversationId, client, agentMode } = ctx;
+  const { conversationId, client, agentMode, turnStartedAt } = ctx;
+
+  if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
+    log.info({ conversationId }, 'Terminal tool calls skipped — manager took over');
+    return true;
+  }
 
   const handoff = toolCalls.find((tc) => tc.name === 'request_handoff');
   if (handoff) {
@@ -674,6 +704,7 @@ async function tryTerminalToolCalls(
       data: {
         state: 'handoff',
         handoffReason: reason,
+        handedOffAt: new Date(),
       },
     });
 

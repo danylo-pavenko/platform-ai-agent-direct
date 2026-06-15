@@ -42,6 +42,7 @@ async function main() {
     out_of_hours_template:
       'Дякуємо за повідомлення! Зараз ми не на зв\'язку. Відповімо вам у робочий час.',
     handoff_keywords: ['менеджер', 'людина', 'оператор', 'скарга', 'повернення'],
+    handoff_return_to_bot_minutes: 60,
     feature_flags: {
       auto_handoff: true,
       send_typing_indicator: false,

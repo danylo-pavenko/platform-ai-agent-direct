@@ -72,6 +72,7 @@ model Conversation {
   lastMessageAt   DateTime?           @map("last_message_at")
   handoffReason   String?             @map("handoff_reason")
   handedOffTo     String?             @map("handed_off_to")
+  handedOffAt     DateTime?           @map("handed_off_at")
   // Set by `classify_intent` tool on first classification. Free-form string
   // for forward-compat (new intents without a migration), but values come
   // from a closed enum in the tool schema:
