@@ -22,7 +22,7 @@ describe('normalizeKeycrmAppUrl', () => {
 describe('buildKeycrmOrderUrl', () => {
   it('builds order deep link when app URL is set', () => {
     expect(buildKeycrmOrderUrl('12345', 'https://blessed.keycrm.app')).toBe(
-      'https://blessed.keycrm.app/order/view/12345',
+      'https://blessed.keycrm.app/app/orders/view/12345',
     );
   });
 

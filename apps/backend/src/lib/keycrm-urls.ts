@@ -34,5 +34,5 @@ export function buildKeycrmOrderUrl(
 ): string | null {
   if (!appUrl) return null;
   const base = appUrl.replace(/\/$/, '');
-  return `${base}/order/view/${keycrmOrderId}`;
+  return `${base}/app/orders/view/${keycrmOrderId}`;
 }
