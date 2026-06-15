@@ -319,22 +319,22 @@
   <div class="layout" v-else>
 
     <!-- Sidebar -->
-    <aside class="sidebar" :class="{open: sidebarOpen}">
+    <aside class="sidebar" :class="{'open': sidebarOpen}">
       <div class="sidebar-logo">
         <span>Direct<em>AI</em> Agents</span>
         <small>Super Admin</small>
       </div>
       <nav class="nav">
-        <div class="nav-item" :class="{active: page==='dashboard'}" @click="goPage('dashboard')">
+        <div class="nav-item" :class="{'active': page==='dashboard'}" @click="goPage('dashboard')">
           <span class="icon">⬡</span> Dashboard
         </div>
-        <div class="nav-item" :class="{active: page==='tenants'}" @click="goPage('tenants')">
+        <div class="nav-item" :class="{'active': page==='tenants'}" @click="goPage('tenants')">
           <span class="icon">◈</span> Clients
         </div>
-        <div class="nav-item" :class="{active: page==='links'}" @click="goPage('links')">
+        <div class="nav-item" :class="{'active': page==='links'}" @click="goPage('links')">
           <span class="icon">🔗</span> Посилання
         </div>
-        <div class="nav-item" :class="{active: page==='leads'}" @click="goPage('leads')">
+        <div class="nav-item" :class="{'active': page==='leads'}" @click="goPage('leads')">
           <span class="icon">📩</span> Заявки
         </div>
       </nav>
@@ -344,7 +344,7 @@
         </button>
       </div>
     </aside>
-    <div class="sidebar-backdrop" :class="{show: sidebarOpen}" @click="sidebarOpen=false"></div>
+    <div class="sidebar-backdrop" :class="{'show': sidebarOpen}" @click="sidebarOpen=false"></div>
 
     <!-- Main -->
     <div class="main">
@@ -402,8 +402,8 @@
                   <td data-label="Health">
                     <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
                     <span v-else>
-                      <span class="online-dot" :class="{online: health[t.id]?.online}"></span>
-                      {{ health[t.id]?.online ? 'Online' : 'Offline' }}
+                      <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
+                      {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
                     </span>
                   </td>
                   <td data-label="Actions">
@@ -489,11 +489,11 @@
             </div>
             <div class="stat-card">
               <div class="stat-label">Кліки (люди)</div>
-              <div class="stat-value green">{{ links.reduce((s,l)=>s+(l.stats?.humanClicks||0),0) }}</div>
+              <div class="stat-value green">{{ totalHumanClicks }}</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Заявки з форми</div>
-              <div class="stat-value" style="color:var(--warn)">{{ links.reduce((s,l)=>s+(l.stats?.formSubmissions||0),0) }}</div>
+              <div class="stat-value" style="color:var(--warn)">{{ totalFormSubmissions }}</div>
             </div>
           </div>
 
@@ -526,16 +526,16 @@
                     </div>
                   </td>
                   <td data-label="Кліки">
-                    <div style="font-size:13px"><strong style="color:var(--success)">{{ l.stats?.humanClicks || 0 }}</strong> людей</div>
-                    <div style="font-size:11px;color:var(--muted)">{{ l.stats?.rawClicks || 0 }} всього (вкл. превʼю)</div>
+                    <div style="font-size:13px"><strong style="color:var(--success)">{{ linkHumanClicks(l) }}</strong> людей</div>
+                    <div style="font-size:11px;color:var(--muted)">{{ linkRawClicks(l) }} всього (вкл. превʼю)</div>
                   </td>
-                  <td data-label="Заявки">{{ l.stats?.formSubmissions || 0 }}</td>
+                  <td data-label="Заявки">{{ linkFormSubmissions(l) }}</td>
                   <td data-label="Країни">
-                    <span v-if="!Object.keys(l.stats?.countries||{}).length" style="color:var(--muted);font-size:12px">—</span>
-                    <span v-for="(cnt, country) in l.stats?.countries||{}" :key="country" class="chip chip-country">{{ country }} · {{ cnt }}</span>
+                    <span v-if="!linkCountryCount(l)" style="color:var(--muted);font-size:12px">—</span>
+                    <span v-for="entry in linkCountryEntries(l)" :key="entry.country" class="chip chip-country">{{ entry.country }} · {{ entry.count }}</span>
                   </td>
                   <td data-label="Статус">
-                    <span class="badge" :class="l.isActive ? 'badge-active' : 'badge-suspended">{{ l.isActive ? 'active' : 'paused' }}</span>
+                    <span class="badge" :class="linkActiveClass(l)">{{ linkActiveLabel(l) }}</span>
                   </td>
                   <td data-label="Actions">
                     <div class="actions-cell">
@@ -574,7 +574,7 @@
             </div>
             <div class="stat-card">
               <div class="stat-label">Нові</div>
-              <div class="stat-value green">{{ leadsSummary.byStatus?.new || 0 }}</div>
+              <div class="stat-value green">{{ leadsSummary.byStatus.new || 0 }}</div>
             </div>
             <div class="stat-card">
               <div class="stat-label">Email надіслано</div>
@@ -604,7 +604,7 @@
                     <div style="font-weight:600">{{ l.name || l.instagram || l.email || '—' }}</div>
                     <div class="lead-detail">
                       <span v-if="l.email">{{ l.email }}</span>
-                      <span v-if="l.instagram"> · @{{ l.instagram.replace(/^@/,'') }}</span>
+                      <span v-if="l.instagram"> · {{ formatInstagram(l.instagram) }}</span>
                       <span v-if="l.messenger"> · {{ l.messenger }}</span>
                     </div>
                     <div v-if="l.message" class="lead-detail" style="margin-top:4px">{{ l.message }}</div>
@@ -619,7 +619,7 @@
                   </td>
                   <td data-label="Тариф">{{ l.plan || '—' }}</td>
                   <td data-label="Email">
-                    <span class="badge" :class="l.emailSent ? 'badge-active' : 'badge-suspended">{{ l.emailSent ? 'sent' : 'failed' }}</span>
+                    <span class="badge" :class="leadEmailClass(l)">{{ l.emailSent ? 'sent' : 'failed' }}</span>
                   </td>
                   <td data-label="Статус">
                     <select :value="l.status" @change="updateLeadStatus(l, $event.target.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
@@ -641,11 +641,11 @@
   </div><!-- /layout -->
 
   <!-- ── Compact Chat Panel ── -->
-  <div class="chat-panel" :class="{open: chat.open}">
+  <div class="chat-panel" :class="{'open': chat.open}">
     <div class="chat-header">
       <div class="chat-header-info">
-        <div class="chat-header-name">{{ chat.tenant?.name || '—' }}</div>
-        <div class="chat-header-domain">{{ chat.tenant?.apiDomain }}</div>
+        <div class="chat-header-name">{{ chatTenantName() }}</div>
+        <div class="chat-header-domain">{{ chatTenantDomain() }}</div>
       </div>
       <button class="chat-close" @click="chat.open=false">✕</button>
     </div>
@@ -793,7 +793,7 @@
 
       <!-- Advanced (one-time server setup) -->
       <hr class="modal-sep" />
-      <div class="modal-section-toggle" :class="{open: modal.advancedOpen}" @click="modal.advancedOpen=!modal.advancedOpen">
+      <div class="modal-section-toggle" :class="{'open': modal.advancedOpen}" @click="modal.advancedOpen=!modal.advancedOpen">
         <span>⚙️ Server setup <span style="color:var(--muted);font-weight:400;font-size:11px;text-transform:none;letter-spacing:0">(Linux user, path, repo — one time)</span></span>
         <span class="toggle-arrow">▼</span>
       </div>
@@ -905,7 +905,7 @@
 </div>
 
 <script type="module">
-import { createApp, ref, reactive, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { createApp, ref, reactive, computed, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
 createApp({
   setup() {
@@ -951,6 +951,53 @@ createApp({
       open: false, editing: null, saving: false,
       form: emptyLinkForm(),
     });
+
+    const totalHumanClicks = computed(() =>
+      links.value.reduce((sum, l) => sum + linkHumanClicks(l), 0),
+    );
+    const totalFormSubmissions = computed(() =>
+      links.value.reduce((sum, l) => sum + linkFormSubmissions(l), 0),
+    );
+
+    function linkStat(l, key) {
+      const stats = l && l.stats;
+      if (!stats || stats[key] == null) return 0;
+      return stats[key];
+    }
+
+    function linkHumanClicks(l) { return linkStat(l, 'humanClicks'); }
+    function linkRawClicks(l) { return linkStat(l, 'rawClicks'); }
+    function linkFormSubmissions(l) { return linkStat(l, 'formSubmissions'); }
+
+    function linkCountryEntries(l) {
+      const countries = (l && l.stats && l.stats.countries) || null;
+      if (!countries) return [];
+      return Object.keys(countries).map((country) => ({ country, count: countries[country] }));
+    }
+
+    function linkCountryCount(l) { return linkCountryEntries(l).length; }
+
+    function linkActiveClass(l) { return l.isActive ? 'badge-active' : 'badge-suspended'; }
+    function linkActiveLabel(l) { return l.isActive ? 'on' : 'paused'; }
+    function leadEmailClass(l) { return l.emailSent ? 'badge-active' : 'badge-suspended'; }
+
+    function isTenantOnline(id) {
+      const h = health[id];
+      return !!(h && h.online);
+    }
+
+    function chatTenantName() {
+      return (chat.tenant && chat.tenant.name) || '—';
+    }
+
+    function chatTenantDomain() {
+      return (chat.tenant && chat.tenant.apiDomain) || '';
+    }
+
+    function formatInstagram(handle) {
+      if (!handle) return '';
+      return '@' + String(handle).replace(/^@+/, '');
+    }
 
     // ISO string → value for <input type="datetime-local"> (local time)
     function isoToLocalInput(iso) {
@@ -1331,10 +1378,14 @@ createApp({
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
       links, linkModal, leads, leadsSummary, leadsFilter,
+      totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
       loadLeads, updateLeadStatus, formatDate,
+      linkHumanClicks, linkRawClicks, linkFormSubmissions, linkCountryEntries, linkCountryCount,
+      linkActiveClass, linkActiveLabel, leadEmailClass, formatInstagram,
+      isTenantOnline, chatTenantName, chatTenantDomain,
     };
   }
 }).mount('#app');
