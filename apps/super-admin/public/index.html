@@ -1020,8 +1020,12 @@ createApp({
       return new Date(t.accessExpiresAt).getTime() <= Date.now() ? 'badge-suspended' : 'badge-provisioned';
     }
 
+    function authHeaders() {
+      return { Authorization: `Bearer ${auth.token}` };
+    }
+
     function headers() {
-      return { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` };
+      return { 'Content-Type': 'application/json', ...authHeaders() };
     }
 
     async function doLogin() {
@@ -1066,7 +1070,7 @@ createApp({
 
     async function loadLinks() {
       try {
-        const r = await fetch(`${BASE}/links`, { headers: headers() });
+        const r = await fetch(`${BASE}/links`, { headers: authHeaders() });
         if (r.status === 401) { logout(); return; }
         links.value = await r.json();
       } catch (e) {
@@ -1123,15 +1127,26 @@ createApp({
     }
 
     async function deleteLink(l) {
-      if (!confirm(`Видалити посилання «${l.name}»? Статистика кліків теж зникне.`)) return;
-      await fetch(`${BASE}/links/${l.id}`, { method: 'DELETE', headers: headers() });
-      await loadLinks();
+      if (!confirm('Видалити посилання «' + l.name + '»? Статистика кліків теж зникне.')) return;
+      try {
+        const r = await fetch(`${BASE}/links/${l.id}`, { method: 'DELETE', headers: authHeaders() });
+        if (r.status === 401) { logout(); return; }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert(err.error || ('Помилка видалення (HTTP ' + r.status + ')'));
+          return;
+        }
+        await loadLinks();
+      } catch (e) {
+        alert('Помилка мережі при видаленні');
+        console.error('deleteLink failed:', e);
+      }
     }
 
     async function loadLeads() {
       try {
         const qs = leadsFilter.status ? `?status=${encodeURIComponent(leadsFilter.status)}` : '';
-        const r = await fetch(`${BASE}/leads${qs}`, { headers: headers() });
+        const r = await fetch(`${BASE}/leads${qs}`, { headers: authHeaders() });
         if (r.status === 401) { logout(); return; }
         const data = await r.json();
         leads.value = data.leads || [];
@@ -1154,7 +1169,7 @@ createApp({
 
     async function loadTenants() {
       try {
-        const r = await fetch(`${BASE}/tenants`, { headers: headers() });
+        const r = await fetch(`${BASE}/tenants`, { headers: authHeaders() });
         if (r.status === 401) { logout(); return; }
         const data = await r.json();
         tenants.value = Array.isArray(data) ? data : [];
@@ -1168,7 +1183,7 @@ createApp({
 
     async function checkAllHealth() {
       for (const t of tenants.value) {
-        fetch(`${BASE}/tenants/${t.id}/health`, { headers: headers() })
+        fetch(`${BASE}/tenants/${t.id}/health`, { headers: authHeaders() })
           .then(r => r.json())
           // deployed: true/false from the server, null = unknown → treat as
           // deployed so a live instance is never mislabeled "Not deployed".
@@ -1243,7 +1258,7 @@ createApp({
 
     async function deleteTenant(t) {
       if (!confirm(`Delete ${t.name}? This only removes the registry entry, not the server.`)) return;
-      await fetch(`${BASE}/tenants/${t.id}`, { method: 'DELETE', headers: headers() });
+      await fetch(`${BASE}/tenants/${t.id}`, { method: 'DELETE', headers: authHeaders() });
       await loadTenants();
     }
 
@@ -1317,7 +1332,7 @@ createApp({
       claudeHealth.result = null;
       claudeHealth.open = true;
       try {
-        const r = await fetch(`${BASE}/tenants/${t.id}/claude-health`, { headers: headers() });
+        const r = await fetch(`${BASE}/tenants/${t.id}/claude-health`, { headers: authHeaders() });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) {
           claudeHealth.result = { ok: false, path: '', version: '', error: d.error || `HTTP ${r.status}` };

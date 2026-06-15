@@ -286,11 +286,19 @@ export async function trackedLinksRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete('/api/links/:id', { onRequest: [app.authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
+    const existing = await prisma.trackedLink.findUnique({ where: { id } });
+    if (!existing) return reply.status(404).send({ error: 'Not found' });
+
     try {
-      await prisma.trackedLink.delete({ where: { id } });
-      return { ok: true };
-    } catch {
-      return reply.status(404).send({ error: 'Not found' });
+      await prisma.$transaction([
+        prisma.linkClick.deleteMany({ where: { linkId: id } }),
+        prisma.landingLead.updateMany({ where: { linkId: id }, data: { linkId: null } }),
+        prisma.trackedLink.delete({ where: { id } }),
+      ]);
+      return reply.status(204).send();
+    } catch (err) {
+      req.log.error({ err, id }, 'Failed to delete tracked link');
+      return reply.status(500).send({ error: 'Failed to delete link' });
     }
   });
 
