@@ -5,7 +5,7 @@
  *   integration_meta      → { facebookAppId, facebookAppSecret, pageId,
  *                             pageAccessToken, igUserId, igUsername, verifyToken }
  *   integration_telegram  → { botToken, managerGroupId, adminPassword }
- *   integration_keycrm    → { apiKey, syncIntervalMin }
+ *   integration_keycrm    → { apiKey, syncIntervalMin, defaultSourceId }
  *   integration_novaposhta→ { apiKey, senderCity, senderCityRef }
  *
  * The Meta shape uses Facebook Login for Business:
@@ -39,6 +39,8 @@ export interface IntegrationTelegram {
 export interface IntegrationKeycrm {
   apiKey: string;
   syncIntervalMin: number;
+  /** KeyCRM source_id for API order/lead creation (DB → .env fallback). */
+  defaultSourceId: number;
 }
 
 export interface IntegrationNovaPoshta {
@@ -100,6 +102,10 @@ export async function getIntegrationConfig(): Promise<IntegrationConfig> {
     keycrm: {
       apiKey:          k.apiKey           || config.KEYCRM_API_KEY,
       syncIntervalMin: k.syncIntervalMin  ?? config.KEYCRM_SYNC_INTERVAL_MIN,
+      defaultSourceId:
+        typeof k.defaultSourceId === 'number' && k.defaultSourceId > 0
+          ? k.defaultSourceId
+          : config.KEYCRM_DEFAULT_SOURCE_ID,
     },
     novaposhta: {
       apiKey:          np.apiKey          || config.NOVA_POSHTA_API_KEY,

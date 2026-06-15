@@ -156,6 +156,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       // Clean up any previously stored env-only fields
       for (const f of envOnly) delete merged[f];
 
+      if (key === 'integration_keycrm' && 'defaultSourceId' in merged) {
+        const raw = merged.defaultSourceId;
+        if (raw === '' || raw === null || raw === undefined) {
+          delete merged.defaultSourceId;
+        } else {
+          const n = typeof raw === 'number' ? raw : Number(raw);
+          if (!Number.isFinite(n) || n < 1) {
+            return reply.code(400).send({
+              error: 'KeyCRM defaultSourceId must be a positive integer',
+            });
+          }
+          merged.defaultSourceId = Math.floor(n);
+        }
+      }
+
       await prisma.setting.upsert({
         where: { key },
         create: { key, value: merged as any },

@@ -1072,7 +1072,7 @@
           <v-icon start color="green-darken-1">mdi-database-sync</v-icon>
           KeyCRM
         </v-card-title>
-        <v-card-subtitle class="pb-2">API ключ для синхронізації каталогу</v-card-subtitle>
+        <v-card-subtitle class="pb-2">API ключ, джерело замовлень і синхронізація каталогу</v-card-subtitle>
         <v-card-text>
           <!-- Instructions -->
           <v-btn
@@ -1102,6 +1102,16 @@
                 <li>
                   <strong>Інтервал синхронізації</strong> - як часто оновлювати каталог товарів із KeyCRM.
                   Рекомендовано: <strong>30–60 хвилин</strong> (мінімум 5 хв).
+                </li>
+                <li>
+                  <strong>ID джерела замовлень (source_id)</strong> — обовʼязковий для API при створенні замовлень ботом:
+                  <ol class="pl-4 mt-1" style="line-height:1.8;">
+                    <li>KeyCRM → <strong>Налаштування → Джерела</strong> (або «Джерела замовлень»).</li>
+                    <li>Створіть джерело типу <strong>Інше</strong>, напр. «Instagram AI Agent».</li>
+                    <li>У списку джерел наведіть на іконку <strong>i</strong> біля назви — там числовий <strong>ID</strong>.</li>
+                    <li>Вставте це число в поле нижче. Замовлення з бота потраплятимуть у KeyCRM з цим джерелом.</li>
+                  </ol>
+                  Якщо поле порожнє — використовується <code>KEYCRM_DEFAULT_SOURCE_ID</code> з .env (зазвичай <code>1</code>).
                 </li>
               </ol>
               <div class="mt-2">
@@ -1135,6 +1145,20 @@
                 hide-details
                 min="5"
                 max="1440"
+              />
+            </v-col>
+            <v-col cols="12" sm="5">
+              <v-text-field
+                v-model.number="integrations.keycrm.defaultSourceId"
+                label="ID джерела замовлень (source_id)"
+                type="number"
+                variant="outlined"
+                density="compact"
+                hide-details
+                min="1"
+                placeholder="напр. 245"
+                hint="KeyCRM → Налаштування → Джерела → іконка i"
+                persistent-hint
               />
             </v-col>
           </v-row>
@@ -1487,6 +1511,7 @@ const integrations = ref({
   keycrm: {
     apiKey: '',
     syncIntervalMin: 30,
+    defaultSourceId: 1,
   },
   novaposhta: {
     apiKey: '',
@@ -2315,6 +2340,9 @@ async function fetchIntegrations() {
     integrations.value.keycrm = {
       apiKey:            k.apiKey            ?? '',
       syncIntervalMin:   k.syncIntervalMin   ?? 30,
+      defaultSourceId:   typeof k.defaultSourceId === 'number' && k.defaultSourceId > 0
+        ? k.defaultSourceId
+        : 1,
     };
     integrations.value.novaposhta = {
       apiKey:         np.apiKey         ?? '',

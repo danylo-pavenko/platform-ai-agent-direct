@@ -423,8 +423,9 @@ export const keycrmAdapter: CrmAdapter = {
   },
 
   async createOrder(input: CrmOrderInput) {
+    const { keycrm } = await getIntegrationConfig();
     const body: Record<string, unknown> = {
-      source_id: input.sourceId ?? config.KEYCRM_DEFAULT_SOURCE_ID,
+      source_id: input.sourceId ?? keycrm.defaultSourceId,
       buyer: {
         full_name: input.buyer.fullName,
         ...(input.buyer.phone ? { phone: input.buyer.phone } : {}),
@@ -461,6 +462,7 @@ export const keycrmAdapter: CrmAdapter = {
   },
 
   async createLead(input: CrmLeadInput) {
+    const { keycrm } = await getIntegrationConfig();
     // KeyCRM /pipelines/cards returns 400 "Leads are not enabled" if the
     // workspace doesn't have pipelines activated. Caller should catch &
     // fall back to createOrder (or Telegram-only notification) in that case.
@@ -471,7 +473,7 @@ export const keycrmAdapter: CrmAdapter = {
     if (input.contact.email) contact.email = input.contact.email;
 
     const body: Record<string, unknown> = {
-      source_id: input.sourceId ?? config.KEYCRM_DEFAULT_SOURCE_ID,
+      source_id: input.sourceId ?? keycrm.defaultSourceId,
       contact,
     };
     if (input.title) body.title = input.title;

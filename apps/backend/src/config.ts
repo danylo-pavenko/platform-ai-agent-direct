@@ -26,9 +26,8 @@ const envSchema = z.object({
   CRM_PROVIDER: z.string().default('keycrm'),
   KEYCRM_API_KEY: z.string().default(''),
   KEYCRM_SYNC_INTERVAL_MIN: z.coerce.number().default(30),
-  // Default order source_id for KeyCRM /order creation. Each KeyCRM tenant
-  // has its own sources list — 1 is the safe default (usually "Manual" /
-  // "Default"). Can be overridden per-instance via env.
+  // Default order source_id for KeyCRM /order creation. Overridden per tenant
+  // by integration_keycrm.defaultSourceId in admin Settings when set.
   KEYCRM_DEFAULT_SOURCE_ID: z.coerce.number().default(1),
   // Optional: pipeline id for leadgen-mode brief cards. When 0 (default)
   // KeyCRM picks the first pipeline in the account — fine for single-pipeline
