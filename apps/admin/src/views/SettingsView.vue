@@ -80,6 +80,87 @@
         </v-card-text>
       </v-card>
 
+      <!-- Claude subscription usage -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
+          <v-icon start color="deep-purple">mdi-gauge</v-icon>
+          <span>Claude — ліміти підписки</span>
+          <v-chip
+            v-if="claudeUsageSnapshot"
+            size="small"
+            :color="claudeUsageStatusColor"
+            variant="tonal"
+          >
+            {{ claudeUsageStatusLabel }}
+          </v-chip>
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв через <code>claude /usage</code>.
+          Telegram-сповіщення при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
+        </v-card-subtitle>
+        <v-card-text>
+          <div class="d-flex flex-wrap align-center ga-2 mb-3">
+            <v-btn
+              color="deep-purple"
+              variant="tonal"
+              prepend-icon="mdi-refresh"
+              :loading="claudeUsageLoading"
+              :disabled="claudeUsageLoading"
+              @click="refreshClaudeUsage(true)"
+            >
+              Оновити зараз
+            </v-btn>
+            <span v-if="claudeUsageSnapshot" class="text-caption text-medium-emphasis">
+              Остання перевірка: {{ formatHealthCheckTime(claudeUsageSnapshot.checkedAt) }}
+            </span>
+          </div>
+
+          <v-alert
+            v-if="claudeUsageError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            {{ claudeUsageError }}
+          </v-alert>
+
+          <v-alert
+            v-else-if="claudeUsageSnapshot"
+            :type="claudeUsageAlertType"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            :text="claudeUsageSnapshot.message"
+          />
+
+          <div v-if="claudeUsageSnapshot?.subscriptionType" class="text-caption text-medium-emphasis mb-3">
+            План: <strong>{{ claudeUsageSnapshot.subscriptionType }}</strong>
+            <span v-if="claudeUsageSnapshot.authEmail"> · {{ claudeUsageSnapshot.authEmail }}</span>
+          </div>
+
+          <v-row v-if="claudeUsageSnapshot?.buckets?.length" dense>
+            <v-col
+              v-for="bucket in claudeUsageSnapshot.buckets"
+              :key="bucket.id"
+              cols="12"
+              md="6"
+            >
+              <div class="text-body-2 font-weight-medium mb-1">{{ bucket.label }}</div>
+              <v-progress-linear
+                :model-value="bucket.percentUsed"
+                :color="claudeUsageBarColor(bucket.percentUsed)"
+                height="10"
+                rounded
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ bucket.percentUsed }}% · скидання {{ bucket.resetsAt }}
+              </div>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
       <!-- Runtime mode (Public / Debug) -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center ga-2 flex-wrap">
@@ -1078,6 +1159,72 @@
               />
             </v-col>
           </v-row>
+
+          <div class="d-flex flex-wrap align-center ga-2 mt-3">
+            <v-btn
+              color="primary"
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-send"
+              :loading="telegramTestLoading === 'connectivity'"
+              :disabled="!!telegramTestLoading"
+              @click="sendTelegramTest('connectivity')"
+            >
+              Тест Telegram
+            </v-btn>
+            <v-btn
+              color="deep-purple"
+              variant="tonal"
+              size="small"
+              prepend-icon="mdi-robot-outline"
+              :loading="telegramTestLoading === 'meta_agent'"
+              :disabled="!!telegramTestLoading"
+              @click="sendTelegramTest('meta_agent')"
+            >
+              Тест сповіщення мета-агента
+            </v-btn>
+            <v-btn
+              color="amber-darken-2"
+              variant="outlined"
+              size="small"
+              prepend-icon="mdi-brain"
+              :loading="metaAgentTestLoading"
+              :disabled="metaAgentTestLoading"
+              @click="runMetaAgentClaudeTest"
+            >
+              Перевірити мета-агента (Claude)
+            </v-btn>
+          </div>
+
+          <v-alert
+            v-if="telegramTestResult"
+            :type="telegramTestResult.ok ? 'success' : 'error'"
+            variant="tonal"
+            density="compact"
+            class="mt-3"
+            closable
+            @click:close="telegramTestResult = null"
+          >
+            {{ telegramTestResult.message }}
+            <div v-if="telegramTestResult.sentTo?.length" class="text-caption mt-1">
+              Групи: {{ telegramTestResult.sentTo.join(', ') }}
+            </div>
+          </v-alert>
+
+          <v-alert
+            v-if="metaAgentTestResult"
+            :type="metaAgentTestResult.ok ? 'success' : 'warning'"
+            variant="tonal"
+            density="compact"
+            class="mt-3"
+            closable
+            @click:close="metaAgentTestResult = null"
+          >
+            <div class="font-weight-medium">{{ metaAgentTestResult.message }}</div>
+            <div v-if="metaAgentTestResult.reply" class="text-body-2 mt-2" style="white-space: pre-wrap;">
+              {{ metaAgentTestResult.reply }}
+            </div>
+          </v-alert>
         </v-card-text>
       </v-card>
 
@@ -1339,6 +1486,27 @@
         {{ oauthSnackbarText }}
       </v-snackbar>
 
+      <v-dialog v-model="telegramTestDialog" max-width="440">
+        <v-card>
+          <v-card-title class="text-h6">Тест Telegram</v-card-title>
+          <v-card-text>
+            Токен збережено. Надіслати тестове повідомлення в групу менеджерів, щоб переконатися, що бот підключений?
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" @click="telegramTestDialog = false">Пізніше</v-btn>
+            <v-btn
+              color="primary"
+              variant="flat"
+              :loading="telegramTestLoading === 'connectivity'"
+              @click="sendTelegramTest('connectivity', true)"
+            >
+              Надіслати тест
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
       <!-- OAuth: pick one Page when Facebook returned several -->
       <v-dialog v-model="metaOAuthSelectDialog" max-width="560" persistent>
         <v-card>
@@ -1523,6 +1691,28 @@ const loading = ref(false);
 const saving = ref(false);
 const savingIntegrations = ref(false);
 const integrationsSaved = ref(false);
+
+type TelegramTestVariant = 'connectivity' | 'meta_agent';
+
+interface TelegramTestResponse {
+  ok: boolean;
+  message: string;
+  sentTo?: string[];
+}
+
+interface MetaAgentTestResponse {
+  ok: boolean;
+  message: string;
+  reply?: string;
+  durationMs?: number;
+}
+
+const telegramTestLoading = ref<TelegramTestVariant | ''>('');
+const telegramTestResult = ref<TelegramTestResponse | null>(null);
+const telegramTestDialog = ref(false);
+const metaAgentTestLoading = ref(false);
+const metaAgentTestResult = ref<MetaAgentTestResponse | null>(null);
+
 const error = ref('');
 const success = ref(false);
 
@@ -1620,6 +1810,84 @@ interface HealthCheckResult {
 const healthCheckLoading = ref(false);
 const healthCheckError = ref('');
 const healthCheckResult = ref<HealthCheckResult | null>(null);
+
+interface ClaudeUsageBucket {
+  id: string;
+  label: string;
+  percentUsed: number;
+  resetsAt: string;
+}
+
+interface ClaudeUsageSnapshot {
+  checkedAt: string;
+  status: 'ok' | 'warning' | 'exhausted' | 'unavailable';
+  subscriptionType: string | null;
+  authEmail: string | null;
+  buckets: ClaudeUsageBucket[];
+  worstPercent: number;
+  message: string;
+}
+
+const claudeUsageLoading = ref(false);
+const claudeUsageError = ref('');
+const claudeUsageSnapshot = ref<ClaudeUsageSnapshot | null>(null);
+const claudeUsageCheckIntervalMin = ref(30);
+const claudeUsageWarningPercent = ref(90);
+
+const claudeUsageStatusColor = computed(() => {
+  const s = claudeUsageSnapshot.value?.status;
+  if (s === 'exhausted') return 'error';
+  if (s === 'warning') return 'warning';
+  if (s === 'unavailable') return 'grey';
+  return 'success';
+});
+
+const claudeUsageStatusLabel = computed(() => {
+  const s = claudeUsageSnapshot.value?.status;
+  if (s === 'exhausted') return 'Вичерпано';
+  if (s === 'warning') return 'Майже ліміт';
+  if (s === 'unavailable') return 'Недоступно';
+  return 'OK';
+});
+
+const claudeUsageAlertType = computed(() => {
+  const s = claudeUsageSnapshot.value?.status;
+  if (s === 'exhausted') return 'error';
+  if (s === 'warning') return 'warning';
+  return 'info';
+});
+
+function claudeUsageBarColor(percent: number): string {
+  if (percent >= 100) return 'error';
+  if (percent >= claudeUsageWarningPercent.value) return 'warning';
+  return 'success';
+}
+
+async function refreshClaudeUsage(live = false) {
+  claudeUsageLoading.value = true;
+  claudeUsageError.value = '';
+  try {
+    const { data } = live
+      ? await api.post<{
+          snapshot: ClaudeUsageSnapshot;
+          checkIntervalMin: number;
+          warningPercent: number;
+        }>('/settings/claude-usage/check')
+      : await api.get<{
+          snapshot: ClaudeUsageSnapshot | null;
+          checkIntervalMin: number;
+          warningPercent: number;
+        }>('/settings/claude-usage');
+    claudeUsageSnapshot.value = data.snapshot;
+    claudeUsageCheckIntervalMin.value = data.checkIntervalMin;
+    claudeUsageWarningPercent.value = data.warningPercent;
+  } catch (e: any) {
+    claudeUsageError.value = e.response?.data?.error ?? 'Не вдалося завантажити ліміти Claude';
+    claudeUsageSnapshot.value = null;
+  } finally {
+    claudeUsageLoading.value = false;
+  }
+}
 
 function healthCheckIcon(status: HealthCheckStatus): string {
   if (status === 'ok') return 'mdi-check-circle';
@@ -2397,6 +2665,52 @@ async function fetchIntegrations() {
   }
 }
 
+async function sendTelegramTest(variant: TelegramTestVariant, fromDialog = false) {
+  telegramTestLoading.value = variant;
+  telegramTestResult.value = null;
+  try {
+    const payload: Record<string, string> = { variant };
+    const tgToken = integrations.value.telegram.botToken.trim();
+    if (tgToken && tgToken !== '••••••') {
+      payload.botToken = tgToken;
+    }
+    const groupId = integrations.value.telegram.managerGroupId.trim();
+    if (groupId) {
+      payload.managerGroupId = groupId;
+    }
+
+    const { data } = await api.post<TelegramTestResponse>('/settings/telegram/test', payload);
+    telegramTestResult.value = data;
+    if (fromDialog) telegramTestDialog.value = false;
+  } catch (e: any) {
+    telegramTestResult.value = {
+      ok: false,
+      message: e.response?.data?.message ?? e.response?.data?.error ?? 'Не вдалося надіслати тест',
+      sentTo: e.response?.data?.sentTo,
+    };
+  } finally {
+    telegramTestLoading.value = '';
+  }
+}
+
+async function runMetaAgentClaudeTest() {
+  metaAgentTestLoading.value = true;
+  metaAgentTestResult.value = null;
+  try {
+    const { data } = await api.post<MetaAgentTestResponse>('/settings/meta-agent/test');
+    metaAgentTestResult.value = data;
+  } catch (e: any) {
+    metaAgentTestResult.value = {
+      ok: false,
+      message: e.response?.data?.message ?? 'Мета-агент не відповів',
+      reply: e.response?.data?.reply,
+      durationMs: e.response?.data?.durationMs,
+    };
+  } finally {
+    metaAgentTestLoading.value = false;
+  }
+}
+
 async function saveIntegrations() {
   savingIntegrations.value = true;
   integrationsSaved.value = false;
@@ -2417,6 +2731,7 @@ async function saveIntegrations() {
       adminPassword: integrations.value.telegram.adminPassword,
     };
     const tgToken = integrations.value.telegram.botToken.trim();
+    const tgTokenUpdated = tgToken.length > 0 && tgToken !== '••••••';
     if (tgToken && tgToken !== '••••••') {
       telegramPayload.botToken = tgToken;
     }
@@ -2452,6 +2767,9 @@ async function saveIntegrations() {
       }),
     ]);
     integrationsSaved.value = true;
+    if (tgTokenUpdated) {
+      telegramTestDialog.value = true;
+    }
   } catch {
     error.value = 'Не вдалося зберегти інтеграції';
   } finally {
@@ -2462,6 +2780,7 @@ async function saveIntegrations() {
 onMounted(() => {
   fetchSettings();
   fetchIntegrations();
+  void refreshClaudeUsage(false);
 });
 </script>
 

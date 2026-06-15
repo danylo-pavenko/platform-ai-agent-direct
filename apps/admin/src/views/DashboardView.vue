@@ -46,9 +46,25 @@
             Каталог (sync): {{ formatRelative(summary?.health?.lastCatalogSyncAt) }}
             <span class="health-dot">·</span>
             CRM write: {{ crmWriteLabel }}
+            <template v-if="summary?.health?.claudeUsage">
+              <span class="health-dot">·</span>
+              Claude: {{ claudeUsageShortLabel }}
+            </template>
           </span>
         </div>
       </div>
+
+      <v-alert
+        v-if="claudeUsageAlert"
+        :type="claudeUsageAlert.type"
+        variant="tonal"
+        density="compact"
+        class="mb-4"
+        rounded="lg"
+        :text="claudeUsageAlert.text"
+      >
+        <template #title>{{ claudeUsageAlert.title }}</template>
+      </v-alert>
 
       <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-4" rounded="lg">
         {{ error }}
@@ -267,6 +283,35 @@
           За обраний період немає викликів агента
         </div>
 
+        <v-row dense class="mt-4" v-if="summary?.health?.claudeUsage?.buckets?.length">
+          <v-col cols="12">
+            <div class="text-subtitle-2 font-weight-medium mb-2">
+              Ліміти Claude (підписка)
+              <span v-if="summary.health.claudeUsage.subscriptionType" class="text-caption text-medium-emphasis">
+                · {{ summary.health.claudeUsage.subscriptionType }}
+              </span>
+            </div>
+          </v-col>
+          <v-col
+            v-for="bucket in summary.health.claudeUsage.buckets"
+            :key="bucket.id"
+            cols="12"
+            sm="6"
+            md="4"
+          >
+            <div class="text-caption text-medium-emphasis mb-1">{{ bucket.label }}</div>
+            <v-progress-linear
+              :model-value="bucket.percentUsed"
+              :color="usageBarColor(bucket.percentUsed)"
+              height="8"
+              rounded
+            />
+            <div class="text-caption mt-1">
+              {{ bucket.percentUsed }}% · скидання {{ bucket.resetsAt }}
+            </div>
+          </v-col>
+        </v-row>
+
         <v-alert v-if="agentError" type="error" variant="tonal" density="compact" class="mt-3" rounded="lg">
           {{ agentError }}
         </v-alert>
@@ -352,6 +397,14 @@ interface Summary {
     crmWriteEnabled?: boolean;
     crmWriteSource?: string;
     crmWriteMessage?: string | null;
+    claudeUsage?: {
+      status: 'ok' | 'warning' | 'exhausted' | 'unavailable';
+      worstPercent: number;
+      message: string;
+      checkedAt: string;
+      subscriptionType: string | null;
+      buckets: Array<{ id: string; label: string; percentUsed: number; resetsAt: string }>;
+    } | null;
   };
   series: Array<{ date: string; botReplies: number; clientMessages: number }>;
 }
@@ -420,8 +473,42 @@ const showLeadgenSection = computed(() => {
 const healthOk = computed(() => {
   const h = summary.value?.health;
   if (!h) return false;
+  const usage = h.claudeUsage?.status;
+  if (usage === 'exhausted' || usage === 'warning') return false;
   return h.botRecentlyActive || h.botActiveInPeriod;
 });
+
+const claudeUsageShortLabel = computed(() => {
+  const u = summary.value?.health?.claudeUsage;
+  if (!u) return '—';
+  if (u.status === 'exhausted') return `вичерпано (${u.worstPercent}%)`;
+  if (u.status === 'warning') return `майже ліміт (${u.worstPercent}%)`;
+  if (u.status === 'unavailable') return 'невідомо';
+  return `OK (${u.worstPercent}%)`;
+});
+
+const claudeUsageAlert = computed(() => {
+  const u = summary.value?.health?.claudeUsage;
+  if (!u || u.status === 'ok' || u.status === 'unavailable') return null;
+  if (u.status === 'exhausted') {
+    return {
+      type: 'error' as const,
+      title: 'Ліміт Claude вичерпано',
+      text: u.message,
+    };
+  }
+  return {
+    type: 'warning' as const,
+    title: 'Ліміт Claude майже вичерпано',
+    text: u.message,
+  };
+});
+
+function usageBarColor(percent: number): string {
+  if (percent >= 100) return 'error';
+  if (percent >= 90) return 'warning';
+  return 'success';
+}
 
 const crmWriteLabel = computed(() => {
   const h = summary.value?.health;

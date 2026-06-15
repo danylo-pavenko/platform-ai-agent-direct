@@ -80,6 +80,49 @@ async function sendToManagerGroup(
 // ── Public API ──────────────────────────────────────────────────────────
 
 /**
+ * Sends a Telegram alert when Claude subscription usage crosses warning/exhausted thresholds.
+ */
+export async function notifyClaudeUsageLimit(params: {
+  status: 'warning' | 'exhausted';
+  worstPercent: number;
+  buckets: Array<{ label: string; percentUsed: number; resetsAt: string }>;
+  subscriptionType?: string | null;
+  message: string;
+}): Promise<void> {
+  const { status, worstPercent, buckets, subscriptionType, message } = params;
+  const icon = status === 'exhausted' ? '🛑' : '⚠️';
+  const title =
+    status === 'exhausted'
+      ? 'Ліміт Claude вичерпано'
+      : 'Ліміт Claude майже вичерпано';
+
+  const bucketsBlock = [...buckets]
+    .sort((a, b) => b.percentUsed - a.percentUsed)
+    .map(
+      (b) =>
+        `• ${escapeHtml(b.label)}: <b>${b.percentUsed}%</b> (скинеться ${escapeHtml(b.resetsAt)})`,
+    )
+    .join('\n');
+
+  const text = [
+    `${icon} <b>${title}</b>`,
+    ``,
+    escapeHtml(message),
+    subscriptionType ? `План: <code>${escapeHtml(subscriptionType)}</code>` : '',
+    `Пікове використання: <b>${worstPercent}%</b>`,
+    ``,
+    `<b>Бакети:</b>`,
+    bucketsBlock || '<i>(немає даних)</i>',
+    ``,
+    `Перевірте <code>claude -p '/usage'</code> на сервері або Налаштування → Claude ліміти.`,
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
+
+  await sendToManagerGroup(text);
+}
+
+/**
  * Sends an escalation card to the manager group when the bot
  * hands off a conversation to a human manager.
  */

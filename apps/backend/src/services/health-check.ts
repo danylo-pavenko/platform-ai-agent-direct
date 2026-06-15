@@ -7,13 +7,15 @@ import {
   claudeHealthCheck,
   probeAgentLatency,
 } from './claude.js';
+import { fetchClaudeUsageSnapshot } from './claude-usage.js';
+import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import { getCrmAdapter } from './crm/registry.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
 
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'crm' | 'crm_write' | 'agent_latency' | 'stt';
+  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'crm_write' | 'agent_latency' | 'stt';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -124,6 +126,75 @@ async function checkClaude(): Promise<HealthCheckItem> {
     status: 'ok',
     message: `Підключено (${binary.version ?? 'ok'})`,
     details: { path: binary.path, version: binary.version },
+  };
+}
+
+async function checkClaudeUsage(): Promise<HealthCheckItem> {
+  const label = 'Claude ліміти (підписка)';
+
+  let snap = await loadClaudeUsageSnapshot();
+  const maxAgeMs = (config.CLAUDE_USAGE_CHECK_INTERVAL_MIN + 5) * 60 * 1000;
+  const stale =
+    !snap || Date.now() - new Date(snap.checkedAt).getTime() > maxAgeMs;
+
+  if (stale) {
+    snap = await fetchClaudeUsageSnapshot();
+  }
+
+  if (!snap || snap.status === 'unavailable') {
+    return {
+      id: 'claude_usage',
+      label,
+      status: 'error',
+      message: snap?.message ?? 'Ліміти Claude недоступні',
+      details: {
+        checkedAt: snap?.checkedAt ?? null,
+        error: snap?.error ?? null,
+      },
+    };
+  }
+
+  if (snap.status === 'exhausted') {
+    return {
+      id: 'claude_usage',
+      label,
+      status: 'error',
+      message: snap.message,
+      details: {
+        checkedAt: snap.checkedAt,
+        worstPercent: snap.worstPercent,
+        buckets: snap.buckets,
+        subscriptionType: snap.subscriptionType,
+      },
+    };
+  }
+
+  if (snap.status === 'warning') {
+    return {
+      id: 'claude_usage',
+      label,
+      status: 'error',
+      message: snap.message,
+      details: {
+        checkedAt: snap.checkedAt,
+        worstPercent: snap.worstPercent,
+        buckets: snap.buckets,
+        subscriptionType: snap.subscriptionType,
+      },
+    };
+  }
+
+  return {
+    id: 'claude_usage',
+    label,
+    status: 'ok',
+    message: snap.message,
+    details: {
+      checkedAt: snap.checkedAt,
+      worstPercent: snap.worstPercent,
+      buckets: snap.buckets,
+      subscriptionType: snap.subscriptionType,
+    },
   };
 }
 
@@ -335,9 +406,10 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, crm, crmWrite, stt] = await Promise.all([
+  const [instagram, claude, claudeUsage, crm, crmWrite, stt] = await Promise.all([
     checkInstagram(),
     checkClaude(),
+    checkClaudeUsage(),
     checkCrm(),
     checkCrmWrite(),
     checkStt(),
@@ -346,7 +418,7 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
 
-  const checks = [instagram, claude, crm, crmWrite, stt, agentLatency];
+  const checks = [instagram, claude, claudeUsage, crm, crmWrite, stt, agentLatency];
   const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
 
   return {

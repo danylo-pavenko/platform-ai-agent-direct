@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import {
   invalidateIntegrationConfigCache,
@@ -9,12 +10,15 @@ import { invalidateAgentConfigCache } from '../lib/agent-config.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
+import { loadClaudeUsageSnapshot, runClaudeUsageCheck } from '../services/claude-usage-monitor.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
+import { sendTelegramTestMessage } from '../services/telegram-test.js';
+import { runMetaAgentTest } from '../services/meta-agent-test.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -247,6 +251,60 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post('/health-check', { onRequest: [app.authenticate] }, async () => {
     return runTenantHealthCheck();
+  });
+
+  /** GET /settings/claude-usage — latest subscription usage snapshot (auto-polled). */
+  app.get('/claude-usage', { onRequest: [app.authenticate] }, async () => {
+    const snapshot = await loadClaudeUsageSnapshot();
+    return {
+      snapshot,
+      checkIntervalMin: config.CLAUDE_USAGE_CHECK_INTERVAL_MIN,
+      warningPercent: config.CLAUDE_USAGE_WARNING_PERCENT,
+    };
+  });
+
+  /** POST /settings/claude-usage/check — on-demand refresh. */
+  app.post('/claude-usage/check', { onRequest: [app.authenticate] }, async () => {
+    const snapshot = await runClaudeUsageCheck();
+    return {
+      snapshot,
+      checkIntervalMin: config.CLAUDE_USAGE_CHECK_INTERVAL_MIN,
+      warningPercent: config.CLAUDE_USAGE_WARNING_PERCENT,
+    };
+  });
+
+  /**
+   * POST /settings/telegram/test
+   * Send a test message to manager notification group(s).
+   * Body may include unsaved botToken / managerGroupId for pre-save testing.
+   */
+  app.post<{
+    Body: {
+      variant?: 'connectivity' | 'meta_agent';
+      botToken?: string;
+      managerGroupId?: string;
+    };
+  }>('/telegram/test', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { variant, botToken, managerGroupId } = request.body ?? {};
+    try {
+      const result = await sendTelegramTestMessage({ variant, botToken, managerGroupId });
+      if (!result.ok) {
+        return reply.code(400).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ ok: false, message });
+    }
+  });
+
+  /** POST /settings/meta-agent/test — ping Claude on the meta_agent channel. */
+  app.post('/meta-agent/test', { onRequest: [app.authenticate] }, async (_request, reply) => {
+    const result = await runMetaAgentTest();
+    if (!result.ok) {
+      return reply.code(503).send(result);
+    }
+    return result;
   });
 
   const PURGE_DIALOGS_CONFIRM = 'ВИДАЛИТИ ДІАЛОГИ';

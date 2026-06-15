@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
+import { loadClaudeUsageSnapshot } from '../services/claude-usage-monitor.js';
 
 const PERIODS = ['24h', '7d', '30d', '90d', 'all'] as const;
 type Period = (typeof PERIODS)[number];
@@ -207,6 +208,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       dailyRows,
       briefStats,
       qualityStats,
+      claudeUsageSnapshot,
     ] = await Promise.all([
       countClientsContacted(from),
       countBotOutbound(from),
@@ -231,6 +233,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       loadDailySeries(seriesFrom),
       loadBriefStats(from),
       loadQualityStats(from),
+      loadClaudeUsageSnapshot(),
     ]);
 
     const ordersInPipeline = ordersSubmitted + ordersConfirmed;
@@ -293,6 +296,16 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         crmWriteEnabled: crmWrite.enabled,
         crmWriteSource: crmWrite.source,
         crmWriteMessage: crmWrite.reason ?? null,
+        claudeUsage: claudeUsageSnapshot
+          ? {
+              status: claudeUsageSnapshot.status,
+              worstPercent: claudeUsageSnapshot.worstPercent,
+              message: claudeUsageSnapshot.message,
+              checkedAt: claudeUsageSnapshot.checkedAt,
+              subscriptionType: claudeUsageSnapshot.subscriptionType,
+              buckets: claudeUsageSnapshot.buckets,
+            }
+          : null,
       },
       series,
     };

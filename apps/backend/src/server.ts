@@ -100,6 +100,9 @@ try {
   app.log.info(
     `${config.INSTANCE_NAME} API running on port ${config.API_PORT}`,
   );
+
+  const { startClaudeUsageMonitor } = await import('./services/claude-usage-monitor.js');
+  startClaudeUsageMonitor(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

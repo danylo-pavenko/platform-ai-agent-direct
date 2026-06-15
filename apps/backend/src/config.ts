@@ -68,6 +68,13 @@ const envSchema = z.object({
   // diffs — allow a longer window than generic admin turns.
   CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(300000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
+  // Poll Claude Code `/usage` for subscription limits (Pro/Max rolling windows).
+  CLAUDE_USAGE_CHECK_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  CLAUDE_USAGE_CHECK_INTERVAL_MIN: z.coerce.number().default(30),
+  CLAUDE_USAGE_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(90),
 
   // Auth
   JWT_SECRET: z.string().min(16),
