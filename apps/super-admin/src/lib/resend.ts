@@ -9,6 +9,7 @@ export interface LeadEmailPayload {
   plan?: string;
   lang?: string;
   pageUrl?: string;
+  ref?: string;
 }
 
 function esc(s: string): string {
@@ -44,6 +45,7 @@ export async function sendLeadEmail(payload: LeadEmailPayload): Promise<void> {
         ${row('Мессенджер', payload.messenger)}
         ${row('Тариф / інтерес', payload.plan)}
         ${row('Мова', payload.lang)}
+        ${row('Джерело (ref)', payload.ref)}
         ${row('Сторінка', payload.pageUrl)}
       </table>
       ${

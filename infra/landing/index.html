@@ -1818,6 +1818,17 @@
       ? "http://127.0.0.1:4000"
       : "";
 
+    (function persistRef() {
+      const ref = new URLSearchParams(location.search).get("ref");
+      if (ref) sessionStorage.setItem("dal_ref", ref);
+    })();
+
+    function trackingRef() {
+      return sessionStorage.getItem("dal_ref")
+        || new URLSearchParams(location.search).get("ref")
+        || undefined;
+    }
+
     function t(key) {
       const lang = window.__dalLang || localStorage.getItem("dal_lang") || "uk";
       return (I18N[lang] && I18N[lang][key]) || key;
@@ -1842,6 +1853,8 @@
         plan: form.plan.value || undefined,
         lang: window.__dalLang || localStorage.getItem("dal_lang") || "uk",
         pageUrl: location.href,
+        referer: document.referrer || undefined,
+        ref: trackingRef(),
         website: form.website.value.trim() || undefined,
       };
     }

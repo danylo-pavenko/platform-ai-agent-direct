@@ -31,6 +31,10 @@ const schema = z.object({
   RESEND_API_KEY: z.string().default(''),
   RESEND_FROM: z.string().default('Direct AI Agents <onboarding@resend.dev>'),
   LANDING_CONTACT_TO: z.string().email().default('help@depsoftware.com'),
+  // Base URL for tracked link destinations (landing page)
+  LANDING_BASE_URL: z.string().url().default('https://direct-ai-agents.com'),
+  // Public base URL for generated short links (usually same as landing)
+  TRACKING_LINK_BASE_URL: z.string().url().default('https://direct-ai-agents.com'),
 });
 
 const parsed = schema.safeParse(process.env);

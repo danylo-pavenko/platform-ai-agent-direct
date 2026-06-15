@@ -140,6 +140,14 @@
     .online-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
     .online-dot.online { background: var(--success); }
 
+    /* ── Copy / chips ── */
+    .copy-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .copy-row code { font-size: 12px; background: var(--bg); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); word-break: break-all; }
+    .chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 100px; font-size: 11px; background: var(--surface2); border: 1px solid var(--border); margin: 2px 4px 2px 0; }
+    .chip-country { color: var(--accent2); }
+    .lead-detail { font-size: 12px; color: var(--muted); line-height: 1.5; }
+    .lead-detail strong { color: var(--text); font-weight: 500; }
+
     /* ── Modal sections ── */
     .modal-sep { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
     .modal-section-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 7px 10px; border-radius: 7px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; user-select: none; margin-bottom: 4px; transition: all .15s; }
@@ -323,6 +331,12 @@
         <div class="nav-item" :class="{active: page==='tenants'}" @click="goPage('tenants')">
           <span class="icon">◈</span> Clients
         </div>
+        <div class="nav-item" :class="{active: page==='links'}" @click="goPage('links')">
+          <span class="icon">🔗</span> Посилання
+        </div>
+        <div class="nav-item" :class="{active: page==='leads'}" @click="goPage('leads')">
+          <span class="icon">📩</span> Заявки
+        </div>
       </nav>
       <div class="sidebar-bottom">
         <button class="logout-btn" @click="logout">
@@ -451,6 +465,171 @@
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
                   </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Marketing links -->
+      <template v-if="page==='links'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Маркетингові посилання</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openLinkModal"><span>+</span><span class="btn-text"> Нове посилання</span></button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Посилання</div>
+              <div class="stat-value accent">{{ links.length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Кліки (люди)</div>
+              <div class="stat-value green">{{ links.reduce((s,l)=>s+(l.stats?.humanClicks||0),0) }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Заявки з форми</div>
+              <div class="stat-value" style="color:var(--warn)">{{ links.reduce((s,l)=>s+(l.stats?.formSubmissions||0),0) }}</div>
+            </div>
+          </div>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Назва</th>
+                  <th>Посилання</th>
+                  <th>Кліки</th>
+                  <th>Заявки</th>
+                  <th>Країни</th>
+                  <th>Статус</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="links.length===0" class="empty-row">
+                  <td colspan="7">Ще немає посилань. Створіть перше для кампанії.</td>
+                </tr>
+                <tr v-for="l in links" :key="l.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ l.name }}</div>
+                    <div style="font-size:11px;color:var(--muted)">/{{ l.slug }}</div>
+                  </td>
+                  <td data-label="Посилання">
+                    <div class="copy-row">
+                      <code>{{ l.trackingUrl }}</code>
+                      <button class="btn btn-ghost btn-sm" @click="copyText(l.trackingUrl)">📋</button>
+                    </div>
+                  </td>
+                  <td data-label="Кліки">
+                    <div style="font-size:13px"><strong style="color:var(--success)">{{ l.stats?.humanClicks || 0 }}</strong> людей</div>
+                    <div style="font-size:11px;color:var(--muted)">{{ l.stats?.rawClicks || 0 }} всього (вкл. превʼю)</div>
+                  </td>
+                  <td data-label="Заявки">{{ l.stats?.formSubmissions || 0 }}</td>
+                  <td data-label="Країни">
+                    <span v-if="!Object.keys(l.stats?.countries||{}).length" style="color:var(--muted);font-size:12px">—</span>
+                    <span v-for="(cnt, country) in l.stats?.countries||{}" :key="country" class="chip chip-country">{{ country }} · {{ cnt }}</span>
+                  </td>
+                  <td data-label="Статус">
+                    <span class="badge" :class="l.isActive ? 'badge-active' : 'badge-suspended">{{ l.isActive ? 'active' : 'paused' }}</span>
+                  </td>
+                  <td data-label="Actions">
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openLinkModal(l)">✏️</button>
+                      <button class="btn btn-ghost btn-sm" @click="toggleLink(l)">{{ l.isActive ? '⏸' : '▶' }}</button>
+                      <button class="btn btn-danger btn-sm" @click="deleteLink(l)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Leads -->
+      <template v-if="page==='leads'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Заявки з лендингу</h1>
+          <div class="topbar-actions">
+            <select v-model="leadsFilter.status" @change="loadLeads" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px">
+              <option value="">Всі статуси</option>
+              <option value="new">new</option>
+              <option value="contacted">contacted</option>
+              <option value="closed">closed</option>
+              <option value="spam">spam</option>
+            </select>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Всього заявок</div>
+              <div class="stat-value accent">{{ leadsSummary.total || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Нові</div>
+              <div class="stat-value green">{{ leadsSummary.byStatus?.new || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Email надіслано</div>
+              <div class="stat-value">{{ leads.filter(l=>l.emailSent).length }}</div>
+            </div>
+          </div>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Контакт</th>
+                  <th>Джерело</th>
+                  <th>Гео</th>
+                  <th>Тариф</th>
+                  <th>Email</th>
+                  <th>Статус</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="leads.length===0" class="empty-row">
+                  <td colspan="7">Заявок поки немає.</td>
+                </tr>
+                <tr v-for="l in leads" :key="l.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ l.name || l.instagram || l.email || '—' }}</div>
+                    <div class="lead-detail">
+                      <span v-if="l.email">{{ l.email }}</span>
+                      <span v-if="l.instagram"> · @{{ l.instagram.replace(/^@/,'') }}</span>
+                      <span v-if="l.messenger"> · {{ l.messenger }}</span>
+                    </div>
+                    <div v-if="l.message" class="lead-detail" style="margin-top:4px">{{ l.message }}</div>
+                  </td>
+                  <td data-label="Джерело">
+                    <span v-if="l.link" style="font-size:12px">{{ l.link.name }}</span>
+                    <span v-else-if="l.refSlug" style="font-size:12px;color:var(--muted)">ref: {{ l.refSlug }}</span>
+                    <span v-else style="color:var(--muted);font-size:12px">прямий вхід</span>
+                  </td>
+                  <td data-label="Гео" style="font-size:12px;color:var(--muted)">
+                    {{ l.country || l.countryCode || '—' }}<span v-if="l.region"> · {{ l.region }}</span>
+                  </td>
+                  <td data-label="Тариф">{{ l.plan || '—' }}</td>
+                  <td data-label="Email">
+                    <span class="badge" :class="l.emailSent ? 'badge-active' : 'badge-suspended">{{ l.emailSent ? 'sent' : 'failed' }}</span>
+                  </td>
+                  <td data-label="Статус">
+                    <select :value="l.status" @change="updateLeadStatus(l, $event.target.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+                      <option value="new">new</option>
+                      <option value="contacted">contacted</option>
+                      <option value="closed">closed</option>
+                      <option value="spam">spam</option>
+                    </select>
+                  </td>
+                  <td data-label="Дата" style="font-size:12px;color:var(--muted)">{{ formatDate(l.createdAt) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -644,6 +823,35 @@
     </div>
   </div>
 
+  <!-- ── Link Modal ── -->
+  <div class="modal-overlay" v-if="linkModal.open" @click.self="linkModal.open=false">
+    <div class="modal" style="width:520px">
+      <h2>{{ linkModal.editing ? '✏️ Редагувати посилання' : '+ Нове посилання' }}</h2>
+      <div class="field">
+        <label>Назва кампанії *</label>
+        <input v-model="linkModal.form.name" placeholder="Instagram Stories — червень" />
+      </div>
+      <div class="field">
+        <label>Slug <span style="color:var(--muted);font-weight:400">— латиниця, цифри, дефіс</span></label>
+        <input v-model="linkModal.form.slug" placeholder="auto з назви" :disabled="!!linkModal.editing" />
+      </div>
+      <div class="field">
+        <label>Куди редіректити</label>
+        <input v-model="linkModal.form.destinationUrl" placeholder="https://direct-ai-agents.com/?ref=..." />
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin:-6px 0 14px;line-height:1.5">
+        Користувач отримає посилання виду <code style="color:var(--accent2)">direct-ai-agents.com/go/slug</code>.
+        Клік рахується лише після JS-підтвердження (не превʼю мессенджерів). Заявки з форми привʼязуються через <code>?ref=slug</code>.
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="linkModal.open=false">Скасувати</button>
+        <button class="btn btn-primary" @click="saveLink" :disabled="linkModal.saving">
+          {{ linkModal.saving ? 'Зберігаємо...' : (linkModal.editing ? 'Зберегти' : 'Створити') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Claude health modal -->
   <div class="modal-overlay" v-if="claudeHealth.open" @click.self="claudeHealth.open=false">
     <div class="modal">
@@ -730,6 +938,20 @@ createApp({
       form: emptyForm(),
     });
 
+    const links = ref([]);
+    const leads = ref([]);
+    const leadsSummary = reactive({ total: 0, byStatus: {} });
+    const leadsFilter = reactive({ status: '' });
+
+    function emptyLinkForm() {
+      return { name: '', slug: '', destinationUrl: '' };
+    }
+
+    const linkModal = reactive({
+      open: false, editing: null, saving: false,
+      form: emptyLinkForm(),
+    });
+
     // ISO string → value for <input type="datetime-local"> (local time)
     function isoToLocalInput(iso) {
       const d = new Date(iso);
@@ -778,6 +1000,109 @@ createApp({
     function goPage(p) {
       page.value = p;
       sidebarOpen.value = false;
+      if (p === 'links') loadLinks();
+      if (p === 'leads') loadLeads();
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('uk', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        prompt('Copy:', text);
+      }
+    }
+
+    async function loadLinks() {
+      try {
+        const r = await fetch(`${BASE}/links`, { headers: headers() });
+        if (r.status === 401) { logout(); return; }
+        links.value = await r.json();
+      } catch (e) {
+        console.error('loadLinks failed:', e);
+        links.value = [];
+      }
+    }
+
+    function openLinkModal(l) {
+      if (l) {
+        linkModal.editing = l.id;
+        linkModal.form = { name: l.name, slug: l.slug, destinationUrl: l.destinationUrl };
+      } else {
+        linkModal.editing = null;
+        linkModal.form = emptyLinkForm();
+      }
+      linkModal.open = true;
+    }
+
+    async function saveLink() {
+      if (!linkModal.form.name.trim()) {
+        alert('Вкажіть назву');
+        return;
+      }
+      linkModal.saving = true;
+      try {
+        const payload = {
+          name: linkModal.form.name.trim(),
+          ...(linkModal.form.slug.trim() ? { slug: linkModal.form.slug.trim().toLowerCase() } : {}),
+          ...(linkModal.form.destinationUrl.trim() ? { destinationUrl: linkModal.form.destinationUrl.trim() } : {}),
+        };
+        const url = linkModal.editing ? `${BASE}/links/${linkModal.editing}` : `${BASE}/links`;
+        const method = linkModal.editing ? 'PUT' : 'POST';
+        const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(payload) });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          alert(err.error || 'Помилка збереження');
+          return;
+        }
+        linkModal.open = false;
+        await loadLinks();
+      } finally {
+        linkModal.saving = false;
+      }
+    }
+
+    async function toggleLink(l) {
+      await fetch(`${BASE}/links/${l.id}`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify({ isActive: !l.isActive }),
+      });
+      await loadLinks();
+    }
+
+    async function deleteLink(l) {
+      if (!confirm(`Видалити посилання «${l.name}»? Статистика кліків теж зникне.`)) return;
+      await fetch(`${BASE}/links/${l.id}`, { method: 'DELETE', headers: headers() });
+      await loadLinks();
+    }
+
+    async function loadLeads() {
+      try {
+        const qs = leadsFilter.status ? `?status=${encodeURIComponent(leadsFilter.status)}` : '';
+        const r = await fetch(`${BASE}/leads${qs}`, { headers: headers() });
+        if (r.status === 401) { logout(); return; }
+        const data = await r.json();
+        leads.value = data.leads || [];
+        leadsSummary.total = data.summary?.total ?? 0;
+        leadsSummary.byStatus = data.summary?.byStatus ?? {};
+      } catch (e) {
+        console.error('loadLeads failed:', e);
+        leads.value = [];
+      }
+    }
+
+    async function updateLeadStatus(lead, status) {
+      await fetch(`${BASE}/leads/${lead.id}`, {
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify({ status }),
+      });
+      lead.status = status;
     }
 
     async function loadTenants() {
@@ -1005,8 +1330,11 @@ createApp({
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
+      links, linkModal, leads, leadsSummary, leadsFilter,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
+      loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
+      loadLeads, updateLeadStatus, formatDate,
     };
   }
 }).mount('#app');

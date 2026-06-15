@@ -41,3 +41,68 @@ model Tenant {
 
   @@map("tenants")
 }
+
+model TrackedLink {
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug            String      @unique
+  name            String
+  destinationUrl  String      @map("destination_url")
+  isActive        Boolean     @default(true) @map("is_active")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  clicks          LinkClick[]
+  leads           LandingLead[]
+
+  @@map("tracked_links")
+}
+
+model LinkClick {
+  id            String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  linkId        String      @map("link_id") @db.Uuid
+  link          TrackedLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  ip            String?
+  userAgent     String?     @map("user_agent")
+  referer       String?
+  isBot         Boolean     @default(false) @map("is_bot")
+  isPreview     Boolean     @default(false) @map("is_preview")
+  isHuman       Boolean     @default(false) @map("is_human")
+  country       String?
+  countryCode   String?     @map("country_code")
+  region        String?
+  clickedAt     DateTime    @default(now()) @map("clicked_at")
+
+  @@index([linkId, clickedAt])
+  @@index([linkId, isHuman])
+  @@map("link_clicks")
+}
+
+model LandingLead {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  linkId        String?      @map("link_id") @db.Uuid
+  link          TrackedLink? @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  refSlug       String?      @map("ref_slug")
+  name          String?
+  email         String?
+  instagram     String?
+  messenger     String?
+  message       String?
+  plan          String?
+  lang          String?
+  pageUrl       String?      @map("page_url")
+  referer       String?
+  ip            String?
+  userAgent     String?      @map("user_agent")
+  country       String?
+  countryCode   String?      @map("country_code")
+  region        String?
+  emailSent     Boolean      @default(false) @map("email_sent")
+  emailError    String?      @map("email_error")
+  status        String       @default("new")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@index([linkId])
+  @@index([status])
+  @@map("landing_leads")
+}

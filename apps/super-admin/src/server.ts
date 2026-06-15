@@ -9,6 +9,8 @@ import { authRoutes } from './routes/auth.js';
 import { tenantsRoutes } from './routes/tenants.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { landingContactRoutes } from './routes/landing-contact.js';
+import { trackedLinksRoutes } from './routes/tracked-links.js';
+import { leadsRoutes } from './routes/leads.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -48,13 +50,18 @@ await app.register(tenantsRoutes);
 // Webhook dispatcher — public (no auth), verified via Meta HMAC per tenant.
 // Responds 200 immediately then forwards to the correct tenant backend.
 await app.register(webhookRoutes);
+await app.register(trackedLinksRoutes);
 await app.register(landingContactRoutes);
+await app.register(leadsRoutes);
 
 // Health check
 app.get('/api/health', async () => ({ status: 'ok', service: 'super-admin' }));
 
-// SPA fallback — all non-API routes → index.html
+// SPA fallback — all non-API routes → index.html (except /go/ redirects)
 app.setNotFoundHandler(async (req, reply) => {
+  if (req.url.startsWith('/go/')) {
+    return reply.status(404).send('Not found');
+  }
   if (!req.url.startsWith('/api')) {
     return reply.sendFile('index.html');
   }
