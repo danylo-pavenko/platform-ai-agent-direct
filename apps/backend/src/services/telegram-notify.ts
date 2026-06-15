@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { InlineKeyboard } from 'grammy';
-import { getBot, getManagerGroupId } from '../lib/telegram.js';
+import { getBot } from '../lib/telegram.js';
+import { getNotificationGroupIds } from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
 import { adminConversationUrl } from '../lib/admin-urls.js';
@@ -23,22 +24,35 @@ async function sendToManagerGroup(
   keyboard?: InlineKeyboard,
 ): Promise<void> {
   const { telegram } = await getIntegrationConfig();
-  const groupId = await getManagerGroupId();
 
-  if (!telegram.botToken || !groupId) {
-    log.warn('Telegram bot token or manager group ID not configured - skipping notification');
+  if (!telegram.botToken) {
+    log.warn('Telegram bot token not configured - skipping notification');
     return;
   }
 
-  try {
-    const bot = await getBot();
-    await bot.api.sendMessage(groupId, text, {
-      parse_mode: 'HTML',
-      ...(keyboard ? { reply_markup: keyboard } : {}),
-    });
-  } catch (err) {
-    log.error({ err }, 'Failed to send Telegram notification');
+  const groupIds = await getNotificationGroupIds();
+  if (groupIds.length === 0) {
+    log.warn(
+      'No Telegram notification groups yet — add the bot to a group or set managerGroupId in Settings',
+    );
+    return;
   }
+
+  const bot = await getBot();
+  const opts = {
+    parse_mode: 'HTML' as const,
+    ...(keyboard ? { reply_markup: keyboard } : {}),
+  };
+
+  await Promise.all(
+    groupIds.map(async (groupId) => {
+      try {
+        await bot.api.sendMessage(groupId, text, opts);
+      } catch (err) {
+        log.error({ err, groupId }, 'Failed to send Telegram notification to group');
+      }
+    }),
+  );
 }
 
 // ── Public API ──────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
+import { config } from '../config.js';
 import {
   appendTeachAssistantMessage,
   appendTeachUserMessage,
@@ -107,7 +108,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
             conversationHistory: history,
             userMessage: message.trim(),
           },
-          { channel: 'meta_agent' },
+          { channel: 'meta_agent', timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS },
         );
       } catch (e) {
         await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } });

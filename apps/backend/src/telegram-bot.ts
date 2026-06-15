@@ -3,6 +3,11 @@ import './config.js'; // load dotenv first
 import pino from 'pino';
 import { config } from './config.js';
 import { getIntegrationConfig } from './lib/integration-config.js';
+import {
+  isGroupChatType,
+  registerTelegramGroup,
+  unregisterTelegramGroup,
+} from './lib/telegram-groups.js';
 import { Bot } from 'grammy';
 import { prisma } from './lib/prisma.js';
 import { sendText } from './services/instagram.js';
@@ -86,6 +91,34 @@ async function main() {
   }
 
   const bot = new Bot(cfg.telegram.botToken);
+
+  // Auto-register any group/supergroup the bot is added to (or already in).
+  bot.use(async (ctx, next) => {
+    const chat = ctx.chat;
+    if (chat && isGroupChatType(chat.type)) {
+      await registerTelegramGroup(chat.id, 'title' in chat ? chat.title : undefined);
+    }
+    await next();
+  });
+
+  bot.on('my_chat_member', async (ctx) => {
+    const chat = ctx.myChatMember.chat;
+    if (!isGroupChatType(chat.type)) return;
+
+    const newStatus = ctx.myChatMember.new_chat_member.status;
+    const oldStatus = ctx.myChatMember.old_chat_member.status;
+
+    const memberStatuses = new Set(['member', 'administrator', 'restricted']);
+    const leftStatuses = new Set(['left', 'kicked', 'banned']);
+
+    if (leftStatuses.has(oldStatus) && memberStatuses.has(newStatus)) {
+      await registerTelegramGroup(chat.id, 'title' in chat ? chat.title : undefined);
+      log.info({ chatId: chat.id, title: 'title' in chat ? chat.title : null }, 'Bot added to group');
+    } else if (memberStatuses.has(oldStatus) && leftStatuses.has(newStatus)) {
+      await unregisterTelegramGroup(chat.id);
+      log.info({ chatId: chat.id }, 'Bot removed from group');
+    }
+  });
 
 // Set bot commands menu (visible in Telegram UI)
 bot.api.setMyCommands([

@@ -34,12 +34,12 @@ const envSchema = z.object({
   // KeyCRM picks the first pipeline in the account — fine for single-pipeline
   // setups but should be set explicitly for tenants with multiple pipelines.
   KEYCRM_LEAD_PIPELINE_ID: z.coerce.number().default(0),
-  // Feature flag — when false (default), CRM writes are disabled and the
-  // bot operates in local-DB-only mode. Flip to true once credentials are
-  // verified and the mapping is reviewed.
+  // Feature flag — when true (default), orders/clients are mirrored to CRM
+  // when a KeyCRM API key is configured. Disable explicitly for local-DB-only
+  // mode or while field mapping is still being reviewed.
   CRM_WRITE_ENABLED: z
     .string()
-    .default('false')
+    .default('true')
     .transform((v) => v.toLowerCase() === 'true'),
 
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
@@ -63,6 +63,9 @@ const envSchema = z.object({
   // structured multi-section output. The 30s customer timeout is too tight
   // and triggers spurious "менеджер відпише" fallbacks in the admin UI.
   CLAUDE_ADMIN_TIMEOUT_MS: z.coerce.number().default(120000),
+  // Meta-agent teach chat may query CRM context and draft multi-section prompt
+  // diffs — allow a longer window than generic admin turns.
+  CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(300000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
 
   // Auth

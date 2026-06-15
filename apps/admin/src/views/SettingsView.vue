@@ -985,7 +985,7 @@
           <v-icon start color="blue">mdi-send</v-icon>
           Telegram
         </v-card-title>
-        <v-card-subtitle class="pb-2">Бот-токен та група для сповіщень менеджерам</v-card-subtitle>
+        <v-card-subtitle class="pb-2">Бот-токен і групи для сповіщень менеджерам</v-card-subtitle>
         <v-card-text>
           <!-- Instructions -->
           <v-btn
@@ -1009,14 +1009,9 @@
                   Скопіюйте <strong>Bot Token</strong> формату <code>123456:ABC-DEF…</code>
                 </li>
                 <li>
-                  Створіть групу для менеджерів у Telegram, додайте бота як учасника (або адміна).
-                </li>
-                <li>
-                  Щоб отримати <strong>Manager Group ID</strong>:
-                  напишіть будь-яке повідомлення в групу, потім відкрийте у браузері
-                  <code>https://api.telegram.org/bot<strong>TOKEN</strong>/getUpdates</code>
-                  і знайдіть <code>"chat":&#123;"id": -1001234567890&#125;</code> -
-                  це і є ID (від'ємне число).
+                  Додайте бота в <strong>будь-яку</strong> групу менеджерів — сповіщення (ескалації, замовлення, брифи)
+                  надсилаються автоматично у всі групи, куди бот доданий. Поле Manager Group ID нижче — опційно,
+                  якщо потрібна додаткова фіксована група.
                 </li>
                 <li>
                   <strong>Admin Password</strong> - довільний пароль. Менеджер вводить
@@ -1048,7 +1043,7 @@
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model="integrations.telegram.managerGroupId"
-                label="Manager Group ID"
+                label="Manager Group ID (опційно)"
                 variant="outlined"
                 density="compact"
                 hide-details
@@ -2171,7 +2166,7 @@ const handoffKeywords = ref('');
 const featureFlags = ref({
   auto_handoff: true,
   send_typing_indicator: false,
-  crm_write_enabled: false,
+  crm_write_enabled: true,
 });
 
 function hoursPerDay(day: DaySchedule): string {

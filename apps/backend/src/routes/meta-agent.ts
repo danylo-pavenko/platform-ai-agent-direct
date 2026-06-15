@@ -289,7 +289,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
           conversationHistory: history ?? [],
           userMessage: message.trim(),
         },
-        { channel: 'meta_agent' },
+        { channel: 'meta_agent', timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS },
       );
 
       app.log.info(
