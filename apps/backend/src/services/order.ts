@@ -12,10 +12,23 @@ const VALID_PAYMENT_METHODS = ['card', 'transfer', 'cod'] as const;
 type PaymentMethod = (typeof VALID_PAYMENT_METHODS)[number];
 
 function toPaymentMethod(value: unknown): PaymentMethod {
-  if (typeof value === 'string' && VALID_PAYMENT_METHODS.includes(value as PaymentMethod)) {
-    return value as PaymentMethod;
+  if (typeof value === 'string') {
+    const v = value.trim().toLowerCase();
+    if (VALID_PAYMENT_METHODS.includes(v as PaymentMethod)) {
+      return v as PaymentMethod;
+    }
+    if (/післяплат|налож|cod|готівк/.test(v)) return 'cod';
+    if (/переказ|transfer|iban|реквізит/.test(v)) return 'transfer';
+    if (/карт|card|wayfor|онлайн/.test(v)) return 'card';
   }
   return 'cod';
+}
+
+export interface CollectOrderOptions {
+  /** When set, this text is sent to the client instead of the generic confirmation. */
+  clientMessage?: string;
+  /** Create the order but do not send an IG message (caller sends the summary). */
+  skipClientMessage?: boolean;
 }
 
 /**
@@ -23,23 +36,41 @@ function toPaymentMethod(value: unknown): PaymentMethod {
  *
  * Creates the order in DB, confirms to the client via IG,
  * and notifies the manager group in Telegram.
+ *
+ * @returns order id when created, null when skipped (validation / duplicate).
  */
 export async function handleCollectOrder(
   conversationId: string,
   clientId: string,
   clientIgUserId: string,
   args: Record<string, unknown>,
-): Promise<void> {
-  const items = args.items as Array<{
+  options?: CollectOrderOptions,
+): Promise<string | null> {
+  const rawItems = args.items;
+  if (!Array.isArray(rawItems) || rawItems.length === 0) {
+    log.error({ conversationId, args }, 'collect_order called without items — skipping');
+    return null;
+  }
+
+  const items = rawItems as Array<{
     name: string;
     variant?: string;
     price: number;
     qty: number;
   }>;
-  const customerName = args.customer_name as string;
-  const phone = args.phone as string;
-  const city = args.city as string;
-  const npBranch = args.np_branch as string;
+  const customerName =
+    typeof args.customer_name === 'string' ? args.customer_name.trim() : '';
+  const phone = typeof args.phone === 'string' ? args.phone.trim() : '';
+  const city = typeof args.city === 'string' ? args.city.trim() : '';
+  const npBranch = typeof args.np_branch === 'string' ? args.np_branch.trim() : '';
+
+  if (!customerName || !phone || !city || !npBranch) {
+    log.error(
+      { conversationId, customerName: !!customerName, phone: !!phone, city: !!city, npBranch: !!npBranch },
+      'collect_order missing required fields — skipping',
+    );
+    return null;
+  }
   const paymentMethod = toPaymentMethod(args.payment_method);
   const note = (args.note as string) || null;
 
@@ -52,6 +83,18 @@ export async function handleCollectOrder(
   }));
 
   const crmWrites = await isCrmWriteEnabled();
+
+  const existing = await prisma.order.findFirst({
+    where: {
+      conversationId,
+      status: { notIn: ['draft', 'cancelled'] },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    log.info({ conversationId, orderId: existing.id }, 'Order already exists for conversation — skipping duplicate');
+    return existing.id;
+  }
 
   // 1. Create order in DB
   const order = await prisma.order.create({
@@ -71,24 +114,27 @@ export async function handleCollectOrder(
     },
   });
 
-  // 2. Send confirmation to client via Instagram
+  // 2. Send confirmation to client via Instagram (unless caller sends the summary)
   const confirmationText =
+    options?.clientMessage?.trim() ||
     'Замовлення прийнято! Менеджер підтвердить і напише Вам найближчим часом.';
 
-  await sendText(clientIgUserId, confirmationText);
+  if (!options?.skipClientMessage) {
+    await sendText(clientIgUserId, confirmationText);
 
-  // 3. Persist the bot confirmation message
-  await prisma.message.create({
-    data: {
-      conversationId,
-      direction: 'out',
-      sender: 'bot',
-      text: confirmationText,
-    },
-  });
-  markFirstOutboundAt(conversationId).catch((err) =>
-    log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
-  );
+    // 3. Persist the bot confirmation message
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'out',
+        sender: 'bot',
+        text: confirmationText,
+      },
+    });
+    markFirstOutboundAt(conversationId).catch((err) =>
+      log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+    );
+  }
 
   // 4. Send Telegram notification to manager group
   await notifyOrder({
@@ -114,4 +160,6 @@ export async function handleCollectOrder(
     { orderId: order.id, conversationId, itemCount: normalisedItems.length },
     'Order created and notifications sent',
   );
+
+  return order.id;
 }

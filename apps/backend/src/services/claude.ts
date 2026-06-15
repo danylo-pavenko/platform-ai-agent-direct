@@ -4,6 +4,8 @@ import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
+import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
+import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
@@ -120,6 +122,10 @@ function buildPrompt(req: ClaudeRequest): string {
 
   parts.push(`Human: ${req.userMessage}`);
 
+  if (req.tools && req.tools.length > 0) {
+    parts.push(formatAgentToolsPrompt(req.tools));
+  }
+
   return parts.join('\n\n');
 }
 
@@ -138,10 +144,20 @@ function buildArgs(req: ClaudeRequest): string[] {
     }
   }
 
-  // TODO: pass tools via MCP or --tool flag when supported
-  // if (req.tools && req.tools.length > 0) { ... }
-
   return args;
+}
+
+/** Merge native stream-json tool_use blocks with `<tool_call>` text protocol. */
+function finalizeResponse(response: ClaudeResponse): ClaudeResponse {
+  const fromText = parseToolCallsFromText(response.text);
+  const text = stripToolCallBlocks(response.text);
+  const merged = [...(response.toolCalls ?? []), ...fromText];
+
+  return {
+    ...response,
+    text,
+    ...(merged.length > 0 ? { toolCalls: merged } : {}),
+  };
 }
 
 /**
@@ -294,7 +310,7 @@ function spawnClaude(
         return;
       }
 
-      const response = parseResponse(stdout);
+      const response = finalizeResponse(parseResponse(stdout));
       settle(response);
     });
 

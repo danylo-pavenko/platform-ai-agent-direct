@@ -22,6 +22,7 @@ import { buildAgentTools } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { handleCollectOrder } from './order.js';
+import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -386,134 +387,27 @@ async function handleIncomingMessageImpl(
   let responseText = response.text;
 
   if (response.toolCalls && response.toolCalls.length > 0) {
-    // update_client_info - save extracted customer data to their profile.
-    // This is a background write - we do NOT exit early so Claude's text
-    // response (if any) is still delivered to the client.
-    const updateInfo = response.toolCalls.find((tc) => tc.name === 'update_client_info');
-    if (updateInfo) {
-      // Extract the dynamic custom_fields payload (if any) so we can push
-      // it to the CRM alongside the mirror of the core contact fields.
-      // Local DB stays simple: we don't persist custom field values yet,
-      // only core ones (phone/email/city/NP). CRM owns the custom-field
-      // snapshot.
-      const extractedCustomFields: Record<string, unknown> =
-        typeof updateInfo.args.custom_fields === 'object' &&
-        updateInfo.args.custom_fields !== null &&
-        !Array.isArray(updateInfo.args.custom_fields)
-          ? (updateInfo.args.custom_fields as Record<string, unknown>)
-          : {};
+    await runSideEffectToolCalls(response.toolCalls, client.id, conversationId);
 
-      handleUpdateClientInfo(client.id, updateInfo.args)
-        .then(() => mirrorClientToCrm(client.id, extractedCustomFields))
-        .catch((err) => {
-          log.error(
-            { err, conversationId, clientId: client.id },
-            'Failed to save/mirror client info',
-          );
-        });
-    }
-
-    const tagClient = response.toolCalls.find((tc) => tc.name === 'tag_client');
-    if (tagClient) {
-      handleTagClient(client.id, tagClient.args).catch((err) => {
-        log.error({ err, conversationId, clientId: client.id }, 'Failed to tag client');
-      });
-    }
-
-    // classify_intent — fires on the first message of a conversation;
-    // fire-and-forget so the bot reply is never delayed by a DB write
-    // to the conversation row.
-    const classifyIntent = response.toolCalls.find((tc) => tc.name === 'classify_intent');
-    if (classifyIntent) {
-      handleClassifyIntent(conversationId, classifyIntent.args).catch((err) => {
-        log.error({ err, conversationId }, 'Failed to classify intent');
-      });
+    if (
+      await tryTerminalToolCalls(response.toolCalls, {
+        conversationId,
+        client,
+        agentMode: agentCfg.mode,
+        clientMessage: stripMarkdownForInstagram(response.text),
+      })
+    ) {
+      return;
     }
 
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
-    if (handoff) {
-      const reason =
-        typeof handoff.args.reason === 'string'
-          ? handoff.args.reason
-          : 'Клієнт потребує менеджера';
-
-      await prisma.conversation.update({
-        where: { id: conversationId },
-        data: {
-          state: 'handoff',
-          handoffReason: reason,
-        },
-      });
-
-      const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
-
-      try {
-        await sendText(client.igUserId, handoffMessage);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to send handoff message');
-      }
-
-      await prisma.message.create({
-        data: {
-          conversationId,
-          direction: 'out',
-          sender: 'bot',
-          text: handoffMessage,
-        },
-      });
-      markFirstOutboundAt(conversationId).catch((err) =>
-        log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
-      );
-
-      log.info({ conversationId, reason }, 'Conversation handed off to manager');
-
-      // Notify Telegram manager group about the handoff
-      const recentMsgs = await prisma.message.findMany({
-        where: { conversationId },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        select: { sender: true, text: true, mediaAttachments: true },
-      });
-      const lastMessages = recentMsgs
-        .reverse()
-        .map((m) =>
-          formatHandoffMessageLine({
-            sender: m.sender,
-            text: m.text,
-            mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
-          }),
-        )
-        .filter((line): line is NonNullable<typeof line> => line !== null)
-        .map((line) => ({
-          sender: line.sender,
-          text: line.text,
-          isVoice: line.isVoice,
-        }));
-      notifyHandoff({
-        conversationId,
-        clientIgUserId: client.igUserId!,
-        reason,
-        lastMessages,
-      }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
-      return;
-    }
-
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
-    if (collectOrder && agentCfg.mode === 'sales') {
-      await handleCollectOrder(
-        conversationId,
-        client.id,
-        client.igUserId!,
-        collectOrder.args,
-      );
-      return;
-    }
+    const submitBrief = response.toolCalls.find((tc) => tc.name === 'submit_brief');
 
     // submit_brief — leadgen-mode terminal tool. After persisting the
     // brief and firing notifications, we still let the bot's text reply
     // fall through so the client sees the closing message (with SLA /
     // out-of-hours copy from the prompt-builder).
-    const submitBrief = response.toolCalls.find((tc) => tc.name === 'submit_brief');
     if (submitBrief && agentCfg.mode === 'leadgen') {
       await handleSubmitBrief(
         conversationId,
@@ -574,6 +468,19 @@ async function handleIncomingMessageImpl(
       );
 
       responseText = response2.text;
+      if (response2.toolCalls?.length) {
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
+        if (
+          await tryTerminalToolCalls(response2.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(response2.text),
+          })
+        ) {
+          return;
+        }
+      }
       log.info({ conversationId, query }, 'Catalog search completed and Claude re-invoked');
     }
 
@@ -626,6 +533,19 @@ async function handleIncomingMessageImpl(
       );
 
       responseText = response2.text;
+      if (response2.toolCalls?.length) {
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
+        if (
+          await tryTerminalToolCalls(response2.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(response2.text),
+          })
+        ) {
+          return;
+        }
+      }
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
     }
   }
@@ -641,6 +561,23 @@ async function handleIncomingMessageImpl(
   }
 
   const clientFacingText = stripMarkdownForInstagram(responseText);
+
+  // Safety net: bot wrote a full order summary but omitted collect_order.
+  if (agentCfg.mode === 'sales' && client.igUserId) {
+    const parsedSummary = parseOrderSummaryFromText(clientFacingText);
+    if (parsedSummary) {
+      const orderId = await handleCollectOrder(
+        conversationId,
+        client.id,
+        client.igUserId,
+        { ...parsedSummary } as Record<string, unknown>,
+        { skipClientMessage: true },
+      );
+      if (orderId) {
+        log.info({ conversationId, orderId }, 'Order created from bot confirmation summary (fallback)');
+      }
+    }
+  }
 
   // ── 11. Send response ─────────────────────────────────────────────
   try {
@@ -667,6 +604,148 @@ async function handleIncomingMessageImpl(
     { conversationId, responseLength: clientFacingText.length },
     'Bot response sent and persisted',
   );
+}
+
+// ---------------------------------------------------------------------------
+// Tool call dispatch helpers
+// ---------------------------------------------------------------------------
+
+type TerminalToolContext = {
+  conversationId: string;
+  client: { id: string; igUserId: string | null };
+  agentMode: 'sales' | 'leadgen';
+  /** Bot reply shown to the client — used as the order confirmation when collect_order fires. */
+  clientMessage?: string;
+};
+
+/** Fire-and-forget profile / intent writes — never ends the conversation turn. */
+async function runSideEffectToolCalls(
+  toolCalls: { name: string; args: Record<string, unknown> }[],
+  clientId: string,
+  conversationId: string,
+): Promise<void> {
+  const updateInfo = toolCalls.find((tc) => tc.name === 'update_client_info');
+  if (updateInfo) {
+    const extractedCustomFields: Record<string, unknown> =
+      typeof updateInfo.args.custom_fields === 'object' &&
+      updateInfo.args.custom_fields !== null &&
+      !Array.isArray(updateInfo.args.custom_fields)
+        ? (updateInfo.args.custom_fields as Record<string, unknown>)
+        : {};
+
+    handleUpdateClientInfo(clientId, updateInfo.args)
+      .then(() => mirrorClientToCrm(clientId, extractedCustomFields))
+      .catch((err) => {
+        log.error({ err, conversationId, clientId }, 'Failed to save/mirror client info');
+      });
+  }
+
+  const tagClient = toolCalls.find((tc) => tc.name === 'tag_client');
+  if (tagClient) {
+    handleTagClient(clientId, tagClient.args).catch((err) => {
+      log.error({ err, conversationId, clientId }, 'Failed to tag client');
+    });
+  }
+
+  const classifyIntent = toolCalls.find((tc) => tc.name === 'classify_intent');
+  if (classifyIntent) {
+    handleClassifyIntent(conversationId, classifyIntent.args).catch((err) => {
+      log.error({ err, conversationId }, 'Failed to classify intent');
+    });
+  }
+}
+
+/** Handoff / collect_order — ends the turn when handled. */
+async function tryTerminalToolCalls(
+  toolCalls: { name: string; args: Record<string, unknown> }[],
+  ctx: TerminalToolContext,
+): Promise<boolean> {
+  const { conversationId, client, agentMode } = ctx;
+
+  const handoff = toolCalls.find((tc) => tc.name === 'request_handoff');
+  if (handoff) {
+    const reason =
+      typeof handoff.args.reason === 'string'
+        ? handoff.args.reason
+        : 'Клієнт потребує менеджера';
+
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        state: 'handoff',
+        handoffReason: reason,
+      },
+    });
+
+    const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
+
+    if (client.igUserId) {
+      try {
+        await sendText(client.igUserId, handoffMessage);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to send handoff message');
+      }
+    }
+
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'out',
+        sender: 'bot',
+        text: handoffMessage,
+      },
+    });
+    markFirstOutboundAt(conversationId).catch((err) =>
+      log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+    );
+
+    log.info({ conversationId, reason }, 'Conversation handed off to manager');
+
+    if (client.igUserId) {
+      const recentMsgs = await prisma.message.findMany({
+        where: { conversationId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { sender: true, text: true, mediaAttachments: true },
+      });
+      const lastMessages = recentMsgs
+        .reverse()
+        .map((m) =>
+          formatHandoffMessageLine({
+            sender: m.sender,
+            text: m.text,
+            mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
+          }),
+        )
+        .filter((line): line is NonNullable<typeof line> => line !== null)
+        .map((line) => ({
+          sender: line.sender,
+          text: line.text,
+          isVoice: line.isVoice,
+        }));
+      notifyHandoff({
+        conversationId,
+        clientIgUserId: client.igUserId,
+        reason,
+        lastMessages,
+      }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
+    }
+    return true;
+  }
+
+  const collectOrder = toolCalls.find((tc) => tc.name === 'collect_order');
+  if (collectOrder && agentMode === 'sales' && client.igUserId) {
+    const orderId = await handleCollectOrder(
+      conversationId,
+      client.id,
+      client.igUserId,
+      collectOrder.args,
+      { clientMessage: ctx.clientMessage },
+    );
+    if (orderId) return true;
+  }
+
+  return false;
 }
 
 // ---------------------------------------------------------------------------
