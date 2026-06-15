@@ -39,7 +39,10 @@ import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
 import {
   countConsecutiveBotFallbacks,
+  formatBotFailureDetail,
+  isAgentFallbackReply,
   shouldHandoffAfterAgentFallback,
+  type BotFailureCode,
 } from '../lib/agent-fallback.js';
 import type { ClaudeResponse } from './claude.js';
 
@@ -490,6 +493,7 @@ async function handleIncomingMessageImpl(
   // ── 9. Handle tool calls ──────────────────────────────────────────
   let responseText = response.text;
   let agentFallback: ClaudeResponse['fallback'] | undefined = response.fallback;
+  let agentErrorDetail: string | undefined = response.errorDetail;
 
   if (response.toolCalls && response.toolCalls.length > 0) {
     await runSideEffectToolCalls(response.toolCalls, client.id, conversationId);
@@ -575,6 +579,7 @@ async function handleIncomingMessageImpl(
 
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
+      if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
         await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
         if (
@@ -642,6 +647,7 @@ async function handleIncomingMessageImpl(
 
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
+      if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
         await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
         if (
@@ -662,12 +668,14 @@ async function handleIncomingMessageImpl(
 
   // ── 10. Validate output ───────────────────────────────────────────
 
+  let outputValidationFailure = false;
   if (LEAKED_INTERNALS_RE.test(responseText)) {
     log.warn(
-      { conversationId, originalResponse: responseText },
+      { conversationId, originalResponse: responseText, clientMessage: messageText.slice(0, 200) },
       'Bot response contained internal IDs - replacing with safe fallback',
     );
     responseText = 'Дякую за запитання! Зверніться до менеджера для деталей.';
+    outputValidationFailure = true;
   }
 
   const clientFacingText = stripMarkdownForInstagram(responseText);
@@ -684,15 +692,28 @@ async function handleIncomingMessageImpl(
   ) {
     const priorFallbacks = await countConsecutiveBotFallbacks(conversationId);
     if (shouldHandoffAfterAgentFallback(priorFallbacks)) {
+      const failureDetail = formatBotFailureDetail({
+        code: agentFallback,
+        errorDetail: agentErrorDetail,
+        clientMessage: messageText,
+      });
       log.warn(
-        { conversationId, priorFallbacks, agentFallback },
+        {
+          event: 'bot_fallback_handoff',
+          conversationId,
+          clientId: client.id,
+          priorFallbacks,
+          agentFallback,
+          errorDetail: agentErrorDetail ?? null,
+          clientMessage: messageText.slice(0, 300),
+          failureDetail,
+        },
         'Agent fallback limit reached — handing off to manager',
       );
       await performManagerHandoff({
         conversationId,
         client,
-        reason:
-          'Агент не зміг відповісти після кількох спроб (таймаут або перевантаження). Клієнт чекає на менеджера.',
+        reason: `Агент не зміг обробити запит після ${priorFallbacks + 1} спроб. ${failureDetail}`,
         turnStartedAt,
       });
       return;
@@ -717,6 +738,48 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 11. Send response ─────────────────────────────────────────────
+  let botFailureCode: BotFailureCode | null = null;
+  let botFailureDetail: string | null = null;
+
+  if (outputValidationFailure) {
+    botFailureCode = 'output_validation';
+    botFailureDetail = formatBotFailureDetail({
+      code: 'output_validation',
+      clientMessage: messageText,
+    });
+    log.warn(
+      {
+        event: 'bot_fallback_sent',
+        conversationId,
+        clientId: client.id,
+        botFailureCode,
+        botFailureDetail,
+        clientMessage: messageText.slice(0, 300),
+      },
+      'Bot sent safe replacement after output validation failure',
+    );
+  } else if (agentFallback && isAgentFallbackReply(clientFacingText)) {
+    botFailureCode = agentFallback;
+    botFailureDetail = formatBotFailureDetail({
+      code: agentFallback,
+      errorDetail: agentErrorDetail,
+      clientMessage: messageText,
+    });
+    log.warn(
+      {
+        event: 'bot_fallback_sent',
+        conversationId,
+        clientId: client.id,
+        botFailureCode,
+        errorDetail: agentErrorDetail ?? null,
+        botFailureDetail,
+        clientMessage: messageText.slice(0, 300),
+        fallbackText: clientFacingText,
+      },
+      'Bot sent canned fallback reply to client',
+    );
+  }
+
   try {
     await sendText(client.igUserId, clientFacingText);
   } catch (err) {
@@ -731,6 +794,8 @@ async function handleIncomingMessageImpl(
       direction: 'out',
       sender: 'bot',
       text: clientFacingText,
+      botFailureCode,
+      botFailureDetail,
     },
   });
   markFirstOutboundAt(conversationId).catch((err) =>

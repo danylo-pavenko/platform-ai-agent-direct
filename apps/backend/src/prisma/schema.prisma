@@ -130,6 +130,9 @@ model Message {
   sharedPost      Json?             @map("shared_post") @db.JsonB
   igMessageId     String?           @unique @map("ig_message_id")
   claudeTurnId    String?           @map("claude_turn_id")
+  // Set when the bot sent a canned fallback instead of a real model reply.
+  botFailureCode   String?          @map("bot_failure_code")   // busy | timeout | output_validation
+  botFailureDetail String?          @map("bot_failure_detail") // human-readable reason for admin UI
   createdAt       DateTime          @default(now()) @map("created_at")
 
   conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)

@@ -110,6 +110,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
         channel: row.channel,
         state: row.state,
         intent: row.intent,
+        handoffReason: row.handoffReason,
         lastMessageAt: row.lastMessageAt,
         firstInboundAt: row.firstInboundAt,
         createdAt: row.createdAt,

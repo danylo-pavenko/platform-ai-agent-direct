@@ -42,3 +42,34 @@ export async function countConsecutiveBotFallbacks(conversationId: string): Prom
 export function shouldHandoffAfterAgentFallback(priorConsecutiveFallbacks: number): boolean {
   return priorConsecutiveFallbacks >= AGENT_FALLBACK_MAX_BEFORE_HANDOFF;
 }
+
+export type BotFailureCode = 'busy' | 'timeout' | 'output_validation';
+
+/** Ukrainian explanation for admin UI and structured logs. */
+export function formatBotFailureDetail(params: {
+  code: BotFailureCode;
+  errorDetail?: string | null;
+  clientMessage?: string | null;
+}): string {
+  const { code, errorDetail, clientMessage } = params;
+  const clientPart =
+    clientMessage && clientMessage.trim()
+      ? ` Запит клієнта: «${clientMessage.trim().slice(0, 200)}».`
+      : '';
+
+  if (code === 'busy') {
+    const tech = errorDetail?.trim();
+    const queueHint = tech ? ` (${tech})` : '';
+    return `Агент перевантажений — занадто багато одночасних запитів до Claude.${queueHint}${clientPart}`;
+  }
+
+  if (code === 'output_validation') {
+    return `Відповідь агента містила службові дані (ID товару/ціни) і була замінена безпечним текстом.${clientPart}`;
+  }
+
+  const tech = errorDetail?.trim();
+  if (tech) {
+    return `Claude не зміг відповісти: ${tech}.${clientPart}`;
+  }
+  return `Claude не встиг відповісти за відведений час (таймаут CLI).${clientPart}`;
+}

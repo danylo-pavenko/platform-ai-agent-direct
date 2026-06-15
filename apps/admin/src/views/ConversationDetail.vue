@@ -113,6 +113,18 @@
             Зберегти
           </v-btn>
         </div>
+        <v-alert
+          v-if="conversation?.state === 'handoff' && conversation?.handoffReason"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mx-3 mt-2 text-caption"
+          :text="conversation.handoffReason"
+        >
+          <template #title>
+            <span class="text-caption font-weight-bold">Причина передачі менеджеру</span>
+          </template>
+        </v-alert>
         <v-divider />
 
         <!-- Messages -->
@@ -154,6 +166,18 @@
                 >
                   {{ formatChatPlain(msg.text) }}
                 </div>
+                <v-alert
+                  v-if="msg.sender === 'bot' && msg.botFailureDetail"
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  class="mt-2 text-caption bot-failure-alert"
+                  :text="msg.botFailureDetail"
+                >
+                  <template #title>
+                    <span class="text-caption font-weight-bold">Чому бот не зміг відповісти</span>
+                  </template>
+                </v-alert>
                 <div
                   v-if="getMessageMediaItems(msg).length > 0"
                   class="message-media d-flex flex-column ga-2"
@@ -363,6 +387,8 @@ interface Message {
   text: string | null;
   createdAt: string;
   igMessageId?: string | null;
+  botFailureCode?: string | null;
+  botFailureDetail?: string | null;
   mediaUrls?: string[];
   mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData | null;
@@ -389,6 +415,7 @@ interface ConversationData {
   channel: string;
   state: string;
   intent?: string | null;
+  handoffReason?: string | null;
   createdAt: string;
   firstInboundAt?: string | null;
   lastMessageAt?: string | null;
@@ -554,6 +581,8 @@ function applyLiveUpdate(data: LivePollPayload) {
   conversation.value.state = conv.state ?? conversation.value.state;
   conversation.value.channel = conv.channel ?? conversation.value.channel;
   conversation.value.intent = conv.intent ?? conversation.value.intent;
+  conversation.value.handoffReason =
+    conv.handoffReason !== undefined ? conv.handoffReason : conversation.value.handoffReason;
   conversation.value.lastMessageAt = conv.lastMessageAt ?? conversation.value.lastMessageAt;
   conversation.value.firstInboundAt = conv.firstInboundAt ?? conversation.value.firstInboundAt;
   conversation.value.createdAt = conv.createdAt ?? conversation.value.createdAt;
