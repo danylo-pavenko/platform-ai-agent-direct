@@ -86,12 +86,15 @@ export async function handleCollectOrder(
   const paymentMethod = toPaymentMethod(args.payment_method);
   const note = (args.note as string) || null;
 
-  // Normalise qty: default to 1 if missing
+  // Normalise line items — Claude may omit name or send price/qty as strings.
   const normalisedItems = items.map((item) => ({
-    name: item.name,
-    variant: item.variant ?? undefined,
-    price: item.price,
-    qty: item.qty ?? 1,
+    name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : 'Товар',
+    variant:
+      typeof item.variant === 'string' && item.variant.trim()
+        ? item.variant.trim()
+        : undefined,
+    price: Number(item.price) || 0,
+    qty: Number(item.qty) > 0 ? Number(item.qty) : 1,
   }));
 
   const crmWrites = await isCrmWriteEnabled();
@@ -148,8 +151,8 @@ export async function handleCollectOrder(
     );
   }
 
-  // 4. Send Telegram notification to manager group
-  await notifyOrder({
+  // 4. Telegram card for managers — fire-and-forget (same as brief/handoff).
+  notifyOrder({
     orderId: order.id,
     conversationId,
     clientIgUserId,
@@ -159,6 +162,8 @@ export async function handleCollectOrder(
     city,
     npBranch,
     paymentMethod,
+  }).catch((err) => {
+    log.error({ err, orderId: order.id, conversationId }, 'Failed to send order Telegram notification');
   });
 
   // 5. Mirror into CRM asynchronously — manager group has already

@@ -10,11 +10,25 @@ const log = pino({ name: 'telegram-notify' });
 
 // ── HTML escaping ───────────────────────────────────────────────────────
 
-function escapeHtml(text: string): string {
-  return text
+function escapeHtml(text: string | null | undefined): string {
+  const safe = text == null ? '' : String(text);
+  return safe
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+function formatPaymentMethodLabel(method: string): string {
+  switch (method) {
+    case 'card':
+      return 'Онлайн (картка / WayForPay)';
+    case 'transfer':
+      return 'Банківський переказ';
+    case 'cod':
+      return 'Післяплата';
+    default:
+      return method;
+  }
 }
 
 // ── Internal helper ─────────────────────────────────────────────────────
@@ -44,15 +58,23 @@ async function sendToManagerGroup(
     ...(keyboard ? { reply_markup: keyboard } : {}),
   };
 
+  let successCount = 0;
   await Promise.all(
     groupIds.map(async (groupId) => {
       try {
         await bot.api.sendMessage(groupId, text, opts);
+        successCount++;
       } catch (err) {
         log.error({ err, groupId }, 'Failed to send Telegram notification to group');
       }
     }),
   );
+
+  if (successCount > 0) {
+    log.info({ successCount, totalGroups: groupIds.length }, 'Telegram notification delivered');
+  } else {
+    log.warn({ totalGroups: groupIds.length }, 'Telegram notification failed for all groups');
+  }
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -115,6 +137,7 @@ export async function notifyOrder(params: {
 }): Promise<void> {
   const {
     orderId,
+    conversationId,
     clientIgUserId,
     items,
     customerName,
@@ -124,13 +147,21 @@ export async function notifyOrder(params: {
     paymentMethod,
   } = params;
   const shortId = orderId.slice(0, 8);
+  const shortConv = conversationId.slice(0, 8);
+  const adminUrl = adminConversationUrl(conversationId);
 
-  const total = items.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const total = items.reduce(
+    (sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 1),
+    0,
+  );
 
   const itemsBlock = items
     .map((item) => {
+      const name = item.name?.trim() || 'Товар';
+      const qty = Number(item.qty) > 0 ? Number(item.qty) : 1;
+      const price = Number(item.price) || 0;
       const variant = item.variant ? ` (${escapeHtml(item.variant)})` : '';
-      return `• ${escapeHtml(item.name)}${variant} × ${item.qty} - ${item.price} ₴`;
+      return `• ${escapeHtml(name)}${variant} × ${qty} - ${price} ₴`;
     })
     .join('\n');
 
@@ -138,15 +169,18 @@ export async function notifyOrder(params: {
     `📦 <b>Нове замовлення #${escapeHtml(shortId)}</b>`,
     ``,
     `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
+    `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
     `Ім'я: ${escapeHtml(customerName)}`,
     `Телефон: ${escapeHtml(phone)}`,
     `Місто: ${escapeHtml(city)}`,
     `НП: ${escapeHtml(npBranch)}`,
-    `Оплата: ${escapeHtml(paymentMethod)}`,
+    `Оплата: ${escapeHtml(formatPaymentMethodLabel(paymentMethod))}`,
     ``,
     `<b>Товари:</b>`,
-    itemsBlock,
+    itemsBlock || '<i>(немає позицій)</i>',
     `<b>Разом: ${total} ₴</b>`,
+    ``,
+    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
   ].join('\n');
 
   const keyboard = new InlineKeyboard()

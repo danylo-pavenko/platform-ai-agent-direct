@@ -42,7 +42,7 @@ export async function getNotificationGroupIds(): Promise<string[]> {
   const ids = new Set<string>();
 
   if (telegram.managerGroupId) {
-    ids.add(telegram.managerGroupId);
+    ids.add(String(telegram.managerGroupId).trim());
   }
 
   for (const id of await readStoredGroupIds()) {
