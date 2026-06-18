@@ -148,6 +148,14 @@
     .lead-detail { font-size: 12px; color: var(--muted); line-height: 1.5; }
     .lead-detail strong { color: var(--text); font-weight: 500; }
 
+    /* ── Link stats chart ── */
+    .chart-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .chart-toolbar label { font-size: 12px; color: var(--muted); margin-right: 4px; }
+    .chart-toolbar select { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 6px 10px; font-size: 13px; }
+    .chart-wrap { position: relative; height: 300px; margin-top: 8px; }
+    .chart-peak { font-size: 12px; color: var(--muted); margin-top: 12px; line-height: 1.6; }
+    .chart-peak strong { color: var(--accent2); }
+
     /* ── Modal sections ── */
     .modal-sep { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
     .modal-section-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; padding: 7px 10px; border-radius: 7px; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; user-select: none; margin-bottom: 4px; transition: all .15s; }
@@ -539,6 +547,7 @@
                   </td>
                   <td data-label="Actions">
                     <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openLinkStats(l)" title="Графік кліків">📈</button>
                       <button class="btn btn-ghost btn-sm" @click="openLinkModal(l)">✏️</button>
                       <button class="btn btn-ghost btn-sm" @click="toggleLink(l)">{{ l.isActive ? '⏸' : '▶' }}</button>
                       <button class="btn btn-danger btn-sm" @click="deleteLink(l)">🗑</button>
@@ -852,6 +861,66 @@
     </div>
   </div>
 
+  <!-- ── Link stats chart modal ── -->
+  <div class="modal-overlay" v-if="linkStats.open" @click.self="closeLinkStats">
+    <div class="modal" style="width:760px;max-width:96vw">
+      <h2>📈 Кліки — {{ linkStats.link ? linkStats.link.name : '' }}</h2>
+      <div class="chart-toolbar">
+        <div>
+          <label>Групування</label>
+          <select v-model="linkStats.bucket" @change="loadLinkTimeline">
+            <option value="hour">По годинах</option>
+            <option value="day">По днях</option>
+          </select>
+        </div>
+        <div>
+          <label>Період</label>
+          <select v-model="linkStats.days" @change="loadLinkTimeline">
+            <option :value="7">7 днів</option>
+            <option :value="14">14 днів</option>
+            <option :value="30">30 днів</option>
+            <option :value="90">90 днів</option>
+          </select>
+        </div>
+        <div>
+          <label>Лінії</label>
+          <select v-model="linkStats.metric" @change="renderLinkChart">
+            <option value="both">Люди + всі</option>
+            <option value="human">Лише люди</option>
+            <option value="all">Всі (вкл. превʼю)</option>
+          </select>
+        </div>
+      </div>
+      <div v-if="linkStats.loading" style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">Завантаження…</div>
+      <div v-else-if="linkStats.error" style="color:var(--danger);font-size:13px;padding:20px 0">{{ linkStats.error }}</div>
+      <div v-else-if="!linkStats.points.length" style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">
+        Немає кліків за обраний період
+      </div>
+      <template v-else>
+        <div class="chart-wrap">
+          <canvas ref="linkChartCanvas"></canvas>
+        </div>
+        <div class="chart-peak" v-if="linkStats.summary">
+          <div v-if="linkStats.summary.peakHuman">
+            <strong>Пік (люди):</strong> {{ linkStats.summary.peakHuman }} кліків —
+            {{ formatChartTime(linkStats.summary.peakHumanAt) }}
+          </div>
+          <div v-if="linkStats.summary.peakTotal && linkStats.metric !== 'human'">
+            <strong>Пік (всі):</strong> {{ linkStats.summary.peakTotal }} кліків —
+            {{ formatChartTime(linkStats.summary.peakTotalAt) }}
+          </div>
+          <div style="margin-top:6px">
+            За період: <strong style="color:var(--success)">{{ linkStats.summary.humanClicks }}</strong> людей,
+            <strong>{{ linkStats.summary.totalClicks }}</strong> всього (час Europe/Kyiv)
+          </div>
+        </div>
+      </template>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeLinkStats">Закрити</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Claude health modal -->
   <div class="modal-overlay" v-if="claudeHealth.open" @click.self="claudeHealth.open=false">
     <div class="modal">
@@ -904,6 +973,7 @@
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script type="module">
 import { createApp, ref, reactive, computed, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
@@ -951,6 +1021,21 @@ createApp({
       open: false, editing: null, saving: false,
       form: emptyLinkForm(),
     });
+
+    const linkStats = reactive({
+      open: false,
+      link: null,
+      bucket: 'hour',
+      days: 14,
+      metric: 'both',
+      loading: false,
+      error: '',
+      points: [],
+      summary: null,
+    });
+    const linkChartCanvas = ref(null);
+    let linkChartInstance = null;
+    const CHART_TZ = 'Europe/Kyiv';
 
     const totalHumanClicks = computed(() =>
       links.value.reduce((sum, l) => sum + linkHumanClicks(l), 0),
@@ -1141,6 +1226,156 @@ createApp({
         alert('Помилка мережі при видаленні');
         console.error('deleteLink failed:', e);
       }
+    }
+
+    function destroyLinkChart() {
+      if (linkChartInstance) {
+        linkChartInstance.destroy();
+        linkChartInstance = null;
+      }
+    }
+
+    function formatChartTime(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleString('uk-UA', {
+        timeZone: CHART_TZ,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function formatChartLabel(iso, bucket) {
+      const d = new Date(iso);
+      if (bucket === 'day') {
+        return d.toLocaleDateString('uk-UA', { timeZone: CHART_TZ, day: '2-digit', month: '2-digit' });
+      }
+      return d.toLocaleString('uk-UA', {
+        timeZone: CHART_TZ,
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    function renderLinkChart() {
+      destroyLinkChart();
+      const canvas = linkChartCanvas.value;
+      if (!canvas || !window.Chart) return;
+
+      const points = linkStats.points;
+      const labels = points.map((p) => formatChartLabel(p.t, linkStats.bucket));
+      const datasets = [];
+
+      if (linkStats.metric === 'both' || linkStats.metric === 'human') {
+        datasets.push({
+          label: 'Люди',
+          data: points.map((p) => p.human),
+          borderColor: '#22c55e',
+          backgroundColor: 'rgba(34,197,94,0.15)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: points.length > 48 ? 0 : 3,
+        });
+      }
+      if (linkStats.metric === 'both' || linkStats.metric === 'all') {
+        datasets.push({
+          label: 'Всі кліки',
+          data: points.map((p) => p.total),
+          borderColor: '#7c6eff',
+          backgroundColor: 'rgba(124,110,255,0.1)',
+          fill: linkStats.metric === 'all',
+          tension: 0.25,
+          pointRadius: points.length > 48 ? 0 : 3,
+        });
+      }
+
+      linkChartInstance = new window.Chart(canvas, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: '#e8e8f0' } },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const idx = items[0] && items[0].dataIndex;
+                  if (idx == null || !points[idx]) return '';
+                  return formatChartTime(points[idx].t);
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: {
+                color: '#6b6b8a',
+                maxRotation: 45,
+                autoSkip: true,
+                maxTicksLimit: linkStats.bucket === 'hour' ? 24 : 14,
+              },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+            y: {
+              beginAtZero: true,
+              ticks: { color: '#6b6b8a', precision: 0 },
+              grid: { color: 'rgba(255,255,255,0.06)' },
+            },
+          },
+        },
+      });
+    }
+
+    async function loadLinkTimeline() {
+      if (!linkStats.link) return;
+      linkStats.loading = true;
+      linkStats.error = '';
+      destroyLinkChart();
+      try {
+        const qs = '?bucket=' + encodeURIComponent(linkStats.bucket) + '&days=' + encodeURIComponent(String(linkStats.days));
+        const r = await fetch(`${BASE}/links/${linkStats.link.id}/timeline${qs}`, { headers: authHeaders() });
+        if (r.status === 401) { logout(); return; }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          linkStats.error = err.error || ('HTTP ' + r.status);
+          return;
+        }
+        const data = await r.json();
+        linkStats.points = data.points || [];
+        linkStats.summary = data.summary || null;
+        linkStats.loading = false;
+        await nextTick();
+        renderLinkChart();
+      } catch (e) {
+        linkStats.error = 'Помилка завантаження графіка';
+        console.error('loadLinkTimeline failed:', e);
+      } finally {
+        linkStats.loading = false;
+      }
+    }
+
+    async function openLinkStats(l) {
+      linkStats.link = { id: l.id, name: l.name, slug: l.slug };
+      linkStats.bucket = 'hour';
+      linkStats.days = 14;
+      linkStats.metric = 'both';
+      linkStats.points = [];
+      linkStats.summary = null;
+      linkStats.error = '';
+      linkStats.open = true;
+      await loadLinkTimeline();
+    }
+
+    function closeLinkStats() {
+      linkStats.open = false;
+      destroyLinkChart();
+      linkStats.link = null;
     }
 
     async function loadLeads() {
@@ -1392,11 +1627,12 @@ createApp({
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
-      links, linkModal, leads, leadsSummary, leadsFilter,
+      links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
+      openLinkStats, closeLinkStats, loadLinkTimeline, renderLinkChart, formatChartTime,
       loadLeads, updateLeadStatus, formatDate,
       linkHumanClicks, linkRawClicks, linkFormSubmissions, linkCountryEntries, linkCountryCount,
       linkActiveClass, linkActiveLabel, leadEmailClass, formatInstagram,

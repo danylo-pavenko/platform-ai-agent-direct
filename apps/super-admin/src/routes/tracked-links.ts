@@ -315,4 +315,78 @@ export async function trackedLinksRoutes(app: FastifyInstance): Promise<void> {
 
     return clicks;
   });
+
+  app.get('/api/links/:id/timeline', { onRequest: [app.authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const q = req.query as { bucket?: string; days?: string };
+    const bucket = q.bucket === 'day' ? 'day' : 'hour';
+    const days = Math.min(Math.max(parseInt(q.days ?? '14', 10) || 14, 1), 90);
+
+    const link = await prisma.trackedLink.findUnique({ where: { id } });
+    if (!link) return reply.status(404).send({ error: 'Not found' });
+
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const rows =
+      bucket === 'day'
+        ? await prisma.$queryRaw<Array<{ bucket: Date; total: bigint; human: bigint }>>`
+            SELECT
+              date_trunc('day', clicked_at) AS bucket,
+              COUNT(*)::bigint AS total,
+              COUNT(*) FILTER (WHERE is_human)::bigint AS human
+            FROM link_clicks
+            WHERE link_id = ${id}::uuid
+              AND clicked_at >= ${since}
+            GROUP BY 1
+            ORDER BY 1
+          `
+        : await prisma.$queryRaw<Array<{ bucket: Date; total: bigint; human: bigint }>>`
+            SELECT
+              date_trunc('hour', clicked_at) AS bucket,
+              COUNT(*)::bigint AS total,
+              COUNT(*) FILTER (WHERE is_human)::bigint AS human
+            FROM link_clicks
+            WHERE link_id = ${id}::uuid
+              AND clicked_at >= ${since}
+            GROUP BY 1
+            ORDER BY 1
+          `;
+
+    const points = rows.map((r) => ({
+      t: r.bucket.toISOString(),
+      total: Number(r.total),
+      human: Number(r.human),
+    }));
+
+    let peakHuman = 0;
+    let peakTotal = 0;
+    let peakHumanAt: string | null = null;
+    let peakTotalAt: string | null = null;
+    for (const p of points) {
+      if (p.human > peakHuman) {
+        peakHuman = p.human;
+        peakHumanAt = p.t;
+      }
+      if (p.total > peakTotal) {
+        peakTotal = p.total;
+        peakTotalAt = p.t;
+      }
+    }
+
+    return {
+      link: { id: link.id, name: link.name, slug: link.slug },
+      bucket,
+      days,
+      timezone: 'Europe/Kyiv',
+      points,
+      summary: {
+        totalClicks: points.reduce((s, p) => s + p.total, 0),
+        humanClicks: points.reduce((s, p) => s + p.human, 0),
+        peakHuman,
+        peakHumanAt,
+        peakTotal,
+        peakTotalAt,
+      },
+    };
+  });
 }
