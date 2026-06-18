@@ -980,9 +980,17 @@ import { createApp, ref, reactive, computed, onMounted, nextTick } from 'https:/
 createApp({
   setup() {
     const BASE = '/api';
+    const SA_PAGE_KEY = 'sa_page';
+    const VALID_PAGES = ['dashboard', 'tenants', 'links', 'leads'];
+
+    function readSavedPage() {
+      const saved = localStorage.getItem(SA_PAGE_KEY);
+      return VALID_PAGES.includes(saved) ? saved : 'dashboard';
+    }
+
     const auth = reactive({ token: localStorage.getItem('sa_token') || '' });
     const login = reactive({ username: '', password: '', loading: false, error: '' });
-    const page = ref('dashboard');
+    const page = ref(readSavedPage());
     const sidebarOpen = ref(false);
     const tenants = ref([]);
     const health = reactive({});
@@ -1125,6 +1133,7 @@ createApp({
         auth.token = d.token;
         localStorage.setItem('sa_token', d.token);
         await loadTenants();
+        await refreshCurrentPageData();
       } catch { login.error = 'Network error'; }
       finally { login.loading = false; }
     }
@@ -1134,10 +1143,17 @@ createApp({
     }
 
     function goPage(p) {
+      if (!VALID_PAGES.includes(p)) return;
       page.value = p;
+      localStorage.setItem(SA_PAGE_KEY, p);
       sidebarOpen.value = false;
       if (p === 'links') loadLinks();
       if (p === 'leads') loadLeads();
+    }
+
+    async function refreshCurrentPageData() {
+      if (page.value === 'links') await loadLinks();
+      if (page.value === 'leads') await loadLeads();
     }
 
     function formatDate(iso) {
@@ -1621,7 +1637,10 @@ createApp({
     }
 
     onMounted(async () => {
-      if (auth.token) await loadTenants();
+      if (auth.token) {
+        await loadTenants();
+        await refreshCurrentPageData();
+      }
     });
 
     return {
