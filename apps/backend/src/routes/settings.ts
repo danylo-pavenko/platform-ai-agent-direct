@@ -259,9 +259,13 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** GET /settings/claude-auth — Claude CLI binary + session status. */
-  app.get('/claude-auth', { onRequest: [app.authenticate] }, async () => {
-    return getClaudeAuthStatus();
-  });
+  app.get<{ Querystring: { fresh?: string } }>(
+    '/claude-auth',
+    { onRequest: [app.authenticate] },
+    async (request) => {
+      return getClaudeAuthStatus({ skipLiveCache: request.query.fresh === 'true' });
+    },
+  );
 
   /** POST /settings/claude-auth/login/start — spawn claude auth login, return OAuth URL. */
   app.post('/claude-auth/login/start', { onRequest: [app.authenticate] }, async (_request, reply) => {

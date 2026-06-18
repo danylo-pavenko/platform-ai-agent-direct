@@ -72,6 +72,7 @@ interface DiagnosticSnapshot {
   claudeAuth: {
     binaryOk: boolean;
     loggedIn: boolean;
+    sessionExpired: boolean;
     binaryVersion: string | null;
     email: string | null;
     subscriptionType: string | null;
@@ -181,7 +182,7 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
     prisma.conversation.count({
       where: { state: 'handoff', createdAt: { gte: t30d } },
     }),
-    getClaudeAuthStatus(),
+    getClaudeAuthStatus({ skipLiveCache: true }),
   ]);
 
   const byState: Record<string, number> = {
@@ -243,6 +244,7 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
     claudeAuth: {
       binaryOk: claudeAuthStatus.binaryOk,
       loggedIn: claudeAuthStatus.loggedIn,
+      sessionExpired: claudeAuthStatus.sessionExpired,
       binaryVersion: claudeAuthStatus.binaryVersion,
       email: claudeAuthStatus.email,
       subscriptionType: claudeAuthStatus.subscriptionType,
@@ -319,6 +321,7 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
       version: status.binaryVersion,
       error: status.error,
       loggedIn: status.loggedIn,
+      sessionExpired: status.sessionExpired,
       binaryOk: status.binaryOk,
       email: status.email,
       subscriptionType: status.subscriptionType,

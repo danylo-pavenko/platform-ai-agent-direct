@@ -3,10 +3,9 @@ import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { checkIgConnectionStatus } from './ig-connection.js';
 import {
-  claudeAuthCheck,
-  claudeHealthCheck,
   probeAgentLatency,
 } from './claude.js';
+import { getClaudeAuthStatus } from './claude-auth.js';
 import { fetchClaudeUsageSnapshot } from './claude-usage.js';
 import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import { getCrmAdapter } from './crm/registry.js';
@@ -97,26 +96,40 @@ async function checkInstagram(): Promise<HealthCheckItem> {
 
 async function checkClaude(): Promise<HealthCheckItem> {
   const label = 'Claude CLI';
-  const binary = await claudeHealthCheck();
+  const status = await getClaudeAuthStatus({ skipLiveCache: true });
 
-  if (!binary.ok) {
+  if (!status.binaryOk) {
     return {
       id: 'claude',
       label,
       status: 'error',
-      message: binary.error ?? 'Claude CLI недоступний',
-      details: { path: binary.path },
+      message: status.error ?? 'Claude CLI недоступний',
+      details: { path: status.binaryPath },
     };
   }
 
-  const auth = await claudeAuthCheck();
-  if (!auth.ok) {
+  if (status.sessionExpired) {
     return {
       id: 'claude',
       label,
       status: 'error',
-      message: auth.error ?? 'Claude не авторизовано',
-      details: { path: binary.path, version: binary.version },
+      message: status.error ?? 'Токен Claude прострочений',
+      details: {
+        path: status.binaryPath,
+        version: status.binaryVersion,
+        email: status.email,
+        sessionExpired: true,
+      },
+    };
+  }
+
+  if (!status.loggedIn) {
+    return {
+      id: 'claude',
+      label,
+      status: 'error',
+      message: status.error ?? 'Claude не авторизовано',
+      details: { path: status.binaryPath, version: status.binaryVersion },
     };
   }
 
@@ -124,8 +137,12 @@ async function checkClaude(): Promise<HealthCheckItem> {
     id: 'claude',
     label,
     status: 'ok',
-    message: `Підключено (${binary.version ?? 'ok'})`,
-    details: { path: binary.path, version: binary.version },
+    message: `Підключено (${status.binaryVersion ?? 'ok'})`,
+    details: {
+      path: status.binaryPath,
+      version: status.binaryVersion,
+      email: status.email,
+    },
   };
 }
 

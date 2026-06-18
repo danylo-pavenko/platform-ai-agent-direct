@@ -507,8 +507,26 @@ export interface ClaudeAuthHealth {
   error: string | null;
 }
 
+/** Detect expired/invalid OAuth tokens in CLI stderr, stdout, or API errors. */
+export function isClaudeAuthFailure(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes('401') ||
+    lower.includes('invalid authentication') ||
+    lower.includes('authentication credentials') ||
+    lower.includes('not logged in') ||
+    lower.includes('not authenticated') ||
+    lower.includes('login required') ||
+    lower.includes('run `claude auth login`') ||
+    lower.includes('run "claude auth login"') ||
+    lower.includes('run /login') ||
+    lower.includes('please run /login')
+  );
+}
+
 /**
  * Verify Claude CLI session is authenticated (`claude auth status`).
+ * Checks JSON `loggedIn` when present; does not validate live API tokens.
  */
 export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealth> {
   const path = getClaudeBinaryPath();
@@ -516,25 +534,74 @@ export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealt
     const { stdout, stderr } = await execFileAsync(path, ['auth', 'status'], {
       timeout: timeoutMs,
       env: { ...process.env },
+      maxBuffer: 64 * 1024,
     });
-    const combined = `${stdout}\n${stderr}`.toLowerCase();
-    if (
-      combined.includes('not logged in') ||
-      combined.includes('not authenticated') ||
-      combined.includes('login required') ||
-      combined.includes('run `claude auth login`') ||
-      combined.includes('run "claude auth login"')
-    ) {
+    const combined = `${stdout}\n${stderr}`;
+    if (isClaudeAuthFailure(combined)) {
       return {
         ok: false,
         error: 'Claude не авторизовано — на сервері виконайте: claude auth login',
       };
     }
+
+    const trimmed = stdout.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const obj = JSON.parse(trimmed) as { loggedIn?: boolean };
+        if (obj.loggedIn === false) {
+          return {
+            ok: false,
+            error: 'Claude не авторизовано — на сервері виконайте: claude auth login',
+          };
+        }
+        if (obj.loggedIn === true) {
+          return { ok: true, error: null };
+        }
+      } catch {
+        /* fall through to text heuristics */
+      }
+    }
+
     return { ok: true, error: null };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Live API probe — `auth status` can report loggedIn while tokens return 401.
+ * Uses a minimal haiku ping (same path as runtime askClaude).
+ */
+export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAuthHealth> {
+  const prompt = buildPrompt({
+    systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
+    conversationHistory: [],
+    userMessage: AGENT_LATENCY_PROBE_USER,
+  });
+  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'];
+  const response = await spawnClaude(prompt, args, timeoutMs);
+  const combined = [response.text, response.errorDetail ?? ''].join('\n');
+
+  if (isClaudeAuthFailure(combined)) {
+    return {
+      ok: false,
+      error: 'Токен Claude недійсний або прострочений — увійдіть знову через Налаштування',
+    };
+  }
+
+  if (response.fallback) {
+    return {
+      ok: false,
+      error: response.errorDetail ?? 'Claude API не відповідає',
+    };
+  }
+
+  if (!response.text.trim()) {
+    return { ok: false, error: 'Claude API повернув порожню відповідь' };
+  }
+
+  return { ok: true, error: null };
 }
 
 export interface AgentLatencyProbe {

@@ -932,6 +932,7 @@
             <span v-if="claudeHealth.result.binaryOk !== false" class="badge badge-active">CLI OK</span>
             <span v-else class="badge badge-suspended">CLI FAIL</span>
             <span v-if="claudeHealth.result.loggedIn" class="badge badge-active">Auth OK</span>
+            <span v-else-if="claudeHealth.result.sessionExpired" class="badge badge-suspended">Token expired</span>
             <span v-else-if="claudeHealth.result.binaryOk !== false" class="badge badge-suspended">Not logged in</span>
           </div>
         </div>

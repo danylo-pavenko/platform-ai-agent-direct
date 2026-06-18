@@ -88,7 +88,7 @@
           <v-chip
             v-if="claudeAuth"
             size="small"
-            :color="claudeAuth.loggedIn ? 'success' : claudeAuth.binaryOk ? 'warning' : 'error'"
+            :color="claudeAuthChipColor"
             variant="tonal"
           >
             {{ claudeAuthStatusLabel }}
@@ -111,7 +111,7 @@
               Перевірити статус
             </v-btn>
             <v-btn
-              v-if="claudeAuth && !claudeAuth.loggedIn && claudeAuth.binaryOk"
+              v-if="claudeAuth && !claudeAuth.loggedIn && claudeAuth.binaryOk && !claudeAuth.loginInProgress"
               color="primary"
               prepend-icon="mdi-open-in-new"
               :loading="claudeLoginStarting"
@@ -173,6 +173,14 @@
               <v-list-item-subtitle class="text-caption">
                 {{ claudeAuth.email || '—' }}
                 <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
+              </v-list-item-subtitle>
+            </v-list-item>
+            <v-list-item v-else-if="claudeAuth.sessionExpired && claudeAuth.email" class="px-0">
+              <v-list-item-title class="text-body-2 text-warning">Застаріла сесія</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ claudeAuth.email }}
+                <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
+                — потрібен повторний вхід
               </v-list-item-subtitle>
             </v-list-item>
             <v-list-item v-else-if="claudeAuth.error" class="px-0">
@@ -1974,6 +1982,7 @@ interface ClaudeAuthStatus {
   binaryPath: string;
   binaryVersion: string | null;
   loggedIn: boolean;
+  sessionExpired: boolean;
   authMethod: string | null;
   email: string | null;
   subscriptionType: string | null;
@@ -2002,15 +2011,27 @@ let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
 const claudeAuthStatusLabel = computed(() => {
   if (!claudeAuth.value) return '—';
   if (claudeAuth.value.loggedIn) return 'Авторизовано';
+  if (claudeAuth.value.sessionExpired) return 'Токен прострочений';
   if (!claudeAuth.value.binaryOk) return 'CLI недоступний';
+  if (claudeAuth.value.loginInProgress) return 'Вхід…';
   return 'Потрібен вхід';
 });
 
-async function loadClaudeAuth(manual = false) {
+const claudeAuthChipColor = computed(() => {
+  if (!claudeAuth.value) return 'grey';
+  if (claudeAuth.value.loggedIn) return 'success';
+  if (claudeAuth.value.sessionExpired) return 'error';
+  if (!claudeAuth.value.binaryOk) return 'error';
+  return 'warning';
+});
+
+async function loadClaudeAuth(manual = false, fresh = manual) {
   if (manual) claudeAuthLoading.value = true;
   claudeAuthError.value = '';
   try {
-    const { data } = await api.get<ClaudeAuthStatus>('/settings/claude-auth');
+    const { data } = await api.get<ClaudeAuthStatus>('/settings/claude-auth', {
+      params: manual || fresh ? { fresh: 'true' } : undefined,
+    });
     claudeAuth.value = data;
   } catch (e: any) {
     claudeAuthError.value = e.response?.data?.error ?? 'Не вдалося перевірити Claude';
@@ -3081,7 +3102,7 @@ onMounted(() => {
   fetchSettings();
   fetchIntegrations();
   void refreshClaudeUsage(false);
-  void loadClaudeAuth(false);
+  void loadClaudeAuth(false, true);
 });
 
 onUnmounted(() => {

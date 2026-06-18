@@ -5,6 +5,7 @@ import {
   claudeAuthCheck,
   claudeHealthCheck,
   getClaudeBinaryPath,
+  verifyClaudeAuthLive,
 } from './claude.js';
 
 const log = pino({ name: 'claude-auth' });
@@ -12,18 +13,26 @@ const log = pino({ name: 'claude-auth' });
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const URL_WAIT_MS = 45_000;
 const LOGIN_RATE_LIMIT_MS = 60_000;
+const LIVE_AUTH_CACHE_MS = 45_000;
 
 export interface ClaudeAuthStatus {
   binaryOk: boolean;
   binaryPath: string;
   binaryVersion: string | null;
   loggedIn: boolean;
+  /** auth status JSON said loggedIn but live API probe failed (401 / expired token). */
+  sessionExpired: boolean;
   authMethod: string | null;
   email: string | null;
   subscriptionType: string | null;
   orgName: string | null;
   error: string | null;
   loginInProgress: boolean;
+}
+
+export interface GetClaudeAuthStatusOptions {
+  /** Bypass live-probe cache (Settings "Перевірити статус"). */
+  skipLiveCache?: boolean;
 }
 
 interface AuthStatusJson {
@@ -48,6 +57,25 @@ interface LoginSession {
 
 const sessions = new Map<string, LoginSession>();
 let lastLoginStartAt = 0;
+let liveAuthCache: { at: number; ok: boolean; error: string | null } | null = null;
+
+export function clearClaudeAuthLiveCache(): void {
+  liveAuthCache = null;
+}
+
+async function verifyClaudeAuthLiveCached(skipCache: boolean): Promise<{ ok: boolean; error: string | null }> {
+  if (
+    !skipCache &&
+    liveAuthCache &&
+    Date.now() - liveAuthCache.at < LIVE_AUTH_CACHE_MS
+  ) {
+    return liveAuthCache;
+  }
+
+  const result = await verifyClaudeAuthLive();
+  liveAuthCache = { at: Date.now(), ok: result.ok, error: result.error };
+  return liveAuthCache;
+}
 
 /** Extract OAuth URL printed by `claude auth login`. */
 export function extractClaudeAuthUrl(text: string): string | null {
@@ -154,6 +182,7 @@ function attachLoginListeners(session: LoginSession): void {
       if (auth.ok) {
         session.status = 'completed';
         session.error = null;
+        clearClaudeAuthLiveCache();
         return;
       }
       if (session.status === 'waiting' && code === 0) {
@@ -183,6 +212,7 @@ export function formatClaudeAuthSnapshot(status: ClaudeAuthStatus): Record<strin
     binaryPath: status.binaryPath,
     binaryVersion: status.binaryVersion,
     loggedIn: status.loggedIn,
+    sessionExpired: status.sessionExpired,
     email: status.email,
     subscriptionType: status.subscriptionType,
     authMethod: status.authMethod,
@@ -204,7 +234,9 @@ ${snapshot}
 }
 
 /** Full Claude auth status for tenant admin. */
-export async function getClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
+export async function getClaudeAuthStatus(
+  opts: GetClaudeAuthStatusOptions = {},
+): Promise<ClaudeAuthStatus> {
   cleanupExpiredSessions();
 
   const binary = await claudeHealthCheck();
@@ -212,49 +244,90 @@ export async function getClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
     (s) => s.status === 'starting' || s.status === 'waiting',
   );
 
+  const baseUnavailable = (error: string): ClaudeAuthStatus => ({
+    binaryOk: false,
+    binaryPath: binary.path,
+    binaryVersion: binary.version,
+    loggedIn: false,
+    sessionExpired: false,
+    authMethod: null,
+    email: null,
+    subscriptionType: null,
+    orgName: null,
+    error,
+    loginInProgress,
+  });
+
   if (!binary.ok) {
-    return {
-      binaryOk: false,
-      binaryPath: binary.path,
-      binaryVersion: binary.version,
-      loggedIn: false,
-      authMethod: null,
-      email: null,
-      subscriptionType: null,
-      orgName: null,
-      error: binary.error ?? 'Claude CLI недоступний',
-      loginInProgress,
-    };
+    return baseUnavailable(binary.error ?? 'Claude CLI недоступний');
   }
 
   const json = await readAuthStatusJson();
-  if (json?.loggedIn) {
+  const sessionCheck = await claudeAuthCheck();
+  const reportedlyLoggedIn = json?.loggedIn === true || (json?.loggedIn !== false && sessionCheck.ok);
+
+  if (!reportedlyLoggedIn) {
     return {
       binaryOk: true,
       binaryPath: binary.path,
       binaryVersion: binary.version,
-      loggedIn: true,
-      authMethod: json.authMethod ?? null,
-      email: json.email ?? null,
-      subscriptionType: json.subscriptionType ?? null,
-      orgName: json.orgName ?? null,
-      error: null,
+      loggedIn: false,
+      sessionExpired: false,
+      authMethod: json?.authMethod ?? null,
+      email: json?.email ?? null,
+      subscriptionType: json?.subscriptionType ?? null,
+      orgName: json?.orgName ?? null,
+      error: sessionCheck.error ?? 'Claude не авторизовано',
       loginInProgress,
     };
   }
 
-  const auth = await claudeAuthCheck();
+  // Skip live probe while OAuth login is in progress — tokens may not be ready yet.
+  if (loginInProgress) {
+    return {
+      binaryOk: true,
+      binaryPath: binary.path,
+      binaryVersion: binary.version,
+      loggedIn: false,
+      sessionExpired: false,
+      authMethod: json?.authMethod ?? null,
+      email: json?.email ?? null,
+      subscriptionType: json?.subscriptionType ?? null,
+      orgName: json?.orgName ?? null,
+      error: null,
+      loginInProgress: true,
+    };
+  }
+
+  const live = await verifyClaudeAuthLiveCached(Boolean(opts.skipLiveCache));
+  if (!live.ok) {
+    return {
+      binaryOk: true,
+      binaryPath: binary.path,
+      binaryVersion: binary.version,
+      loggedIn: false,
+      sessionExpired: true,
+      authMethod: json?.authMethod ?? null,
+      email: json?.email ?? null,
+      subscriptionType: json?.subscriptionType ?? null,
+      orgName: json?.orgName ?? null,
+      error: live.error,
+      loginInProgress: false,
+    };
+  }
+
   return {
     binaryOk: true,
     binaryPath: binary.path,
     binaryVersion: binary.version,
-    loggedIn: auth.ok,
+    loggedIn: true,
+    sessionExpired: false,
     authMethod: json?.authMethod ?? null,
     email: json?.email ?? null,
     subscriptionType: json?.subscriptionType ?? null,
     orgName: json?.orgName ?? null,
-    error: auth.ok ? null : auth.error,
-    loginInProgress,
+    error: null,
+    loginInProgress: false,
   };
 }
 
@@ -351,12 +424,15 @@ export async function getClaudeLoginStatus(sessionId: string): Promise<ClaudeLog
     if (auth.ok) {
       session.status = 'completed';
       session.error = null;
+      clearClaudeAuthLiveCache();
       if (session.child && !session.child.killed) session.child.kill('SIGTERM');
     }
   }
 
   const authSnapshot =
-    session.status === 'completed' ? await getClaudeAuthStatus() : null;
+    session.status === 'completed'
+      ? await getClaudeAuthStatus({ skipLiveCache: true })
+      : null;
 
   return {
     sessionId: session.id,
