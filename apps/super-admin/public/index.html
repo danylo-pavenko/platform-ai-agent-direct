@@ -928,10 +928,20 @@
       <div v-if="claudeHealth.result">
         <div class="field">
           <label>Status</label>
-          <div>
-            <span v-if="claudeHealth.result.ok" class="badge badge-active">OK</span>
-            <span v-else class="badge badge-suspended">FAIL</span>
+          <div class="d-flex ga-2" style="display:flex;gap:8px;flex-wrap:wrap">
+            <span v-if="claudeHealth.result.binaryOk !== false" class="badge badge-active">CLI OK</span>
+            <span v-else class="badge badge-suspended">CLI FAIL</span>
+            <span v-if="claudeHealth.result.loggedIn" class="badge badge-active">Auth OK</span>
+            <span v-else-if="claudeHealth.result.binaryOk !== false" class="badge badge-suspended">Not logged in</span>
           </div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.email">
+          <label>Account</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.email }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.subscriptionType">
+          <label>Plan</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.subscriptionType }}</div>
         </div>
         <div class="field" v-if="claudeHealth.result.path">
           <label>Binary path</label>

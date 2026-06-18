@@ -19,6 +19,12 @@ import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
+import {
+  cancelClaudeAuthLogin,
+  getClaudeAuthStatus,
+  getClaudeLoginStatus,
+  startClaudeAuthLogin,
+} from '../services/claude-auth.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
 
@@ -245,13 +251,70 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  /**
-   * POST /settings/health-check
+  /** POST /settings/health-check
    * Self-diagnostic for the tenant instance: Instagram, Claude, CRM, agent latency.
    */
   app.post('/health-check', { onRequest: [app.authenticate] }, async () => {
     return runTenantHealthCheck();
   });
+
+  /** GET /settings/claude-auth — Claude CLI binary + session status. */
+  app.get('/claude-auth', { onRequest: [app.authenticate] }, async () => {
+    return getClaudeAuthStatus();
+  });
+
+  /** POST /settings/claude-auth/login/start — spawn claude auth login, return OAuth URL. */
+  app.post('/claude-auth/login/start', { onRequest: [app.authenticate] }, async (_request, reply) => {
+    const current = await getClaudeAuthStatus();
+    if (current.loggedIn) {
+      return reply.code(409).send({ error: 'Claude вже авторизовано на цьому інстансі' });
+    }
+    if (!current.binaryOk) {
+      return reply.code(503).send({ error: current.error ?? 'Claude CLI недоступний' });
+    }
+    if (current.loginInProgress) {
+      return reply.code(409).send({ error: 'Авторизація вже запущена — зачекайте або скасуйте' });
+    }
+
+    const result = await startClaudeAuthLogin();
+    if (result.status === 'failed' && !result.sessionId) {
+      return reply.code(429).send({ error: result.error ?? 'Не вдалося запустити вхід' });
+    }
+    return result;
+  });
+
+  /** GET /settings/claude-auth/login/status?sessionId= — poll OAuth completion. */
+  app.get<{ Querystring: { sessionId?: string } }>(
+    '/claude-auth/login/status',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const sessionId = request.query.sessionId?.trim();
+      if (!sessionId) {
+        return reply.code(400).send({ error: 'sessionId is required' });
+      }
+      const status = await getClaudeLoginStatus(sessionId);
+      if (!status) {
+        return reply.code(404).send({ error: 'Session not found or expired' });
+      }
+      return status;
+    },
+  );
+
+  /** POST /settings/claude-auth/login/cancel — abort in-progress login. */
+  app.post<{ Body: { sessionId?: string } }>(
+    '/claude-auth/login/cancel',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const sessionId = request.body?.sessionId?.trim();
+      if (!sessionId) {
+        return reply.code(400).send({ error: 'sessionId is required' });
+      }
+      if (!cancelClaudeAuthLogin(sessionId)) {
+        return reply.code(404).send({ error: 'Session not found' });
+      }
+      return { ok: true };
+    },
+  );
 
   /** GET /settings/claude-usage — latest subscription usage snapshot (auto-polled). */
   app.get('/claude-usage', { onRequest: [app.authenticate] }, async () => {

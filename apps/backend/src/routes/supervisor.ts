@@ -22,7 +22,8 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { askClaude, claudeHealthCheck } from '../services/claude.js';
+import { askClaude } from '../services/claude.js';
+import { getClaudeAuthStatus } from '../services/claude-auth.js';
 import { config } from '../config.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -287,13 +288,20 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
     return buildDiagnosticSnapshot();
   });
 
-  // GET /claude-health — probes the Claude CLI binary the runtime spawn
-  // actually uses. Returns { ok, path, version, error } so super-admin
-  // can catch "auth expired" / "binary missing" instead of relying on
-  // the silent fallback in askClaude.
+  // GET /claude-health — probes Claude CLI binary + auth session.
   app.get('/claude-health', async (request, reply) => {
     if (!requireSupervisorToken(request, reply)) return;
-    return claudeHealthCheck();
+    const status = await getClaudeAuthStatus();
+    return {
+      ok: status.binaryOk && status.loggedIn,
+      path: status.binaryPath,
+      version: status.binaryVersion,
+      error: status.error,
+      loggedIn: status.loggedIn,
+      binaryOk: status.binaryOk,
+      email: status.email,
+      subscriptionType: status.subscriptionType,
+    };
   });
 
   // POST /chat — ask Supervisor Claude a natural-language question

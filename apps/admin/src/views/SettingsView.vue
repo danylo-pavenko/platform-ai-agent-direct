@@ -80,6 +80,109 @@
         </v-card-text>
       </v-card>
 
+      <!-- Claude CLI auth -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
+          <v-icon start color="indigo">mdi-login</v-icon>
+          <span>Claude — авторизація агента</span>
+          <v-chip
+            v-if="claudeAuth"
+            size="small"
+            :color="claudeAuth.loggedIn ? 'success' : claudeAuth.binaryOk ? 'warning' : 'error'"
+            variant="tonal"
+          >
+            {{ claudeAuthStatusLabel }}
+          </v-chip>
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          AI-агент працює через Claude Code CLI під Linux-користувачем цього інстанса.
+          OAuth зберігається на сервері — токен не потрапляє в браузер.
+        </v-card-subtitle>
+        <v-card-text>
+          <div class="d-flex flex-wrap align-center ga-2 mb-3">
+            <v-btn
+              color="indigo"
+              variant="tonal"
+              prepend-icon="mdi-refresh"
+              :loading="claudeAuthLoading"
+              :disabled="claudeAuthLoading || claudeLoginPolling"
+              @click="loadClaudeAuth(true)"
+            >
+              Перевірити статус
+            </v-btn>
+            <v-btn
+              v-if="claudeAuth && !claudeAuth.loggedIn && claudeAuth.binaryOk"
+              color="primary"
+              prepend-icon="mdi-open-in-new"
+              :loading="claudeLoginStarting"
+              :disabled="claudeLoginStarting || claudeLoginPolling"
+              @click="startClaudeLogin"
+            >
+              Увійти в Claude
+            </v-btn>
+            <v-btn
+              v-if="claudeLoginPolling"
+              color="grey"
+              variant="text"
+              prepend-icon="mdi-close"
+              @click="cancelClaudeLogin"
+            >
+              Скасувати
+            </v-btn>
+          </div>
+
+          <v-alert
+            v-if="claudeAuthError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            {{ claudeAuthError }}
+          </v-alert>
+
+          <v-alert
+            v-if="claudeLoginPolling"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            <div class="font-weight-medium mb-1">Очікуємо авторизацію у браузері…</div>
+            <div class="text-caption">
+              Відкрийте вкладку Claude, увійдіть у акаунт і поверніться сюди.
+              Сторінка оновиться автоматично.
+            </div>
+            <div v-if="claudeLoginAuthUrl" class="mt-2">
+              <a :href="claudeLoginAuthUrl" target="_blank" rel="noopener noreferrer">
+                Відкрити посилання для входу
+              </a>
+            </div>
+          </v-alert>
+
+          <v-list v-if="claudeAuth" density="compact" class="pa-0">
+            <v-list-item class="px-0">
+              <v-list-item-title class="text-body-2">CLI</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ claudeAuth.binaryOk ? (claudeAuth.binaryVersion || 'OK') : 'Недоступний' }}
+                <span v-if="claudeAuth.binaryPath" class="text-medium-emphasis"> · {{ claudeAuth.binaryPath }}</span>
+              </v-list-item-subtitle>
+            </v-list-item>
+            <v-list-item v-if="claudeAuth.loggedIn" class="px-0">
+              <v-list-item-title class="text-body-2">Акаунт</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">
+                {{ claudeAuth.email || '—' }}
+                <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
+              </v-list-item-subtitle>
+            </v-list-item>
+            <v-list-item v-else-if="claudeAuth.error" class="px-0">
+              <v-list-item-title class="text-body-2 text-error">Проблема</v-list-item-title>
+              <v-list-item-subtitle class="text-caption">{{ claudeAuth.error }}</v-list-item-subtitle>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+      </v-card>
+
       <!-- Claude subscription usage -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
@@ -1721,7 +1824,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 
 interface DaySchedule {
@@ -1865,6 +1968,148 @@ interface HealthCheckResult {
 const healthCheckLoading = ref(false);
 const healthCheckError = ref('');
 const healthCheckResult = ref<HealthCheckResult | null>(null);
+
+interface ClaudeAuthStatus {
+  binaryOk: boolean;
+  binaryPath: string;
+  binaryVersion: string | null;
+  loggedIn: boolean;
+  authMethod: string | null;
+  email: string | null;
+  subscriptionType: string | null;
+  orgName: string | null;
+  error: string | null;
+  loginInProgress: boolean;
+}
+
+interface ClaudeLoginStatusResponse {
+  sessionId: string;
+  status: 'starting' | 'waiting' | 'completed' | 'failed' | 'cancelled';
+  authUrl: string | null;
+  error: string | null;
+  auth: ClaudeAuthStatus | null;
+}
+
+const claudeAuthLoading = ref(false);
+const claudeAuthError = ref('');
+const claudeAuth = ref<ClaudeAuthStatus | null>(null);
+const claudeLoginStarting = ref(false);
+const claudeLoginPolling = ref(false);
+const claudeLoginSessionId = ref('');
+const claudeLoginAuthUrl = ref('');
+let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
+
+const claudeAuthStatusLabel = computed(() => {
+  if (!claudeAuth.value) return '—';
+  if (claudeAuth.value.loggedIn) return 'Авторизовано';
+  if (!claudeAuth.value.binaryOk) return 'CLI недоступний';
+  return 'Потрібен вхід';
+});
+
+async function loadClaudeAuth(manual = false) {
+  if (manual) claudeAuthLoading.value = true;
+  claudeAuthError.value = '';
+  try {
+    const { data } = await api.get<ClaudeAuthStatus>('/settings/claude-auth');
+    claudeAuth.value = data;
+  } catch (e: any) {
+    claudeAuthError.value = e.response?.data?.error ?? 'Не вдалося перевірити Claude';
+    if (manual) claudeAuth.value = null;
+  } finally {
+    claudeAuthLoading.value = false;
+  }
+}
+
+function stopClaudeLoginPoll() {
+  if (claudeLoginPollTimer) {
+    clearInterval(claudeLoginPollTimer);
+    claudeLoginPollTimer = null;
+  }
+  claudeLoginPolling.value = false;
+}
+
+async function pollClaudeLoginOnce() {
+  if (!claudeLoginSessionId.value) return;
+  try {
+    const { data } = await api.get<ClaudeLoginStatusResponse>(
+      '/settings/claude-auth/login/status',
+      { params: { sessionId: claudeLoginSessionId.value } },
+    );
+    if (data.authUrl) claudeLoginAuthUrl.value = data.authUrl;
+
+    if (data.status === 'completed') {
+      stopClaudeLoginPoll();
+      claudeLoginSessionId.value = '';
+      if (data.auth) claudeAuth.value = data.auth;
+      else await loadClaudeAuth(false);
+      await refreshClaudeUsage(true);
+      return;
+    }
+    if (data.status === 'failed' || data.status === 'cancelled') {
+      stopClaudeLoginPoll();
+      claudeAuthError.value = data.error ?? 'Авторизацію не завершено';
+      claudeLoginSessionId.value = '';
+    }
+  } catch (e: any) {
+    stopClaudeLoginPoll();
+    claudeAuthError.value = e.response?.data?.error ?? 'Помилка перевірки авторизації';
+  }
+}
+
+function startClaudeLoginPoll() {
+  stopClaudeLoginPoll();
+  claudeLoginPolling.value = true;
+  void pollClaudeLoginOnce();
+  claudeLoginPollTimer = setInterval(() => {
+    void pollClaudeLoginOnce();
+  }, 2500);
+}
+
+async function startClaudeLogin() {
+  claudeLoginStarting.value = true;
+  claudeAuthError.value = '';
+  try {
+    const { data } = await api.post<{
+      sessionId: string;
+      authUrl: string | null;
+      status: string;
+      error: string | null;
+    }>('/settings/claude-auth/login/start');
+
+    if (data.error && !data.sessionId) {
+      claudeAuthError.value = data.error;
+      return;
+    }
+
+    claudeLoginSessionId.value = data.sessionId;
+    if (data.authUrl) {
+      claudeLoginAuthUrl.value = data.authUrl;
+      window.open(data.authUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    startClaudeLoginPoll();
+  } catch (e: any) {
+    claudeAuthError.value = e.response?.data?.error ?? 'Не вдалося запустити вхід';
+  } finally {
+    claudeLoginStarting.value = false;
+  }
+}
+
+async function cancelClaudeLogin() {
+  if (claudeLoginSessionId.value) {
+    try {
+      await api.post('/settings/claude-auth/login/cancel', {
+        sessionId: claudeLoginSessionId.value,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  stopClaudeLoginPoll();
+  claudeLoginSessionId.value = '';
+  claudeLoginAuthUrl.value = '';
+  await loadClaudeAuth(false);
+}
 
 interface ClaudeUsageBucket {
   id: string;
@@ -2836,6 +3081,11 @@ onMounted(() => {
   fetchSettings();
   fetchIntegrations();
   void refreshClaudeUsage(false);
+  void loadClaudeAuth(false);
+});
+
+onUnmounted(() => {
+  stopClaudeLoginPoll();
 });
 </script>
 
