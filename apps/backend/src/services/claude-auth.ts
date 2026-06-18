@@ -77,9 +77,15 @@ async function verifyClaudeAuthLiveCached(skipCache: boolean): Promise<{ ok: boo
   return liveAuthCache;
 }
 
+/** Strip ANSI escape codes from `script`/PTY output. */
+export function stripAnsi(text: string): string {
+  return text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+}
+
 /** Extract OAuth URL printed by `claude auth login`. */
 export function extractClaudeAuthUrl(text: string): string | null {
-  const match = text.match(
+  const clean = stripAnsi(text);
+  const match = clean.match(
     /https:\/\/(?:claude\.ai|console\.anthropic\.com)\/[^\s"'<>)\]]+/i,
   );
   if (!match) return null;
@@ -154,7 +160,7 @@ function attachLoginListeners(session: LoginSession): void {
   if (!child) return;
 
   const append = (chunk: Buffer | string) => {
-    session.output += chunk.toString();
+    session.output += stripAnsi(chunk.toString());
     if (!session.authUrl) {
       const url = extractClaudeAuthUrl(session.output);
       if (url) {
@@ -338,6 +344,29 @@ export interface StartClaudeLoginResult {
   error: string | null;
 }
 
+function waitForAuthUrl(session: LoginSession, maxMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (session.authUrl) {
+      resolve();
+      return;
+    }
+    const deadline = Date.now() + maxMs;
+    const timer = setInterval(() => {
+      if (!session.authUrl) {
+        const url = extractClaudeAuthUrl(session.output);
+        if (url) {
+          session.authUrl = url;
+          session.status = 'waiting';
+        }
+      }
+      if (session.authUrl || Date.now() >= deadline) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 100);
+  });
+}
+
 /** Begin interactive OAuth via Claude CLI under the tenant Linux user. */
 export async function startClaudeAuthLogin(): Promise<StartClaudeLoginResult> {
   cleanupExpiredSessions();
@@ -385,6 +414,7 @@ export async function startClaudeAuthLogin(): Promise<StartClaudeLoginResult> {
 
   sessions.set(sessionId, session);
   attachLoginListeners(session);
+  await waitForAuthUrl(session, 8000);
 
   return {
     sessionId,

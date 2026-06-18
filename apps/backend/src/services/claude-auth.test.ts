@@ -21,6 +21,14 @@ describe('extractClaudeAuthUrl', () => {
   it('returns null when no URL present', () => {
     expect(extractClaudeAuthUrl('not logged in')).toBeNull();
   });
+
+  it('extracts URL from ANSI-colored PTY output', () => {
+    const text =
+      '\x1B[0mVisit \x1B[4mhttps://claude.ai/oauth/authorize?state=abc\x1B[0m to login';
+    expect(extractClaudeAuthUrl(text)).toBe(
+      'https://claude.ai/oauth/authorize?state=abc',
+    );
+  });
 });
 
 describe('isClaudeAuthFailure', () => {

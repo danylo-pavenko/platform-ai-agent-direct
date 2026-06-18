@@ -95,8 +95,8 @@
           </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          AI-агент працює через Claude Code CLI під Linux-користувачем цього інстанса.
-          OAuth зберігається на сервері — токен не потрапляє в браузер.
+          Підключіть Claude Pro або Max — підписка потрібна для роботи AI-агента в Direct.
+          Вхід відбувається у вашому браузері, без передачі пароля в адмінку.
         </v-card-subtitle>
         <v-card-text>
           <div class="d-flex flex-wrap align-center ga-2 mb-3">
@@ -150,24 +150,33 @@
           >
             <div class="font-weight-medium mb-1">Очікуємо авторизацію у браузері…</div>
             <div class="text-caption">
-              Відкрийте вкладку Claude, увійдіть у акаунт і поверніться сюди.
-              Сторінка оновиться автоматично.
+              Увійдіть у Claude у відкритому вікні та поверніться сюди — статус оновиться автоматично.
             </div>
-            <div v-if="claudeLoginAuthUrl" class="mt-2">
-              <a :href="claudeLoginAuthUrl" target="_blank" rel="noopener noreferrer">
-                Відкрити посилання для входу
+            <div v-if="claudeLoginAuthUrl" class="mt-3 d-flex flex-wrap ga-2 align-center">
+              <v-btn
+                color="primary"
+                variant="tonal"
+                size="small"
+                prepend-icon="mdi-open-in-new"
+                @click="openClaudeLoginLink"
+              >
+                Відкрити вхід
+              </v-btn>
+              <a
+                :href="claudeLoginAuthUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-caption"
+              >
+                або відкрити посилання
               </a>
+            </div>
+            <div v-else class="text-caption mt-2 text-medium-emphasis">
+              Готуємо посилання для входу…
             </div>
           </v-alert>
 
           <v-list v-if="claudeAuth" density="compact" class="pa-0">
-            <v-list-item class="px-0">
-              <v-list-item-title class="text-body-2">CLI</v-list-item-title>
-              <v-list-item-subtitle class="text-caption">
-                {{ claudeAuth.binaryOk ? (claudeAuth.binaryVersion || 'OK') : 'Недоступний' }}
-                <span v-if="claudeAuth.binaryPath" class="text-medium-emphasis"> · {{ claudeAuth.binaryPath }}</span>
-              </v-list-item-subtitle>
-            </v-list-item>
             <v-list-item v-if="claudeAuth.loggedIn" class="px-0">
               <v-list-item-title class="text-body-2">Акаунт</v-list-item-title>
               <v-list-item-subtitle class="text-caption">
@@ -2007,6 +2016,9 @@ const claudeLoginPolling = ref(false);
 const claudeLoginSessionId = ref('');
 const claudeLoginAuthUrl = ref('');
 let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
+let claudeLoginPopup: Window | null = null;
+
+const CLAUDE_LOGIN_POPUP_FEATURES = 'width=640,height=720,scrollbars=yes,resizable=yes';
 
 const claudeAuthStatusLabel = computed(() => {
   if (!claudeAuth.value) return '—';
@@ -2041,12 +2053,48 @@ async function loadClaudeAuth(manual = false, fresh = manual) {
   }
 }
 
+function closeClaudeLoginPopup() {
+  if (claudeLoginPopup && !claudeLoginPopup.closed) {
+    claudeLoginPopup.close();
+  }
+  claudeLoginPopup = null;
+}
+
+/** Open OAuth URL — sync popup on click avoids browser popup blockers after await. */
+function navigateClaudeLoginPopup(url: string): boolean {
+  claudeLoginAuthUrl.value = url;
+  if (claudeLoginPopup && !claudeLoginPopup.closed) {
+    claudeLoginPopup.location.href = url;
+    claudeLoginPopup.focus();
+    return true;
+  }
+  claudeLoginPopup = window.open(url, 'claude_oauth', CLAUDE_LOGIN_POPUP_FEATURES);
+  if (claudeLoginPopup) {
+    claudeLoginPopup.focus();
+    return true;
+  }
+  return false;
+}
+
+function openClaudeLoginLink() {
+  if (!claudeLoginAuthUrl.value) return;
+  if (!navigateClaudeLoginPopup(claudeLoginAuthUrl.value)) {
+    claudeAuthError.value =
+      'Не вдалося відкрити вікно. Дозвольте спливаючі вікна для цього сайту.';
+  }
+}
+
 function stopClaudeLoginPoll() {
   if (claudeLoginPollTimer) {
     clearInterval(claudeLoginPollTimer);
     claudeLoginPollTimer = null;
   }
   claudeLoginPolling.value = false;
+}
+
+function finishClaudeLoginFlow() {
+  stopClaudeLoginPoll();
+  closeClaudeLoginPopup();
 }
 
 async function pollClaudeLoginOnce() {
@@ -2056,23 +2104,32 @@ async function pollClaudeLoginOnce() {
       '/settings/claude-auth/login/status',
       { params: { sessionId: claudeLoginSessionId.value } },
     );
-    if (data.authUrl) claudeLoginAuthUrl.value = data.authUrl;
+    if (data.authUrl && !claudeLoginAuthUrl.value) {
+      if (!navigateClaudeLoginPopup(data.authUrl)) {
+        claudeAuthError.value =
+          'Дозвольте спливаючі вікна або натисніть «Відкрити вхід» нижче.';
+      }
+    } else if (data.authUrl) {
+      claudeLoginAuthUrl.value = data.authUrl;
+    }
 
     if (data.status === 'completed') {
-      stopClaudeLoginPoll();
+      finishClaudeLoginFlow();
       claudeLoginSessionId.value = '';
+      claudeLoginAuthUrl.value = '';
       if (data.auth) claudeAuth.value = data.auth;
       else await loadClaudeAuth(false);
       await refreshClaudeUsage(true);
       return;
     }
     if (data.status === 'failed' || data.status === 'cancelled') {
-      stopClaudeLoginPoll();
+      finishClaudeLoginFlow();
       claudeAuthError.value = data.error ?? 'Авторизацію не завершено';
       claudeLoginSessionId.value = '';
+      claudeLoginAuthUrl.value = '';
     }
   } catch (e: any) {
-    stopClaudeLoginPoll();
+    finishClaudeLoginFlow();
     claudeAuthError.value = e.response?.data?.error ?? 'Помилка перевірки авторизації';
   }
 }
@@ -2083,12 +2140,20 @@ function startClaudeLoginPoll() {
   void pollClaudeLoginOnce();
   claudeLoginPollTimer = setInterval(() => {
     void pollClaudeLoginOnce();
-  }, 2500);
+  }, 1000);
 }
 
 async function startClaudeLogin() {
-  claudeLoginStarting.value = true;
+  if (claudeLoginStarting.value || claudeLoginPolling.value) return;
+
   claudeAuthError.value = '';
+  claudeLoginAuthUrl.value = '';
+  closeClaudeLoginPopup();
+
+  // Sync window before await — otherwise browsers block popup after API response.
+  claudeLoginPopup = window.open('about:blank', 'claude_oauth', CLAUDE_LOGIN_POPUP_FEATURES);
+
+  claudeLoginStarting.value = true;
   try {
     const { data } = await api.post<{
       sessionId: string;
@@ -2098,18 +2163,26 @@ async function startClaudeLogin() {
     }>('/settings/claude-auth/login/start');
 
     if (data.error && !data.sessionId) {
+      closeClaudeLoginPopup();
       claudeAuthError.value = data.error;
       return;
     }
 
     claudeLoginSessionId.value = data.sessionId;
+
     if (data.authUrl) {
-      claudeLoginAuthUrl.value = data.authUrl;
-      window.open(data.authUrl, '_blank', 'noopener,noreferrer');
+      if (!navigateClaudeLoginPopup(data.authUrl)) {
+        claudeAuthError.value =
+          'Дозвольте спливаючі вікна або натисніть «Відкрити вхід» нижче.';
+      }
+    } else if (!claudeLoginPopup || claudeLoginPopup.closed) {
+      claudeAuthError.value =
+        'Дозвольте спливаючі вікна для цього сайту — без них вхід не відкриється.';
     }
 
     startClaudeLoginPoll();
   } catch (e: any) {
+    closeClaudeLoginPopup();
     claudeAuthError.value = e.response?.data?.error ?? 'Не вдалося запустити вхід';
   } finally {
     claudeLoginStarting.value = false;
@@ -2129,6 +2202,7 @@ async function cancelClaudeLogin() {
   stopClaudeLoginPoll();
   claudeLoginSessionId.value = '';
   claudeLoginAuthUrl.value = '';
+  closeClaudeLoginPopup();
   await loadClaudeAuth(false);
 }
 
@@ -3106,7 +3180,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  stopClaudeLoginPoll();
+  finishClaudeLoginFlow();
 });
 </script>
 
