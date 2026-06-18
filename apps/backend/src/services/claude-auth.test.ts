@@ -21,3 +21,24 @@ describe('extractClaudeAuthUrl', () => {
     expect(extractClaudeAuthUrl('not logged in')).toBeNull();
   });
 });
+
+describe('buildClaudeAuthPromptBlock', () => {
+  it('includes logged-in snapshot fields', async () => {
+    const { buildClaudeAuthPromptBlock } = await import('./claude-auth.js');
+    const block = buildClaudeAuthPromptBlock({
+      binaryOk: true,
+      binaryPath: '/home/tkp/.local/bin/claude',
+      binaryVersion: '2.1.181',
+      loggedIn: true,
+      authMethod: 'oauth',
+      email: 'user@example.com',
+      subscriptionType: 'pro',
+      orgName: null,
+      error: null,
+      loginInProgress: false,
+    });
+    expect(block).toContain('<claude_runtime>');
+    expect(block).toContain('"loggedIn": true');
+    expect(block).toContain('user@example.com');
+  });
+});

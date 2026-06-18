@@ -12,6 +12,7 @@ import {
 } from '../services/meta-agent-teach.js';
 import { buildMetaAgentSystemPrompt, parseAllDiffs } from './meta-agent.js';
 import { loadCatalogSnippet } from '../services/prompt-builder.js';
+import { getClaudeAuthStatus } from '../services/claude-auth.js';
 
 interface TeachChatBody {
   message: string;
@@ -93,11 +94,15 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
 
       const history = buildClaudeHistoryFromMessages(priorMessages);
 
-      const catalogSnippet = await loadCatalogSnippet();
+      const [catalogSnippet, claudeAuth] = await Promise.all([
+        loadCatalogSnippet(),
+        getClaudeAuthStatus(),
+      ]);
       const metaAgentPrompt = buildMetaAgentSystemPrompt(
         activePrompt.content,
         undefined,
         catalogSnippet,
+        claudeAuth,
       );
 
       let response;

@@ -1,5 +1,17 @@
 {
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(claude --version)",
+      "Bash(claude --version *)",
+      "Bash(claude auth status)",
+      "Bash(claude auth status *)",
+      "Bash(~/.local/bin/claude --version)",
+      "Bash(~/.local/bin/claude --version *)",
+      "Bash(~/.local/bin/claude auth status)",
+      "Bash(~/.local/bin/claude auth status *)"
+    ]
   }
 }

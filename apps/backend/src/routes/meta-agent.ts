@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { config } from '../config.js';
 import { loadCatalogSnippet } from '../services/prompt-builder.js';
+import { getClaudeAuthStatus, buildClaudeAuthPromptBlock, type ClaudeAuthStatus } from '../services/claude-auth.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +50,7 @@ export function buildMetaAgentSystemPrompt(
   currentPromptContent: string,
   conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
   catalogSnippet?: string,
+  claudeAuth?: ClaudeAuthStatus,
 ): string {
   let contextBlock = '';
   if (conversationContext && conversationContext.length > 0) {
@@ -70,6 +72,8 @@ ${formatted}
 ${catalogSnippet.trim()}
 </catalog_snapshot>`;
   }
+
+  const claudeAuthBlock = claudeAuth ? buildClaudeAuthPromptBlock(claudeAuth) : '';
 
   return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
 
@@ -114,7 +118,7 @@ ${catalogSnippet.trim()}
 
 <current_prompt>
 ${currentPromptContent}
-</current_prompt>${contextBlock}${catalogBlock}`;
+</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}`;
 }
 
 /**
@@ -274,12 +278,16 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         promptContent = activePrompt.content;
       }
 
-      // 2. Build meta-agent system prompt (catalog snapshot for product-aware edits)
-      const catalogSnippet = await loadCatalogSnippet();
+      // 2. Build meta-agent system prompt (catalog + Claude auth snapshot)
+      const [catalogSnippet, claudeAuth] = await Promise.all([
+        loadCatalogSnippet(),
+        getClaudeAuthStatus(),
+      ]);
       const metaAgentPrompt = buildMetaAgentSystemPrompt(
         promptContent,
         Array.isArray(conversationContext) ? conversationContext : undefined,
         catalogSnippet,
+        claudeAuth,
       );
 
       // 3. Call Claude

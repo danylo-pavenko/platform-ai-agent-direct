@@ -176,6 +176,33 @@ function attachLoginListeners(session: LoginSession): void {
   }, URL_WAIT_MS);
 }
 
+/** Compact snapshot for meta-agent / supervisor prompts (no secrets). */
+export function formatClaudeAuthSnapshot(status: ClaudeAuthStatus): Record<string, unknown> {
+  return {
+    binaryOk: status.binaryOk,
+    binaryPath: status.binaryPath,
+    binaryVersion: status.binaryVersion,
+    loggedIn: status.loggedIn,
+    email: status.email,
+    subscriptionType: status.subscriptionType,
+    authMethod: status.authMethod,
+    loginInProgress: status.loginInProgress,
+    error: status.error,
+  };
+}
+
+/** XML block injected into meta-agent system prompt. */
+export function buildClaudeAuthPromptBlock(status: ClaudeAuthStatus): string {
+  const snapshot = JSON.stringify(formatClaudeAuthSnapshot(status), null, 2);
+  return `\n\n<claude_runtime>
+Стан Claude CLI на цьому інстансі (read-only, оновлюється на кожен запит):
+${snapshot}
+
+Якщо адмін питає, чи авторизований Claude / чи працює CLI — відповідай з цих даних.
+Не пропонуй запускати shell-команди для перевірки auth.
+</claude_runtime>`;
+}
+
 /** Full Claude auth status for tenant admin. */
 export async function getClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
   cleanupExpiredSessions();

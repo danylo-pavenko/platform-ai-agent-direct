@@ -21,6 +21,13 @@ data/
 *.swp
 *.swo
 
+# Claude Code — machine-local permission overrides (may contain dev paths/secrets)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+
 # OS
 .DS_Store
 Thumbs.db

@@ -69,6 +69,15 @@ interface DiagnosticSnapshot {
     activePromptVersion: number | null;
     handoffRatePct: number | null;
   };
+  claudeAuth: {
+    binaryOk: boolean;
+    loggedIn: boolean;
+    binaryVersion: string | null;
+    email: string | null;
+    subscriptionType: string | null;
+    loginInProgress: boolean;
+    error: string | null;
+  };
 }
 
 // ── Diagnostic snapshot ──────────────────────────────────────────────────────
@@ -106,6 +115,7 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
     lastManagerReply,
     activePrompt,
     handoffConvos,
+    claudeAuthStatus,
   ] = await Promise.all([
     prisma.conversation.count(),
     prisma.conversation.groupBy({
@@ -171,6 +181,7 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
     prisma.conversation.count({
       where: { state: 'handoff', createdAt: { gte: t30d } },
     }),
+    getClaudeAuthStatus(),
   ]);
 
   const byState: Record<string, number> = {
@@ -229,6 +240,15 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
       activePromptVersion: activePrompt?.version ?? null,
       handoffRatePct,
     },
+    claudeAuth: {
+      binaryOk: claudeAuthStatus.binaryOk,
+      loggedIn: claudeAuthStatus.loggedIn,
+      binaryVersion: claudeAuthStatus.binaryVersion,
+      email: claudeAuthStatus.email,
+      subscriptionType: claudeAuthStatus.subscriptionType,
+      loginInProgress: claudeAuthStatus.loginInProgress,
+      error: claudeAuthStatus.error,
+    },
   };
 }
 
@@ -241,7 +261,8 @@ function buildSupervisorSystemPrompt(snapshot: DiagnosticSnapshot): string {
     '',
     'Твоя роль: відповідати на питання про стан саме цього інстансу —',
     'чи використовується агент, чи є активність у діалогах, чи бот відповідає,',
-    'чи часто втручається менеджер, тощо. Спілкування — українською мовою.',
+    'чи авторизований Claude CLI, чи часто втручається менеджер, тощо.',
+    'Спілкування — українською мовою.',
     '',
     'Відповідай лаконічно: 2-6 речень. Наводь конкретні числа зі зведення нижче,',
     'позначай тривожні сигнали (довго немає активності, високий handoff-rate,',
