@@ -184,7 +184,23 @@ dig +short api-test.direct-ai-agents.com   # має повернути VPS IP
 
 ## 6. Provisioning нового клієнта
 
-### Platform mode (рекомендовано)
+### Через Super Admin (рекомендовано)
+
+1. **Clients → + Add Client**
+2. **Domain mode:** `Platform — api-{slug}.direct-ai-agents.com`
+3. **Instance ID:** slug (`cultura`, `acme`, …) — домени, Linux user і App Dir підставляються автоматично
+4. **Ports:** підтягуються з `/api/tenants/platform-defaults` (наступна вільна пара)
+5. **Save** → **Provision / Deploy**
+
+Super-admin при першому deploy:
+
+- викликає `provision-client.sh` (user, PostgreSQL, nginx, TLS, clone, повний `.env`)
+- мержить `envExtra` + `SUPERVISOR_SHARED_SECRET` з super-admin
+- запускає `deploy-client.sh`
+
+Legacy клієнти: **Domain mode → Custom**, домени вручну (як Status Blessed).
+
+### CLI — platform mode
 
 ```bash
 # Явні порти

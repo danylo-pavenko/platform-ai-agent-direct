@@ -1064,11 +1064,13 @@ createApp({
     function onInstanceIdInput() {
       modal.form.instanceId = modal.form.instanceId.toLowerCase().replace(/[^a-z0-9-]/g, '');
       applyPlatformFieldsFromSlug();
+      if (modal.form.domainMode === 'platform' && /^[a-z0-9-]{2,24}$/.test(modal.form.instanceId)) {
+        loadPlatformDefaults(modal.form.instanceId);
+      }
     }
 
     async function loadPlatformDefaults(slug) {
       try {
-        const q = slug ? `?instanceId=${encodeURIComponent(slug)}` |` : '';
         const url = `${BASE}/tenants/platform-defaults${slug ? `?instanceId=${encodeURIComponent(slug)}` : ''}`;
         const r = await fetch(url, { headers: authHeaders() });
         if (!r.ok) return;
@@ -1523,15 +1525,18 @@ createApp({
     function openAddModal() {
       modal.editing = null;
       modal.form = emptyForm();
-      modal.advancedOpen = true;
+      modal.advancedOpen = false;
       modal.open = true;
+      loadPlatformDefaults('');
     }
 
     function openEditModal(t) {
       modal.editing = t.id;
+      const platform = t.apiDomain && t.apiDomain.startsWith('api-') && t.apiDomain.endsWith('.' + PLATFORM_BASE_DOMAIN);
       modal.form = {
         instanceId: t.instanceId,
         name: t.name,
+        domainMode: platform ? 'platform' : 'custom',
         apiDomain: t.apiDomain,
         adminDomain: t.adminDomain,
         apiPort: t.apiPort,
@@ -1554,6 +1559,13 @@ createApp({
     }
 
     async function saveTenant() {
+      if (!/^[a-z0-9-]{2,24}$/.test(modal.form.instanceId || '')) {
+        alert('Instance ID: латиниця a-z, цифри, дефіс; 2–24 символи.');
+        return;
+      }
+      if (modal.form.domainMode === 'platform') applyPlatformFieldsFromSlug();
+      if (!modal.form.linuxUser) modal.form.linuxUser = modal.form.instanceId;
+      if (!modal.form.appDir) modal.form.appDir = `/home/${modal.form.instanceId}/platform-ai-agent-direct`;
       if (modal.form.accessMode === 'until' && !modal.form.accessExpiresAt) {
         alert('Вкажіть дату, до якої діє доступ, або оберіть "Вічний".');
         return;
@@ -1562,7 +1574,7 @@ createApp({
       try {
         const url = modal.editing ? `${BASE}/tenants/${modal.editing}` : `${BASE}/tenants`;
         const method = modal.editing ? 'PUT' : 'POST';
-        const { accessMode, accessExpiresAt, instagramRoutingIdsText, ...rest } = modal.form;
+        const { accessMode, accessExpiresAt, instagramRoutingIdsText, domainMode, ...rest } = modal.form;
         const routingExtra = (instagramRoutingIdsText || '')
           .split(',')
           .map((s) => s.trim())
@@ -1727,6 +1739,7 @@ createApp({
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
+      onInstanceIdInput, applyDomainMode,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
       openLinkStats, closeLinkStats, loadLinkTimeline, renderLinkChart, formatChartTime,
       loadLeads, updateLeadStatus, formatDate,
