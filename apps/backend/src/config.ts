@@ -7,6 +7,23 @@ import { z } from 'zod';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 dotenvConfig({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
+/** Empty/missing env strings must not become NaN via z.coerce.number(). */
+function envCoerceNumber(opts: {
+  default: number;
+  min?: number;
+  max?: number;
+}): z.ZodType<number> {
+  let schema = z.coerce.number();
+  if (opts.min != null) schema = schema.min(opts.min);
+  if (opts.max != null) schema = schema.max(opts.max);
+  return z.preprocess((val) => {
+    if (val === undefined || val === null) return undefined;
+    if (typeof val === 'string' && val.trim() === '') return undefined;
+    if (typeof val === 'number' && Number.isNaN(val)) return undefined;
+    return val;
+  }, schema.default(opts.default));
+}
+
 const envSchema = z.object({
   // Identity
   INSTANCE_ID: z.string().default('sb'),
@@ -81,13 +98,13 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((v) => v.toLowerCase() === 'true'),
-  CONVERSATION_RETRY_INTERVAL_MIN: z.coerce.number().min(1).default(5),
+  CONVERSATION_RETRY_INTERVAL_MIN: envCoerceNumber({ default: 5, min: 1 }),
   /** Wait after inbound before first retry — lets the live webhook turn finish. */
-  CONVERSATION_RETRY_MIN_AGE_MS: z.coerce.number().min(30_000).default(120_000),
-  CONVERSATION_RETRY_MAX_AGE_MS: z.coerce.number().min(60_000).default(86_400_000),
-  CONVERSATION_RETRY_BATCH_SIZE: z.coerce.number().min(1).max(50).default(15),
+  CONVERSATION_RETRY_MIN_AGE_MS: envCoerceNumber({ default: 120_000, min: 30_000 }),
+  CONVERSATION_RETRY_MAX_AGE_MS: envCoerceNumber({ default: 86_400_000, min: 60_000 }),
+  CONVERSATION_RETRY_BATCH_SIZE: envCoerceNumber({ default: 15, min: 1, max: 50 }),
   /** Initial attempt + automatic retries (fallback-only replies count toward limit). */
-  CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: z.coerce.number().min(1).max(5).default(3),
+  CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: envCoerceNumber({ default: 3, min: 1, max: 5 }),
 
   // Auth
   JWT_SECRET: z.string().min(16),
