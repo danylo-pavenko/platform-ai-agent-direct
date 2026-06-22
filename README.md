@@ -331,6 +331,17 @@ bash infra/scripts/deploy-super-admin.sh
 
 ### Step 3 — Onboard a client
 
+**Platform subdomains** (recommended for new clients — see [docs/TENANT-DOMAINS-AND-SCALING.md](./docs/TENANT-DOMAINS-AND-SCALING.md)):
+
+```bash
+# One-time: wildcard DNS *.direct-ai-agents.com + setup-platform-wildcard-tls.sh
+
+bash infra/scripts/provision-client.sh cultura "Cultura Barbershop" --platform-auto
+# → api-cultura.direct-ai-agents.com, agent-cultura.direct-ai-agents.com
+```
+
+**Custom domains** (legacy, e.g. Status Blessed):
+
 ```bash
 # DNS A-records for api.status-blessed.com + agent.status-blessed.com → server IP
 

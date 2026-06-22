@@ -24,6 +24,7 @@ import {
   getClaudeAuthStatus,
   getClaudeLoginStatus,
   startClaudeAuthLogin,
+  submitClaudeAuthCode,
 } from '../services/claude-auth.js';
 
 const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
@@ -301,6 +302,27 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: 'Session not found or expired' });
       }
       return status;
+    },
+  );
+
+  /** POST /settings/claude-auth/login/code — pipe OAuth callback code into CLI stdin. */
+  app.post<{ Body: { sessionId?: string; code?: string } }>(
+    '/claude-auth/login/code',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const sessionId = request.body?.sessionId?.trim();
+      const code = request.body?.code?.trim();
+      if (!sessionId) {
+        return reply.code(400).send({ error: 'sessionId is required' });
+      }
+      if (!code) {
+        return reply.code(400).send({ error: 'code is required' });
+      }
+      const result = submitClaudeAuthCode(sessionId, code);
+      if (!result.ok) {
+        return reply.code(400).send({ error: result.error ?? 'Не вдалося надіслати код' });
+      }
+      return { ok: true };
     },
   );
 

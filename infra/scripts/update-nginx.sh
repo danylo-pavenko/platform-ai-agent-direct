@@ -14,8 +14,11 @@
 #
 set -euo pipefail
 
-# ── Load .env ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/tenant-domains.sh
+source "${SCRIPT_DIR}/lib/tenant-domains.sh"
+
+# ── Load .env ──
 ENV_FILE="${ENV_FILE:-${SCRIPT_DIR}/../../.env}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
@@ -62,13 +65,21 @@ echo "  API:   https://${API_DOMAIN}  → :${API_PORT}"
 echo "  Admin: https://${ADMIN_DOMAIN} → :${ADMIN_PORT} (+ /api/ → :${API_PORT})"
 echo "══════════════════════════════════════════════"
 
-# Check TLS certs exist
-for domain in "${API_DOMAIN}" "${ADMIN_DOMAIN}"; do
-  if [[ ! -d "/etc/letsencrypt/live/${domain}" ]]; then
-    echo "WARNING: TLS cert not found for ${domain} — using self-signed placeholder."
-    echo "         Run certbot to obtain a real cert, then re-run this script."
-  fi
-done
+WILDCARD_SSL_DIR="$(tenant_domains_resolve_ssl_cert_dir "${API_DOMAIN}" "${ADMIN_DOMAIN}")"
+if [[ -n "${WILDCARD_SSL_DIR}" ]]; then
+  ADMIN_SSL_DIR="${WILDCARD_SSL_DIR}"
+  API_SSL_DIR="${WILDCARD_SSL_DIR}"
+  echo "TLS: platform wildcard (${WILDCARD_SSL_DIR})"
+else
+  ADMIN_SSL_DIR="$(tenant_domains_per_domain_cert_dir "${ADMIN_DOMAIN}")"
+  API_SSL_DIR="$(tenant_domains_per_domain_cert_dir "${API_DOMAIN}")"
+  for domain in "${API_DOMAIN}" "${ADMIN_DOMAIN}"; do
+    if [[ ! -d "/etc/letsencrypt/live/${domain}" ]]; then
+      echo "WARNING: TLS cert not found for ${domain} — nginx may fail to reload."
+      echo "         Run certbot to obtain a cert, or set up platform wildcard TLS."
+    fi
+  done
+fi
 
 # ── Remove conflicting configs (same domains, different filename) ──
 for conf in /etc/nginx/sites-enabled/*; do
@@ -98,8 +109,8 @@ server {
     listen [::]:443 ssl http2;
     server_name ${ADMIN_DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${ADMIN_DOMAIN}/privkey.pem;
+    ssl_certificate     ${ADMIN_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${ADMIN_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -133,8 +144,8 @@ server {
     listen [::]:443 ssl http2;
     server_name ${API_DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+    ssl_certificate     ${API_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${API_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     client_max_body_size 10m;

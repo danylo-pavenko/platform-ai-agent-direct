@@ -3,6 +3,14 @@ import { extractClaudeAuthUrl } from './claude-auth.js';
 import { isClaudeAuthFailure } from './claude.js';
 
 describe('extractClaudeAuthUrl', () => {
+  it('extracts claude.com oauth URL from CLI output', () => {
+    const text =
+      "Opening browser to sign in…\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc\n";
+    expect(extractClaudeAuthUrl(text)).toBe(
+      'https://claude.com/cai/oauth/authorize?code=true&state=abc',
+    );
+  });
+
   it('extracts claude.ai oauth URL from CLI output', () => {
     const text =
       'Opening browser...\nIf browser does not open, visit:\nhttps://claude.ai/oauth/authorize?code=abc123&state=xyz\n';

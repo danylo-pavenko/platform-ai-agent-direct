@@ -10,8 +10,11 @@ import {
 
 const log = pino({ name: 'claude-auth' });
 
-const SESSION_TTL_MS = 10 * 60 * 1000;
-const URL_WAIT_MS = 45_000;
+/** Tenant has this long to open the OAuth URL and paste the callback code. */
+const SESSION_TTL_MS = 5 * 60 * 1000;
+/** Fail only if CLI never prints an OAuth URL within this window. */
+const URL_WAIT_MS = 60_000;
+const START_URL_WAIT_MS = 30_000;
 const LOGIN_RATE_LIMIT_MS = 60_000;
 const LIVE_AUTH_CACHE_MS = 45_000;
 
@@ -53,6 +56,7 @@ interface LoginSession {
   error: string | null;
   child: ChildProcess | null;
   output: string;
+  codeSubmitted: boolean;
 }
 
 const sessions = new Map<string, LoginSession>();
@@ -86,10 +90,20 @@ export function stripAnsi(text: string): string {
 export function extractClaudeAuthUrl(text: string): string | null {
   const clean = stripAnsi(text);
   const match = clean.match(
-    /https:\/\/(?:claude\.ai|console\.anthropic\.com)\/[^\s"'<>)\]]+/i,
+    /https:\/\/(?:claude\.(?:ai|com)|console\.anthropic\.com)\/[^\s"'<>)\]]+/i,
   );
   if (!match) return null;
   return match[0].replace(/[)\].,]+$/, '');
+}
+
+/** Headless-server env: skip real browser launch, print OAuth URL immediately. */
+function buildAuthLoginEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    CI: 'true',
+    BROWSER: process.platform === 'linux' ? '/bin/false' : 'false',
+    DISPLAY: '',
+  };
 }
 
 function parseAuthStatusJson(stdout: string): AuthStatusJson | null {
@@ -136,22 +150,24 @@ function cancelLoginSession(id: string, reason: 'cancelled' | 'expired' = 'cance
   }
   session.status = reason === 'expired' ? 'failed' : 'cancelled';
   if (reason === 'expired') {
-    session.error = 'Час сесії авторизації минув';
+    session.error = 'Час сесії авторизації минув (5 хвилин)';
   }
   session.child = null;
 }
 
 function spawnAuthLoginProcess(): ChildProcess {
   const claude = getClaudeBinaryPath();
+  const env = buildAuthLoginEnv();
+  const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe'];
   if (process.platform === 'linux') {
     return spawn('script', ['-q', '-c', `${claude} auth login`, '/dev/null'], {
-      env: { ...process.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+      stdio,
     });
   }
   return spawn(claude, ['auth', 'login'], {
-    env: { ...process.env },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    env,
+    stdio,
   });
 }
 
@@ -397,6 +413,7 @@ export async function startClaudeAuthLogin(): Promise<StartClaudeLoginResult> {
     error: null,
     child: null,
     output: '',
+    codeSubmitted: false,
   };
 
   try {
@@ -414,7 +431,7 @@ export async function startClaudeAuthLogin(): Promise<StartClaudeLoginResult> {
 
   sessions.set(sessionId, session);
   attachLoginListeners(session);
-  await waitForAuthUrl(session, 8000);
+  await waitForAuthUrl(session, START_URL_WAIT_MS);
 
   return {
     sessionId,
@@ -479,4 +496,48 @@ export function cancelClaudeAuthLogin(sessionId: string): boolean {
   if (session.status === 'completed') return true;
   cancelLoginSession(sessionId);
   return true;
+}
+
+export interface SubmitClaudeAuthCodeResult {
+  ok: boolean;
+  error: string | null;
+}
+
+/** Pipe OAuth callback code from tenant browser into the running `claude auth login` process. */
+export function submitClaudeAuthCode(
+  sessionId: string,
+  code: string,
+): SubmitClaudeAuthCodeResult {
+  cleanupExpiredSessions();
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return { ok: false, error: 'Сесію не знайдено або вона закінчилась' };
+  }
+  if (session.status !== 'waiting' && session.status !== 'starting') {
+    return { ok: false, error: 'Сесія не очікує код авторизації' };
+  }
+  if (session.codeSubmitted) {
+    return { ok: false, error: 'Код уже надіслано — зачекайте перевірки або почніть заново' };
+  }
+
+  const trimmed = code.trim();
+  if (!trimmed || trimmed.length < 10) {
+    return { ok: false, error: 'Невірний формат коду авторизації' };
+  }
+  if (!session.child?.stdin) {
+    return {
+      ok: false,
+      error: 'Процес авторизації недоступний — натисніть «Увійти в Claude» ще раз',
+    };
+  }
+
+  try {
+    session.child.stdin.write(`${trimmed}\n`);
+    session.codeSubmitted = true;
+    return { ok: true, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, sessionId }, 'Failed to write OAuth code to claude auth login stdin');
+    return { ok: false, error: message };
+  }
 }

@@ -8,15 +8,32 @@ import {
   collectTenantInstagramRoutingIds,
   normalizeInstagramRoutingIds,
 } from '../lib/tenant-webhook-routing.js';
+import {
+  INSTANCE_ID_RE,
+  defaultAppDir,
+  defaultLinuxUser,
+  platformDefaultsForSlug,
+  suggestNextPortPair,
+} from '../lib/tenant-domains.js';
+import {
+  buildEnvMergePatch,
+  buildEnvMergeScript,
+  buildProvisionClientArgs,
+  listLiveApiPorts,
+  provisionClientEnv,
+  resolveMergeEnvScriptPath,
+  resolveProvisionScriptPath,
+} from '../lib/tenant-provision.js';
+import { DEFAULT_TENANT_GIT_REPO } from '../lib/constants.js';
 
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
 
 /** Platform monorepo — same for all tenants unless overridden in Server setup. */
-export const DEFAULT_TENANT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
+export { DEFAULT_TENANT_GIT_REPO };
 
 const tenantSchema = z.object({
-  instanceId: z.string().min(1).max(10).regex(/^[a-z0-9]+$/),
+  instanceId: z.string().regex(INSTANCE_ID_RE, 'instanceId: lowercase letters, digits, hyphen; 2–24 chars'),
   name: z.string().min(1),
   apiDomain: z.string().min(1),
   adminDomain: z.string().min(1),
@@ -82,6 +99,12 @@ function prepareTenantWriteData(
 ) {
   const data: Record<string, unknown> = { ...input };
 
+  if (typeof data.instanceId === 'string') {
+    const slug = data.instanceId;
+    if (!data.linuxUser) data.linuxUser = defaultLinuxUser(slug);
+    if (!data.appDir) data.appDir = defaultAppDir(slug);
+  }
+
   if (data.instagramUserId === '') data.instagramUserId = null;
 
   if (data.facebookAppSecret === '') delete data.facebookAppSecret;
@@ -111,6 +134,30 @@ export async function tenantsRoutes(app: FastifyInstance) {
       app.log.error({ err }, 'Failed to fetch tenants');
       return reply.status(500).send({ error: 'DB error', detail: err.message });
     }
+  });
+
+  // Suggested platform hostnames + next free ports for the Add Client form.
+  app.get<{ Querystring: { instanceId?: string } }>('/api/tenants/platform-defaults', auth, async (req, reply) => {
+    const rawSlug = req.query.instanceId?.trim().toLowerCase() ?? '';
+    const slugOk = rawSlug && INSTANCE_ID_RE.test(rawSlug);
+
+    const rows = await prisma.tenant.findMany({ select: { apiPort: true, adminPort: true } });
+    const usedApiPorts = rows.map((r) => r.apiPort);
+    let nextPorts: { apiPort: number; adminPort: number };
+    try {
+      const live = await listLiveApiPorts();
+      nextPorts = suggestNextPortPair(usedApiPorts, live);
+    } catch (err: any) {
+      return reply.status(503).send({ error: err.message });
+    }
+
+    return {
+      platformBaseDomain: config.PLATFORM_BASE_DOMAIN,
+      nextPorts,
+      ...(slugOk
+        ? { slug: rawSlug, ...platformDefaultsForSlug(rawSlug) }
+        : {}),
+    };
   });
 
   // Get single tenant
@@ -264,11 +311,7 @@ export async function tenantsRoutes(app: FastifyInstance) {
     );
 
     if (checkCode !== 0) {
-      // ── Auto-provision ──────────────────────────────────────────────────────
-      // Safety guard: deploy script missing, but appDir already exists and is
-      // non-empty. That's either a half-broken install or a misconfigured
-      // tenant record (wrong appDir / linuxUser / sudo issue). Never clone or
-      // write .env over an existing directory — abort with a clear message.
+      // ── Auto-provision via provision-client.sh ─────────────────────────────
       const dirNonEmptyCode = await runStream([
         'bash', '-c',
         `sudo -u ${tenant.linuxUser} bash -c '[ -d "${tenant.appDir}" ] && [ -n "$(ls -A "${tenant.appDir}" 2>/dev/null)" ]'`,
@@ -281,99 +324,75 @@ export async function tenantsRoutes(app: FastifyInstance) {
         return;
       }
 
-      const gitRepo = tenant.gitRepo || DEFAULT_TENANT_GIT_REPO;
-      if (!gitRepo) {
-        send('[error] Git repo URL not configured. Edit the client and set Git Repo.');
+      send('[provision] Project not found — running provision-client.sh (user, DB, nginx, TLS, clone)...');
+
+      let provisionScript: string;
+      try {
+        provisionScript = await resolveProvisionScriptPath();
+      } catch (err: any) {
+        send(`[error] ${err.message}`);
         send('[✗ provision failed]');
         reply.raw.end();
         return;
       }
 
-      send('[provision] Project not found — running initial setup...');
+      const provisionArgs = buildProvisionClientArgs(tenant);
+      send(`[provision] bash ${provisionScript} ${provisionArgs.join(' ')}`);
 
-      // Build .env content from tenant fields + envExtra
-      const envLines = [
-        `INSTANCE_ID=${tenant.instanceId}`,
-        `INSTANCE_NAME=${tenant.name}`,
-        `API_DOMAIN=${tenant.apiDomain}`,
-        `ADMIN_DOMAIN=${tenant.adminDomain}`,
-        `API_PORT=${tenant.apiPort}`,
-        `ADMIN_PORT=${tenant.adminPort}`,
-        `APP_DIR=${tenant.appDir}`,
-        `LINUX_USER=${tenant.linuxUser}`,
-        tenant.envExtra?.trim() ?? '',
-      ].filter(Boolean).join('\n');
-
-      const envB64 = Buffer.from(envLines).toString('base64');
-
-      // Provision script runs as root (sudo bash -s)
-      const provisionScript = `
-set -euo pipefail
-
-TENANT_USER='${tenant.linuxUser}'
-APP_DIR='${tenant.appDir}'
-GIT_REPO='${gitRepo}'
-# Current user home (agentsadmin)
-CURRENT_HOME=$(eval echo "~$(whoami)")
-TENANT_HOME=$(eval echo "~$TENANT_USER")
-
-# ── SSH setup ──
-echo "[provision] Setting up .ssh for $TENANT_USER..."
-mkdir -p "$TENANT_HOME/.ssh"
-chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh"
-chmod 700 "$TENANT_HOME/.ssh"
-
-for KEY_TYPE in id_ed25519 id_rsa; do
-  if [ ! -f "$TENANT_HOME/.ssh/$KEY_TYPE" ] && [ -f "$CURRENT_HOME/.ssh/$KEY_TYPE" ]; then
-    cp "$CURRENT_HOME/.ssh/$KEY_TYPE" "$TENANT_HOME/.ssh/$KEY_TYPE"
-    cp "$CURRENT_HOME/.ssh/$KEY_TYPE.pub" "$TENANT_HOME/.ssh/$KEY_TYPE.pub" 2>/dev/null || true
-    chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/$KEY_TYPE" "$TENANT_HOME/.ssh/$KEY_TYPE.pub" 2>/dev/null || true
-    chmod 600 "$TENANT_HOME/.ssh/$KEY_TYPE"
-    echo "[provision] SSH key $KEY_TYPE copied from $(whoami)"
-  fi
-done
-# Fix permissions on any pre-existing keys
-for KEY_FILE in "$TENANT_HOME/.ssh/id_ed25519" "$TENANT_HOME/.ssh/id_rsa"; do
-  if [ -f "$KEY_FILE" ]; then
-    chown "$TENANT_USER:$TENANT_USER" "$KEY_FILE"
-    chmod 600 "$KEY_FILE"
-    echo "[provision] Fixed permissions on $KEY_FILE"
-  fi
-done
-
-if [ -f "$CURRENT_HOME/.ssh/authorized_keys" ] && [ ! -f "$TENANT_HOME/.ssh/authorized_keys" ]; then
-  cp "$CURRENT_HOME/.ssh/authorized_keys" "$TENANT_HOME/.ssh/authorized_keys"
-  chown "$TENANT_USER:$TENANT_USER" "$TENANT_HOME/.ssh/authorized_keys"
-  chmod 600 "$TENANT_HOME/.ssh/authorized_keys"
-  echo "[provision] authorized_keys copied"
-fi
-
-# ── Clone repo ──
-echo "[provision] Cloning $GIT_REPO..."
-sudo -u "$TENANT_USER" bash -c "GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no' git clone '$GIT_REPO' '$APP_DIR'"
-echo "[provision] Repository cloned to $APP_DIR"
-
-# ── Write .env (base64-encoded to avoid quoting issues) ──
-echo "[provision] Writing .env..."
-printf '%s' '${envB64}' | base64 -d > "$APP_DIR/.env"
-chown "$TENANT_USER:$TENANT_USER" "$APP_DIR/.env"
-chmod 600 "$APP_DIR/.env"
-echo "[provision] .env written"
-
-echo "[provision] ✓ Initial setup complete"
-`.trim();
-
-      app.log.info({ linuxUser: tenant.linuxUser }, 'Running provision script');
-      const provisionCode = await runStream(['sudo', 'bash', '-s'], provisionScript);
+      app.log.info({ provisionScript, provisionArgs }, 'Running provision-client.sh');
+      const provisionCode = await new Promise<number>((resolveExit) => {
+        const child = spawn('sudo', ['bash', provisionScript, ...provisionArgs], {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: provisionClientEnv(tenant),
+        });
+        child.stdout?.on('data', (chunk: Buffer) => {
+          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(l); });
+        });
+        child.stderr?.on('data', (chunk: Buffer) => {
+          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(`[err] ${l}`); });
+        });
+        req.raw.on('close', () => child.kill());
+        child.on('close', resolveExit);
+        child.on('error', (err: Error) => { send(`[error] ${err.message}`); resolveExit(1); });
+      });
 
       if (provisionCode !== 0) {
         send('[✗ provision failed — check errors above]');
         reply.raw.end();
         return;
       }
+
+      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, true);
+      let mergeScript = '';
+      try {
+        const mergeScriptPath = await resolveMergeEnvScriptPath();
+        mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
+      } catch (err: any) {
+        send(`[warn] env merge script not found: ${err.message}`);
+      }
+      if (mergeScript) {
+        send('[provision] Merging super-admin env overrides into .env...');
+        const mergeCode = await runStream(['sudo', 'bash', '-s'], mergeScript);
+        if (mergeCode !== 0) {
+          send('[✗ env merge failed]');
+          reply.raw.end();
+          return;
+        }
+      }
+
+      send('[provision] ✓ Server setup complete');
       send('[provision] Starting deploy...');
     } else {
       send('[check] Existing installation found — running safe update deploy (re-provision skipped, .env untouched)');
+
+      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, false);
+      try {
+        const mergeScriptPath = await resolveMergeEnvScriptPath();
+        const mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
+        if (mergeScript) await runStream(['sudo', 'bash', '-s'], mergeScript);
+      } catch {
+        // optional on redeploy
+      }
     }
 
     // ── Deploy ──────────────────────────────────────────────────────────────

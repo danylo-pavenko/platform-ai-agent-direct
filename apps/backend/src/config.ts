@@ -76,6 +76,19 @@ const envSchema = z.object({
   CLAUDE_USAGE_CHECK_INTERVAL_MIN: z.coerce.number().default(30),
   CLAUDE_USAGE_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(90),
 
+  // Retry bot replies when Claude timed out or the handler failed silently.
+  CONVERSATION_RETRY_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  CONVERSATION_RETRY_INTERVAL_MIN: z.coerce.number().min(1).default(5),
+  /** Wait after inbound before first retry — lets the live webhook turn finish. */
+  CONVERSATION_RETRY_MIN_AGE_MS: z.coerce.number().min(30_000).default(120_000),
+  CONVERSATION_RETRY_MAX_AGE_MS: z.coerce.number().min(60_000).default(86_400_000),
+  CONVERSATION_RETRY_BATCH_SIZE: z.coerce.number().min(1).max(50).default(15),
+  /** Initial attempt + automatic retries (fallback-only replies count toward limit). */
+  CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: z.coerce.number().min(1).max(5).default(3),
+
   // Auth
   JWT_SECRET: z.string().min(16),
   JWT_EXPIRES_IN: z.string().default('7d'),

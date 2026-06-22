@@ -702,8 +702,8 @@
       <!-- Identity -->
       <div class="form-row">
         <div class="field">
-          <label>Instance ID *</label>
-          <input v-model="modal.form.instanceId" placeholder="tkp" :disabled="!!modal.editing" />
+          <label>Instance ID * <span style="color:var(--muted);font-weight:400">(slug, a-z0-9-, 2–24)</span></label>
+          <input v-model="modal.form.instanceId" placeholder="cultura" :disabled="!!modal.editing" @input="onInstanceIdInput" />
         </div>
         <div class="field">
           <label>Name *</label>
@@ -712,15 +712,25 @@
       </div>
 
       <!-- Domains -->
+      <div class="field" style="margin-bottom:10px">
+        <label>Domain mode</label>
+        <select v-model="modal.form.domainMode" @change="applyDomainMode">
+          <option value="platform">Platform — api-{slug}.direct-ai-agents.com</option>
+          <option value="custom">Custom — власні домени (legacy)</option>
+        </select>
+      </div>
       <div class="form-row">
         <div class="field">
           <label>API Domain *</label>
-          <input v-model="modal.form.apiDomain" placeholder="api.client.com" />
+          <input v-model="modal.form.apiDomain" placeholder="api-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
         </div>
         <div class="field">
           <label>Admin Domain *</label>
-          <input v-model="modal.form.adminDomain" placeholder="agent.client.com" />
+          <input v-model="modal.form.adminDomain" placeholder="agent-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
         </div>
+      </div>
+      <div v-if="modal.form.domainMode==='platform'" style="font-size:11px;color:var(--muted);margin:-6px 0 12px">
+        Авто від Instance ID. Потрібен wildcard DNS/TLS на *.direct-ai-agents.com (див. docs/TENANT-DOMAINS-AND-SCALING.md).
       </div>
 
       <!-- Ports + Status -->
@@ -1017,9 +1027,65 @@ createApp({
     });
 
     const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
+    const PLATFORM_BASE_DOMAIN = 'direct-ai-agents.com';
 
     function emptyForm() {
-      return { instanceId:'', name:'', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo: DEFAULT_GIT_REPO, envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
+      return { instanceId:'', name:'', domainMode:'platform', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo: DEFAULT_GIT_REPO, envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
+    }
+
+    function platformDomainsForSlug(slug) {
+      const s = String(slug || '').trim().toLowerCase();
+      if (!s) return { apiDomain: '', adminDomain: '', linuxUser: '', appDir: '' };
+      return {
+        apiDomain: `api-${s}.${PLATFORM_BASE_DOMAIN}`,
+        adminDomain: `agent-${s}.${PLATFORM_BASE_DOMAIN}`,
+        linuxUser: s,
+        appDir: `/home/${s}/platform-ai-agent-direct`,
+      };
+    }
+
+    function applyPlatformFieldsFromSlug() {
+      if (modal.form.domainMode !== 'platform') return;
+      const d = platformDomainsForSlug(modal.form.instanceId);
+      modal.form.apiDomain = d.apiDomain;
+      modal.form.adminDomain = d.adminDomain;
+      if (!modal.editing) {
+        modal.form.linuxUser = d.linuxUser;
+        modal.form.appDir = d.appDir;
+      }
+    }
+
+    function applyDomainMode() {
+      if (modal.form.domainMode === 'platform') {
+        applyPlatformFieldsFromSlug();
+      }
+    }
+
+    function onInstanceIdInput() {
+      modal.form.instanceId = modal.form.instanceId.toLowerCase().replace(/[^a-z0-9-]/g, '');
+      applyPlatformFieldsFromSlug();
+    }
+
+    async function loadPlatformDefaults(slug) {
+      try {
+        const q = slug ? `?instanceId=${encodeURIComponent(slug)}` |` : '';
+        const url = `${BASE}/tenants/platform-defaults${slug ? `?instanceId=${encodeURIComponent(slug)}` : ''}`;
+        const r = await fetch(url, { headers: authHeaders() });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.nextPorts && !modal.editing) {
+          modal.form.apiPort = d.nextPorts.apiPort;
+          modal.form.adminPort = d.nextPorts.adminPort;
+        }
+        if (slug && d.apiDomain) {
+          modal.form.apiDomain = d.apiDomain;
+          modal.form.adminDomain = d.adminDomain;
+          modal.form.linuxUser = d.linuxUser;
+          modal.form.appDir = d.appDir;
+        }
+      } catch (e) {
+        console.warn('platform-defaults failed', e);
+      }
     }
 
     const modal = reactive({

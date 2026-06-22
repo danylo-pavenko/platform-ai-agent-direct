@@ -35,6 +35,11 @@ const schema = z.object({
   LANDING_BASE_URL: z.string().url().default('https://direct-ai-agents.com'),
   // Public base URL for generated short links (usually same as landing)
   TRACKING_LINK_BASE_URL: z.string().url().default('https://direct-ai-agents.com'),
+  // Platform tenant subdomain pattern: api-{slug}.BASE / agent-{slug}.BASE
+  PLATFORM_BASE_DOMAIN: z.string().min(3).default('direct-ai-agents.com'),
+  PLATFORM_PORT_BASE: z.coerce.number().int().default(3100),
+  PLATFORM_PORT_STEP: z.coerce.number().int().default(100),
+  PLATFORM_PORT_MAX: z.coerce.number().int().default(9900),
 });
 
 const parsed = schema.safeParse(process.env);

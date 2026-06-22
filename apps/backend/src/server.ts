@@ -86,6 +86,8 @@ app.get('/health', async () => {
 // Graceful shutdown
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down...`);
+  const { stopConversationRetryMonitor } = await import('./services/conversation-retry.js');
+  stopConversationRetryMonitor();
   await app.close();
   await prisma.$disconnect();
   process.exit(0);
@@ -103,6 +105,9 @@ try {
 
   const { startClaudeUsageMonitor } = await import('./services/claude-usage-monitor.js');
   startClaudeUsageMonitor(app.log);
+
+  const { startConversationRetryMonitor } = await import('./services/conversation-retry.js');
+  startConversationRetryMonitor(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

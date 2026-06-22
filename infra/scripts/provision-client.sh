@@ -2,32 +2,54 @@
 #
 # provision-client.sh — Onboard a new client (tenant) onto the platform
 #
-# Run as root:
+# Legacy (custom domains — unchanged):
 #   bash provision-client.sh <INSTANCE_ID> <CLIENT_NAME> <API_DOMAIN> <ADMIN_DOMAIN> <API_PORT> <ADMIN_PORT>
 #
-# Example:
-#   bash provision-client.sh blessed Blessed api.status-blessed.com agent.status-blessed.com 3100 3101
-#   bash provision-client.sh mb MyBrand api.mybrand.com admin.mybrand.com 3200 3201
+# Platform (auto api-{slug}.direct-ai-agents.com / agent-{slug}.direct-ai-agents.com):
+#   bash provision-client.sh <INSTANCE_ID> <CLIENT_NAME> --platform <API_PORT> <ADMIN_PORT>
+#   bash provision-client.sh <INSTANCE_ID> <CLIENT_NAME> --platform-auto
 #
-# What this does:
-#   - Creates Linux user {instance_id} (home: /home/{instance_id})
-#   - Creates PostgreSQL DB {instance_id}_agent with a dedicated user
-#   - Clones the platform repo to /home/{instance_id}/platform-ai-agent-direct
-#   - Generates .env from template with all provided values
-#   - Creates NGINX vhost for API and Admin domains
-#   - Obtains TLS certificates via Certbot
-#   - Registers tenant in platform_admin DB (if available)
-#   - Prints next steps (including: claude auth login)
+# Examples:
+#   bash provision-client.sh blessed Blessed api.status-blessed.com agent.status-blessed.com 3100 3101
+#   bash provision-client.sh cultura "Cultura Barbershop" --platform 3200 3201
+#   bash provision-client.sh acme "Acme Store" --platform-auto
+#
+# See docs/TENANT-DOMAINS-AND-SCALING.md for DNS, wildcard TLS, and multi-server roadmap.
 #
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/tenant-domains.sh
+source "${SCRIPT_DIR}/lib/tenant-domains.sh"
+
+PLATFORM_MODE=false
+
 # ── Args ──
-INSTANCE_ID="${1:?Usage: $0 <INSTANCE_ID> <CLIENT_NAME> <API_DOMAIN> <ADMIN_DOMAIN> <API_PORT> <ADMIN_PORT>}"
-CLIENT_NAME="${2:?Missing CLIENT_NAME}"
-API_DOMAIN="${3:?Missing API_DOMAIN}"
-ADMIN_DOMAIN="${4:?Missing ADMIN_DOMAIN}"
-API_PORT="${5:?Missing API_PORT}"
-ADMIN_PORT="${6:?Missing ADMIN_PORT}"
+if [[ "${3:-}" == "--platform" ]]; then
+  PLATFORM_MODE=true
+  INSTANCE_ID="${1:?Missing INSTANCE_ID}"
+  CLIENT_NAME="${2:?Missing CLIENT_NAME}"
+  API_PORT="${4:?Missing API_PORT (--platform mode)}"
+  ADMIN_PORT="${5:?Missing ADMIN_PORT (--platform mode)}"
+  tenant_domains_from_slug "${INSTANCE_ID}"
+elif [[ "${3:-}" == "--platform-auto" ]]; then
+  PLATFORM_MODE=true
+  INSTANCE_ID="${1:?Missing INSTANCE_ID}"
+  CLIENT_NAME="${2:?Missing CLIENT_NAME}"
+  read -r API_PORT ADMIN_PORT < <(tenant_domains_next_free_port_pair)
+  tenant_domains_from_slug "${INSTANCE_ID}"
+else
+  INSTANCE_ID="${1:?Missing INSTANCE_ID — run without args for usage}"
+  CLIENT_NAME="${2:?Missing CLIENT_NAME}"
+  API_DOMAIN="${3:?Missing API_DOMAIN}"
+  ADMIN_DOMAIN="${4:?Missing ADMIN_DOMAIN}"
+  API_PORT="${5:?Missing API_PORT}"
+  ADMIN_PORT="${6:?Missing ADMIN_PORT}"
+  tenant_domains_validate_instance_id "${INSTANCE_ID}" || {
+    tenant_domains_usage
+    exit 1
+  }
+fi
 
 # ── Config ──
 INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
@@ -46,9 +68,15 @@ PG_USER="${INSTANCE_ID}_agent"
 PLATFORM_REPO="${PLATFORM_REPO:-git@github.com:danylo-pavenko/platform-ai-agent-direct.git}"
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
 
+DOMAIN_MODE="legacy"
+if [[ "${PLATFORM_MODE}" == true ]]; then
+  DOMAIN_MODE="platform (${PLATFORM_BASE_DOMAIN})"
+fi
+
 echo "══════════════════════════════════════════════"
 echo "  Platform — Provision Client: ${CLIENT_NAME}"
 echo "  Instance ID: ${INSTANCE_ID_UPPER}"
+echo "  Domain mode: ${DOMAIN_MODE}"
 echo "  Linux user:  ${LINUX_USER}"
 echo "  App dir:     ${APP_DIR}"
 echo "  API:   https://${API_DOMAIN}"
@@ -91,6 +119,29 @@ fi
 # Re-resolve APP_DIR now that user definitely exists
 USER_HOME=$(getent passwd "${LINUX_USER}" | cut -d: -f6)
 APP_DIR="${USER_HOME}/platform-ai-agent-direct"
+
+# ── 1b. SSH keys for git clone (super-admin / manual provision) ──
+PROVISION_SOURCE_USER="${PROVISION_SOURCE_USER:-agentsadmin}"
+if getent passwd "${PROVISION_SOURCE_USER}" &>/dev/null; then
+  SOURCE_HOME=$(getent passwd "${PROVISION_SOURCE_USER}" | cut -d: -f6)
+  mkdir -p "${USER_HOME}/.ssh"
+  chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh"
+  chmod 700 "${USER_HOME}/.ssh"
+  for KEY_TYPE in id_ed25519 id_rsa; do
+    if [ ! -f "${USER_HOME}/.ssh/${KEY_TYPE}" ] && [ -f "${SOURCE_HOME}/.ssh/${KEY_TYPE}" ]; then
+      cp "${SOURCE_HOME}/.ssh/${KEY_TYPE}" "${USER_HOME}/.ssh/${KEY_TYPE}"
+      cp "${SOURCE_HOME}/.ssh/${KEY_TYPE}.pub" "${USER_HOME}/.ssh/${KEY_TYPE}.pub" 2>/dev/null || true
+      chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh/${KEY_TYPE}" "${USER_HOME}/.ssh/${KEY_TYPE}.pub" 2>/dev/null || true
+      chmod 600 "${USER_HOME}/.ssh/${KEY_TYPE}"
+      echo "  SSH key ${KEY_TYPE} copied from ${PROVISION_SOURCE_USER}"
+    fi
+  done
+  if [ -f "${SOURCE_HOME}/.ssh/known_hosts" ] && [ ! -f "${USER_HOME}/.ssh/known_hosts" ]; then
+    cp "${SOURCE_HOME}/.ssh/known_hosts" "${USER_HOME}/.ssh/known_hosts"
+    chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh/known_hosts"
+    chmod 644 "${USER_HOME}/.ssh/known_hosts"
+  fi
+fi
 
 # ── 2. PostgreSQL ──
 echo "[2/8] Creating PostgreSQL database '${PG_DB}'..."
@@ -256,22 +307,32 @@ nginx -t && systemctl reload nginx
 
 # ── 6. TLS certificates ──
 echo "[6/8] Obtaining TLS certificates..."
-if [ -z "${CERTBOT_EMAIL}" ]; then
-  read -rp "  Enter email for Let's Encrypt: " CERTBOT_EMAIL
-fi
-
-for domain in "${API_DOMAIN}" "${ADMIN_DOMAIN}"; do
-  if [ ! -d "/etc/letsencrypt/live/${domain}" ]; then
-    certbot certonly --nginx \
-      --non-interactive \
-      --agree-tos \
-      --email "${CERTBOT_EMAIL}" \
-      -d "${domain}"
-    echo "  Certificate: ${domain}"
-  else
-    echo "  Certificate already exists: ${domain}"
+WILDCARD_SSL_DIR="$(tenant_domains_resolve_ssl_cert_dir "${API_DOMAIN}" "${ADMIN_DOMAIN}")"
+if [[ -n "${WILDCARD_SSL_DIR}" ]]; then
+  ADMIN_SSL_DIR="${WILDCARD_SSL_DIR}"
+  API_SSL_DIR="${WILDCARD_SSL_DIR}"
+  echo "  Using platform wildcard cert: ${WILDCARD_SSL_DIR}"
+else
+  if [ -z "${CERTBOT_EMAIL}" ]; then
+    read -rp "  Enter email for Let's Encrypt: " CERTBOT_EMAIL
   fi
-done
+
+  for domain in "${API_DOMAIN}" "${ADMIN_DOMAIN}"; do
+    if [ ! -d "/etc/letsencrypt/live/${domain}" ]; then
+      certbot certonly --nginx \
+        --non-interactive \
+        --agree-tos \
+        --email "${CERTBOT_EMAIL}" \
+        -d "${domain}"
+      echo "  Certificate: ${domain}"
+    else
+      echo "  Certificate already exists: ${domain}"
+    fi
+  done
+
+  ADMIN_SSL_DIR="$(tenant_domains_per_domain_cert_dir "${ADMIN_DOMAIN}")"
+  API_SSL_DIR="$(tenant_domains_per_domain_cert_dir "${API_DOMAIN}")"
+fi
 
 # Install full HTTPS NGINX config
 cat > "${NGINX_CONF}" <<NGINX
@@ -281,8 +342,8 @@ server {
     listen [::]:443 ssl http2;
     server_name ${ADMIN_DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${ADMIN_DOMAIN}/privkey.pem;
+    ssl_certificate     ${ADMIN_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${ADMIN_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -314,8 +375,8 @@ server {
     listen [::]:443 ssl http2;
     server_name ${API_DOMAIN};
 
-    ssl_certificate     /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
+    ssl_certificate     ${API_SSL_DIR}/fullchain.pem;
+    ssl_certificate_key ${API_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
     client_max_body_size 10m;
@@ -412,7 +473,12 @@ echo "  3. Deploy the app:"
 echo "     su - ${LINUX_USER}"
 echo "     bash ${APP_DIR}/infra/scripts/deploy-client.sh"
 echo ""
-echo "  4. Subscribe Instagram webhook:"
-echo "     URL: https://${API_DOMAIN}/webhooks/instagram"
-echo "     Verify token: see IG_WEBHOOK_VERIFY_TOKEN in .env"
+echo "  4. Instagram webhooks:"
+if [[ "${PLATFORM_MODE}" == true ]]; then
+  echo "     Platform hub (recommended): https://admin.${PLATFORM_BASE_DOMAIN}/webhooks/instagram"
+  echo "     Direct tenant URL (fallback): https://${API_DOMAIN}/webhooks/instagram"
+else
+  echo "     URL: https://${API_DOMAIN}/webhooks/instagram"
+fi
+echo "     Verify token: see IG_WEBHOOK_VERIFY_TOKEN in .env (tenant) or PLATFORM_WEBHOOK_VERIFY_TOKEN (hub)"
 echo ""

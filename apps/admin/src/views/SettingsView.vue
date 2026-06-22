@@ -122,22 +122,180 @@
           </v-alert>
 
           <v-alert
-            v-if="claudeAuth && !claudeAuth.loggedIn"
+            v-if="claudeAuth && !claudeAuth.loggedIn && !claudeLoginActive"
             type="warning"
             variant="tonal"
             density="compact"
             class="mb-3"
           >
-            <div class="font-weight-medium mb-1">Потрібна авторизація агента</div>
+            <div class="font-weight-medium mb-1">
+              {{ claudeAuth.sessionExpired ? 'Сесія Claude застаріла' : 'Потрібна авторизація агента' }}
+            </div>
             <div class="text-caption">
-              Сесія Claude застаріла або відсутня. Зверніться до адміністратора платформи,
-              щоб авторизувати вашого агента.
+              AI-агент не може відповідати клієнтам, поки не увійдете в підписку Claude
+              (Pro або Max) з цього акаунта.
             </div>
             <div v-if="claudeAuth.email" class="text-caption mt-2 text-medium-emphasis">
               Останній акаунт: {{ claudeAuth.email }}
               <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
             </div>
+            <v-btn
+              v-if="claudeAuth.binaryOk"
+              color="indigo"
+              variant="flat"
+              size="small"
+              class="mt-3"
+              prepend-icon="mdi-login"
+              :loading="claudeLoginLoading"
+              :disabled="claudeLoginLoading"
+              @click="startClaudeLogin"
+            >
+              Увійти в Claude
+            </v-btn>
           </v-alert>
+
+          <v-card
+            v-if="claudeLoginActive"
+            variant="outlined"
+            class="mb-3"
+          >
+            <v-card-title class="text-body-1 font-weight-medium py-3">
+              Вхід у Claude
+            </v-card-title>
+            <v-card-text class="pt-0">
+              <v-alert
+                v-if="claudeLoginError"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="mb-3"
+              >
+                {{ claudeLoginError }}
+              </v-alert>
+
+              <v-stepper
+                :model-value="claudeLoginStep"
+                flat
+                class="claude-login-stepper"
+              >
+                <v-stepper-header>
+                  <v-stepper-item :value="1" title="Посилання" />
+                  <v-divider />
+                  <v-stepper-item :value="2" title="Код" />
+                  <v-divider />
+                  <v-stepper-item :value="3" title="Готово" />
+                </v-stepper-header>
+              </v-stepper>
+
+              <div v-if="claudeLoginStep === 1" class="mt-3">
+                <p class="text-body-2 mb-2">
+                  1. Відкрийте посилання в браузері, де ви вже залогінені в Claude
+                  (той самий акаунт Pro/Max).
+                </p>
+                <p v-if="!claudeLoginAuthUrl" class="text-caption text-medium-emphasis mb-2">
+                  Генеруємо посилання…
+                </p>
+                <v-text-field
+                  v-else
+                  :model-value="claudeLoginAuthUrl"
+                  label="Посилання для авторизації"
+                  readonly
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mb-2"
+                />
+                <div class="d-flex flex-wrap ga-2">
+                  <v-btn
+                    color="indigo"
+                    variant="flat"
+                    size="small"
+                    prepend-icon="mdi-open-in-new"
+                    :disabled="!claudeLoginAuthUrl"
+                    @click="openClaudeAuthUrl"
+                  >
+                    Відкрити в браузері
+                  </v-btn>
+                  <v-btn
+                    variant="tonal"
+                    size="small"
+                    prepend-icon="mdi-content-copy"
+                    :disabled="!claudeLoginAuthUrl"
+                    @click="copyClaudeAuthUrl"
+                  >
+                    Копіювати
+                  </v-btn>
+                </div>
+                <p class="text-caption text-medium-emphasis mt-3 mb-0">
+                  Після підтвердження в браузері скопіюйте код і перейдіть до кроку 2.
+                  На вхід є 5 хвилин.
+                </p>
+              </div>
+
+              <div v-else-if="claudeLoginStep === 2" class="mt-3">
+                <p class="text-body-2 mb-2">
+                  2. Вставте код з браузера після підтвердження доступу.
+                </p>
+                <v-text-field
+                  v-model="claudeLoginCode"
+                  label="Код авторизації"
+                  placeholder="PaZZ6JWg...#jrzWU1LEs..."
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                  class="mb-3"
+                  autocomplete="off"
+                  @keyup.enter="submitClaudeLoginCode"
+                />
+                <div class="d-flex flex-wrap ga-2">
+                  <v-btn
+                    color="indigo"
+                    variant="flat"
+                    size="small"
+                    prepend-icon="mdi-check"
+                    :loading="claudeLoginSubmitting"
+                    :disabled="!claudeLoginCode.trim() || claudeLoginSubmitting"
+                    @click="submitClaudeLoginCode"
+                  >
+                    Підтвердити
+                  </v-btn>
+                  <v-btn
+                    variant="text"
+                    size="small"
+                    @click="claudeLoginStep = 1"
+                  >
+                    Назад до посилання
+                  </v-btn>
+                </div>
+              </div>
+
+              <div v-else class="mt-3">
+                <v-alert type="success" variant="tonal" density="compact">
+                  Claude авторизовано. Агент знову може відповідати клієнтам.
+                </v-alert>
+              </div>
+
+              <div v-if="claudeLoginStep < 3" class="d-flex flex-wrap ga-2 mt-4">
+                <v-btn
+                  v-if="claudeLoginAuthUrl && claudeLoginStep === 1"
+                  variant="tonal"
+                  size="small"
+                  @click="claudeLoginStep = 2"
+                >
+                  Маю код — далі
+                </v-btn>
+                <v-btn
+                  variant="text"
+                  size="small"
+                  color="error"
+                  :disabled="claudeLoginLoading"
+                  @click="cancelClaudeLogin"
+                >
+                  Скасувати
+                </v-btn>
+              </div>
+            </v-card-text>
+          </v-card>
 
           <v-list v-if="claudeAuth && claudeAuth.loggedIn" density="compact" class="pa-0">
             <v-list-item class="px-0">
@@ -1792,7 +1950,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 
 interface DaySchedule {
@@ -1985,6 +2143,174 @@ async function loadClaudeAuth(manual = false, fresh = manual) {
   } finally {
     claudeAuthLoading.value = false;
   }
+}
+
+interface ClaudeLoginStartResult {
+  sessionId: string;
+  authUrl: string | null;
+  status: string;
+  error: string | null;
+}
+
+interface ClaudeLoginStatusResult {
+  sessionId: string;
+  status: string;
+  authUrl: string | null;
+  error: string | null;
+  auth: ClaudeAuthStatus | null;
+}
+
+const CLAUDE_LOGIN_SESSION_KEY = 'claude_login_session_id';
+const claudeLoginSessionId = ref('');
+const claudeLoginAuthUrl = ref<string | null>(null);
+const claudeLoginCode = ref('');
+const claudeLoginStep = ref(1);
+const claudeLoginLoading = ref(false);
+const claudeLoginSubmitting = ref(false);
+const claudeLoginError = ref('');
+let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
+
+const claudeLoginActive = computed(() => !!claudeLoginSessionId.value);
+
+function stopClaudeLoginPoll() {
+  if (claudeLoginPollTimer) {
+    clearInterval(claudeLoginPollTimer);
+    claudeLoginPollTimer = null;
+  }
+}
+
+function resetClaudeLoginUi() {
+  stopClaudeLoginPoll();
+  claudeLoginSessionId.value = '';
+  claudeLoginAuthUrl.value = null;
+  claudeLoginCode.value = '';
+  claudeLoginStep.value = 1;
+  claudeLoginError.value = '';
+  claudeLoginLoading.value = false;
+  claudeLoginSubmitting.value = false;
+  sessionStorage.removeItem(CLAUDE_LOGIN_SESSION_KEY);
+}
+
+async function pollClaudeLoginStatus() {
+  if (!claudeLoginSessionId.value) return;
+  try {
+    const { data } = await api.get<ClaudeLoginStatusResult>('/settings/claude-auth/login/status', {
+      params: { sessionId: claudeLoginSessionId.value },
+    });
+    if (data.authUrl && !claudeLoginAuthUrl.value) {
+      claudeLoginAuthUrl.value = data.authUrl;
+    }
+    if (data.status === 'completed') {
+      stopClaudeLoginPoll();
+      claudeLoginStep.value = 3;
+      claudeLoginLoading.value = false;
+      claudeLoginSubmitting.value = false;
+      if (data.auth) {
+        claudeAuth.value = data.auth;
+      } else {
+        await loadClaudeAuth(false, true);
+      }
+      setTimeout(() => resetClaudeLoginUi(), 2500);
+      return;
+    }
+    if (data.status === 'failed' || data.status === 'cancelled') {
+      stopClaudeLoginPoll();
+      claudeLoginError.value = data.error ?? 'Авторизацію не завершено';
+      claudeLoginLoading.value = false;
+      claudeLoginSubmitting.value = false;
+    }
+  } catch (e: any) {
+    if (e.response?.status === 404) {
+      stopClaudeLoginPoll();
+      claudeLoginError.value = 'Сесія входу закінчилась (5 хвилин). Почніть заново.';
+      claudeLoginLoading.value = false;
+      claudeLoginSubmitting.value = false;
+      resetClaudeLoginUi();
+    }
+  }
+}
+
+function startClaudeLoginPoll() {
+  stopClaudeLoginPoll();
+  void pollClaudeLoginStatus();
+  claudeLoginPollTimer = setInterval(() => {
+    void pollClaudeLoginStatus();
+  }, 2000);
+}
+
+async function startClaudeLogin() {
+  if (claudeLoginLoading.value) return;
+  resetClaudeLoginUi();
+  claudeLoginLoading.value = true;
+  claudeLoginError.value = '';
+  try {
+    const { data } = await api.post<ClaudeLoginStartResult>('/settings/claude-auth/login/start');
+    if (!data.sessionId) {
+      claudeLoginError.value = data.error ?? 'Не вдалося запустити вхід';
+      return;
+    }
+    claudeLoginSessionId.value = data.sessionId;
+    sessionStorage.setItem(CLAUDE_LOGIN_SESSION_KEY, data.sessionId);
+    claudeLoginAuthUrl.value = data.authUrl;
+    claudeLoginStep.value = 1;
+    startClaudeLoginPoll();
+  } catch (e: any) {
+    claudeLoginError.value = e.response?.data?.error ?? 'Не вдалося запустити вхід у Claude';
+  } finally {
+    claudeLoginLoading.value = false;
+  }
+}
+
+function openClaudeAuthUrl() {
+  if (!claudeLoginAuthUrl.value) return;
+  window.open(claudeLoginAuthUrl.value, 'claude_oauth', 'width=640,height=720,scrollbars=yes');
+}
+
+async function copyClaudeAuthUrl() {
+  if (!claudeLoginAuthUrl.value) return;
+  try {
+    await navigator.clipboard.writeText(claudeLoginAuthUrl.value);
+    showOAuthSnackbar('Посилання скопійовано', 'success');
+  } catch {
+    showOAuthSnackbar('Не вдалося скопіювати — виділіть текст вручну', 'warning');
+  }
+}
+
+async function submitClaudeLoginCode() {
+  const code = claudeLoginCode.value.trim();
+  if (!code || !claudeLoginSessionId.value || claudeLoginSubmitting.value) return;
+  claudeLoginSubmitting.value = true;
+  claudeLoginError.value = '';
+  try {
+    await api.post('/settings/claude-auth/login/code', {
+      sessionId: claudeLoginSessionId.value,
+      code,
+    });
+    startClaudeLoginPoll();
+  } catch (e: any) {
+    claudeLoginError.value = e.response?.data?.error ?? 'Не вдалося надіслати код';
+    claudeLoginSubmitting.value = false;
+  }
+}
+
+async function cancelClaudeLogin() {
+  const sessionId = claudeLoginSessionId.value;
+  resetClaudeLoginUi();
+  if (sessionId) {
+    try {
+      await api.post('/settings/claude-auth/login/cancel', { sessionId });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function resumeClaudeLoginIfNeeded() {
+  const saved = sessionStorage.getItem(CLAUDE_LOGIN_SESSION_KEY);
+  if (!saved || claudeAuth.value?.loggedIn) return;
+  claudeLoginSessionId.value = saved;
+  claudeLoginStep.value = 1;
+  startClaudeLoginPoll();
 }
 
 interface ClaudeUsageBucket {
@@ -2957,11 +3283,19 @@ onMounted(() => {
   fetchSettings();
   fetchIntegrations();
   void refreshClaudeUsage(false);
-  void loadClaudeAuth(false, true);
+  void loadClaudeAuth(false, true).then(() => resumeClaudeLoginIfNeeded());
+});
+
+onUnmounted(() => {
+  stopClaudeLoginPoll();
 });
 </script>
 
 <style scoped>
+.claude-login-stepper :deep(.v-stepper-header) {
+  box-shadow: none;
+}
+
 /* ── Section divider title ─────────────────────────────────────────────── */
 .integrations-title {
   font-size: 15px;
