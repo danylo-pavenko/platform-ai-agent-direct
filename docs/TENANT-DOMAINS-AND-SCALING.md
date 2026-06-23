@@ -241,7 +241,7 @@ Per-domain certbot, як раніше.
 | Git clone (deploy key) | Provision | Копія `id_ed25519` з `agentsadmin` (outbound), якщо у tenant ще немає ключа |
 | Prisma migrate + seed | **Deploy** (super-admin або вручну) | — |
 | PM2, nginx vhost | Deploy | — |
-| `claude auth login` | **Вручну** | Сесія Claude Code у home tenant user (інтерактивно, не автоматизується) |
+| `claude auth login` | **Вручну** (tenant admin Settings або SSH) | CLI ставиться автоматично (`setup-claude-cli.sh`); OAuth — інтерактивно |
 
 **Пароль Linux user не генерується і ніде не зберігається** — це навмисно. Доступ оператора:
 

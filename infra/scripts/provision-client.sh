@@ -211,6 +211,13 @@ mkdir -p "${APP_DIR}/uploads"
 chown -R "${LINUX_USER}:${LINUX_USER}" "${APP_DIR}"
 chmod 750 "${APP_DIR}"
 
+echo "  Installing Claude Code CLI for ${LINUX_USER} (idempotent)..."
+if [ -f "${APP_DIR}/infra/scripts/setup-claude-cli.sh" ]; then
+  sudo -u "${LINUX_USER}" bash "${APP_DIR}/infra/scripts/setup-claude-cli.sh"
+else
+  echo "  WARN: setup-claude-cli.sh not found — git pull main and re-run deploy-client.sh"
+fi
+
 # ── 4. Generate .env ──
 echo "[4/8] Generating .env for ${INSTANCE_ID_UPPER}..."
 ENV_FILE="${APP_DIR}/.env"
@@ -504,9 +511,9 @@ echo "     nano ${APP_DIR}/.env"
 echo "     # Set: TELEGRAM_BOT_TOKEN, TELEGRAM_MANAGER_GROUP_ID"
 echo "     # Set: CRM_PROVIDER + KEYCRM_API_KEY (if needed)"
 echo ""
-echo "  2. Authenticate Claude Code (INTERACTIVE — opens browser):"
-echo "     su - ${LINUX_USER}"
-echo "     claude auth login"
+echo "  2. Authenticate Claude Code (CLI is installed automatically; OAuth is manual):"
+echo "     Tenant admin → Settings → Claude login"
+echo "     or: su - ${LINUX_USER} && claude auth login"
 echo ""
 echo "  3. Deploy the app:"
 echo "     su - ${LINUX_USER}"

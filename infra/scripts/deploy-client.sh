@@ -58,15 +58,19 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "══════════════════════════════════════════════"
 
 # ── 1. Pull latest ──
-echo "[1/10] Pulling latest code..."
+echo "[1/11] Pulling latest code..."
 git pull --ff-only
 
-# ── 2. Install dependencies ──
-echo "[2/10] Installing dependencies..."
+# ── 2. Claude Code CLI (idempotent) ──
+echo "[2/11] Ensuring Claude Code CLI..."
+bash "${SCRIPT_DIR}/setup-claude-cli.sh"
+
+# ── 3. Install dependencies ──
+echo "[3/11] Installing dependencies..."
 npm ci --prefer-offline
 
-# ── 2b. faster-whisper STT (idempotent) ──
-echo "[3/10] Setting up faster-whisper STT (idempotent)..."
+# ── 3b. faster-whisper STT (idempotent) ──
+echo "[4/11] Setting up faster-whisper STT (idempotent)..."
 if [ "${STT_ENABLED:-true}" = "true" ]; then
   bash "${SCRIPT_DIR}/setup-whisper.sh"
   load_env_file
@@ -74,30 +78,30 @@ else
   echo "  STT_ENABLED=false — skipping whisper setup"
 fi
 
-# ── 3. Generate Prisma client ──
-echo "[4/10] Generating Prisma client..."
+# ── 4. Generate Prisma client ──
+echo "[5/11] Generating Prisma client..."
 cd apps/backend
 npx prisma generate
 cd "${PROJECT_ROOT}"
 
-# ── 4. Run migrations ──
-echo "[5/10] Running database migrations..."
+# ── 5. Run migrations ──
+echo "[6/11] Running database migrations..."
 cd apps/backend
 npx prisma migrate deploy
 cd "${PROJECT_ROOT}"
 
-# ── 5. Seed admin user + default settings ──
-echo "[6/10] Seeding admin user and default settings..."
+# ── 6. Seed admin user + default settings ──
+echo "[7/11] Seeding admin user and default settings..."
 cd apps/backend
 npx prisma db seed
 cd "${PROJECT_ROOT}"
 
-# ── 6. Bootstrap tenant knowledge (seed missing files only) ──
-echo "[7/10] Bootstrapping tenant knowledge..."
+# ── 7. Bootstrap tenant knowledge (seed missing files only) ──
+echo "[8/11] Bootstrapping tenant knowledge..."
 npm run bootstrap:knowledge
 
-# ── 7. Build backend ──
-echo "[8/10] Building backend..."
+# ── 8. Build backend ──
+echo "[9/11] Building backend..."
 if ! npm run build:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Build failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
@@ -109,7 +113,7 @@ if [ ! -f "${BACKEND_ENTRY}" ]; then
   exit 1
 fi
 
-echo "[8b/10] Running backend unit tests..."
+echo "[9b/11] Running backend unit tests..."
 if ! npm run test:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Unit tests failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
@@ -118,7 +122,7 @@ fi
 
 # ── 8. Build admin panel ──
 if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
-  echo "[9/10] Building admin panel..."
+  echo "[10/11] Building admin panel..."
   if ! npm run build:admin >>"${DEPLOY_LOG}" 2>&1; then
     echo "  Admin build failed — see ${DEPLOY_LOG}" >&2
     tail -40 "${DEPLOY_LOG}" >&2
@@ -130,7 +134,7 @@ if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
     exit 1
   fi
 else
-  echo "[9/10] Admin panel not built yet — skipping"
+  echo "[10/11] Admin panel not built yet — skipping"
 fi
 
 # ── 9b. Whisper port sanity (multi-tenant VPS) ──
@@ -143,8 +147,8 @@ if [ "${STT_ENABLED:-true}" = "true" ]; then
   fi
 fi
 
-# ── 10. Restart PM2 ──
-echo "[10/10] Restarting PM2 processes..."
+# ── 11. Restart PM2 ──
+echo "[11/11] Restarting PM2 processes..."
 PM2_PREFIX="${INSTANCE_ID_UPPER}"
 
 # Use full restart (not graceful reload): cluster-mode reload performs a
