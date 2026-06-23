@@ -141,11 +141,17 @@ export async function tenantsRoutes(app: FastifyInstance) {
     const rawSlug = req.query.instanceId?.trim().toLowerCase() ?? '';
     const slugOk = rawSlug && INSTANCE_ID_RE.test(rawSlug);
 
-    const rows = await prisma.tenant.findMany({ select: { apiPort: true, adminPort: true } });
+    const rows = await prisma.tenant.findMany({
+      select: { instanceId: true, name: true, apiPort: true, adminPort: true },
+      orderBy: { apiPort: 'asc' },
+    });
     const usedApiPorts = rows.map((r) => r.apiPort);
     let nextPorts: { apiPort: number; adminPort: number };
+    let liveListeningPorts: number[] = [];
     try {
       const live = await listLiveApiPorts();
+      const { PLATFORM_PORT_BASE, PLATFORM_PORT_MAX } = config;
+      liveListeningPorts = live.filter((p) => p >= PLATFORM_PORT_BASE && p <= PLATFORM_PORT_MAX);
       nextPorts = suggestNextPortPair(usedApiPorts, live);
     } catch (err: any) {
       return reply.status(503).send({ error: err.message });
@@ -154,6 +160,13 @@ export async function tenantsRoutes(app: FastifyInstance) {
     return {
       platformBaseDomain: config.PLATFORM_BASE_DOMAIN,
       nextPorts,
+      portPolicy: {
+        base: config.PLATFORM_PORT_BASE,
+        step: config.PLATFORM_PORT_STEP,
+        max: config.PLATFORM_PORT_MAX,
+      },
+      registeredPortPairs: rows,
+      liveListeningPorts,
       ...(slugOk
         ? { slug: rawSlug, ...platformDefaultsForSlug(rawSlug) }
         : {}),

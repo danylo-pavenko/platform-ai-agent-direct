@@ -163,6 +163,43 @@
     .modal-section-toggle .toggle-arrow { font-size: 10px; transition: transform .2s; }
     .modal-section-toggle.open .toggle-arrow { transform: rotate(180deg); }
     .field-group { padding: 2px 0 6px; }
+    .field-label { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+    .field-label-text { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .req { color: var(--warn); font-weight: 700; }
+    .info-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 18px; height: 18px; padding: 0; border: none; border-radius: 50%;
+      background: rgba(124,110,255,.12); color: var(--accent2); font-size: 11px;
+      font-weight: 700; cursor: help; flex-shrink: 0; line-height: 1;
+    }
+    .info-btn:hover { background: rgba(124,110,255,.22); }
+    .form-required-note { font-size: 11px; color: var(--muted); margin: -8px 0 14px; }
+    .field-hint-inline { font-size: 11px; color: var(--muted); margin: -6px 0 10px; line-height: 1.45; }
+    .modal-tenant { width: 620px; max-width: 96vw; }
+    .port-panel {
+      margin: 4px 0 14px; padding: 12px 14px; border-radius: 8px;
+      background: rgba(124,110,255,.06); border: 1px solid rgba(124,110,255,.18);
+    }
+    .port-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .port-panel-head strong { font-size: 12px; color: var(--text); }
+    .port-panel-hint { font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 10px; }
+    .port-pairs { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
+    .port-pair-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      font-size: 11px; padding: 6px 8px; border-radius: 6px; background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    .port-pair-row.is-suggested { border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.06); }
+    .port-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .port-chip {
+      display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px;
+      border-radius: 6px; font-size: 11px; font-weight: 600; font-family: ui-monospace, monospace;
+      border: 1px solid var(--border); background: var(--bg);
+    }
+    .port-chip-api { color: var(--accent2); border-color: rgba(124,110,255,.25); }
+    .port-chip-admin { color: #7dd3fc; border-color: rgba(125,211,252,.25); }
+    .port-chip-whisper { color: var(--muted); font-weight: 500; }
+    .port-conflict-warn { font-size: 11px; color: var(--warn); margin-top: 6px; }
     .deploy-log { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 12px; font-family: monospace; font-size: 11px; color: #a0ffb0; max-height: 380px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; min-height: 80px; }
     .deploy-log .err-line { color: #ff8080; }
     .deploy-log-wrap { position: relative; }
@@ -389,6 +426,7 @@
                 <tr>
                   <th>Client</th>
                   <th>API Domain</th>
+                  <th>Ports</th>
                   <th>Status</th>
                   <th>Access</th>
                   <th>Health</th>
@@ -397,7 +435,7 @@
               </thead>
               <tbody>
                 <tr v-if="tenants.length===0" class="empty-row">
-                  <td colspan="6">No clients yet. Add your first client.</td>
+                  <td colspan="7">No clients yet. Add your first client.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
                   <td class="cell-primary">
@@ -405,6 +443,13 @@
                     <div style="font-size:11px;color:var(--muted)">{{ t.instanceId.toUpperCase() }}</div>
                   </td>
                   <td data-label="API Domain" style="color:var(--muted);font-size:12px;word-break:break-all">{{ t.apiDomain }}</td>
+                  <td data-label="Ports">
+                    <span class="port-chips">
+                      <span class="port-chip port-chip-api" title="Fastify API">API :{{ t.apiPort }}</span>
+                      <span class="port-chip port-chip-admin" title="Vue admin">Admin :{{ t.adminPort }}</span>
+                      <span class="port-chip port-chip-whisper" title="Whisper STT">STT :{{ tenantWhisperPort(t.apiPort) }}</span>
+                    </span>
+                  </td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
                   <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
                   <td data-label="Health">
@@ -463,7 +508,13 @@
                   </td>
                   <td data-label="API Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.apiDomain }}</td>
                   <td data-label="Admin Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.adminDomain }}</td>
-                  <td data-label="Ports" style="font-size:12px;color:var(--muted)">:{{ t.apiPort }} / :{{ t.adminPort }}</td>
+                  <td data-label="Ports">
+                    <span class="port-chips">
+                      <span class="port-chip port-chip-api" title="Fastify API">API :{{ t.apiPort }}</span>
+                      <span class="port-chip port-chip-admin" title="Vue admin">Admin :{{ t.adminPort }}</span>
+                      <span class="port-chip port-chip-whisper" title="Whisper STT">STT :{{ tenantWhisperPort(t.apiPort) }}</span>
+                    </span>
+                  </td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
                   <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
                   <td data-label="Actions">
@@ -696,24 +747,35 @@
 
   <!-- ── Add/Edit Modal ── -->
   <div class="modal-overlay" v-if="modal.open" @click.self="modal.open=false">
-    <div class="modal" style="width:560px">
+    <div class="modal modal-tenant">
       <h2>{{ modal.editing ? '✏️ Edit Client' : '+ Add Client' }}</h2>
+      <p v-if="!modal.editing" class="form-required-note"><span class="req">*</span> — обовʼязкове поле. Наведіть на <span class="info-btn" style="cursor:default;vertical-align:middle">i</span> для підказки.</p>
 
       <!-- Identity -->
       <div class="form-row">
         <div class="field">
-          <label>Instance ID * <span style="color:var(--muted);font-weight:400">(slug, a-z0-9-, 2–24)</span></label>
+          <div class="field-label">
+            <span class="field-label-text">Instance ID <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
+          </div>
           <input v-model="modal.form.instanceId" placeholder="cultura" :disabled="!!modal.editing" @input="onInstanceIdInput" />
+          <p class="field-hint-inline">Латиниця a-z, цифри, дефіс; 2–24 символи. = Linux user, slug у домені, PM2 prefix.</p>
         </div>
         <div class="field">
-          <label>Name *</label>
-          <input v-model="modal.form.name" placeholder="TKP" />
+          <div class="field-label">
+            <span class="field-label-text">Name <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+          </div>
+          <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
         </div>
       </div>
 
       <!-- Domains -->
       <div class="field" style="margin-bottom:10px">
-        <label>Domain mode</label>
+        <div class="field-label">
+          <span class="field-label-text">Domain mode</span>
+          <button type="button" class="info-btn" :title="fieldHints.domainMode" aria-label="Підказка">i</button>
+        </div>
         <select v-model="modal.form.domainMode" @change="applyDomainMode">
           <option value="platform">Platform — api-{slug}.direct-ai-agents.com</option>
           <option value="custom">Custom — власні домени (legacy)</option>
@@ -721,31 +783,81 @@
       </div>
       <div class="form-row">
         <div class="field">
-          <label>API Domain *</label>
+          <div class="field-label">
+            <span class="field-label-text">API Domain <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.apiDomain" aria-label="Підказка">i</button>
+          </div>
           <input v-model="modal.form.apiDomain" placeholder="api-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
         </div>
         <div class="field">
-          <label>Admin Domain *</label>
+          <div class="field-label">
+            <span class="field-label-text">Admin Domain <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.adminDomain" aria-label="Підказка">i</button>
+          </div>
           <input v-model="modal.form.adminDomain" placeholder="agent-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
         </div>
       </div>
-      <div v-if="modal.form.domainMode==='platform'" style="font-size:11px;color:var(--muted);margin:-6px 0 12px">
-        Авто від Instance ID. Потрібен wildcard DNS/TLS на *.direct-ai-agents.com (див. docs/TENANT-DOMAINS-AND-SCALING.md).
+      <div v-if="modal.form.domainMode==='platform'" class="field-hint-inline" style="margin-bottom:12px">
+        Авто від Instance ID. Потрібен wildcard DNS/TLS на <code>*.direct-ai-agents.com</code> (див. docs/TENANT-DOMAINS-AND-SCALING.md).
       </div>
 
-      <!-- Ports + Status -->
-      <div class="form-row">
-        <div class="field">
-          <label>API Port *</label>
-          <input v-model.number="modal.form.apiPort" type="number" placeholder="3110" />
+      <!-- Ports -->
+      <div v-if="!modal.editing" class="port-panel">
+        <div class="port-panel-head">
+          <strong>Розподіл портів на VPS</strong>
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="portDefaults.loading" @click="refreshPortDefaults">
+            {{ portDefaults.loading ? '…' : '↻ Оновити' }}
+          </button>
         </div>
-        <div class="field">
-          <label>Admin Port *</label>
-          <input v-model.number="modal.form.adminPort" type="number" placeholder="3111" />
+        <p class="port-panel-hint">
+          Наступна вільна пара: реєстр клієнтів у super-admin
+          <strong>+</strong> реальні слухачі на сервері (<code>ss -tln</code>).
+          Крок {{ portDefaults.portPolicy?.step || 100 }}: API {{ portDefaults.portPolicy?.base || 3100 }},
+          Admin = API+1, Whisper STT = API+5000.
+        </p>
+        <div v-if="portDefaults.error" class="port-conflict-warn">{{ portDefaults.error }}</div>
+        <div v-else class="port-pairs">
+          <div
+            v-for="row in portRegistryRows"
+            :key="row.key"
+            class="port-pair-row"
+            :class="{ 'is-suggested': row.suggested }"
+          >
+            <span>
+              <template v-if="row.suggested">→ Рекомендовано для нового клієнта</template>
+              <template v-else><strong>{{ row.instanceId }}</strong> · {{ row.name }}</template>
+            </span>
+            <span class="port-chips">
+              <span class="port-chip port-chip-api" title="Fastify API">API :{{ row.apiPort }}</span>
+              <span class="port-chip port-chip-admin" title="Vue admin (serve)">Admin :{{ row.adminPort }}</span>
+              <span class="port-chip port-chip-whisper" title="Whisper STT (API+5000)">STT :{{ row.whisperPort }}</span>
+            </span>
+          </div>
+          <div v-if="portRegistryRows.length===0" style="font-size:11px;color:var(--muted)">Ще немає зареєстрованих пар — буде {{ portDefaults.portPolicy?.base || 3100 }}/{{ (portDefaults.portPolicy?.base || 3100) + 1 }}</div>
         </div>
       </div>
+      <div class="form-row">
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">API Port <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.apiPort" aria-label="Підказка">i</button>
+          </div>
+          <input v-model.number="modal.form.apiPort" type="number" placeholder="3200" />
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">Admin Port <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.adminPort" aria-label="Підказка">i</button>
+          </div>
+          <input v-model.number="modal.form.adminPort" type="number" placeholder="3201" />
+        </div>
+      </div>
+      <p v-if="portConflictWarning" class="port-conflict-warn">{{ portConflictWarning }}</p>
       <div class="field">
-        <label>Status <span style="color:var(--muted);font-weight:400">— suspended = повне блокування доступу до адмінки</span></label>
+        <div class="field-label">
+          <span class="field-label-text">Status</span>
+          <button type="button" class="info-btn" :title="fieldHints.status" aria-label="Підказка">i</button>
+        </div>
         <select v-model="modal.form.status">
           <option value="provisioned">Provisioned</option>
           <option value="active">Active</option>
@@ -756,14 +868,20 @@
       <!-- Admin panel access (subscription) -->
       <div class="form-row">
         <div class="field">
-          <label>Доступ до адмінки</label>
+          <div class="field-label">
+            <span class="field-label-text">Доступ до адмінки</span>
+            <button type="button" class="info-btn" :title="fieldHints.accessMode" aria-label="Підказка">i</button>
+          </div>
           <select v-model="modal.form.accessMode">
             <option value="unlimited">∞ Вічний (без обмежень)</option>
             <option value="until">До дати (підписка)</option>
           </select>
         </div>
         <div class="field" v-if="modal.form.accessMode==='until'">
-          <label>Доступ діє до *</label>
+          <div class="field-label">
+            <span class="field-label-text">Доступ діє до <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.accessExpiresAt" aria-label="Підказка">i</button>
+          </div>
           <input v-model="modal.form.accessExpiresAt" type="datetime-local" />
         </div>
       </div>
@@ -773,7 +891,10 @@
 
       <!-- Env vars -->
       <div class="field" style="margin-top:4px">
-        <label>Extra .env vars <span style="color:var(--muted);font-weight:400">— одна змінна на рядок</span></label>
+        <div class="field-label">
+          <span class="field-label-text">Extra .env vars</span>
+          <button type="button" class="info-btn" :title="fieldHints.envExtra" aria-label="Підказка">i</button>
+        </div>
         <textarea
           v-model="modal.form.envExtra"
           placeholder="DATABASE_URL=postgresql://user:pass@localhost:5432/db&#10;JWT_SECRET=...&#10;IG_PAGE_ID=...&#10;IG_PAGE_ACCESS_TOKEN=...&#10;META_APP_ID=...&#10;META_APP_SECRET=...&#10;IG_WEBHOOK_VERIFY_TOKEN=...&#10;KEYCRM_API_KEY=...&#10;DEFAULT_ADMIN_PASSWORD=change-me"
@@ -819,16 +940,25 @@
       <div v-show="modal.advancedOpen" class="field-group">
         <div class="form-row">
           <div class="field">
-            <label>Linux User *</label>
-            <input v-model="modal.form.linuxUser" placeholder="tkp" />
+            <div class="field-label">
+              <span class="field-label-text">Linux User <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.linuxUser" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.linuxUser" placeholder="cultura" />
           </div>
           <div class="field">
-            <label>App Dir *</label>
-            <input v-model="modal.form.appDir" placeholder="/home/tkp/platform-ai-agent-direct" />
+            <div class="field-label">
+              <span class="field-label-text">App Dir <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.appDir" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.appDir" placeholder="/home/cultura/platform-ai-agent-direct" />
           </div>
         </div>
         <div class="field">
-          <label>Git Repo URL <span style="color:var(--muted);font-weight:400">(for first deploy / clone)</span></label>
+          <div class="field-label">
+            <span class="field-label-text">Git Repo URL</span>
+            <button type="button" class="info-btn" :title="fieldHints.gitRepo" aria-label="Підказка">i</button>
+          </div>
           <input v-model="modal.form.gitRepo" :placeholder="DEFAULT_GIT_REPO" />
         </div>
       </div>
@@ -1029,6 +1159,36 @@ createApp({
     const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
     const PLATFORM_BASE_DOMAIN = 'direct-ai-agents.com';
 
+    const fieldHints = {
+      instanceId: 'Унікальний slug клієнта (2–24 символи). Використовується для доменів, Linux-користувача, PM2-префікса (CULTURA-api). Після створення змінити неможливо.',
+      name: 'Назва бізнесу — відображається в списку клієнтів super-admin.',
+      domainMode: 'Platform: автоматичні домени api-{slug}.direct-ai-agents.com. Custom: власні домени (legacy, окремий nginx vhost).',
+      apiDomain: 'Публічний URL backend (webhook Meta, API). Nginx proxy_pass на API Port.',
+      adminDomain: 'URL Vue-адмінки клієнта. Nginx проксіює на Admin Port.',
+      apiPort: 'Локальний порт Fastify на VPS. Пари виділяються кроком +100 (3100, 3200…). Перевіряється реєстр + ss -tln.',
+      adminPort: 'Локальний порт Vue admin (serve). Зазвичай API Port + 1.',
+      status: 'Provisioned — запис у реєстрі, deploy ще не робили. Active — в роботі. Suspended — блокує вхід у tenant admin.',
+      accessMode: 'Обмеження підписки для tenant admin. Suspended має пріоритет над датою.',
+      accessExpiresAt: 'Після цієї дати login у tenant admin буде заблоковано, доки не продовжать.',
+      envExtra: 'Додаткові змінні в .env при provision/deploy. Формат: KEY=VALUE, одна на рядок.',
+      linuxUser: 'Unix-користувач на VPS. Створюється provision-client.sh при першому Provision.',
+      appDir: 'Шлях до клону репозиторію на сервері (/home/{slug}/platform-ai-agent-direct).',
+      gitRepo: 'SSH/HTTPS URL для першого git clone при Provision.',
+    };
+
+    const portDefaults = reactive({
+      loading: false,
+      error: '',
+      nextPorts: null,
+      portPolicy: null,
+      registeredPortPairs: [],
+      liveListeningPorts: [],
+    });
+
+    function tenantWhisperPort(apiPort) {
+      return apiPort ? apiPort + 5000 : '—';
+    }
+
     function emptyForm() {
       return { instanceId:'', name:'', domainMode:'platform', apiDomain:'', adminDomain:'', apiPort:3100, adminPort:3101, linuxUser:'', appDir:'', status:'provisioned', gitRepo: DEFAULT_GIT_REPO, envExtra:'', instagramUserId:'', instagramRoutingIdsText:'', facebookAppSecret:'', accessMode:'unlimited', accessExpiresAt:'' };
     }
@@ -1070,11 +1230,21 @@ createApp({
     }
 
     async function loadPlatformDefaults(slug) {
+      portDefaults.loading = true;
+      portDefaults.error = '';
       try {
         const url = `${BASE}/tenants/platform-defaults${slug ? `?instanceId=${encodeURIComponent(slug)}` : ''}`;
         const r = await fetch(url, { headers: authHeaders() });
-        if (!r.ok) return;
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          portDefaults.error = typeof err.error === 'string' ? err.error : `HTTP ${r.status}`;
+          return;
+        }
         const d = await r.json();
+        portDefaults.nextPorts = d.nextPorts;
+        portDefaults.portPolicy = d.portPolicy;
+        portDefaults.registeredPortPairs = d.registeredPortPairs || [];
+        portDefaults.liveListeningPorts = d.liveListeningPorts || [];
         if (d.nextPorts && !modal.editing) {
           modal.form.apiPort = d.nextPorts.apiPort;
           modal.form.adminPort = d.nextPorts.adminPort;
@@ -1087,12 +1257,77 @@ createApp({
         }
       } catch (e) {
         console.warn('platform-defaults failed', e);
+        portDefaults.error = 'Не вдалося завантажити порти з сервера';
+      } finally {
+        portDefaults.loading = false;
       }
+    }
+
+    async function refreshPortDefaults() {
+      const slug = modal.form.domainMode === 'platform' ? modal.form.instanceId : '';
+      await loadPlatformDefaults(slug);
     }
 
     const modal = reactive({
       open: false, editing: null, saving: false, advancedOpen: false,
       form: emptyForm(),
+    });
+
+    const portRegistryRows = computed(() => {
+      const pairs = portDefaults.registeredPortPairs || [];
+      const rows = pairs.map((row) => ({
+        key: row.instanceId,
+        instanceId: row.instanceId,
+        name: row.name,
+        apiPort: row.apiPort,
+        adminPort: row.adminPort,
+        whisperPort: row.apiPort + 5000,
+        suggested: false,
+      }));
+      if (!modal.editing && portDefaults.nextPorts) {
+        const np = portDefaults.nextPorts;
+        rows.push({
+          key: '__suggested__',
+          instanceId: '',
+          name: '',
+          apiPort: np.apiPort,
+          adminPort: np.adminPort,
+          whisperPort: np.apiPort + 5000,
+          suggested: true,
+        });
+      }
+      return rows;
+    });
+
+    const portConflictWarning = computed(() => {
+      const api = modal.form.apiPort;
+      const admin = modal.form.adminPort;
+      if (!api || !admin) return '';
+
+      const editingTenant = modal.editing
+        ? tenants.value.find((t) => t.id === modal.editing)
+        : null;
+
+      for (const row of portDefaults.registeredPortPairs || []) {
+        if (editingTenant && row.instanceId === editingTenant.instanceId) continue;
+        const ports = [row.apiPort, row.adminPort];
+        if (ports.includes(api) || ports.includes(admin)) {
+          return `Конфлікт: порти зайняті клієнтом «${row.instanceId}» (API :${row.apiPort}, Admin :${row.adminPort}).`;
+        }
+      }
+
+      const live = portDefaults.liveListeningPorts || [];
+      const ownPorts = editingTenant ? [editingTenant.apiPort, editingTenant.adminPort] : [];
+      if (live.includes(api) && !ownPorts.includes(api)) {
+        return `Порт :${api} уже слухає процес на VPS (ss -tln) — оберіть іншу пару.`;
+      }
+      if (live.includes(admin) && !ownPorts.includes(admin)) {
+        return `Порт :${admin} уже слухає процес на VPS (ss -tln) — оберіть іншу пару.`;
+      }
+      if (!modal.editing && admin !== api + 1) {
+        return `Зазвичай Admin Port = API Port + 1 (зараз ${api} / ${admin}).`;
+      }
+      return '';
     });
 
     const links = ref([]);
@@ -1527,6 +1762,9 @@ createApp({
       modal.form = emptyForm();
       modal.advancedOpen = false;
       modal.open = true;
+      portDefaults.nextPorts = null;
+      portDefaults.registeredPortPairs = [];
+      portDefaults.liveListeningPorts = [];
       loadPlatformDefaults('');
     }
 
@@ -1735,11 +1973,12 @@ createApp({
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
       chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
+      fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort,
       links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
-      onInstanceIdInput, applyDomainMode,
+      onInstanceIdInput, applyDomainMode, refreshPortDefaults,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
       openLinkStats, closeLinkStats, loadLinkTimeline, renderLinkChart, formatChartTime,
       loadLeads, updateLeadStatus, formatDate,
