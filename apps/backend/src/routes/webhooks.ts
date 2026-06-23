@@ -22,6 +22,7 @@ import {
   getRuntimeConfig,
   shouldProcessIncoming,
 } from '../lib/runtime-config.js';
+import { evaluateBotAccessForClient } from '../lib/platform-bot-access.js';
 
 // ── Meta webhook payload types (subset we care about) ──
 
@@ -703,6 +704,16 @@ async function processMessageEvent(
           'Heuristic client contact persist or CRM mirror failed (non-fatal)',
         );
       });
+  }
+
+  // Platform subscription expired — skip bot for new / stale IG clients (message kept in DB).
+  const botAccess = await evaluateBotAccessForClient(client.id);
+  if (!botAccess.allow) {
+    app.log.info(
+      { clientId: client.id, conversationId: conversation.id, reason: botAccess.reason },
+      'Platform access gate — bot response skipped',
+    );
+    return;
   }
 
   // Enqueue Claude turn asynchronously (don't await - webhook already responded)

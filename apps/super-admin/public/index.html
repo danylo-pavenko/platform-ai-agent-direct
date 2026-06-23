@@ -68,6 +68,10 @@
     /* ── Badge ── */
     .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 100px; font-size: 11px; font-weight: 600; }
     .badge-active { background: rgba(34,197,94,.12); color: var(--success); }
+    .badge-btn { border: none; cursor: pointer; font: inherit; transition: opacity .15s; }
+    .badge-btn:hover { opacity: .85; }
+    .access-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    .access-presets .btn { flex: 1 1 calc(50% - 8px); min-width: 120px; justify-content: center; }
     .badge-provisioned { background: rgba(245,158,11,.12); color: var(--warn); }
     .badge-suspended { background: rgba(239,68,68,.12); color: var(--danger); }
     .badge::before { content: '●'; font-size: 7px; }
@@ -451,7 +455,11 @@
                     </span>
                   </td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
-                  <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
+                  <td data-label="Access">
+                    <button type="button" class="badge badge-btn" :class="accessClass(t)" @click="openAccessModal(t)" title="Регулювання доступу">
+                      {{ accessLabel(t) }}
+                    </button>
+                  </td>
                   <td data-label="Health">
                     <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
                     <span v-else>
@@ -465,6 +473,7 @@
                       <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
                       </button>
+                      <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
                         :title="health[t.id] && health[t.id].deployed === false ? 'Перша установка: clone + .env + deploy' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
@@ -516,10 +525,15 @@
                     </span>
                   </td>
                   <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
-                  <td data-label="Access"><span class="badge" :class="accessClass(t)">{{ accessLabel(t) }}</span></td>
+                  <td data-label="Access">
+                    <button type="button" class="badge badge-btn" :class="accessClass(t)" @click="openAccessModal(t)" title="Регулювання доступу">
+                      {{ accessLabel(t) }}
+                    </button>
+                  </td>
                   <td data-label="Actions">
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот">🩺 Chat</button>
+                      <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
@@ -1104,6 +1118,53 @@
     </div>
   </div>
 
+  <!-- Access regulation modal -->
+  <div class="modal-overlay" v-if="accessModal.open" @click.self="!accessModal.saving && (accessModal.open=false)">
+    <div class="modal" style="width:480px">
+      <h2>🗓 Доступ — {{ accessModal.tenant ? accessModal.tenant.name : '' }}</h2>
+      <p style="font-size:13px;color:var(--muted);margin:-4px 0 12px">
+        Зараз:
+        <span class="badge" :class="accessModal.tenant ? accessClass(accessModal.tenant) : ''">{{ accessModal.tenant ? accessLabel(accessModal.tenant) : '—' }}</span>
+        <span v-if="accessModal.tenant && accessModal.tenant.status==='suspended'" style="margin-left:8px;color:var(--danger)">(заблоковано)</span>
+      </p>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Продовжити</div>
+      <div class="access-presets">
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(1)">+1 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(3)">+3 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(6)">+6 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(12)">+12 міс.</button>
+      </div>
+
+      <div class="access-presets">
+        <button class="btn btn-primary btn-sm" :disabled="accessModal.saving" @click="applyAccessAction('unlimited')">∞ Безліміт</button>
+        <button
+          v-if="accessModal.tenant && accessModal.tenant.status==='suspended'"
+          class="btn btn-ghost btn-sm"
+          :disabled="accessModal.saving"
+          @click="applyAccessAction('reactivate')"
+        >✓ Розблокувати</button>
+        <button class="btn btn-danger btn-sm" :disabled="accessModal.saving" @click="applyAccessAction('suspend')">⛔ Заблокувати</button>
+      </div>
+
+      <hr class="modal-sep" />
+      <div class="field">
+        <label>Дата вручну</label>
+        <input v-model="accessModal.customDate" type="datetime-local" :disabled="accessModal.saving" />
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" :disabled="accessModal.saving || !accessModal.customDate" @click="applyAccessSetDate">
+        Зберегти дату
+      </button>
+
+      <p v-if="accessModal.message" style="font-size:12px;margin-top:14px;color:var(--success)">{{ accessModal.message }}</p>
+      <p v-if="accessModal.error" style="font-size:12px;margin-top:14px;color:var(--danger)">{{ accessModal.error }}</p>
+
+      <div class="modal-actions" style="margin-top:20px">
+        <button class="btn btn-ghost" :disabled="accessModal.saving" @click="accessModal.open=false">Закрити</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Deploy log modal -->
   <div class="modal-overlay" v-if="deployLog.open" @click.self="!deployLog.running && (deployLog.open=false)">
     <div class="modal" style="width:660px;max-width:96vw">
@@ -1273,6 +1334,15 @@ createApp({
       form: emptyForm(),
     });
 
+    const accessModal = reactive({
+      open: false,
+      tenant: null,
+      saving: false,
+      customDate: '',
+      message: '',
+      error: '',
+    });
+
     const portRegistryRows = computed(() => {
       const pairs = portDefaults.registeredPortPairs || [];
       const rows = pairs.map((row) => ({
@@ -1425,6 +1495,63 @@ createApp({
       if (t.status === 'suspended') return 'badge-suspended';
       if (!t.accessExpiresAt) return 'badge-active';
       return new Date(t.accessExpiresAt).getTime() <= Date.now() ? 'badge-suspended' : 'badge-provisioned';
+    }
+
+    function openAccessModal(t) {
+      accessModal.tenant = t;
+      accessModal.customDate = t.accessExpiresAt ? isoToLocalInput(t.accessExpiresAt) : '';
+      accessModal.message = '';
+      accessModal.error = '';
+      accessModal.open = true;
+    }
+
+    function formatAccessPreview(iso) {
+      if (!iso) return '∞ безлімітний доступ';
+      return `до ${new Date(iso).toLocaleString('uk')}`;
+    }
+
+    async function applyAccessAction(action) {
+      await patchTenantAccess({ action });
+    }
+
+    async function applyAccessExtend(months) {
+      await patchTenantAccess({ action: 'extend', months });
+    }
+
+    async function applyAccessSetDate() {
+      if (!accessModal.customDate) return;
+      await patchTenantAccess({
+        action: 'set',
+        accessExpiresAt: new Date(accessModal.customDate).toISOString(),
+      });
+    }
+
+    async function patchTenantAccess(body) {
+      if (!accessModal.tenant) return;
+      accessModal.saving = true;
+      accessModal.message = '';
+      accessModal.error = '';
+      try {
+        const r = await fetch(`${BASE}/tenants/${accessModal.tenant.id}/access`, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify(body),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          accessModal.error = typeof data.error === 'string' ? data.error : 'Помилка збереження';
+          return;
+        }
+        const idx = tenants.value.findIndex((x) => x.id === data.id);
+        if (idx >= 0) tenants.value[idx] = data;
+        accessModal.tenant = data;
+        accessModal.customDate = data.accessExpiresAt ? isoToLocalInput(data.accessExpiresAt) : '';
+        accessModal.message = `Збережено: ${formatAccessPreview(data.accessExpiresAt)}`;
+      } catch {
+        accessModal.error = 'Мережева помилка';
+      } finally {
+        accessModal.saving = false;
+      }
     }
 
     function authHeaders() {
@@ -1972,12 +2099,13 @@ createApp({
 
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
-      chat, chatMessages, modal, claudeHealth, DEFAULT_GIT_REPO,
+      chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO,
       fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort,
       links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
+      openAccessModal, applyAccessExtend, applyAccessAction, applyAccessSetDate,
       onInstanceIdInput, applyDomainMode, refreshPortDefaults,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
       openLinkStats, closeLinkStats, loadLinkTimeline, renderLinkChart, formatChartTime,

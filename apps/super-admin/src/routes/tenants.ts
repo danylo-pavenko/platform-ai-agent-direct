@@ -25,6 +25,7 @@ import {
   resolveProvisionScriptPath,
 } from '../lib/tenant-provision.js';
 import { DEFAULT_TENANT_GIT_REPO } from '../lib/constants.js';
+import { computeExtendedExpiry } from '../lib/tenant-access.js';
 
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
@@ -54,6 +55,17 @@ const tenantSchema = z.object({
     .union([z.null(), z.coerce.date()])
     .optional(),
 });
+
+const accessPatchSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('unlimited') }),
+  z.object({ action: z.literal('suspend') }),
+  z.object({ action: z.literal('reactivate') }),
+  z.object({
+    action: z.literal('extend'),
+    months: z.union([z.literal(1), z.literal(3), z.literal(6), z.literal(12)]),
+  }),
+  z.object({ action: z.literal('set'), accessExpiresAt: z.coerce.date() }),
+]);
 
 // Single source of truth for the access decision, reused by the
 // access endpoint and (later) by payment automation.
@@ -220,6 +232,61 @@ export async function tenantsRoutes(app: FastifyInstance) {
       const { status, error } = formatPrismaError(err);
       return reply.status(status).send({ error });
     }
+  });
+
+  // Quick access regulation (subscription expiry / suspend).
+  app.patch<{ Params: { id: string } }>('/api/tenants/:id/access', auth, async (req, reply) => {
+    const body = accessPatchSchema.safeParse(req.body);
+    if (!body.success) {
+      return reply.status(400).send({ error: formatZodError(body.error) });
+    }
+
+    const existing = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+    if (!existing) return reply.status(404).send({ error: 'Not found' });
+
+    let data: { accessExpiresAt?: Date | null; status?: string };
+
+    switch (body.data.action) {
+      case 'unlimited':
+        data = { accessExpiresAt: null, status: 'active' };
+        break;
+      case 'suspend':
+        data = { status: 'suspended' };
+        break;
+      case 'reactivate':
+        data = { status: 'active' };
+        break;
+      case 'extend':
+        data = {
+          accessExpiresAt: computeExtendedExpiry(existing.accessExpiresAt, body.data.months),
+          status: 'active',
+        };
+        break;
+      case 'set':
+        data = { accessExpiresAt: body.data.accessExpiresAt, status: 'active' };
+        break;
+    }
+
+    const tenant = await prisma.tenant.update({
+      where: { id: req.params.id },
+      data,
+    });
+
+    app.log.info(
+      {
+        tenantId: tenant.id,
+        instanceId: tenant.instanceId,
+        action: body.data.action,
+        accessExpiresAt: tenant.accessExpiresAt?.toISOString() ?? null,
+        status: tenant.status,
+      },
+      'Tenant access updated',
+    );
+
+    return {
+      ...tenant,
+      access: resolveAccess(tenant),
+    };
   });
 
   // Delete tenant

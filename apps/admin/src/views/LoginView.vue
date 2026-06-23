@@ -103,7 +103,7 @@ function accessMessage(block: { code: string; accessExpiresAt?: string | null } 
   const until = block.accessExpiresAt
     ? ` (діяв до ${new Date(block.accessExpiresAt).toLocaleDateString('uk')})`
     : '';
-  return `Термін доступу до панелі завершився${until}. Схоже, є проблема з оплатою — зверніться до адміністратора платформи, щоб продовжити доступ.`;
+  return `Доступ до платформи Direct AI Agents завершився${until}. Зверніться до адміністратора платформи для продовження.`;
 }
 
 async function handleLogin() {

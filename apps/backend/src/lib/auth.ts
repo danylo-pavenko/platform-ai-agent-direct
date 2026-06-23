@@ -14,7 +14,7 @@ export function platformAccessError(access: PlatformAccess) {
         code: 'ACCESS_SUSPENDED' as const,
       }
     : {
-        error: 'Термін доступу до панелі завершився. Зверніться до адміністратора платформи щодо оплати.',
+        error: 'Доступ до платформи завершився. Зверніться до адміністратора платформи для продовження.',
         code: 'ACCESS_EXPIRED' as const,
         accessExpiresAt: access.accessExpiresAt,
       };
