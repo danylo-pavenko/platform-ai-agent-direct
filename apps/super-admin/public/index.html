@@ -85,8 +85,19 @@
     .stat-value.green { color: var(--success); }
 
     /* ── Modal ── */
-    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 200; }
-    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 480px; max-width: 95vw; padding: 28px; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.6);
+      z-index: 200;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      padding: 20px 16px 28px;
+    }
+    .modal-overlay--tenant {
+      display: block;
+    }
+    .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; width: 480px; max-width: 95vw; padding: 28px; margin: 0 auto; }
     .modal h2 { font-size: 17px; font-weight: 600; margin-bottom: 20px; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
 
@@ -179,7 +190,52 @@
     .info-btn:hover { background: rgba(124,110,255,.22); }
     .form-required-note { font-size: 11px; color: var(--muted); margin: -8px 0 14px; }
     .field-hint-inline { font-size: 11px; color: var(--muted); margin: -6px 0 10px; line-height: 1.45; }
-    .modal-tenant { width: 620px; max-width: 96vw; }
+    .modal-tenant {
+      width: 620px; max-width: 96vw;
+      padding: 0;
+      margin: 0 auto;
+    }
+    .modal-tenant-header {
+      padding: 24px 28px 0;
+    }
+    .modal-tenant-header h2 { margin-bottom: 12px; }
+    .modal-tenant-body {
+      padding: 12px 28px 4px;
+    }
+    .modal-tenant .modal-actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      margin-top: 0;
+      padding: 14px 28px 22px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: 0 -10px 28px rgba(0,0,0,.22);
+    }
+    .platform-url-preview {
+      margin: 2px 0 16px; padding: 12px 14px;
+      border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .platform-url-preview.is-empty { opacity: .75; }
+    .platform-url-preview.is-invalid { border-color: rgba(245,158,11,.4); }
+    .platform-url-preview-title {
+      font-size: 11px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px;
+    }
+    .platform-url-line {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin-bottom: 8px; font-size: 12px; line-height: 1.45;
+    }
+    .platform-url-line:last-child { margin-bottom: 0; }
+    .platform-url-kind {
+      flex-shrink: 0; width: 44px; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; color: var(--accent2); padding-top: 3px;
+    }
+    .platform-url-line code {
+      font-family: ui-monospace, monospace; font-size: 12px;
+      color: var(--text); word-break: break-all;
+    }
     .port-panel {
       margin: 4px 0 14px; padding: 12px 14px; border-radius: 8px;
       background: rgba(124,110,255,.06); border: 1px solid rgba(124,110,255,.18);
@@ -285,8 +341,17 @@
       .empty-row { background: var(--surface); border: 1px dashed var(--border); }
 
       /* Modal */
-      .modal { padding: 20px 18px !important; width: 100% !important; max-width: 100vw !important; max-height: 100vh !important; border-radius: 0 !important; display: flex; flex-direction: column; overflow-y: auto; }
-      .modal-overlay { align-items: stretch; justify-content: stretch; padding: 0; }
+      .modal-overlay { padding: 0; }
+      .modal-overlay--tenant { padding: 0; }
+      .modal { padding: 20px 18px !important; width: 100% !important; max-width: 100vw !important; border-radius: 0 !important; margin: 0 !important; min-height: 100dvh; }
+      .modal-tenant {
+        width: 100% !important; max-width: 100vw !important;
+        border-radius: 0 !important; min-height: 100dvh;
+        display: flex; flex-direction: column;
+      }
+      .modal-tenant-header { padding: 20px 18px 0; flex-shrink: 0; }
+      .modal-tenant-body { padding: 12px 18px 8px; flex: 1; }
+      .modal-tenant .modal-actions { padding: 14px 18px max(20px, env(safe-area-inset-bottom)); margin-top: auto; }
       .modal h2 { font-size: 17px; margin-bottom: 16px; }
       .form-row { grid-template-columns: 1fr; gap: 0; }
       .field input, .field select, .field textarea { font-size: 16px; padding: 10px 12px; }
@@ -314,13 +379,18 @@
     @media (min-width: 601px) and (max-width: 900px) {
       .stats { grid-template-columns: repeat(3, 1fr); }
 
-      .modal-overlay { align-items: center; justify-content: center; padding: 24px; }
+      .modal-overlay { padding: 16px; }
+      .modal-overlay--tenant { padding: 16px; }
       .modal {
         width: 560px !important; max-width: 100% !important;
-        max-height: calc(100dvh - 48px) !important;
         border-radius: 14px !important;
         padding: 24px !important;
+        min-height: 0 !important;
       }
+      .modal-tenant { min-height: 0 !important; padding: 0 !important; }
+      .modal-tenant-header { padding: 24px 24px 0; }
+      .modal-tenant-body { padding: 12px 24px 4px; }
+      .modal-tenant .modal-actions { padding: 14px 24px 22px; }
       .modal-actions .btn { flex: 0 1 auto; }
       .form-row { grid-template-columns: 1fr 1fr; gap: 12px; }
 
@@ -774,60 +844,145 @@
   </div>
 
   <!-- ── Add/Edit Modal ── -->
-  <div class="modal-overlay" v-if="modal.open" @click.self="modal.open=false">
-    <div class="modal modal-tenant">
-      <h2>{{ modal.editing ? '✏️ Edit Client' : '+ Add Client' }}</h2>
-      <p v-if="!modal.editing" class="form-required-note"><span class="req">*</span> — обовʼязкове поле. Наведіть на <span class="info-btn" style="cursor:default;vertical-align:middle">i</span> для підказки.</p>
-
-      <!-- Identity -->
-      <div class="form-row">
-        <div class="field">
-          <div class="field-label">
-            <span class="field-label-text">Instance ID <span class="req">*</span></span>
-            <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
-          </div>
-          <input v-model="modal.form.instanceId" placeholder="cultura" :disabled="!!modal.editing" @input="onInstanceIdInput" />
-          <p class="field-hint-inline">Латиниця a-z, цифри, дефіс; 2–24 символи. = Linux user, slug у домені, PM2 prefix.</p>
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span class="field-label-text">Name <span class="req">*</span></span>
-            <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
-          </div>
-          <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
-        </div>
+  <div class="modal-overlay modal-overlay--tenant" v-if="modal.open" ref="tenantModalOverlay" @click.self="modal.open=false">
+    <div class="modal modal-tenant" @click.stop>
+      <div class="modal-tenant-header">
+        <h2>{{ modal.editing ? '✏️ Edit Client' : '+ Add Client' }}</h2>
+        <p v-if="!modal.editing" class="form-required-note"><span class="req">*</span> — обовʼязкове поле. Наведіть на <span class="info-btn" style="cursor:default;vertical-align:middle">i</span> для підказки.</p>
       </div>
 
-      <!-- Domains -->
+      <div class="modal-tenant-body">
+      <!-- Platform: slug first (primary field) -->
+      <template v-if="modal.form.domainMode==='platform' && !modal.editing">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Slug <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
+            </div>
+            <input
+              ref="slugInputEl"
+              :value="modal.form.instanceId"
+              placeholder="cultura"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="off"
+              @input="onSlugInput"
+            />
+            <p class="field-hint-inline">2–24 символи: a-z, 0-9, дефіс.</p>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
+          </div>
+        </div>
+        <div
+          class="platform-url-preview"
+          :class="{ 'is-empty': !platformPreview.slug, 'is-invalid': platformPreview.slug && !platformPreview.valid }"
+        >
+          <div class="platform-url-preview-title">Публічні URL (превʼю)</div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">API</span>
+            <code>{{ platformPreview.apiUrl }}</code>
+          </div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">Admin</span>
+            <code>{{ platformPreview.adminUrl }}</code>
+          </div>
+          <p v-if="platformPreview.slug && !platformPreview.valid" class="port-conflict-warn" style="margin-top:8px;margin-bottom:0">
+            Slug має бути 2–24 символи (a-z, 0-9, дефіс), без пробілів.
+          </p>
+        </div>
+      </template>
+
+      <!-- Domain mode -->
       <div class="field" style="margin-bottom:10px">
         <div class="field-label">
           <span class="field-label-text">Domain mode</span>
           <button type="button" class="info-btn" :title="fieldHints.domainMode" aria-label="Підказка">i</button>
         </div>
-        <select v-model="modal.form.domainMode" @change="applyDomainMode">
+        <select v-model="modal.form.domainMode" @change="onDomainModeChange">
           <option value="platform">Platform — api-{slug}.direct-ai-agents.com</option>
           <option value="custom">Custom — власні домени (legacy)</option>
         </select>
       </div>
-      <div class="form-row">
-        <div class="field">
-          <div class="field-label">
-            <span class="field-label-text">API Domain <span class="req">*</span></span>
-            <button type="button" class="info-btn" :title="fieldHints.apiDomain" aria-label="Підказка">i</button>
+
+      <!-- Platform edit: slug read-only + preview -->
+      <template v-if="modal.form.domainMode==='platform' && modal.editing">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Slug</span>
+            </div>
+            <input :value="modal.form.instanceId" disabled />
           </div>
-          <input v-model="modal.form.apiDomain" placeholder="api-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span class="field-label-text">Admin Domain <span class="req">*</span></span>
-            <button type="button" class="info-btn" :title="fieldHints.adminDomain" aria-label="Підказка">i</button>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
           </div>
-          <input v-model="modal.form.adminDomain" placeholder="agent-cultura.direct-ai-agents.com" :readonly="modal.form.domainMode==='platform'" />
         </div>
-      </div>
-      <div v-if="modal.form.domainMode==='platform'" class="field-hint-inline" style="margin-bottom:12px">
-        Авто від Instance ID. Потрібен wildcard DNS/TLS на <code>*.direct-ai-agents.com</code> (див. docs/TENANT-DOMAINS-AND-SCALING.md).
-      </div>
+        <div class="platform-url-preview">
+          <div class="platform-url-preview-title">Публічні URL</div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">API</span>
+            <code>{{ platformPreview.apiUrl }}</code>
+          </div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">Admin</span>
+            <code>{{ platformPreview.adminUrl }}</code>
+          </div>
+        </div>
+      </template>
+
+      <!-- Custom: instance id + manual domains -->
+      <template v-else-if="modal.form.domainMode==='custom'">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Instance ID <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
+            </div>
+            <input
+              :value="modal.form.instanceId"
+              placeholder="blessed"
+              :disabled="!!modal.editing"
+              autocomplete="off"
+              spellcheck="false"
+              @input="onCustomInstanceIdInput"
+            />
+            <p class="field-hint-inline">2–24 символи: a-z, 0-9, дефіс.</p>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Status Blessed" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">API Domain <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.apiDomain" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.apiDomain" placeholder="api.status-blessed.com" />
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Admin Domain <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.adminDomain" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.adminDomain" placeholder="agent.status-blessed.com" />
+          </div>
+        </div>
+      </template>
 
       <!-- Ports -->
       <div v-if="!modal.editing" class="port-panel">
@@ -990,6 +1145,8 @@
           <input v-model="modal.form.gitRepo" :placeholder="DEFAULT_GIT_REPO" />
         </div>
       </div>
+
+      </div><!-- /.modal-tenant-body -->
 
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="modal.open=false">Cancel</button>
@@ -1201,7 +1358,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script type="module">
-import { createApp, ref, reactive, computed, onMounted, nextTick } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { createApp, ref, reactive, computed, onMounted, nextTick, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 
 createApp({
   setup() {
@@ -1225,6 +1382,19 @@ createApp({
     const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
     const chatMessages = ref(null);
     const deployLogEl = ref(null);
+    const tenantModalOverlay = ref(null);
+    const slugInputEl = ref(null);
+
+    function resetTenantModalScroll(focusSlug) {
+      nextTick(() => {
+        if (tenantModalOverlay.value) tenantModalOverlay.value.scrollTop = 0;
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+        if (focusSlug && slugInputEl.value && !modal.editing && modal.form.domainMode === 'platform') {
+          slugInputEl.value.focus();
+        }
+      });
+    }
 
     const chat = reactive({
       open: false, tenant: null, messages: [], input: '', typing: false,
@@ -1233,6 +1403,20 @@ createApp({
 
     const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
     const PLATFORM_BASE_DOMAIN = 'direct-ai-agents.com';
+    const SLUG_RE = /^[a-z0-9-]{2,24}$/;
+
+    function sanitizeSlug(raw) {
+      return String(raw || '').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24);
+    }
+
+    let platformDefaultsTimer = null;
+    function schedulePlatformDefaultsLoad(slug) {
+      clearTimeout(platformDefaultsTimer);
+      platformDefaultsTimer = setTimeout(() => {
+        if (modal.form.domainMode !== 'platform') return;
+        if (SLUG_RE.test(slug)) loadPlatformDefaults(slug);
+      }, 350);
+    }
 
     const fieldHints = {
       instanceId: 'Унікальний slug клієнта (2–24 символи). Використовується для доменів, Linux-користувача, PM2-префікса (CULTURA-api). Після створення змінити неможливо.',
@@ -1296,12 +1480,26 @@ createApp({
       }
     }
 
-    function onInstanceIdInput() {
-      modal.form.instanceId = modal.form.instanceId.toLowerCase().replace(/[^a-z0-9-]/g, '');
-      applyPlatformFieldsFromSlug();
-      if (modal.form.domainMode === 'platform' && /^[a-z0-9-]{2,24}$/.test(modal.form.instanceId)) {
-        loadPlatformDefaults(modal.form.instanceId);
+    function onDomainModeChange() {
+      applyDomainMode();
+      if (modal.form.domainMode === 'platform') {
+        if (!modal.form.instanceId && !modal.editing) refreshPortDefaults();
+        else schedulePlatformDefaultsLoad(modal.form.instanceId);
       }
+    }
+
+    function onSlugInput(e) {
+      const sanitized = sanitizeSlug(e.target.value);
+      if (e.target.value !== sanitized) e.target.value = sanitized;
+      modal.form.instanceId = sanitized;
+      applyPlatformFieldsFromSlug();
+      schedulePlatformDefaultsLoad(sanitized);
+    }
+
+    function onCustomInstanceIdInput(e) {
+      const sanitized = sanitizeSlug(e.target.value);
+      if (e.target.value !== sanitized) e.target.value = sanitized;
+      modal.form.instanceId = sanitized;
     }
 
     async function loadPlatformDefaults(slug) {
@@ -1346,6 +1544,18 @@ createApp({
     const modal = reactive({
       open: false, editing: null, saving: false, advancedOpen: false,
       form: emptyForm(),
+    });
+
+    const platformPreview = computed(() => {
+      const slug = sanitizeSlug(modal.form.instanceId);
+      const d = platformDomainsForSlug(slug);
+      const valid = SLUG_RE.test(slug);
+      return {
+        slug,
+        valid,
+        apiUrl: slug ? `https://${d.apiDomain}` : `https://api-{slug}.${PLATFORM_BASE_DOMAIN}`,
+        adminUrl: slug ? `https://${d.adminDomain}` : `https://agent-{slug}.${PLATFORM_BASE_DOMAIN}`,
+      };
     });
 
     const accessModal = reactive({
@@ -1907,6 +2117,7 @@ createApp({
       portDefaults.registeredPortPairs = [];
       portDefaults.liveListeningPorts = [];
       loadPlatformDefaults('');
+      resetTenantModalScroll(true);
     }
 
     function openEditModal(t) {
@@ -1935,11 +2146,14 @@ createApp({
       };
       modal.advancedOpen = false;
       modal.open = true;
+      resetTenantModalScroll(false);
     }
 
     async function saveTenant() {
       if (!/^[a-z0-9-]{2,24}$/.test(modal.form.instanceId || '')) {
-        alert('Instance ID: латиниця a-z, цифри, дефіс; 2–24 символи.');
+        alert(modal.form.domainMode === 'platform'
+          ? 'Slug: 2–24 символи, a-z, 0-9, дефіс.'
+          : 'Instance ID: латиниця a-z, цифри, дефіс; 2–24 символи.');
         return;
       }
       if (modal.form.domainMode === 'platform') applyPlatformFieldsFromSlug();
@@ -2111,16 +2325,21 @@ createApp({
       }
     });
 
+    watch(() => modal.open, (open) => {
+      document.body.style.overflow = open ? 'hidden' : '';
+    });
+
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
-      chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO,
-      fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort,
+      chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
+      tenantModalOverlay, slugInputEl,
+      fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort, platformPreview,
       links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
       triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
       openAccessModal, applyAccessExtend, applyAccessAction, applyAccessSetDate,
-      onInstanceIdInput, applyDomainMode, refreshPortDefaults,
+      onSlugInput, onCustomInstanceIdInput, onDomainModeChange, refreshPortDefaults,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
       openLinkStats, closeLinkStats, loadLinkTimeline, renderLinkChart, formatChartTime,
       loadLeads, updateLeadStatus, formatDate,
