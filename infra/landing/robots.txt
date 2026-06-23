@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /go/
+
+Sitemap: https://direct-ai-agents.com/sitemap.xml
