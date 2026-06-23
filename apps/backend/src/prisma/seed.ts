@@ -15,10 +15,11 @@ async function main() {
   const password = process.env.DEFAULT_ADMIN_PASSWORD || 'change-me!';
 
   const passwordHash = await bcrypt.hash(password, 12);
+  const resetPassword = process.env.SEED_RESET_ADMIN_PASSWORD === 'true';
 
   await prisma.adminUser.upsert({
     where: { username },
-    update: { passwordHash },
+    update: resetPassword ? { passwordHash } : {},
     create: {
       username,
       passwordHash,
@@ -26,7 +27,11 @@ async function main() {
     },
   });
 
-  console.log(`Admin user "${username}" seeded (or already exists).`);
+  if (resetPassword) {
+    console.log(`Admin user "${username}" password reset from DEFAULT_ADMIN_PASSWORD.`);
+  } else {
+    console.log(`Admin user "${username}" seeded (password unchanged if user already exists).`);
+  }
 
   // Default settings
   const defaults: Record<string, unknown> = {

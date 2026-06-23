@@ -1708,6 +1708,80 @@
         </v-card-text>
       </v-card>
 
+      <!-- Account security -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="primary">mdi-shield-key</v-icon>
+          Обліковий запис
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Зміна пароля для входу в цю панель. Логін:
+          <strong>{{ accountUsername }}</strong>
+          (зазвичай <code>admin</code>).
+        </v-card-subtitle>
+        <v-card-text>
+          <v-alert
+            v-if="passwordChangeError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            {{ passwordChangeError }}
+          </v-alert>
+          <v-row dense>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="passwordForm.currentPassword"
+                label="Поточний пароль"
+                :type="showAccountSecrets.current ? 'text' : 'password'"
+                variant="outlined"
+                density="compact"
+                autocomplete="current-password"
+                :append-inner-icon="showAccountSecrets.current ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showAccountSecrets.current = !showAccountSecrets.current"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="passwordForm.newPassword"
+                label="Новий пароль"
+                :type="showAccountSecrets.next ? 'text' : 'password'"
+                variant="outlined"
+                density="compact"
+                autocomplete="new-password"
+                hint="Щонайменше 12 символів"
+                persistent-hint
+                :append-inner-icon="showAccountSecrets.next ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showAccountSecrets.next = !showAccountSecrets.next"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="passwordForm.confirmPassword"
+                label="Підтвердження"
+                :type="showAccountSecrets.confirm ? 'text' : 'password'"
+                variant="outlined"
+                density="compact"
+                autocomplete="new-password"
+                :append-inner-icon="showAccountSecrets.confirm ? 'mdi-eye-off' : 'mdi-eye'"
+                @click:append-inner="showAccountSecrets.confirm = !showAccountSecrets.confirm"
+              />
+            </v-col>
+          </v-row>
+          <v-btn
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-lock-reset"
+            :loading="passwordChangeLoading"
+            :disabled="passwordChangeLoading"
+            @click="submitPasswordChange"
+          >
+            Змінити пароль
+          </v-btn>
+        </v-card-text>
+      </v-card>
+
       <!-- Danger zone -->
       <v-card class="mb-4 danger-zone-card" variant="outlined">
         <v-card-title class="d-flex align-center text-error">
@@ -1763,6 +1837,9 @@
       <v-alert v-if="error" type="error" density="compact" class="mb-4">
         {{ error }}
       </v-alert>
+      <v-snackbar v-model="passwordChangeSuccess" color="success" :timeout="4000">
+        Пароль змінено. Сесію оновлено.
+      </v-snackbar>
       <v-snackbar v-model="success" color="success" :timeout="3000">
         Налаштування збережено
       </v-snackbar>
@@ -1952,6 +2029,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
+import { useAuthStore } from '@/stores/auth';
+
+const authStore = useAuthStore();
+const accountUsername = computed(() => authStore.user?.username ?? 'admin');
 
 interface DaySchedule {
   enabled: boolean;
@@ -1999,6 +2080,39 @@ const metaAgentTestResult = ref<MetaAgentTestResponse | null>(null);
 
 const error = ref('');
 const success = ref(false);
+
+const passwordForm = ref({
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: '',
+});
+const showAccountSecrets = ref({
+  current: false,
+  next: false,
+  confirm: false,
+});
+const passwordChangeLoading = ref(false);
+const passwordChangeError = ref('');
+const passwordChangeSuccess = ref(false);
+
+async function submitPasswordChange() {
+  passwordChangeError.value = '';
+  passwordChangeLoading.value = true;
+  try {
+    await authStore.changePassword(
+      passwordForm.value.currentPassword,
+      passwordForm.value.newPassword,
+      passwordForm.value.confirmPassword,
+    );
+    passwordForm.value = { currentPassword: '', newPassword: '', confirmPassword: '' };
+    passwordChangeSuccess.value = true;
+  } catch (e: any) {
+    passwordChangeError.value =
+      e.response?.data?.error ?? 'Не вдалося змінити пароль';
+  } finally {
+    passwordChangeLoading.value = false;
+  }
+}
 
 // ── Integrations state ──────────────────────────────────────────────────────
 
