@@ -503,12 +503,12 @@
               <thead>
                 <tr>
                   <th>Client</th><th>API Domain</th><th>Admin Domain</th>
-                  <th>Ports</th><th>Status</th><th>Access</th><th>Actions</th>
+                  <th>Ports</th><th>Status</th><th>Access</th><th>Health</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-if="tenants.length===0" class="empty-row">
-                  <td colspan="7">No clients yet.</td>
+                  <td colspan="8">No clients yet.</td>
                 </tr>
                 <tr v-for="t in tenants" :key="t.id">
                   <td class="cell-primary">
@@ -530,11 +530,25 @@
                       {{ accessLabel(t) }}
                     </button>
                   </td>
+                  <td data-label="Health">
+                    <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-else>
+                      <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
+                      {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
+                    </span>
+                  </td>
                   <td data-label="Actions">
                     <div class="actions-cell">
-                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот">🩺 Chat</button>
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
+                        {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
+                      </button>
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
+                        :title="health[t.id] && health[t.id].deployed === false ? 'Перша установка: clone + .env + deploy' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ deploying===t.id ? '⏳ ...' : (health[t.id] && health[t.id].deployed === false ? '📦 Provision' : '🚀 Deploy') }}
+                      </button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
                   </td>
