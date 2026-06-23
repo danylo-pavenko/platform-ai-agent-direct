@@ -3,7 +3,7 @@ import pino from 'pino';
 import { config } from '../config.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeIntegrationSecret } from '../lib/integration-secrets.js';
-import { getNotificationGroupIds } from '../lib/telegram-groups.js';
+import { getNotificationChatIds } from '../lib/telegram-groups.js';
 
 const log = pino({ name: 'telegram-test' });
 
@@ -34,7 +34,7 @@ function buildTestMessage(variant: TelegramTestVariant): string {
   return [
     `🧪 <b>Тест Telegram — ${brand}</b>`,
     '',
-    'Бот підключено і може надсилати повідомлення в цю групу.',
+    'Бот підключено і може надсилати повідомлення в цей чат.',
     `Інстанс: <code>${config.INSTANCE_ID}</code>`,
   ].join('\n');
 }
@@ -53,8 +53,7 @@ async function resolveTargetChatIds(managerGroupIdOverride?: string): Promise<st
   const override = typeof managerGroupIdOverride === 'string' ? managerGroupIdOverride.trim() : '';
   if (override) return [override];
 
-  const ids = await getNotificationGroupIds();
-  return ids;
+  return getNotificationChatIds();
 }
 
 /**
@@ -77,7 +76,7 @@ export async function sendTelegramTestMessage(params: {
       sentTo: [],
       errors: [],
       message:
-        'Немає груп для сповіщень. Додайте бота в групу менеджерів або вкажіть Manager Group ID.',
+        'Немає одержувачів. Напишіть боту в особисті повідомлення /login <пароль> або додайте бота в групу менеджерів.',
     };
   }
 

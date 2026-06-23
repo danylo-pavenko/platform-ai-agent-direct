@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { InlineKeyboard } from 'grammy';
 import { getBot } from '../lib/telegram.js';
-import { getNotificationGroupIds } from '../lib/telegram-groups.js';
+import { getNotificationChatIds } from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
 import { adminConversationUrl } from '../lib/admin-urls.js';
@@ -44,10 +44,10 @@ async function sendToManagerGroup(
     return;
   }
 
-  const groupIds = await getNotificationGroupIds();
+  const groupIds = await getNotificationChatIds();
   if (groupIds.length === 0) {
     log.warn(
-      'No Telegram notification groups yet — add the bot to a group or set managerGroupId in Settings',
+      'No Telegram notification targets — /login in private chat with the bot or add it to a manager group',
     );
     return;
   }

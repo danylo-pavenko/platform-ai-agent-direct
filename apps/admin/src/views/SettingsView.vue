@@ -1334,27 +1334,23 @@
                   Скопіюйте <strong>Bot Token</strong> формату <code>123456:ABC-DEF…</code>
                 </li>
                 <li>
-                  У BotFather виконайте <code>/setprivacy</code> → оберіть бота → <strong>Disable</strong>,
-                  щоб бот бачив повідомлення в групі (потрібно для <code>/login</code>).
+                  Збережіть токен і <strong>Admin Password</strong> тут. На сервері:
+                  <code>pm2 restart SB-bot</code> (після першого збереження токена).
                 </li>
                 <li>
-                  Створіть <strong>групу менеджерів</strong> (краще supergroup) і додайте туди бота через
-                  «Додати учасників». Сповіщення (ескалації, замовлення, брифи) надсилаються в усі групи,
-                  куди бот доданий. Поле <strong>Manager Group ID</strong> нижче — опційно, якщо потрібна
-                  додаткова фіксована група.
+                  <strong>Особисті повідомлення (без групи):</strong> відкрийте бота в Telegram →
+                  <code>/start</code> → <code>/login ВАШ_ПАРОЛЬ</code>. Після цього сповіщення
+                  надходитимуть лише вам у цей чат.
                 </li>
                 <li>
-                  (Рекомендовано) Зробіть бота <strong>адміністратором</strong> групи з правом
-                  <strong>«Надсилати повідомлення»</strong>.
+                  <strong>Або група менеджерів</strong> (опційно): створіть supergroup, додайте бота.
+                  У BotFather: <code>/setprivacy</code> → <strong>Disable</strong> (щоб бот бачив
+                  <code>/login</code> у групі). Поле <strong>Manager Group ID</strong> нижче — лише якщо
+                  потрібна фіксована група.
                 </li>
                 <li>
-                  Збережіть токен тут і натисніть <strong>«Тест Telegram»</strong> — у групі має з’явитися
-                  тестове повідомлення. На сервері мають працювати процеси <code>SB-api</code> і
-                  <code>SB-bot</code> (PM2).
-                </li>
-                <li>
-                  <strong>Admin Password</strong> — довільний пароль. Менеджер пише боту в особисті повідомлення:
-                  <code>/login ВАШ_ПАРОЛЬ</code>, щоб отримати доступ до кнопок «Взяти» / «Повернути боту».
+                  Натисніть <strong>«Тест Telegram»</strong> після <code>/login</code> у боті (або після
+                  додавання в групу). Процеси <code>SB-api</code> і <code>SB-bot</code> мають бути online (PM2).
                 </li>
               </ol>
 
@@ -1362,7 +1358,7 @@
               <ul class="pl-4 mb-4" style="line-height:1.8;">
                 <li>
                   Бот <strong>не відповідає клієнтам в Instagram</strong> через Telegram — лише сповіщає
-                  менеджерів у групі.
+                  авторизованих менеджерів (особистий чат після <code>/login</code> або група).
                 </li>
                 <li>
                   <strong>Сповіщення</strong> (замовлення, ескалації, ліміти Claude) надсилає backend
@@ -1377,8 +1373,8 @@
               <div class="font-weight-bold mb-2">Якщо Telegram пише, що бот «не може писати»</div>
               <ul class="pl-4 mb-2" style="line-height:1.8;">
                 <li>
-                  <strong>Direct Agent</strong> (підключення бота до бізнес-акаунту) — це інший режим.
-                  Для сповіщень потрібна саме <strong>група</strong>, куди додано бота.
+                  <strong>Direct Agent</strong> (підключення до бізнес-акаунту) — інший режим. Для цієї
+                  платформи достатньо особистого чату з ботом після <code>/login</code> або групи менеджерів.
                 </li>
                 <li>
                   Бот у <strong>каналі</strong> без прав адміна не може публікувати — використовуйте
@@ -1423,7 +1419,7 @@
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model="integrations.telegram.managerGroupId"
-                label="Manager Group ID (опційно)"
+                label="Manager Group ID (опційно, для групи)"
                 variant="outlined"
                 density="compact"
                 hide-details
@@ -1851,7 +1847,8 @@
         <v-card>
           <v-card-title class="text-h6">Тест Telegram</v-card-title>
           <v-card-text>
-            Токен збережено. Надіслати тестове повідомлення в групу менеджерів, щоб переконатися, що бот підключений?
+            Токен збережено. Спочатку напишіть боту <code>/login &lt;пароль&gt;</code> у особистих повідомленнях,
+            потім надішліть тест (або додайте бота в групу).
           </v-card-text>
           <v-card-actions>
             <v-spacer />

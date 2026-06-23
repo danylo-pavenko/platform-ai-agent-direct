@@ -4,7 +4,7 @@ vi.mock('../lib/telegram.js', () => ({
   getBot: vi.fn(),
 }));
 vi.mock('../lib/telegram-groups.js', () => ({
-  getNotificationGroupIds: vi.fn().mockResolvedValue(['-100123']),
+  getNotificationChatIds: vi.fn().mockResolvedValue(['-100123']),
 }));
 vi.mock('../lib/integration-config.js', () => ({
   getIntegrationConfig: vi.fn().mockResolvedValue({

@@ -1,9 +1,10 @@
 /**
- * Auto-discovered Telegram group/supergroup chat IDs for manager notifications.
+ * Telegram chat IDs for manager notifications (groups + authorized private DMs).
  *
- * When the bot is added to any group, we persist its chat id and broadcast
- * handoff/order/brief alerts to every known group (plus the legacy
- * managerGroupId from Settings / .env when set).
+ * Targets:
+ * - legacy managerGroupId from Settings / .env
+ * - auto-discovered groups when the bot is added to a group/supergroup
+ * - private chat ids of admin users linked via /login (tgUserId on admin_users)
  */
 
 import pino from 'pino';
@@ -36,21 +37,50 @@ async function readStoredGroupIds(): Promise<string[]> {
   return ids;
 }
 
-/** All chat ids that should receive manager notifications. */
-export async function getNotificationGroupIds(): Promise<string[]> {
-  const { telegram } = await getIntegrationConfig();
+/** Merge notification targets without duplicates. */
+export function mergeNotificationChatIds(params: {
+  managerGroupId?: string;
+  storedGroupIds: string[];
+  authorizedManagerChatIds: string[];
+}): string[] {
   const ids = new Set<string>();
 
-  if (telegram.managerGroupId) {
-    ids.add(String(telegram.managerGroupId).trim());
-  }
+  const legacyGroupId = params.managerGroupId?.trim();
+  if (legacyGroupId) ids.add(legacyGroupId);
 
-  for (const id of await readStoredGroupIds()) {
+  for (const id of params.storedGroupIds) {
+    ids.add(id);
+  }
+  for (const id of params.authorizedManagerChatIds) {
     ids.add(id);
   }
 
   return [...ids];
 }
+
+async function readAuthorizedManagerChatIds(): Promise<string[]> {
+  const rows = await prisma.adminUser.findMany({
+    where: { tgUserId: { not: null } },
+    select: { tgUserId: true },
+  });
+
+  return rows
+    .map((row) => row.tgUserId?.trim())
+    .filter((id): id is string => !!id);
+}
+
+/** All chat ids that should receive manager notifications. */
+export async function getNotificationChatIds(): Promise<string[]> {
+  const { telegram } = await getIntegrationConfig();
+  return mergeNotificationChatIds({
+    managerGroupId: telegram.managerGroupId,
+    storedGroupIds: await readStoredGroupIds(),
+    authorizedManagerChatIds: await readAuthorizedManagerChatIds(),
+  });
+}
+
+/** @deprecated Use getNotificationChatIds */
+export const getNotificationGroupIds = getNotificationChatIds;
 
 export function isGroupChatType(type: string | undefined): boolean {
   return type === 'group' || type === 'supergroup';

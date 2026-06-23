@@ -139,6 +139,18 @@ function isManagerAuthorized(tgUserId: number): Promise<boolean> {
   }).then((u) => !!u);
 }
 
+async function ensureManagerAuth(ctx: {
+  from?: { id: number };
+  reply: (text: string) => Promise<unknown>;
+}): Promise<boolean> {
+  if (!ctx.from) return false;
+  if (await isManagerAuthorized(ctx.from.id)) return true;
+  await ctx.reply(
+    'Спочатку авторизуйтесь у особистих повідомленнях з ботом:\n/login <ваш пароль>',
+  );
+  return false;
+}
+
 function buildMenuKeyboard() {
   return {
     reply_markup: {
@@ -166,7 +178,7 @@ const HELP_TEXT = `Доступні команди:
 /help - Ця довідка
 
 Після авторизації ви будете отримувати:
-• Сповіщення про ескалації (клієнт просить менеджера)
+• Сповіщення про ескалації та замовлення (у цей чат або в групу менеджерів)
 • Картки замовлень з кнопками Підтвердити / Відхилити
 • Повідомлення від клієнтів у режимі хендофу`;
 
@@ -182,7 +194,7 @@ bot.command('start', async (ctx) => {
       );
     } else {
       await ctx.reply(
-        `Вітаю! 👋\n\nЦе бот менеджера магазину ${config.BRAND_NAME}.\n\nДля початку роботи авторизуйтесь:\n/login <ваш пароль>\n\nПісля авторизації ви зможете:\n• Отримувати сповіщення про ескалації\n• Керувати розмовами з клієнтами\n• Підтверджувати замовлення`,
+        `Вітаю! 👋\n\nЦе бот менеджера магазину ${config.BRAND_NAME}.\n\nДля початку роботи авторизуйтесь у цьому чаті:\n/login <ваш пароль>\n\nПісля авторизації ви зможете:\n• Отримувати сповіщення в особисті повідомлення (група не обовʼязкова)\n• Керувати розмовами з клієнтами\n• Підтверджувати замовлення`,
       );
     }
   } catch (err) {
@@ -206,6 +218,8 @@ bot.on('callback_query:data', async (ctx, next) => {
   if (!data.startsWith('menu:')) return next();
 
   try {
+    if (!(await ensureManagerAuth(ctx))) return;
+
     if (data === 'menu:conversations') {
       // Reuse conversations logic
       const conversations = await prisma.conversation.findMany({
@@ -297,7 +311,7 @@ bot.command('login', async (ctx) => {
 
     log.info({ tgUserId, adminUserId: targetUser.id }, 'Manager authenticated via Telegram');
     await ctx.reply(
-      `Авторизовано! ✅\n\nВи тепер отримуватимете сповіщення про ескалації та замовлення.\n\nОберіть дію:`,
+      `Авторизовано! ✅\n\nСповіщення надходитимуть у цей чат. Група менеджерів не обовʼязкова.\n\nОберіть дію:`,
       buildMenuKeyboard(),
     );
   } catch (err) {
@@ -309,6 +323,8 @@ bot.command('login', async (ctx) => {
 // /conversations - List active conversations
 bot.command('conversations', async (ctx) => {
   try {
+    if (!(await ensureManagerAuth(ctx))) return;
+
     const conversations = await prisma.conversation.findMany({
       where: { state: { in: ['bot', 'handoff'] } },
       include: { client: true },
@@ -342,6 +358,8 @@ bot.command('conversations', async (ctx) => {
 // /takeover CONV_ID - Take over conversation
 bot.command('takeover', async (ctx) => {
   try {
+    if (!(await ensureManagerAuth(ctx))) return;
+
     const prefix = ctx.match?.trim();
 
     if (!prefix) {
@@ -383,6 +401,8 @@ bot.command('takeover', async (ctx) => {
 // /return CONV_ID - Return conversation to bot
 bot.command('return', async (ctx) => {
   try {
+    if (!(await ensureManagerAuth(ctx))) return;
+
     const prefix = ctx.match?.trim();
 
     if (!prefix) {
@@ -418,6 +438,8 @@ bot.command('return', async (ctx) => {
 // /close CONV_ID - Close conversation
 bot.command('close', async (ctx) => {
   try {
+    if (!(await ensureManagerAuth(ctx))) return;
+
     const prefix = ctx.match?.trim();
 
     if (!prefix) {
@@ -453,6 +475,11 @@ bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
 
     if (data.startsWith('takeover:')) {
+      if (!(await isManagerAuthorized(ctx.from.id))) {
+        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        return;
+      }
+
       const conversationId = data.substring('takeover:'.length);
 
       const conversation = await prisma.conversation.findUnique({
@@ -485,6 +512,11 @@ bot.on('callback_query:data', async (ctx) => {
       await ctx.answerCallbackQuery({ text: 'Взято!' });
       await ctx.editMessageText(`\u{2705} Взято менеджером @${username}`);
     } else if (data.startsWith('return:')) {
+      if (!(await isManagerAuthorized(ctx.from.id))) {
+        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        return;
+      }
+
       const conversationId = data.substring('return:'.length);
 
       const conversation = await prisma.conversation.findUnique({
@@ -510,6 +542,11 @@ bot.on('callback_query:data', async (ctx) => {
       await ctx.answerCallbackQuery({ text: 'Повернуто боту!' });
       await ctx.editMessageText('\u{2705} Повернуто боту');
     } else if (data.startsWith('approve:')) {
+      if (!(await isManagerAuthorized(ctx.from.id))) {
+        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        return;
+      }
+
       const orderId = data.substring('approve:'.length);
 
       const order = await prisma.order.findUnique({
@@ -545,6 +582,11 @@ bot.on('callback_query:data', async (ctx) => {
       await ctx.answerCallbackQuery({ text: 'Підтверджено!' });
       await ctx.editMessageText(`\u{2705} Замовлення підтверджено менеджером @${username}`);
     } else if (data.startsWith('decline:')) {
+      if (!(await isManagerAuthorized(ctx.from.id))) {
+        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        return;
+      }
+
       const orderId = data.substring('decline:'.length);
 
       const order = await prisma.order.findUnique({
