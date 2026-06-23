@@ -7,7 +7,9 @@
 # Base domain for platform-managed tenant hostnames (api-{slug}.BASE, agent-{slug}.BASE).
 PLATFORM_BASE_DOMAIN="${PLATFORM_BASE_DOMAIN:-direct-ai-agents.com}"
 
-# Let's Encrypt cert directory name. Wildcard *.direct-ai-agents.com is stored under the apex name.
+# Let's Encrypt cert directory name under /etc/letsencrypt/live/.
+# If certbot created a second line (e.g. direct-ai-agents.com-0001 for wildcard), set
+# PLATFORM_TLS_CERT_NAME or rely on auto-discovery below.
 PLATFORM_TLS_CERT_NAME="${PLATFORM_TLS_CERT_NAME:-${PLATFORM_BASE_DOMAIN}}"
 
 # Port allocation for new tenants (--platform-auto).
@@ -44,16 +46,34 @@ tenant_domains_ssl_cert_covers_wildcard() {
     | grep -qF "DNS:*.${PLATFORM_BASE_DOMAIN}"
 }
 
+# Find live cert dir that includes *.PLATFORM_BASE_DOMAIN (handles certbot -0001 suffix dirs).
+tenant_domains_find_wildcard_cert_dir() {
+  local base="${PLATFORM_BASE_DOMAIN}"
+  local dir
+  for dir in \
+    "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}" \
+    "/etc/letsencrypt/live/${base}" \
+    "/etc/letsencrypt/live/${base}-0001" \
+    "/etc/letsencrypt/live/${base}-0002" \
+    "/etc/letsencrypt/live/${base}-0003"; do
+    if [[ -f "${dir}/fullchain.pem" ]] \
+      && tenant_domains_ssl_cert_covers_wildcard "${dir}/fullchain.pem"; then
+      echo "${dir}"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Returns cert directory path (without trailing slash) for nginx ssl_certificate directives.
 tenant_domains_resolve_ssl_cert_dir() {
   local api_domain="$1"
   local admin_domain="$2"
-  local wildcard_dir="/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}"
+  local wildcard_dir=""
 
   if tenant_domains_is_platform_host "${api_domain}" \
     && tenant_domains_is_platform_host "${admin_domain}" \
-    && [[ -f "${wildcard_dir}/fullchain.pem" ]] \
-    && tenant_domains_ssl_cert_covers_wildcard "${wildcard_dir}/fullchain.pem"; then
+    && wildcard_dir="$(tenant_domains_find_wildcard_cert_dir)"; then
     echo "${wildcard_dir}"
     return 0
   fi

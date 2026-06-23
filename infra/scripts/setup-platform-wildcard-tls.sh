@@ -38,13 +38,14 @@ echo "  Domains: *.${PLATFORM_BASE_DOMAIN}, ${PLATFORM_BASE_DOMAIN}"
 echo "  Cert name: ${PLATFORM_TLS_CERT_NAME}"
 echo "══════════════════════════════════════════════"
 
-if tenant_domains_ssl_cert_covers_wildcard "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem"; then
-  echo "Wildcard cert already present at /etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}"
+if wildcard_dir="$(tenant_domains_find_wildcard_cert_dir 2>/dev/null)"; then
+  echo "Wildcard cert already present at ${wildcard_dir}"
   echo "Renew with: certbot renew"
   exit 0
 fi
 
-if [[ -f "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem" ]]; then
+if [[ -f "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem" ]] \
+  || [[ -f "/etc/letsencrypt/live/${PLATFORM_BASE_DOMAIN}/fullchain.pem" ]]; then
   echo "WARNING: Cert exists at /etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME} but does NOT cover *.${PLATFORM_BASE_DOMAIN}"
   echo "         (likely apex-only from landing setup). Re-issuing wildcard via DNS-01..."
   EXPAND_ARGS=(--expand)
