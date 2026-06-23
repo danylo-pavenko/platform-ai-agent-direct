@@ -45,3 +45,6 @@ apps/admin/src/**/*.js
 
 # TypeScript incremental
 *.tsbuildinfo
+
+# Marketing assets (generated creatives, local-only)
+docs/marketing/
