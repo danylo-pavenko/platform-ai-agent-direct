@@ -8,6 +8,7 @@ interface IgNodeFields {
 
 interface PageIgFields {
   instagram_business_account?: IgNodeFields;
+  connected_instagram_account?: IgNodeFields;
 }
 
 function addIgRoutingIds(ids: Set<string>, ig?: IgNodeFields | null): void {
@@ -53,15 +54,18 @@ export async function resolveInstagramWebhookRoutingIds(
   // Page ID sometimes appears as recipient.id in Meta messaging webhooks.
   if (pageId) ids.add(pageId);
 
-  const pageFields = 'instagram_business_account{id,ig_id,username}';
+  const pageFields =
+    'instagram_business_account{id,ig_id,username},connected_instagram_account{id,ig_id,username}';
 
   if (pageId) {
     const fromPage = await graphProbe(pageId, pageFields, pageAccessToken);
     addIgRoutingIds(ids, fromPage?.instagram_business_account);
+    addIgRoutingIds(ids, fromPage?.connected_instagram_account);
   }
 
   const fromMe = await graphProbe('me', pageFields, pageAccessToken);
   addIgRoutingIds(ids, fromMe?.instagram_business_account);
+  addIgRoutingIds(ids, fromMe?.connected_instagram_account);
 
   if (igBusinessAccountId) {
     const fromIg = await graphProbe(igBusinessAccountId, 'id,ig_id,username', pageAccessToken);

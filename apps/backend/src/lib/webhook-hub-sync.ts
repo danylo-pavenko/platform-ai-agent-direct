@@ -90,28 +90,31 @@ export function syncWebhookRoutingToHub(
   })();
 }
 
-export function clearWebhookRoutingOnHub(log: FastifyBaseLogger | pino.Logger = defaultLog): void {
+export async function clearWebhookRoutingOnHub(
+  log: FastifyBaseLogger | pino.Logger = defaultLog,
+): Promise<boolean> {
   const missing = missingHubSyncEnv();
   if (missing.length > 0) {
     log.warn({ missing }, 'Webhook hub clear skipped — missing env vars');
-    return;
+    return false;
   }
 
   const syncUrl = `${config.SA_INTERNAL_URL}/api/tenants/by-instance/${config.INSTANCE_ID}/webhook-config`;
-  fetch(syncUrl, {
-    method: 'DELETE',
-    headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
-    signal: AbortSignal.timeout(8_000),
-  })
-    .then(async (res) => {
-      if (res.ok) {
-        log.info('Webhook hub routing cleared');
-      } else {
-        const txt = await res.text().catch(() => '');
-        log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Webhook hub clear failed');
-      }
-    })
-    .catch((err) => {
-      log.warn({ err }, 'Webhook hub clear error (non-fatal)');
+  try {
+    const res = await fetch(syncUrl, {
+      method: 'DELETE',
+      headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
+      signal: AbortSignal.timeout(8_000),
     });
+    if (res.ok) {
+      log.info('Webhook hub routing cleared');
+      return true;
+    }
+    const txt = await res.text().catch(() => '');
+    log.warn({ status: res.status, body: txt.slice(0, 200) }, 'Webhook hub clear failed');
+    return false;
+  } catch (err) {
+    log.warn({ err }, 'Webhook hub clear error (non-fatal)');
+    return false;
+  }
 }

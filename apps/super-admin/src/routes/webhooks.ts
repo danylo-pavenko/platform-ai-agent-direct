@@ -20,6 +20,8 @@ import { PrismaClient } from '@prisma/client';
 import { config } from '../config.js';
 import {
   collectTenantInstagramRoutingIds,
+  collectWebhookDebugCandidateIds,
+  collectWebhookRoutingCandidateIds,
   tenantMatchesWebhookCandidates,
 } from '../lib/tenant-webhook-routing.js';
 
@@ -128,33 +130,15 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const entries = body.entry ?? [];
 
-    // Collect all candidate routing IDs from this payload.
-    // Meta uses different values in entry[].id depending on event type:
-    //   message_edit  → entry.id = business IG account ID (reliable)
-    //   messages      → entry.id = SENDER's IG ID (useless for routing)
-    // So we also extract recipient.id from inside messaging[] and changes[]
-    // events, where it's always the business IG account ID.
-    const candidateIds = new Set<string>();
-    for (const entry of entries) {
-      if (entry.id && entry.id !== '0') candidateIds.add(entry.id);
-      for (const m of (entry as any).messaging ?? []) {
-        if (m.recipient?.id) candidateIds.add(m.recipient.id);
-        if (m.sender?.id)    candidateIds.add(m.sender.id);
-      }
-      // DM payloads when this app is not the active owner (see `standby` subscription).
-      for (const s of (entry as any).standby ?? []) {
-        if (s.recipient?.id) candidateIds.add(s.recipient.id);
-        if (s.sender?.id)    candidateIds.add(s.sender.id);
-      }
-      for (const c of (entry as any).changes ?? []) {
-        if (c.value?.recipient?.id) candidateIds.add(c.value.recipient.id);
-        if (c.value?.sender?.id) candidateIds.add(c.value.sender.id);
-      }
-    }
+    const routingCandidateIds = collectWebhookRoutingCandidateIds(entries);
+    const debugCandidateIds = collectWebhookDebugCandidateIds(entries);
 
-    if (candidateIds.size === 0) {
+    if (routingCandidateIds.size === 0) {
       app.log.warn(
-        { summary: summarizeHubIgWebhook(body) },
+        {
+          summary: summarizeHubIgWebhook(body),
+          debugCandidateIds: [...debugCandidateIds].slice(0, 8),
+        },
         'Webhook hub: no routing candidate ids in payload',
       );
       return;
@@ -170,12 +154,13 @@ export async function webhookRoutes(app: FastifyInstance) {
     });
 
     for (const tenant of activeTenants) {
-      if (!tenantMatchesWebhookCandidates(tenant, candidateIds)) continue;
+      if (!tenantMatchesWebhookCandidates(tenant, routingCandidateIds)) continue;
       if (seenTenants.has(tenant.id)) continue;
       seenTenants.add(tenant.id);
 
       const routingIds = collectTenantInstagramRoutingIds(tenant);
-      const matchedId = [...candidateIds].find((id) => routingIds.has(id)) ?? tenant.instagramUserId;
+      const matchedId =
+        [...routingCandidateIds].find((id) => routingIds.has(id)) ?? tenant.instagramUserId;
 
       // Verify HMAC with the platform-level App Secret (one shared Meta App for all tenants).
       // If PLATFORM_FACEBOOK_APP_SECRET is not set, skip verification and let the tenant
@@ -252,8 +237,8 @@ export async function webhookRoutes(app: FastifyInstance) {
         }));
       app.log.warn(
         {
-          candidateIds: [...candidateIds].slice(0, 12),
-          candidateCount: candidateIds.size,
+          routingCandidateIds: [...routingCandidateIds].slice(0, 12),
+          debugCandidateIds: [...debugCandidateIds].slice(0, 12),
           matchedTenantCount: seenTenants.size,
           tenantRoutingSnapshot,
           summary: summarizeHubIgWebhook(body),

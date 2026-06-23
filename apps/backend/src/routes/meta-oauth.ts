@@ -667,6 +667,7 @@ async function persistMetaOAuthConnection(
   );
 
   if (input.igUserId && meta.facebookAppSecret) {
+    await clearWebhookRoutingOnHub(app.log);
     syncWebhookRoutingToHub(
       input.igUserId,
       meta.facebookAppSecret,
@@ -1358,7 +1359,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
 
     // Step 3 — clear webhook routing on the platform hub (non-fatal) so the
     // IG account can be re-connected by this or another tenant later.
-    clearWebhookRoutingOnHub(app.log);
+    await clearWebhookRoutingOnHub(app.log);
 
     return { ok: true };
   });

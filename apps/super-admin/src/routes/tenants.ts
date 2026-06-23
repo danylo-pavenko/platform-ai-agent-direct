@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { config } from '../config.js';
 import {
   collectTenantInstagramRoutingIds,
+  mergeTenantInstagramRoutingIds,
   normalizeInstagramRoutingIds,
 } from '../lib/tenant-webhook-routing.js';
 import {
@@ -589,13 +590,8 @@ export async function tenantsRoutes(app: FastifyInstance) {
     if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
 
     const synced = normalizeInstagramRoutingIds(instagramUserId, instagramRoutingIds);
-    const merged = new Set(synced);
-    // Preserve manually-added extras when auto-sync cannot resolve ig_id from Graph.
-    const prevPrimary = tenant.instagramUserId;
-    for (const id of collectTenantInstagramRoutingIds(tenant)) {
-      if (id !== prevPrimary && id !== instagramUserId) merged.add(id);
-    }
-    const routingIds = [...merged];
+    const routingIds = mergeTenantInstagramRoutingIds(tenant, synced, instagramUserId);
+    const accountChanged = Boolean(tenant.instagramUserId && tenant.instagramUserId !== instagramUserId);
 
     const updated = await prisma.tenant.update({
       where: { id: tenant.id },
@@ -607,7 +603,13 @@ export async function tenantsRoutes(app: FastifyInstance) {
     });
 
     app.log.info(
-      { instanceId: req.params.instanceId, instagramUserId, instagramRoutingIds: routingIds },
+      {
+        instanceId: req.params.instanceId,
+        instagramUserId,
+        instagramRoutingIds: routingIds,
+        accountChanged,
+        droppedStaleRouting: accountChanged,
+      },
       'Webhook config auto-synced from tenant OAuth',
     );
 
