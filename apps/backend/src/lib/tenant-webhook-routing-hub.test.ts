@@ -3,7 +3,7 @@ import {
   collectWebhookDebugCandidateIds,
   collectWebhookRoutingCandidateIds,
   mergeTenantInstagramRoutingIds,
-} from '../../../super-admin/src/lib/tenant-webhook-routing.js';
+} from './webhook-routing-candidates.js';
 
 describe('collectWebhookRoutingCandidateIds', () => {
   it('uses recipient.id for messaging events (entry.id is sender)', () => {
