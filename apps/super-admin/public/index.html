@@ -531,7 +531,7 @@
                     </button>
                   </td>
                   <td data-label="Health">
-                    <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-if="tenantNeedsProvision(t)" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
                     <span v-else>
                       <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
                       {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
@@ -546,8 +546,8 @@
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
-                        :title="health[t.id] && health[t.id].deployed === false ? 'Перша установка: clone + .env + deploy' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
-                        {{ deploying===t.id ? '⏳ ...' : (health[t.id] && health[t.id].deployed === false ? '📦 Provision' : '🚀 Deploy') }}
+                        :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ deploying===t.id ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                     </div>
                   </td>
@@ -601,7 +601,7 @@
                     </button>
                   </td>
                   <td data-label="Health">
-                    <span v-if="health[t.id] && health[t.id].deployed === false" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-if="tenantNeedsProvision(t)" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
                     <span v-else>
                       <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
                       {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
@@ -616,8 +616,8 @@
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
-                        :title="health[t.id] && health[t.id].deployed === false ? 'Перша установка: clone + .env + deploy' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
-                        {{ deploying===t.id ? '⏳ ...' : (health[t.id] && health[t.id].deployed === false ? '📦 Provision' : '🚀 Deploy') }}
+                        :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ deploying===t.id ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
@@ -1426,7 +1426,7 @@ createApp({
       adminDomain: 'URL Vue-адмінки клієнта. Nginx проксіює на Admin Port.',
       apiPort: 'Локальний порт Fastify на VPS. Пари виділяються кроком +100 (3100, 3200…). Перевіряється реєстр + ss -tln.',
       adminPort: 'Локальний порт Vue admin (serve). Зазвичай API Port + 1.',
-      status: 'Provisioned — запис у реєстрі, deploy ще не робили. Active — в роботі. Suspended — блокує вхід у tenant admin.',
+      status: 'Provisioned — запис у реєстрі, сервер ще не налаштовано. Active — розгорнуто на VPS. Suspended — блокує вхід у tenant admin.',
       accessMode: 'Обмеження підписки для tenant admin. Suspended має пріоритет над датою.',
       accessExpiresAt: 'Після цієї дати login у tenant admin буде заблоковано, доки не продовжать.',
       envExtra: 'Додаткові змінні в .env при provision/deploy. Формат: KEY=VALUE, одна на рядок.',
@@ -1685,6 +1685,14 @@ createApp({
     function isTenantOnline(id) {
       const h = health[id];
       return !!(h && h.online);
+    }
+
+    /** First-time server setup vs git pull update — not the same as DB status alone. */
+    function tenantNeedsProvision(t) {
+      const h = health[t.id];
+      if (h && h.deployed === false) return true;
+      if (h && h.deployed === true) return false;
+      return t.status === 'provisioned';
     }
 
     function chatTenantName() {
@@ -2103,8 +2111,15 @@ createApp({
           .then(r => r.json())
           // deployed: true/false from the server, null = unknown → treat as
           // deployed so a live instance is never mislabeled "Not deployed".
-          .then(d => { health[t.id] = { online: !!d.online, deployed: d.deployed === false ? false : true }; })
-          .catch(() => { health[t.id] = { online: false, deployed: true }; });
+          .then(d => {
+            health[t.id] = {
+              online: !!d.online,
+              deployed: d.deployed === true ? true : d.deployed === false ? false : null,
+            };
+          })
+          .catch(() => {
+            health[t.id] = { online: false, deployed: t.status === 'provisioned' ? false : null };
+          });
       }
     }
 
@@ -2345,7 +2360,7 @@ createApp({
       loadLeads, updateLeadStatus, formatDate,
       linkHumanClicks, linkRawClicks, linkFormSubmissions, linkCountryEntries, linkCountryCount,
       linkActiveClass, linkActiveLabel, leadEmailClass, formatInstagram,
-      isTenantOnline, chatTenantName, chatTenantDomain,
+      isTenantOnline, tenantNeedsProvision, chatTenantName, chatTenantDomain,
     };
   }
 }).mount('#app');

@@ -305,6 +305,12 @@ export async function tenantsRoutes(app: FastifyInstance) {
 
     let deployed: boolean | null = null;
     try {
+      await execAsync(`getent passwd '${tenant.linuxUser.replace(/'/g, `'\\''`)}'`, { timeout: 5_000 });
+    } catch {
+      return { online: false, deployed: false, status: null };
+    }
+
+    try {
       await execAsync(
         `sudo -u ${tenant.linuxUser} test -f '${tenant.appDir}/infra/scripts/deploy-client.sh'`,
         { timeout: 10_000 },
@@ -484,6 +490,19 @@ export async function tenantsRoutes(app: FastifyInstance) {
     send(deployCode === 0
       ? '[✓ deploy finished successfully]'
       : `[✗ deploy failed with exit code ${deployCode}]`);
+
+    if (deployCode === 0 && tenant.status === 'provisioned') {
+      try {
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: { status: 'active' },
+        });
+        send('[status] Registry updated: provisioned → active');
+      } catch (err: any) {
+        send(`[warn] Deploy OK but failed to set status=active: ${err?.message ?? err}`);
+      }
+    }
+
     reply.raw.end();
   });
 
