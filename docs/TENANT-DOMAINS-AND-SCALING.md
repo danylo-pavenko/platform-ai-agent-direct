@@ -230,11 +230,37 @@ bash infra/scripts/provision-client.sh \
 
 Per-domain certbot, як раніше.
 
+### Що автоматично, що вручну
+
+| Крок | Коли | Де зберігається |
+|------|------|-----------------|
+| Linux user (`useradd`) | Provision | Без пароля — лише SSH по ключу |
+| PostgreSQL user + DB | Provision | Пароль БД → `~/platform-ai-agent-direct/.env` (`DATABASE_URL`, `chmod 600`) |
+| JWT, admin/TG паролі | Provision (новий `.env`) | Той самий `.env` |
+| `authorized_keys` | Provision | Копія з `agentsadmin` → `~tenant/.ssh/authorized_keys` |
+| Git clone (deploy key) | Provision | Копія `id_ed25519` з `agentsadmin` (outbound), якщо у tenant ще немає ключа |
+| Prisma migrate + seed | **Deploy** (super-admin або вручну) | — |
+| PM2, nginx vhost | Deploy | — |
+| `claude auth login` | **Вручну** | Сесія Claude Code у home tenant user (інтерактивно, не автоматизується) |
+
+**Пароль Linux user не генерується і ніде не зберігається** — це навмисно. Доступ оператора:
+
+1. SSH як `agentsadmin` (ваш ключ у `~agentsadmin/.ssh/authorized_keys`).
+2. `sudo -u cultura -i` або `ssh cultura@host` (той самий ключ скопійовано в tenant `authorized_keys` при provision).
+3. Для super-admin deploy з UI: один раз на VPS встановити sudoers — `infra/sudoers/agentsadmin-platform.conf` → `/etc/sudoers.d/agentsadmin-platform`.
+
+Tenant user має **обмежений** sudo лише на `systemctl reload nginx` (`/etc/sudoers.d/{user}-deploy`). Повні операції — через `agentsadmin` + `sudo -u tenant`.
+
+Креденшали БД/admin **не** потрапляють у super-admin DB — лише в tenant `.env` на диску. У логах provision пароль БД не друкується повним `DATABASE_URL` (лише шлях до файлу).
+
 ### Після provision (обидва режими)
 
 ```bash
-su - cultura
-nano ~/platform-ai-agent-direct/.env    # Meta, Telegram, CRM, SUPERVISOR_SHARED_SECRET
+# З agentsadmin (або напряму, якщо ключ уже в tenant authorized_keys):
+ssh cultura@your-vps
+# або
+sudo -u cultura -i
+nano ~/platform-ai-agent-direct/.env    # Meta, Telegram, CRM (DATABASE_URL уже є)
 claude auth login
 bash ~/platform-ai-agent-direct/infra/scripts/deploy-client.sh
 ```

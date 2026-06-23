@@ -120,20 +120,38 @@ fi
 USER_HOME=$(getent passwd "${LINUX_USER}" | cut -d: -f6)
 APP_DIR="${USER_HOME}/platform-ai-agent-direct"
 
-# ── 1b. SSH keys for git clone (super-admin / manual provision) ──
+# ── 1b. SSH for git clone + admin login (from PROVISION_SOURCE_USER) ──
 PROVISION_SOURCE_USER="${PROVISION_SOURCE_USER:-agentsadmin}"
 if getent passwd "${PROVISION_SOURCE_USER}" &>/dev/null; then
   SOURCE_HOME=$(getent passwd "${PROVISION_SOURCE_USER}" | cut -d: -f6)
   mkdir -p "${USER_HOME}/.ssh"
   chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh"
   chmod 700 "${USER_HOME}/.ssh"
+
+  # Inbound SSH: same keys that can log into agentsadmin can log into this tenant user.
+  if [ -f "${SOURCE_HOME}/.ssh/authorized_keys" ]; then
+    if [ ! -f "${USER_HOME}/.ssh/authorized_keys" ]; then
+      cp "${SOURCE_HOME}/.ssh/authorized_keys" "${USER_HOME}/.ssh/authorized_keys"
+    else
+      # Merge without duplicating lines
+      while IFS= read -r line || [ -n "$line" ]; do
+        [[ -z "${line//[[:space:]]/}" ]] && continue
+        grep -qxF "$line" "${USER_HOME}/.ssh/authorized_keys" 2>/dev/null || echo "$line" >> "${USER_HOME}/.ssh/authorized_keys"
+      done < "${SOURCE_HOME}/.ssh/authorized_keys"
+    fi
+    chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh/authorized_keys"
+    chmod 600 "${USER_HOME}/.ssh/authorized_keys"
+    echo "  authorized_keys synced from ${PROVISION_SOURCE_USER} (SSH login as ${LINUX_USER})"
+  fi
+
+  # Outbound git: deploy keys copied only when tenant has none (git clone as tenant user).
   for KEY_TYPE in id_ed25519 id_rsa; do
     if [ ! -f "${USER_HOME}/.ssh/${KEY_TYPE}" ] && [ -f "${SOURCE_HOME}/.ssh/${KEY_TYPE}" ]; then
       cp "${SOURCE_HOME}/.ssh/${KEY_TYPE}" "${USER_HOME}/.ssh/${KEY_TYPE}"
       cp "${SOURCE_HOME}/.ssh/${KEY_TYPE}.pub" "${USER_HOME}/.ssh/${KEY_TYPE}.pub" 2>/dev/null || true
       chown "${LINUX_USER}:${LINUX_USER}" "${USER_HOME}/.ssh/${KEY_TYPE}" "${USER_HOME}/.ssh/${KEY_TYPE}.pub" 2>/dev/null || true
       chmod 600 "${USER_HOME}/.ssh/${KEY_TYPE}"
-      echo "  SSH key ${KEY_TYPE} copied from ${PROVISION_SOURCE_USER}"
+      echo "  SSH deploy key ${KEY_TYPE} copied from ${PROVISION_SOURCE_USER} (git)"
     fi
   done
   if [ -f "${SOURCE_HOME}/.ssh/known_hosts" ] && [ ! -f "${USER_HOME}/.ssh/known_hosts" ]; then
@@ -459,9 +477,11 @@ echo "  API URL:    https://${API_DOMAIN}"
 echo "  Admin URL:  https://${ADMIN_DOMAIN}"
 echo ""
 echo "  ┌──────────────────────────────────────────────────────────┐"
-echo "  │ DATABASE_URL=${DB_URL}"
-echo "  │ Admin password: ${ADMIN_PASS}"
+echo "  │ DATABASE_URL written to ${ENV_FILE} (chmod 600)"
+echo "  │ Admin password: ${ADMIN_PASS}  (also in .env DEFAULT_ADMIN_PASSWORD)"
 echo "  │ TG admin pass:  ${TG_ADMIN_PASS}"
+echo "  │ Linux login:    SSH key only (authorized_keys from ${PROVISION_SOURCE_USER})"
+echo "  │                no Linux password is set or stored"
 echo "  └──────────────────────────────────────────────────────────┘"
 echo ""
 echo "  REQUIRED MANUAL STEPS:"
