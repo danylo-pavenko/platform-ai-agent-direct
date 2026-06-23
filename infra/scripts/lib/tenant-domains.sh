@@ -36,15 +36,24 @@ tenant_domains_is_platform_host() {
   [[ "${domain}" == api-*."${PLATFORM_BASE_DOMAIN}" || "${domain}" == agent-*."${PLATFORM_BASE_DOMAIN}" ]]
 }
 
+# True when fullchain.pem includes *.PLATFORM_BASE_DOMAIN (real wildcard, not apex-only).
+tenant_domains_ssl_cert_covers_wildcard() {
+  local cert_file="$1"
+  [[ -f "${cert_file}" ]] || return 1
+  openssl x509 -in "${cert_file}" -noout -text 2>/dev/null \
+    | grep -qF "DNS:*.${PLATFORM_BASE_DOMAIN}"
+}
+
 # Returns cert directory path (without trailing slash) for nginx ssl_certificate directives.
 tenant_domains_resolve_ssl_cert_dir() {
   local api_domain="$1"
   local admin_domain="$2"
   local wildcard_dir="/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}"
 
-  if [[ -f "${wildcard_dir}/fullchain.pem" ]] \
-    && tenant_domains_is_platform_host "${api_domain}" \
-    && tenant_domains_is_platform_host "${admin_domain}"; then
+  if tenant_domains_is_platform_host "${api_domain}" \
+    && tenant_domains_is_platform_host "${admin_domain}" \
+    && [[ -f "${wildcard_dir}/fullchain.pem" ]] \
+    && tenant_domains_ssl_cert_covers_wildcard "${wildcard_dir}/fullchain.pem"; then
     echo "${wildcard_dir}"
     return 0
   fi

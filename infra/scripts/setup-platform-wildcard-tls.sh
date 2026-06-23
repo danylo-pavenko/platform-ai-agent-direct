@@ -38,10 +38,18 @@ echo "  Domains: *.${PLATFORM_BASE_DOMAIN}, ${PLATFORM_BASE_DOMAIN}"
 echo "  Cert name: ${PLATFORM_TLS_CERT_NAME}"
 echo "══════════════════════════════════════════════"
 
-if [[ -f "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem" ]]; then
+if tenant_domains_ssl_cert_covers_wildcard "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem"; then
   echo "Wildcard cert already present at /etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}"
   echo "Renew with: certbot renew"
   exit 0
+fi
+
+if [[ -f "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem" ]]; then
+  echo "WARNING: Cert exists at /etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME} but does NOT cover *.${PLATFORM_BASE_DOMAIN}"
+  echo "         (likely apex-only from landing setup). Re-issuing wildcard via DNS-01..."
+  EXPAND_ARGS=(--expand)
+else
+  EXPAND_ARGS=()
 fi
 
 if [[ ! -f "${CLOUDFLARE_CREDENTIALS}" ]]; then
@@ -65,6 +73,7 @@ certbot certonly \
   --non-interactive \
   --agree-tos \
   --email "${CERTBOT_EMAIL}" \
+  "${EXPAND_ARGS[@]}" \
   -d "*.${PLATFORM_BASE_DOMAIN}" \
   -d "${PLATFORM_BASE_DOMAIN}"
 

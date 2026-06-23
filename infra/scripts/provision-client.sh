@@ -339,6 +339,12 @@ if [[ -n "${WILDCARD_SSL_DIR}" ]]; then
   API_SSL_DIR="${WILDCARD_SSL_DIR}"
   echo "  Using platform wildcard cert: ${WILDCARD_SSL_DIR}"
 else
+  echo "  No wildcard cert for *.${PLATFORM_BASE_DOMAIN} — using per-domain certbot (HTTP-01)"
+  if [[ -f "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem" ]] \
+    && ! tenant_domains_ssl_cert_covers_wildcard "/etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME}/fullchain.pem"; then
+    echo "  NOTE: /etc/letsencrypt/live/${PLATFORM_TLS_CERT_NAME} is apex-only — it cannot cover api-*/agent-* subdomains."
+    echo "        Run: CERTBOT_EMAIL=you@example.com bash infra/scripts/setup-platform-wildcard-tls.sh"
+  fi
   if [ -z "${CERTBOT_EMAIL}" ]; then
     read -rp "  Enter email for Let's Encrypt: " CERTBOT_EMAIL
   fi
