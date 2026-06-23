@@ -17,14 +17,62 @@ fi
 
 CLAUDE_BIN="${HOME}/.local/bin/claude"
 CLAUDE_INSTALL_URL="${CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}"
+LOCAL_BIN_PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
 
 claude_cli_ready() {
   [[ -x "${CLAUDE_BIN}" ]] && "${CLAUDE_BIN}" --version >/dev/null 2>&1
 }
 
+# Installer warns when ~/.local/bin is missing from PATH — fix for interactive SSH.
+ensure_local_bin_in_path() {
+  if [[ ":${PATH}:" != *":${HOME}/.local/bin:"* ]]; then
+    export PATH="${HOME}/.local/bin:${PATH}"
+  fi
+
+  local shell_rc="${HOME}/.bashrc"
+  if [ -f "${shell_rc}" ]; then
+    if ! grep -qE '(^|:)\$HOME/.local/bin|\.local/bin' "${shell_rc}" 2>/dev/null; then
+      {
+        echo ""
+        echo "# Claude Code CLI (setup-claude-cli.sh)"
+        echo "${LOCAL_BIN_PATH_LINE}"
+      } >> "${shell_rc}"
+      echo "  [claude] Added ~/.local/bin to ${shell_rc}"
+    fi
+  else
+    cat > "${shell_rc}" <<EOF
+# ~/.bashrc — created by setup-claude-cli.sh
+${LOCAL_BIN_PATH_LINE}
+EOF
+    echo "  [claude] Created ${shell_rc} with ~/.local/bin in PATH"
+  fi
+
+  local profile="${HOME}/.profile"
+  if [ ! -f "${profile}" ]; then
+    cat > "${profile}" <<'EOF'
+# ~/.profile — login shells
+[[ -f "$HOME/.bashrc" ]] && . "$HOME/.bashrc"
+EOF
+    echo "  [claude] Created ${profile} (sources .bashrc)"
+  elif ! grep -qE '\.bashrc|\.local/bin' "${profile}" 2>/dev/null; then
+    {
+      echo ""
+      echo "# Claude Code CLI (setup-claude-cli.sh)"
+      echo '[[ -f "$HOME/.bashrc" ]] && . "$HOME/.bashrc"'
+    } >> "${profile}"
+    echo "  [claude] Updated ${profile} to source .bashrc"
+  fi
+}
+
 if claude_cli_ready; then
+  ensure_local_bin_in_path
   echo "  [claude] CLI OK: $("${CLAUDE_BIN}" --version 2>/dev/null | head -1)"
   echo "  [claude] Path: ${CLAUDE_BIN}"
+  if command -v claude >/dev/null 2>&1; then
+    echo "  [claude] PATH: claude → $(command -v claude)"
+  else
+    echo "  [claude] PATH: run 'source ~/.bashrc' or open a new SSH session for 'claude' command"
+  fi
   exit 0
 fi
 
@@ -53,4 +101,10 @@ fi
 
 echo "  [claude] Installed: $("${CLAUDE_BIN}" --version 2>/dev/null | head -1)"
 echo "  [claude] Path: ${CLAUDE_BIN}"
+ensure_local_bin_in_path
+if command -v claude >/dev/null 2>&1; then
+  echo "  [claude] PATH: claude → $(command -v claude)"
+else
+  echo "  [claude] PATH: run 'source ~/.bashrc' or open a new SSH session for 'claude' command"
+fi
 echo "  [claude] Next: authorize in tenant admin Settings (or run: claude auth login)"
