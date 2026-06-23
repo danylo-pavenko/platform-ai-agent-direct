@@ -464,13 +464,21 @@ In the Meta dashboard, **each app has a single Instagram/Webhook callback URL**.
 
 ### Facebook Login for Business → Settings
 
-Under **Valid OAuth Redirect URIs**, add one URI **per API host** this codebase uses (the host must match `API_DOMAIN` in `.env`):
+Under **Valid OAuth Redirect URIs**, add one URI **per API host** this codebase uses (the host must match `API_DOMAIN` in `.env`).
+
+**Platform tenants** (`api-{slug}.direct-ai-agents.com`) share a **single** hub redirect — add once in Meta:
+
+```text
+https://admin.direct-ai-agents.com/settings/meta/oauth-callback
+```
+
+Legacy / custom-domain deployments still need their own host:
 
 ```text
 https://api.status-blessed.com/settings/meta/oauth-callback
 ```
 
-For each new isolated deployment:
+For each new isolated deployment with a **custom** API domain:
 
 ```text
 https://{that-client-API_DOMAIN}/settings/meta/oauth-callback

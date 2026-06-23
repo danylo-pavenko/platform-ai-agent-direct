@@ -265,7 +265,11 @@ claude auth login
 bash ~/platform-ai-agent-direct/infra/scripts/deploy-client.sh
 ```
 
-Meta OAuth redirect: `https://api-cultura.direct-ai-agents.com/api/meta/oauth/callback`
+Meta OAuth redirect (platform tenants — **one URI for all slugs**):
+
+`https://admin.direct-ai-agents.com/settings/meta/oauth-callback`
+
+Legacy custom API host: `https://{API_DOMAIN}/settings/meta/oauth-callback`
 
 ---
 

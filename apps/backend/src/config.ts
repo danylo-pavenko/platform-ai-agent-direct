@@ -134,6 +134,9 @@ const envSchema = z.object({
   // Empty = skip auto-sync (manual SA configuration required).
   SA_INTERNAL_URL: z.string().default(''),
 
+  // Optional override for Meta OAuth redirect_uri (platform hub default is auto-detected).
+  META_OAUTH_REDIRECT_URL: z.string().default(''),
+
   // Nova Poshta
   NOVA_POSHTA_API_KEY: z.string().default(''),
 

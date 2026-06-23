@@ -12,6 +12,13 @@ import {
 } from '../services/ig-connection.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { clearWebhookRoutingOnHub, syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
+import {
+  createHubOAuthState,
+  isHubOAuthState,
+  resolveOAuthRedirectUri,
+  usesCentralOAuthHub,
+  verifyHubOAuthState,
+} from '../lib/meta-oauth-hub.js';
 
 // ── Facebook Login for Business endpoints ────────────────────────────────────
 const FB_AUTHORIZE_URL = 'https://www.facebook.com/dialog/oauth';
@@ -40,7 +47,13 @@ const WEBHOOK_FIELDS = 'messages,messaging_postbacks,messaging_seen,standby';
 // ── State store (in-memory, expires in 10 min) ───────────────────────────────
 const pendingStates = new Map<string, { expiresAt: number }>();
 
-function generateState(): string {
+function generateState(redirectUri: string): string {
+  if (usesCentralOAuthHub(redirectUri)) {
+    if (!config.SUPERVISOR_SHARED_SECRET) {
+      throw new Error('SUPERVISOR_SHARED_SECRET is required for platform OAuth hub');
+    }
+    return createHubOAuthState(config.INSTANCE_ID, config.SUPERVISOR_SHARED_SECRET);
+  }
   const state = crypto.randomBytes(16).toString('hex');
   pendingStates.set(state, { expiresAt: Date.now() + 10 * 60 * 1000 });
   for (const [k, v] of pendingStates) {
@@ -50,6 +63,9 @@ function generateState(): string {
 }
 
 function consumeState(state: string): boolean {
+  if (isHubOAuthState(state)) {
+    return verifyHubOAuthState(state, config.INSTANCE_ID, config.SUPERVISOR_SHARED_SECRET);
+  }
   const entry = pendingStates.get(state);
   if (!entry || entry.expiresAt < Date.now()) return false;
   pendingStates.delete(state);
@@ -695,8 +711,16 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Facebook App ID не налаштовано' });
     }
 
-    const state = generateState();
-    const redirectUri = `${getApiBaseUrl()}/settings/meta/oauth-callback`;
+    let redirectUri: string;
+    let state: string;
+    try {
+      redirectUri = resolveOAuthRedirectUri();
+      state = generateState(redirectUri);
+    } catch (err: any) {
+      return reply.code(400).send({
+        error: err?.message ?? 'OAuth hub не налаштовано (перевірте SUPERVISOR_SHARED_SECRET)',
+      });
+    }
 
     const url = new URL(FB_AUTHORIZE_URL);
     url.searchParams.set('client_id', meta.facebookAppId);
@@ -762,7 +786,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       );
     }
 
-    const redirectUri = `${getApiBaseUrl()}/settings/meta/oauth-callback`;
+    const redirectUri = resolveOAuthRedirectUri();
 
     try {
       // Step 1 — exchange code for User Access Token

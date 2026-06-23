@@ -2666,15 +2666,26 @@ const oauthSnackbar = ref(false);
 const oauthSnackbarText = ref('');
 const oauthSnackbarColor = ref('success');
 
-// Derived URLs to display in the setup instructions. The admin is served from
-// `agent.status-blessed.com`; the API counterpart lives at `api.status-blessed.com`.
-// If the admin host doesn't start with `agent.`, fall back to the current origin.
+// Derived URLs to display in the setup instructions.
+function resolveApiHostFromAdmin(hostname: string): string {
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return hostname;
+  if (hostname.startsWith('agent.')) return hostname.replace(/^agent\./, 'api.');
+  const platform = hostname.match(/^agent-([a-z0-9-]+)\.(.+)$/i);
+  if (platform) return `api-${platform[1]}.${platform[2]}`;
+  return hostname;
+}
+
 const redirectUrl = computed(() => {
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
     return 'http://localhost:3000/settings/meta/oauth-callback';
   }
-  const apiHost = host.startsWith('agent.') ? host.replace(/^agent\./, 'api.') : host;
+  const apiHost = resolveApiHostFromAdmin(host);
+  // Platform tenants use a single hub redirect on admin.{base} (see meta-oauth-hub).
+  const platformHub = apiHost.match(/^api-([a-z0-9-]+)\.(.+)$/i);
+  if (platformHub) {
+    return `https://admin.${platformHub[2]}/settings/meta/oauth-callback`;
+  }
   return `https://${apiHost}/settings/meta/oauth-callback`;
 });
 const webhookUrl = computed(() => {
@@ -2682,7 +2693,7 @@ const webhookUrl = computed(() => {
   if (host === 'localhost' || host === '127.0.0.1') {
     return 'http://localhost:3000/webhooks/instagram';
   }
-  const apiHost = host.startsWith('agent.') ? host.replace(/^agent\./, 'api.') : host;
+  const apiHost = resolveApiHostFromAdmin(host);
   return `https://${apiHost}/webhooks/instagram`;
 });
 

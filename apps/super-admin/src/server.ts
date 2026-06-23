@@ -11,6 +11,7 @@ import { webhookRoutes } from './routes/webhooks.js';
 import { landingContactRoutes } from './routes/landing-contact.js';
 import { trackedLinksRoutes } from './routes/tracked-links.js';
 import { leadsRoutes } from './routes/leads.js';
+import { metaOAuthHubRoutes } from './routes/meta-oauth-hub.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -50,6 +51,8 @@ await app.register(tenantsRoutes);
 // Webhook dispatcher — public (no auth), verified via Meta HMAC per tenant.
 // Responds 200 immediately then forwards to the correct tenant backend.
 await app.register(webhookRoutes);
+// Single Meta OAuth redirect for all platform tenants (api-{slug}.*).
+await app.register(metaOAuthHubRoutes);
 await app.register(trackedLinksRoutes);
 await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
