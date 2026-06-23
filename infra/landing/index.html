@@ -3,6 +3,22 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-P2VWLSFF');</script>
+<!-- End Google Tag Manager -->
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-95B8KJJ8WT"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-95B8KJJ8WT');
+</script>
+<script src="/js/analytics.js"></script>
 
 <!-- Primary SEO -->
 <title>Direct AI Agents — AI-продавець для Instagram Direct | Автоматизація DM 24/7</title>
@@ -804,6 +820,10 @@
 </style>
 </head>
 <body>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-P2VWLSFF"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
 
 <!-- ============ NAV ============ -->
 <nav class="nav">
@@ -1904,6 +1924,7 @@
       btn.addEventListener("click", () => {
         const plan = btn.getAttribute("data-plan");
         if (plan && planSelect) planSelect.value = plan;
+        window.dalAnalytics?.ctaClick(plan, btn.closest("section")?.id || "pricing");
         location.hash = "contact";
         form.scrollIntoView({ behavior: "smooth", block: "start" });
       });
@@ -1911,6 +1932,7 @@
 
     document.querySelectorAll('a.contact-cta[href="#contact"]').forEach(a => {
       a.addEventListener("click", () => {
+        window.dalAnalytics?.ctaClick(a.getAttribute("data-plan") || "demo", a.closest("section")?.id || "hero");
         setTimeout(() => form.querySelector("input,textarea")?.focus(), 400);
       });
     });
@@ -1948,6 +1970,11 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || "send failed");
+        window.dalAnalytics?.lead({
+          plan: payload.plan || "Demo",
+          lead_type: "contact",
+          page_path: location.pathname,
+        });
         closeModal(confirmModal);
         form.reset();
         openModal(successModal);
