@@ -3,9 +3,22 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
-// Load .env from project root (two levels up from apps/backend)
+// Load .env from project root (three levels up from apps/backend/src|dist)
 const __dirname = dirname(fileURLToPath(import.meta.url));
-dotenvConfig({ path: resolve(__dirname, '..', '..', '..', '.env') });
+dotenvConfig({
+  path: resolve(__dirname, '..', '..', '..', '.env'),
+  // Tenant deploy exports stale empty vars into PM2; .env on disk must win.
+  override: true,
+});
+
+/** Empty/missing env strings must not block z.string().default(). */
+function envNonemptyString(defaultValue: string): z.ZodType<string> {
+  return z.preprocess((val) => {
+    if (val === undefined || val === null) return undefined;
+    if (typeof val === 'string' && val.trim() === '') return undefined;
+    return val;
+  }, z.string().default(defaultValue));
+}
 
 /** Empty/missing env strings must not become NaN via z.coerce.number(). */
 function envCoerceNumber(opts: {
@@ -62,8 +75,8 @@ const envSchema = z.object({
 
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
   // Defaults: shared platform Meta App — override per tenant in .env if needed.
-  FACEBOOK_APP_ID: z.string().default('26228249720190273'),
-  FACEBOOK_APP_SECRET: z.string().default('a503e1a11abd8422ca0be546a5be9645'),
+  FACEBOOK_APP_ID: envNonemptyString('26228249720190273'),
+  FACEBOOK_APP_SECRET: envNonemptyString('a503e1a11abd8422ca0be546a5be9645'),
   IG_WEBHOOK_VERIFY_TOKEN: z.string().default('sb-verify-2026'),
 
   // Telegram

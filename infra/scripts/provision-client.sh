@@ -252,8 +252,8 @@ KEYCRM_SYNC_INTERVAL_MIN=30
 
 # ── Facebook / Instagram ──
 # Meta Dashboard → App Settings → Basic: App ID + App Secret.
-FACEBOOK_APP_ID=${PLATFORM_FACEBOOK_APP_ID:-}
-FACEBOOK_APP_SECRET=${PLATFORM_FACEBOOK_APP_SECRET:-}
+FACEBOOK_APP_ID=${PLATFORM_FACEBOOK_APP_ID:-26228249720190273}
+FACEBOOK_APP_SECRET=${PLATFORM_FACEBOOK_APP_SECRET:-a503e1a11abd8422ca0be546a5be9645}
 # Random secret string; must match Meta → Webhooks → Verify Token.
 IG_WEBHOOK_VERIFY_TOKEN=${INSTANCE_ID}-verify-$(date +%Y)
 # Page + IG tokens are filled by OAuth (Settings → Meta in admin) and stored in DB.

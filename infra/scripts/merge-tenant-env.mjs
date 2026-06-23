@@ -17,6 +17,7 @@ const patch = JSON.parse(Buffer.from(patchB64, 'base64').toString('utf8'));
 let env = readFileSync(envPath, 'utf8');
 
 for (const [key, value] of Object.entries(patch)) {
+  if (value === undefined || value === null || String(value).trim() === '') continue;
   const line = `${key}=${String(value)}`;
   const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${esc}=.*`, 'm');

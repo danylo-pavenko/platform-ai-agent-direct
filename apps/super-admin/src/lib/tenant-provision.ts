@@ -85,7 +85,7 @@ export function parseEnvExtra(raw: string | null | undefined): Record<string, st
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     const value = trimmed.slice(eq + 1).trim();
-    if (/^[A-Z_][A-Z0-9_]*$/.test(key)) out[key] = value;
+    if (/^[A-Z_][A-Z0-9_]*$/.test(key) && value !== '') out[key] = value;
   }
   return out;
 }
