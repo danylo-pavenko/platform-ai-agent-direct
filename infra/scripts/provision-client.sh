@@ -286,6 +286,9 @@ JWT_EXPIRES_IN=7d
 # Keep empty to disable the supervisor chat endpoint.
 SUPERVISOR_SHARED_SECRET=
 
+# Super-admin internal URL (auto-merged on provision from super-admin).
+SA_INTERNAL_URL=
+
 # ── File storage ──
 UPLOADS_DIR=${APP_DIR}/uploads
 

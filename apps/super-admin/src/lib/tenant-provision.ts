@@ -94,10 +94,12 @@ export function buildEnvMergePatch(
   tenant: Pick<Tenant, 'envExtra'>,
   supervisorSecret: string,
   includeEnvExtra: boolean,
+  saApiPort = 4000,
 ): Record<string, string> {
   const patch: Record<string, string> = {
     FACEBOOK_APP_ID: DEFAULT_FACEBOOK_APP_ID,
     FACEBOOK_APP_SECRET: DEFAULT_FACEBOOK_APP_SECRET,
+    SA_INTERNAL_URL: `http://127.0.0.1:${saApiPort}`,
   };
   if (supervisorSecret) patch.SUPERVISOR_SHARED_SECRET = supervisorSecret;
   if (includeEnvExtra) Object.assign(patch, parseEnvExtra(tenant.envExtra));

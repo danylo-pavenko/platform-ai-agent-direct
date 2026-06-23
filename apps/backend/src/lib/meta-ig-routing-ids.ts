@@ -50,6 +50,8 @@ export async function resolveInstagramWebhookRoutingIds(
 ): Promise<string[]> {
   const ids = new Set<string>();
   if (igBusinessAccountId) ids.add(igBusinessAccountId);
+  // Page ID sometimes appears as recipient.id in Meta messaging webhooks.
+  if (pageId) ids.add(pageId);
 
   const pageFields = 'instagram_business_account{id,ig_id,username}';
 

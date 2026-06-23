@@ -448,7 +448,7 @@ export async function tenantsRoutes(app: FastifyInstance) {
         return;
       }
 
-      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, true);
+      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, true, config.SA_API_PORT);
       let mergeScript = '';
       try {
         const mergeScriptPath = await resolveMergeEnvScriptPath();
@@ -471,7 +471,7 @@ export async function tenantsRoutes(app: FastifyInstance) {
     } else {
       send('[check] Existing installation found — running safe update deploy (re-provision skipped, .env untouched)');
 
-      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, false);
+      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, false, config.SA_API_PORT);
       try {
         const mergeScriptPath = await resolveMergeEnvScriptPath();
         const mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);

@@ -195,7 +195,7 @@ dig +short api-test.direct-ai-agents.com   # має повернути VPS IP
 Super-admin при першому deploy:
 
 - викликає `provision-client.sh` (user, PostgreSQL, nginx, TLS, clone, повний `.env`)
-- мержить `envExtra` + `SUPERVISOR_SHARED_SECRET` з super-admin
+- мержить `envExtra` + `SUPERVISOR_SHARED_SECRET` + `SA_INTERNAL_URL` (для auto-sync IG routing після OAuth)
 - запускає `deploy-client.sh`
 
 Legacy клієнти: **Domain mode → Custom**, домени вручну (як Status Blessed).
