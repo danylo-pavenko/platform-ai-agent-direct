@@ -4,7 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { Tenant } from '@prisma/client';
-import { DEFAULT_TENANT_GIT_REPO } from './constants.js';
+import {
+  DEFAULT_FACEBOOK_APP_ID,
+  DEFAULT_FACEBOOK_APP_SECRET,
+  DEFAULT_TENANT_GIT_REPO,
+} from './constants.js';
 import { isPlatformTenantDomains } from './tenant-domains.js';
 
 const execFileAsync = promisify(execFile);
@@ -91,7 +95,10 @@ export function buildEnvMergePatch(
   supervisorSecret: string,
   includeEnvExtra: boolean,
 ): Record<string, string> {
-  const patch: Record<string, string> = {};
+  const patch: Record<string, string> = {
+    FACEBOOK_APP_ID: DEFAULT_FACEBOOK_APP_ID,
+    FACEBOOK_APP_SECRET: DEFAULT_FACEBOOK_APP_SECRET,
+  };
   if (supervisorSecret) patch.SUPERVISOR_SHARED_SECRET = supervisorSecret;
   if (includeEnvExtra) Object.assign(patch, parseEnvExtra(tenant.envExtra));
   return patch;

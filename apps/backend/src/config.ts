@@ -61,8 +61,9 @@ const envSchema = z.object({
     .transform((v) => v.toLowerCase() === 'true'),
 
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
-  FACEBOOK_APP_ID: z.string().default(''),
-  FACEBOOK_APP_SECRET: z.string().default(''),
+  // Defaults: shared platform Meta App — override per tenant in .env if needed.
+  FACEBOOK_APP_ID: z.string().default('26228249720190273'),
+  FACEBOOK_APP_SECRET: z.string().default('a503e1a11abd8422ca0be546a5be9645'),
   IG_WEBHOOK_VERIFY_TOKEN: z.string().default('sb-verify-2026'),
 
   // Telegram

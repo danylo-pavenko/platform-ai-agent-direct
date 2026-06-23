@@ -22,6 +22,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/tenant-domains.sh
 source "${SCRIPT_DIR}/lib/tenant-domains.sh"
 
+META_DEFAULTS="${SCRIPT_DIR}/../platform-meta.defaults.env"
+if [[ -f "${META_DEFAULTS}" ]]; then
+  # shellcheck source=../platform-meta.defaults.env
+  source "${META_DEFAULTS}"
+fi
+
 PLATFORM_MODE=false
 
 # ── Args ──
@@ -239,8 +245,8 @@ KEYCRM_SYNC_INTERVAL_MIN=30
 
 # ── Facebook / Instagram ──
 # Meta Dashboard → App Settings → Basic: App ID + App Secret.
-FACEBOOK_APP_ID=
-FACEBOOK_APP_SECRET=
+FACEBOOK_APP_ID=${PLATFORM_FACEBOOK_APP_ID:-}
+FACEBOOK_APP_SECRET=${PLATFORM_FACEBOOK_APP_SECRET:-}
 # Random secret string; must match Meta → Webhooks → Verify Token.
 IG_WEBHOOK_VERIFY_TOKEN=${INSTANCE_ID}-verify-$(date +%Y)
 # Page + IG tokens are filled by OAuth (Settings → Meta in admin) and stored in DB.
@@ -495,7 +501,6 @@ echo ""
 echo "  1. Fill in API credentials in .env:"
 echo "     su - ${LINUX_USER}"
 echo "     nano ${APP_DIR}/.env"
-echo "     # Set: FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, IG_WEBHOOK_VERIFY_TOKEN"
 echo "     # Set: TELEGRAM_BOT_TOKEN, TELEGRAM_MANAGER_GROUP_ID"
 echo "     # Set: CRM_PROVIDER + KEYCRM_API_KEY (if needed)"
 echo ""
