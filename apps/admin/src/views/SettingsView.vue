@@ -505,6 +505,41 @@
 
           <v-divider class="my-3" />
 
+          <div class="bot-ignore-block">
+            <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
+              <v-icon size="16">mdi-account-cancel-outline</v-icon>
+              Чорний список @нікнеймів
+            </div>
+            <div class="text-caption text-medium-emphasis mb-1">
+              Бот <strong>ніколи не відповідає</strong> цим користувачам — у Public і Debug.
+              Повідомлення зберігаються в діалозі, менеджер може відповісти вручну.
+              Через кому, регістр не важливий.
+            </div>
+            <v-textarea
+              v-model="botIgnoreUsernamesRaw"
+              variant="outlined"
+              density="compact"
+              rows="2"
+              auto-grow
+              hide-details
+              placeholder="@spam_account, @competitor_brand"
+            />
+            <div v-if="botIgnoreUsernamesParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
+              <v-chip
+                v-for="tag in botIgnoreUsernamesParsed"
+                :key="tag"
+                size="x-small"
+                color="error"
+                variant="tonal"
+                prepend-icon="mdi-at"
+              >
+                {{ tag }}
+              </v-chip>
+            </div>
+          </div>
+
+          <v-divider class="my-3" />
+
           <div class="backfill-row">
             <div class="backfill-info">
               <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
@@ -3001,6 +3036,7 @@ type RuntimeModeValue = 'public' | 'debug';
 
 const runtimeMode = ref<RuntimeModeValue>('public');
 const debugWhitelistRaw = ref('');
+const botIgnoreUsernamesRaw = ref('');
 const runtimeBackfillLimit = ref<number>(200);
 const runtimeBackfillLoading = ref(false);
 const runtimeBackfillResult = ref<ImportRecentResult | null>(null);
@@ -3015,6 +3051,19 @@ const debugWhitelistParsed = computed<string[]>(() => {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const part of debugWhitelistRaw.value.split(/[,\n]/)) {
+    const h = part.trim().replace(/^@+/, '').toLowerCase();
+    if (h && !seen.has(h)) {
+      seen.add(h);
+      out.push(h);
+    }
+  }
+  return out;
+});
+
+const botIgnoreUsernamesParsed = computed<string[]>(() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of botIgnoreUsernamesRaw.value.split(/[,\n]/)) {
     const h = part.trim().replace(/^@+/, '').toLowerCase();
     if (h && !seen.has(h)) {
       seen.add(h);
@@ -3060,6 +3109,7 @@ async function saveRuntimeModeNow() {
       runtime_mode: {
         mode: runtimeMode.value,
         debugWhitelist: debugWhitelistParsed.value,
+        botIgnoreUsernames: botIgnoreUsernamesParsed.value,
         backfillLimit: Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200)),
       },
     });
@@ -3080,7 +3130,7 @@ function scheduleRuntimeSave() {
   }, 500);
 }
 
-watch([runtimeMode, debugWhitelistRaw, runtimeBackfillLimit], scheduleRuntimeSave);
+watch([runtimeMode, debugWhitelistRaw, botIgnoreUsernamesRaw, runtimeBackfillLimit], scheduleRuntimeSave);
 
 type AgentModeValue = 'sales' | 'leadgen';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
@@ -3197,6 +3247,7 @@ async function fetchSettings() {
       const raw = data.runtime_mode as {
         mode?: string;
         debugWhitelist?: unknown;
+        botIgnoreUsernames?: unknown;
         backfillLimit?: number;
       };
       runtimeMode.value = raw.mode === 'debug' ? 'debug' : 'public';
@@ -3204,6 +3255,10 @@ async function fetchSettings() {
         ? raw.debugWhitelist.filter((v): v is string => typeof v === 'string')
         : [];
       debugWhitelistRaw.value = list.join(', ');
+      const ignoreList = Array.isArray(raw.botIgnoreUsernames)
+        ? raw.botIgnoreUsernames.filter((v): v is string => typeof v === 'string')
+        : [];
+      botIgnoreUsernamesRaw.value = ignoreList.join(', ');
       runtimeBackfillLimit.value =
         typeof raw.backfillLimit === 'number' && raw.backfillLimit > 0
           ? Math.min(500, Math.floor(raw.backfillLimit))
@@ -3238,6 +3293,7 @@ async function saveSettings() {
       runtime_mode: {
         mode: runtimeMode.value,
         debugWhitelist: debugWhitelistParsed.value,
+        botIgnoreUsernames: botIgnoreUsernamesParsed.value,
         backfillLimit: Math.max(10, Math.min(500, runtimeBackfillLimit.value || 200)),
       },
     });

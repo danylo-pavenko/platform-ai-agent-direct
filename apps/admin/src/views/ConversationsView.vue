@@ -180,7 +180,7 @@ function stateLabel(state: string): string {
     bot: 'Бот',
     handoff: 'Менеджер',
     closed: 'Закрито',
-    paused: 'Пауза',
+    paused: 'Бот вимкнено',
   };
   return labels[state] ?? state;
 }

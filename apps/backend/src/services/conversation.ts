@@ -25,6 +25,7 @@ import { handleCollectOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
 import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
+import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -293,6 +294,16 @@ async function handleIncomingMessageImpl(
     log.debug(
       { conversationId, state: conversation.state },
       'Conversation closed or paused, ignoring',
+    );
+    return;
+  }
+
+  // ── 3.5 Tenant-wide bot ignore list ───────────────────────────────
+  const runtime = await getRuntimeConfig();
+  if (isUsernameBotIgnored(runtime, client.igUsername)) {
+    log.info(
+      { conversationId, igUsername: client.igUsername },
+      'Username on bot ignore list — skipping bot response',
     );
     return;
   }

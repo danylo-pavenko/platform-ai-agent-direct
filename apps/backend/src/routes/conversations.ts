@@ -272,6 +272,61 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return updated;
   });
 
+  // PATCH /:id/bot-responses — enable/disable bot replies for this conversation
+  app.patch<{
+    Params: { id: string };
+    Body: { enabled: boolean };
+  }>('/:id/bot-responses', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { enabled } = request.body ?? {};
+
+    if (typeof enabled !== 'boolean') {
+      return reply.code(400).send({ error: 'enabled must be a boolean' });
+    }
+
+    const existing = await prisma.conversation.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, state: true },
+    });
+    if (!existing) {
+      return reply.code(404).send({ error: 'Conversation not found' });
+    }
+
+    const now = new Date();
+    const updated = await prisma.conversation.update({
+      where: { id: request.params.id },
+      data: enabled
+        ? {
+            state: 'bot',
+            handoffReason: null,
+            handedOffAt: null,
+            handedOffTo: null,
+          }
+        : {
+            state: 'paused',
+          },
+      select: {
+        id: true,
+        state: true,
+        handoffReason: true,
+        handedOffAt: true,
+      },
+    });
+
+    await prisma.message.create({
+      data: {
+        conversationId: updated.id,
+        direction: 'system',
+        sender: 'system',
+        text: enabled
+          ? 'Менеджер увімкнув відповіді бота для цієї розмови'
+          : 'Менеджер вимкнув відповіді бота для цієї розмови',
+        createdAt: now,
+      },
+    });
+
+    return updated;
+  });
+
   // PUT /clients/:clientId - Manually update client profile from admin
   app.put<{
     Params: { clientId: string };

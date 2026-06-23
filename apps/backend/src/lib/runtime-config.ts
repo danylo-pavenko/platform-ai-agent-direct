@@ -12,6 +12,7 @@
  *   {
  *     mode: 'public' | 'debug',
  *     debugWhitelist: string[],   // @handles, lowercased, no '@'
+ *     botIgnoreUsernames: string[], // @handles — bot never replies (any mode)
  *     backfillLimit: number,      // default 200 (last-N import)
  *   }
  *
@@ -25,12 +26,15 @@ export type RuntimeMode = 'public' | 'debug';
 export interface RuntimeConfig {
   mode: RuntimeMode;
   debugWhitelist: string[];
+  /** IG @handles that must never receive bot replies — applies in public and debug. */
+  botIgnoreUsernames: string[];
   backfillLimit: number;
 }
 
 const DEFAULTS: RuntimeConfig = {
   mode: 'public',
   debugWhitelist: [],
+  botIgnoreUsernames: [],
   backfillLimit: 200,
 };
 
@@ -45,6 +49,18 @@ export function normalizeIgHandle(raw: string): string {
     .toLowerCase();
 }
 
+function normalizeHandleList(raw: unknown): string[] {
+  const rawList = Array.isArray(raw) ? raw : [];
+  return Array.from(
+    new Set(
+      rawList
+        .filter((v): v is string => typeof v === 'string')
+        .map((v) => normalizeIgHandle(v))
+        .filter((v) => v.length > 0),
+    ),
+  );
+}
+
 export async function getRuntimeConfig(): Promise<RuntimeConfig> {
   if (_cache && Date.now() - _cacheAt < CACHE_TTL_MS) {
     return _cache;
@@ -56,19 +72,13 @@ export async function getRuntimeConfig(): Promise<RuntimeConfig> {
 
   const raw = (row?.value ?? {}) as Partial<RuntimeConfig>;
 
-  const rawList = Array.isArray(raw.debugWhitelist) ? raw.debugWhitelist : [];
-  const debugWhitelist = Array.from(
-    new Set(
-      rawList
-        .filter((v): v is string => typeof v === 'string')
-        .map((v) => normalizeIgHandle(v))
-        .filter((v) => v.length > 0),
-    ),
-  );
+  const debugWhitelist = normalizeHandleList(raw.debugWhitelist);
+  const botIgnoreUsernames = normalizeHandleList(raw.botIgnoreUsernames);
 
   _cache = {
     mode: raw.mode === 'debug' ? 'debug' : 'public',
     debugWhitelist,
+    botIgnoreUsernames,
     backfillLimit:
       typeof raw.backfillLimit === 'number' && raw.backfillLimit > 0
         ? Math.min(500, Math.floor(raw.backfillLimit))
@@ -100,4 +110,13 @@ export function shouldProcessIncoming(
   if (config.mode === 'public') return true;
   if (!igUsername) return false;
   return config.debugWhitelist.includes(normalizeIgHandle(igUsername));
+}
+
+/** Tenant-wide blocklist — bot must not reply even when conversation state is `bot`. */
+export function isUsernameBotIgnored(
+  config: RuntimeConfig,
+  igUsername: string | null | undefined,
+): boolean {
+  if (!igUsername) return false;
+  return config.botIgnoreUsernames.includes(normalizeIgHandle(igUsername));
 }

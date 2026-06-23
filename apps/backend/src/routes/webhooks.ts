@@ -589,7 +589,7 @@ async function processMessageEvent(
     where: {
       clientId: client.id,
       channel: 'ig',
-      state: { in: ['bot', 'handoff'] },
+      state: { in: ['bot', 'handoff', 'paused'] },
     },
     orderBy: { createdAt: 'desc' },
   });

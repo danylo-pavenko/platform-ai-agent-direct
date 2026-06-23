@@ -125,7 +125,67 @@
             <span class="text-caption font-weight-bold">Причина передачі менеджеру</span>
           </template>
         </v-alert>
-        <v-divider />
+
+        <!-- Bot response control -->
+        <div v-if="conversation" class="bot-control-bar d-flex flex-column ga-2 px-3 py-2">
+          <div class="d-flex align-center ga-2 flex-wrap">
+            <v-switch
+              :model-value="botResponsesEnabled"
+              :loading="botResponsesSaving"
+              :disabled="botResponsesSaving || isGloballyIgnored"
+              color="primary"
+              density="compact"
+              hide-details
+              inset
+              @update:model-value="onBotResponsesToggle"
+            >
+              <template #label>
+                <span class="text-body-2">Бот відповідає</span>
+              </template>
+            </v-switch>
+            <v-chip
+              v-if="isGloballyIgnored"
+              size="x-small"
+              color="error"
+              variant="tonal"
+              prepend-icon="mdi-account-cancel"
+            >
+              У глобальному чорному списку
+            </v-chip>
+            <v-chip
+              v-else-if="conversation.state === 'handoff'"
+              size="x-small"
+              color="orange"
+              variant="tonal"
+            >
+              Зараз відповідає менеджер
+            </v-chip>
+            <v-chip
+              v-else-if="conversation.state === 'paused'"
+              size="x-small"
+              color="purple"
+              variant="tonal"
+            >
+              Бот вимкнено для цієї розмови
+            </v-chip>
+          </div>
+          <div class="text-caption text-medium-emphasis">
+            <template v-if="isGloballyIgnored">
+              @{{ conversation.client.igUsername }} у чорному списку в Налаштуваннях — бот не відповідає незалежно від перемикача.
+            </template>
+            <template v-else-if="conversation.state === 'handoff'">
+              Увімкніть перемикач, щоб бот знову відповідав клієнту (навіть після передачі менеджеру).
+            </template>
+            <template v-else-if="conversation.state === 'paused'">
+              Увімкніть перемикач, щоб бот знову відповідав у цій розмові.
+            </template>
+            <template v-else>
+              Вимкніть, якщо бот більше не повинен відповідати цьому клієнту.
+            </template>
+          </div>
+        </div>
+
+        <v-divider v-if="conversation" />
 
         <!-- Messages -->
         <div
@@ -473,6 +533,18 @@ const qualityNoteDraft = ref('');
 const qualitySaving = ref(false);
 const showQualityNote = ref(false);
 
+// Bot response toggle
+const botResponsesSaving = ref(false);
+const botIgnoreUsernames = ref<string[]>([]);
+
+const botResponsesEnabled = computed(() => conversation.value?.state === 'bot');
+
+const isGloballyIgnored = computed(() => {
+  const username = conversation.value?.client?.igUsername?.trim().replace(/^@+/, '').toLowerCase();
+  if (!username) return false;
+  return botIgnoreUsernames.value.includes(username);
+});
+
 // ---------------------------------------------------------------------------
 // Computed
 // ---------------------------------------------------------------------------
@@ -511,7 +583,7 @@ function stateColor(state: string): string {
 }
 
 function stateLabel(state: string): string {
-  return ({ bot: 'Бот', handoff: 'Менеджер', closed: 'Закрито', paused: 'Пауза' } as Record<string, string>)[state] || state;
+  return ({ bot: 'Бот', handoff: 'Менеджер', closed: 'Закрито', paused: 'Бот вимкнено' } as Record<string, string>)[state] || state;
 }
 
 function formatTime(dateStr: string): string {
@@ -540,6 +612,7 @@ function senderIcon(msg: Message): string {
 
 const botIsThinking = computed(() => {
   if (!conversation.value || conversation.value.state !== 'bot') return false;
+  if (isGloballyIgnored.value) return false;
   const last = messages.value[messages.value.length - 1];
   if (!last || last.direction !== 'in') return false;
   return Date.now() - new Date(last.createdAt).getTime() < 3 * 60 * 1000;
@@ -659,6 +732,43 @@ function stopLivePoll() {
   document.removeEventListener('visibilitychange', onVisibilityChange);
 }
 
+async function fetchBotIgnoreList() {
+  try {
+    const { data } = await api.get('/settings');
+    const raw = data.runtime_mode as { botIgnoreUsernames?: unknown } | undefined;
+    const list = Array.isArray(raw?.botIgnoreUsernames)
+      ? raw!.botIgnoreUsernames.filter((v): v is string => typeof v === 'string')
+      : [];
+    botIgnoreUsernames.value = list.map((h) => h.trim().replace(/^@+/, '').toLowerCase()).filter(Boolean);
+  } catch {
+    botIgnoreUsernames.value = [];
+  }
+}
+
+async function onBotResponsesToggle(enabled: boolean | null) {
+  if (!conversation.value || enabled === null || botResponsesSaving.value) return;
+  if (enabled && isGloballyIgnored.value) {
+    showSnack('Клієнт у глобальному чорному списку — приберіть @нік з Налаштувань', 'warning');
+    return;
+  }
+
+  botResponsesSaving.value = true;
+  try {
+    const { data } = await api.patch(`/conversations/${conversation.value.id}/bot-responses`, {
+      enabled,
+    });
+    conversation.value.state = data.state;
+    conversation.value.handoffReason = data.handoffReason ?? null;
+    await pollLive();
+    showSnack(enabled ? 'Бот знову відповідає' : 'Бот вимкнено для цієї розмови');
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    showSnack(err.response?.data?.error ?? 'Не вдалося змінити режим бота', 'error');
+  } finally {
+    botResponsesSaving.value = false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Data fetching
 // ---------------------------------------------------------------------------
@@ -746,7 +856,7 @@ function onClientUpdated(updated: ClientData) {
 }
 
 onMounted(async () => {
-  await fetchConversation();
+  await Promise.all([fetchConversation(), fetchBotIgnoreList()]);
   startLivePoll();
 });
 
