@@ -7,7 +7,7 @@ import {
   normalizeInstagramRoutingIds,
   tenantMatchesWebhookCandidates as tenantMatchesCandidates,
   type TenantRoutingFields,
-} from '../../../backend/src/lib/webhook-routing-candidates.js';
+} from './webhook-routing-candidates.js';
 
 export {
   collectWebhookDebugCandidateIds,

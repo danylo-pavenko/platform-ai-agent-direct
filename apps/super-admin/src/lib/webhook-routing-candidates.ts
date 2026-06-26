@@ -1,4 +1,4 @@
-/** Tenant IG routing fields — keep in sync with apps/super-admin/src/lib/webhook-routing-candidates.ts */
+/** Tenant IG routing fields — keep in sync with apps/backend/src/lib/webhook-routing-candidates.ts */
 export interface TenantRoutingFields {
   instagramUserId: string | null;
   instagramRoutingIds: unknown;
