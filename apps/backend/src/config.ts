@@ -106,6 +106,13 @@ const envSchema = z.object({
     .transform((v) => v.toLowerCase() === 'true'),
   CLAUDE_USAGE_CHECK_INTERVAL_MIN: z.coerce.number().default(30),
   CLAUDE_USAGE_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(90),
+  // Daily Claude auth probe + Telegram alert when session expired (tenant has TG bot).
+  CLAUDE_AUTH_CHECK_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  CLAUDE_AUTH_CHECK_HOUR: z.coerce.number().min(0).max(23).default(7),
+  CLAUDE_AUTH_CHECK_TIMEZONE: z.string().default('Europe/Kyiv'),
 
   // Retry bot replies when Claude timed out or the handler failed silently.
   CONVERSATION_RETRY_ENABLED: z

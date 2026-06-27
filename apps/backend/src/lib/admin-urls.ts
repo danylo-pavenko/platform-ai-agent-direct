@@ -6,3 +6,10 @@ export function adminConversationUrl(conversationId: string): string {
     : `https://${config.ADMIN_DOMAIN}`;
   return `${base}/conversations/${conversationId}`;
 }
+
+export function adminSettingsUrl(): string {
+  const base = config.ADMIN_DOMAIN.startsWith('http')
+    ? config.ADMIN_DOMAIN.replace(/\/$/, '')
+    : `https://${config.ADMIN_DOMAIN}`;
+  return `${base}/settings`;
+}

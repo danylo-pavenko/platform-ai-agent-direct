@@ -4,7 +4,7 @@ import { getBot } from '../lib/telegram.js';
 import { getNotificationChatIds } from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
-import { adminConversationUrl } from '../lib/admin-urls.js';
+import { adminConversationUrl, adminSettingsUrl } from '../lib/admin-urls.js';
 
 const log = pino({ name: 'telegram-notify' });
 
@@ -78,6 +78,33 @@ async function sendToManagerGroup(
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
+
+/**
+ * Daily alert when Claude CLI session is missing or expired.
+ */
+export async function notifyClaudeAuthRequired(params: {
+  sessionExpired: boolean;
+  binaryOk: boolean;
+}): Promise<void> {
+  const { sessionExpired, binaryOk } = params;
+  const settingsUrl = adminSettingsUrl();
+
+  const title = !binaryOk
+    ? 'Claude недоступний на сервері'
+    : sessionExpired
+      ? 'Сесія Claude застаріла'
+      : 'Потрібна авторизація Claude';
+
+  const text = [
+    `🔑 <b>${title}</b>`,
+    ``,
+    `AI-агент і мета-агент не відповідатимуть, доки не оновите сесію.`,
+    ``,
+    `<a href="${escapeHtml(settingsUrl)}">Адмінка → Налаштування → Claude</a>`,
+  ].join('\n');
+
+  await sendToManagerGroup(text);
+}
 
 /**
  * Sends a Telegram alert when Claude subscription usage crosses warning/exhausted thresholds.
