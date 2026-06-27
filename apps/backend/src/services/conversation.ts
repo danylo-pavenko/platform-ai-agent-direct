@@ -4,6 +4,7 @@ import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from './claude.js';
 import { sendText } from './instagram.js';
+import { beginIgTypingIndicator } from './ig-typing-indicator.js';
 import {
   buildRuntimePrompt,
   getActivePrompt,
@@ -308,6 +309,12 @@ async function handleIncomingMessageImpl(
     return;
   }
 
+  const igTyping = await beginIgTypingIndicator({
+    channel: conversation.channel,
+    recipientId: client.igUserId,
+  });
+
+  try {
   // ── 4. Working hours check ────────────────────────────────────────
   const hours = await getWorkingHours();
   const now = new Date();
@@ -817,6 +824,9 @@ async function handleIncomingMessageImpl(
     { conversationId, responseLength: clientFacingText.length },
     'Bot response sent and persisted',
   );
+  } finally {
+    await igTyping.end();
+  }
 }
 
 // ---------------------------------------------------------------------------

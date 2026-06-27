@@ -15,6 +15,7 @@ import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
+import { invalidateFeatureFlagsCache } from '../lib/feature-flags.js';
 import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
@@ -81,6 +82,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     }
     if ('feature_flags' in filtered) {
       invalidateCrmWriteCache();
+      invalidateFeatureFlagsCache();
     }
 
     const settings = await prisma.setting.findMany({

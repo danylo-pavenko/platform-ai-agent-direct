@@ -50,7 +50,7 @@ async function main() {
     handoff_return_to_bot_minutes: 60,
     feature_flags: {
       auto_handoff: true,
-      send_typing_indicator: false,
+      send_typing_indicator: true,
       crm_write_enabled: true,
     },
   };

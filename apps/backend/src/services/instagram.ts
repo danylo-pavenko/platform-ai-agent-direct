@@ -1,8 +1,11 @@
 import pino from 'pino';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { stopIgTypingBeforeSend } from './ig-typing-indicator.js';
 
 const log = pino({ name: 'instagram' });
+
+export type IgSenderAction = 'typing_on' | 'typing_off' | 'mark_seen';
 
 const IG_API_URL = 'https://graph.facebook.com/v25.0/me/messages';
 const MAX_RETRIES = 3;
@@ -182,6 +185,38 @@ function splitAtWordBoundaries(text: string, maxLength: number): string[] {
   return chunks.filter((c) => c.length > 0);
 }
 
+// ── Sender actions (typing, seen) ───────────────────────────────────────
+
+/**
+ * Instagram sender action — separate request from message text (Meta requirement).
+ * Failures are logged and rethrown so callers can treat them as non-fatal.
+ */
+export async function sendSenderAction(
+  recipientId: string,
+  action: IgSenderAction,
+): Promise<void> {
+  const body = {
+    recipient: { id: recipientId },
+    sender_action: action,
+  };
+
+  log.debug({ recipientId, action, status: 'sending' }, 'Sending IG sender action');
+  await callIgApi(body);
+  log.debug({ recipientId, action, status: 'sent' }, 'IG sender action sent');
+}
+
+export async function sendTypingOn(recipientId: string): Promise<void> {
+  await sendSenderAction(recipientId, 'typing_on');
+}
+
+export async function sendTypingOff(recipientId: string): Promise<void> {
+  await sendSenderAction(recipientId, 'typing_off');
+}
+
+export async function markSeen(recipientId: string): Promise<void> {
+  await sendSenderAction(recipientId, 'mark_seen');
+}
+
 // ── Public API ───────────────────────────────────────────────────────────
 
 /**
@@ -193,6 +228,8 @@ export async function sendText(
   recipientId: string,
   text: string,
 ): Promise<void> {
+  await stopIgTypingBeforeSend(recipientId);
+
   const parts = splitText(stripMarkdownForInstagram(text));
 
   for (let i = 0; i < parts.length; i++) {
@@ -233,6 +270,8 @@ export async function sendImage(
   recipientId: string,
   imageUrl: string,
 ): Promise<void> {
+  await stopIgTypingBeforeSend(recipientId);
+
   const body = {
     recipient: { id: recipientId },
     message: {

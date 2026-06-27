@@ -3166,7 +3166,7 @@ const handoffKeywords = ref('');
 const handoffReturnToBotMinutes = ref(60);
 const featureFlags = ref({
   auto_handoff: true,
-  send_typing_indicator: false,
+  send_typing_indicator: true,
   crm_write_enabled: true,
 });
 
