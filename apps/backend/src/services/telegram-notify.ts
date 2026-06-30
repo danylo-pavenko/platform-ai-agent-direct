@@ -8,6 +8,9 @@ import { adminConversationUrl, adminSettingsUrl } from '../lib/admin-urls.js';
 
 const log = pino({ name: 'telegram-notify' });
 
+const MISSING_TOKEN_LOG_INTERVAL_MS = 15 * 60_000;
+let lastMissingTokenLogAt = 0;
+
 // ── HTML escaping ───────────────────────────────────────────────────────
 
 function escapeHtml(text: string | null | undefined): string {
@@ -40,7 +43,11 @@ async function sendToManagerGroup(
   const { telegram } = await getIntegrationConfig();
 
   if (!telegram.botToken) {
-    log.warn('Telegram bot token not configured - skipping notification');
+    const now = Date.now();
+    if (now - lastMissingTokenLogAt >= MISSING_TOKEN_LOG_INTERVAL_MS) {
+      log.debug('Telegram bot token not configured — skipping notification');
+      lastMissingTokenLogAt = now;
+    }
     return;
   }
 

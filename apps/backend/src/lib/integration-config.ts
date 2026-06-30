@@ -64,8 +64,8 @@ let _cache: IntegrationConfig | null = null;
 let _cacheAt = 0;
 const CACHE_TTL_MS = 60_000;
 
-export async function getIntegrationConfig(): Promise<IntegrationConfig> {
-  if (_cache && Date.now() - _cacheAt < CACHE_TTL_MS) {
+export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<IntegrationConfig> {
+  if (!opts?.fresh && _cache && Date.now() - _cacheAt < CACHE_TTL_MS) {
     return _cache;
   }
 

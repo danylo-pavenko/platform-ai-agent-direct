@@ -16,6 +16,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 import { invalidateFeatureFlagsCache } from '../lib/feature-flags.js';
+import { bumpTelegramBotWake } from '../lib/telegram-bot-wake.js';
 import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
@@ -146,6 +147,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Body must be a JSON object' });
     }
 
+    let telegramSettingsTouched = false;
+
     for (const key of INTEGRATION_KEYS) {
       if (!(key in body)) continue;
 
@@ -207,6 +210,10 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         update: { value: merged as any },
       });
 
+      if (key === 'integration_telegram') {
+        telegramSettingsTouched = true;
+      }
+
       if (key === 'integration_meta') {
         const pageId = merged.pageId;
         const pageAccessToken = merged.pageAccessToken;
@@ -250,6 +257,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     // Bust the cache so next request picks up new values
     invalidateIntegrationConfigCache();
+    if (telegramSettingsTouched) {
+      await bumpTelegramBotWake();
+    }
 
     return { ok: true };
   });

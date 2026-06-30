@@ -242,6 +242,23 @@ else
   pm2 logs "${PM2_PREFIX}-admin" --lines 20 --nostream 2>&1 || true
 fi
 
+if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ]; then
+  if pm2 describe "${PM2_PREFIX}-bot" > /dev/null 2>&1; then
+    BOT_STATUS=$(pm2 jlist 2>/dev/null | node -e "
+      const apps = JSON.parse(require('fs').readFileSync(0,'utf8'));
+      const bot = apps.find(a => a.name === '${PM2_PREFIX}-bot');
+      process.stdout.write(bot?.pm2_env?.status || 'missing');
+    " 2>/dev/null || echo "unknown")
+    if [ "${BOT_STATUS}" = "online" ] || [ "${BOT_STATUS}" = "launching" ]; then
+      echo "  Bot PM2: ${BOT_STATUS} (idle until Telegram token is saved in admin)"
+    else
+      echo "  WARN: Bot PM2 status is ${BOT_STATUS} (expected online)" >&2
+    fi
+  else
+    echo "  WARN: ${PM2_PREFIX}-bot process not found in PM2" >&2
+  fi
+fi
+
 if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ] && [ "${WHISPER_OK}" = "1" ]; then
   pm2 save
   HEALTH_STATE="OK"

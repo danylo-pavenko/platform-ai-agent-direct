@@ -4,6 +4,11 @@ import pino from 'pino';
 import { config } from './config.js';
 import { getIntegrationConfig } from './lib/integration-config.js';
 import {
+  getTelegramBotWakeAt,
+  resolveTelegramBotIdlePollMs,
+  TELEGRAM_BOT_CONFIG_WATCH_MS,
+} from './lib/telegram-bot-wake.js';
+import {
   isGroupChatType,
   registerTelegramGroup,
   unregisterTelegramGroup,
@@ -81,16 +86,31 @@ function stateLabel(state: string): string {
   }
 }
 
+// ── Process lifecycle ──
+
+let shutdownRequested = false;
+let currentBot: Bot | null = null;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setupProcessShutdown(): void {
+  const onSignal = () => {
+    if (shutdownRequested) return;
+    shutdownRequested = true;
+    log.info('Shutting down Telegram bot process...');
+    currentBot?.stop();
+  };
+  process.on('SIGTERM', onSignal);
+  process.on('SIGINT', onSignal);
+}
+
 // ── Bot setup ──
 
-async function main() {
-  const cfg = await getIntegrationConfig();
-  if (!cfg.telegram.botToken) {
-    log.warn('TELEGRAM_BOT_TOKEN not configured - Telegram bot will not start');
-    return;
-  }
-
-  const bot = new Bot(cfg.telegram.botToken);
+async function runBotSession(token: string): Promise<void> {
+  const bot = new Bot(token);
+  currentBot = bot;
 
   // Auto-register any group/supergroup the bot is added to (or already in).
   bot.use(async (ctx, next) => {
@@ -636,20 +656,62 @@ bot.on('callback_query:data', async (ctx) => {
 
   // ── Start long polling ──
 
-  bot.start({
-    onStart: () => log.info('Telegram bot started'),
-  });
+  const configWatcher = setInterval(async () => {
+    if (shutdownRequested) return;
+    const fresh = await getIntegrationConfig({ fresh: true });
+    if (!fresh.telegram.botToken || fresh.telegram.botToken !== token) {
+      log.info('Telegram bot token changed or removed — stopping session');
+      bot.stop();
+    }
+  }, TELEGRAM_BOT_CONFIG_WATCH_MS);
 
-  // ── Graceful shutdown ──
+  try {
+    await bot.start({
+      onStart: () => log.info('Telegram bot polling active'),
+    });
+  } finally {
+    clearInterval(configWatcher);
+    currentBot = null;
+  }
+}
 
-  const shutdown = () => {
-    log.info('Shutting down Telegram bot...');
-    bot.stop();
-    prisma.$disconnect();
-  };
+async function main(): Promise<void> {
+  setupProcessShutdown();
 
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  let idleLogged = false;
+  let lastWakeSeen = 0;
+
+  while (!shutdownRequested) {
+    const token = (await getIntegrationConfig({ fresh: true })).telegram.botToken;
+
+    if (!token) {
+      if (!idleLogged) {
+        log.info('Telegram bot idle — waiting for token in admin Settings → Telegram');
+        idleLogged = true;
+      }
+      const wakeAt = await getTelegramBotWakeAt();
+      const delayMs = resolveTelegramBotIdlePollMs(wakeAt, lastWakeSeen);
+      lastWakeSeen = Math.max(lastWakeSeen, wakeAt);
+      await sleep(delayMs);
+      continue;
+    }
+
+    idleLogged = false;
+
+    try {
+      await runBotSession(token);
+    } catch (err) {
+      log.error({ err }, 'Telegram bot session crashed — retrying in 10s');
+      await sleep(10_000);
+      continue;
+    }
+
+    if (!shutdownRequested) {
+      log.info('Telegram bot session ended — re-checking configuration');
+    }
+  }
+
+  await prisma.$disconnect();
 }
 
 main().catch((err) => {
