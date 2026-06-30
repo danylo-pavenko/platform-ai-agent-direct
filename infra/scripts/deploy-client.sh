@@ -52,6 +52,26 @@ fi
 
 INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
 
+# npm ci can fail with ENOTEMPTY when node_modules is partially corrupted; one clean retry only.
+npm_ci_with_enotempty_retry() {
+  local _log
+  _log="$(mktemp)"
+  if npm ci --prefer-offline >"$_log" 2>&1; then
+    rm -f "$_log"
+    return 0
+  fi
+  if ! grep -qE 'ENOTEMPTY|directory not empty, rmdir' "$_log"; then
+    cat "$_log" >&2
+    rm -f "$_log"
+    return 1
+  fi
+  echo "  WARN: npm ci failed (corrupt node_modules) — removing and retrying once..."
+  cat "$_log" >&2
+  rm -f "$_log"
+  rm -rf node_modules apps/backend/node_modules apps/admin/node_modules apps/super-admin/node_modules
+  npm ci --prefer-offline
+}
+
 echo "══════════════════════════════════════════════"
 echo "  Deploy: ${INSTANCE_NAME:-${INSTANCE_ID_UPPER}}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
@@ -67,7 +87,7 @@ bash "${SCRIPT_DIR}/setup-claude-cli.sh"
 
 # ── 3. Install dependencies ──
 echo "[3/11] Installing dependencies..."
-npm ci --prefer-offline
+npm_ci_with_enotempty_retry
 
 # ── 3b. faster-whisper STT (idempotent) ──
 echo "[4/11] Setting up faster-whisper STT (idempotent)..."
