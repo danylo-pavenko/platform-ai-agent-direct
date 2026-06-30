@@ -294,9 +294,12 @@
           <v-text-field
             v-model="saveVersionSummary"
             label="Опис змін"
+            hint="Необов'язково"
+            persistent-hint
             variant="outlined"
             density="compact"
             autofocus
+            clearable
             placeholder="напр. Додав правило про безкоштовну доставку"
             @keydown.enter="saveOverrideAsVersion"
           />
@@ -307,7 +310,6 @@
           <v-btn
             color="primary"
             :loading="savingVersion"
-            :disabled="!saveVersionSummary.trim()"
             @click="saveOverrideAsVersion"
           >
             Зберегти чернетку
@@ -774,17 +776,17 @@ function openSaveVersionDialog() {
 }
 
 async function saveOverrideAsVersion() {
-  const summary = saveVersionSummary.value.trim();
-  if (!summary || !promptOverride.value.trim()) return;
+  if (!promptOverride.value.trim()) return;
 
   savingVersion.value = true;
   try {
+    const summary = saveVersionSummary.value.trim();
     // Creates a draft (isActive: false) — explicit activation still happens
     // on the Prompts page. Sandbox is for editing and verifying, not for
     // silent prod rollouts.
     const { data } = await api.post('/prompts', {
       content: promptOverride.value,
-      changeSummary: summary,
+      changeSummary: summary || null,
     });
     showSaveVersionDialog.value = false;
     saveVersionSummary.value = '';

@@ -43,6 +43,12 @@
           {{ formatDate(item.createdAt) }}
         </template>
 
+        <template #item.changeSummary="{ item }">
+          <span :class="{ 'text-grey text-caption': !item.changeSummary }">
+            {{ item.changeSummary || 'Без опису' }}
+          </span>
+        </template>
+
         <template #item.actions="{ item }">
           <v-btn
             v-if="!item.isActive"
@@ -108,37 +114,34 @@
 
         <v-card-text class="agent-dialog-body">
           <!-- Manual tab -->
-          <div v-if="editTab === 'manual'">
-            <v-alert
-              type="info"
-              variant="tonal"
-              density="compact"
-              class="mb-3"
-              icon="mdi-language-markdown-outline"
-            >
-              <div class="text-body-2">
-                Зберігайте промпт у форматі <strong>Markdown</strong>.
-              </div>
-              <div class="text-caption mt-1">
-                Використовуйте <code>#</code>, <code>##</code> для заголовків,
-                <code>**жирний**</code>, <code>- список</code>, <code>`код`</code>,
-                <code>```блок```</code>. Це покращує структуру тексту для агента
-                та узгоджується з нашими шаблонами knowledge-файлів.
-              </div>
-            </v-alert>
+          <div v-if="editTab === 'manual'" class="manual-tab">
+            <v-expansion-panels v-model="markdownHintOpen" class="manual-tab-hint mb-2">
+              <v-expansion-panel value="hint">
+                <v-expansion-panel-title class="text-body-2 py-2 min-h-0">
+                  <v-icon start size="18" color="info">mdi-language-markdown-outline</v-icon>
+                  Формат Markdown
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <div class="text-body-2">
+                    Зберігайте промпт у форматі <strong>Markdown</strong>.
+                  </div>
+                  <div class="text-caption mt-1">
+                    Використовуйте <code>#</code>, <code>##</code> для заголовків,
+                    <code>**жирний**</code>, <code>- список</code>, <code>`код`</code>,
+                    <code>```блок```</code>. Це покращує структуру тексту для агента
+                    та узгоджується з нашими шаблонами knowledge-файлів.
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
+
             <v-textarea
               v-model="newContent"
               label="Зміст промпту (Markdown)"
               variant="outlined"
-              rows="15"
-              max-rows="40"
-              auto-grow
-              class="mb-3"
-            />
-            <v-text-field
-              v-model="newChangeSummary"
-              label="Опис змін"
-              variant="outlined"
+              class="manual-tab-editor"
+              :rows="mobile ? 12 : 18"
+              no-resize
               hide-details
             />
           </div>
@@ -263,10 +266,30 @@
           </div>
         </v-card-text>
 
+        <div v-if="editTab === 'manual'" class="agent-dialog-summary">
+          <v-text-field
+            v-model="newChangeSummary"
+            label="Опис змін"
+            placeholder="Коротко, що змінилось — для історії версій"
+            hint="Необов'язково"
+            persistent-hint
+            variant="outlined"
+            density="compact"
+            hide-details="auto"
+            clearable
+          />
+        </div>
+
         <v-divider />
         <v-card-actions class="agent-dialog-footer dialog-actions-stack">
           <div v-if="editTab === 'agent'" class="text-caption text-grey w-100 mb-1 d-sm-none">
             Збереження — на вкладці «Вручну» після застосування змін
+          </div>
+          <div
+            v-else-if="editTab === 'manual' && newContent.trim()"
+            class="text-caption text-grey w-100 mb-1 d-sm-none text-center"
+          >
+            {{ formatContentStats(newContent) }}
           </div>
           <v-spacer class="d-none d-sm-flex" />
           <v-btn variant="text" @click="closeDialog" :disabled="saving">
@@ -276,7 +299,7 @@
             v-if="editTab === 'manual'"
             color="primary"
             :loading="saving"
-            :disabled="!newContent.trim() || !newChangeSummary.trim()"
+            :disabled="!newContent.trim()"
             @click="createPrompt"
           >
             Зберегти нову версію
@@ -338,6 +361,7 @@ const error = ref('');
 
 const dialogOpen = ref(false);
 const editTab = ref('manual');
+const markdownHintOpen = ref<string[]>([]);
 const newContent = ref('');
 const newChangeSummary = ref('');
 const saving = ref(false);
@@ -375,9 +399,16 @@ function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleString('uk-UA');
 }
 
+function formatContentStats(content: string): string {
+  const chars = content.length;
+  const lines = content.split('\n').length;
+  return `${chars.toLocaleString('uk-UA')} символів · ${lines} рядків`;
+}
+
 function openNewDialog() {
   newContent.value = '';
   newChangeSummary.value = '';
+  markdownHintOpen.value = mobile.value ? [] : ['hint'];
   agentMessages.value = [];
   agentInput.value = '';
   agentDiff.value = null;
@@ -412,9 +443,10 @@ async function createPrompt() {
   saving.value = true;
   error.value = '';
   try {
+    const summary = newChangeSummary.value.trim();
     await api.post('/prompts', {
       content: newContent.value.trim(),
-      changeSummary: newChangeSummary.value.trim(),
+      changeSummary: summary || null,
     });
     dialogOpen.value = false;
     await fetchPrompts();
@@ -517,6 +549,46 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.manual-tab {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  height: 100%;
+}
+
+.manual-tab-hint {
+  flex-shrink: 0;
+}
+
+.manual-tab-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.manual-tab-editor :deep(.v-input) {
+  height: 100%;
+}
+
+.manual-tab-editor :deep(.v-field) {
+  height: 100%;
+}
+
+.manual-tab-editor :deep(.v-field__field) {
+  align-items: stretch;
+}
+
+.manual-tab-editor :deep(textarea) {
+  min-height: min(320px, 45dvh);
+  height: 100% !important;
+  overflow-y: auto !important;
+}
+
+@media (min-width: 600px) {
+  .manual-tab-editor :deep(textarea) {
+    min-height: min(420px, 52dvh);
+  }
+}
+
 .agent-tab {
   display: flex;
   flex-direction: column;

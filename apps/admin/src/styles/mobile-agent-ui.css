@@ -35,6 +35,13 @@
   min-height: 0;
 }
 
+.agent-dialog-summary {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  background: rgb(var(--v-theme-surface));
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
 .agent-dialog-footer {
   flex-shrink: 0;
   padding-bottom: max(8px, env(safe-area-inset-bottom));

@@ -28,7 +28,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
 
   // POST / - Create new prompt version
   app.post<{
-    Body: { content: string; changeSummary: string };
+    Body: { content: string; changeSummary?: string | null };
   }>('/', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { content, changeSummary } = request.body ?? {};
 
@@ -36,9 +36,10 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'Content is required' });
     }
 
-    if (!changeSummary || typeof changeSummary !== 'string' || changeSummary.trim().length === 0) {
-      return reply.code(400).send({ error: 'Change summary is required' });
-    }
+    const normalizedSummary =
+      typeof changeSummary === 'string' && changeSummary.trim().length > 0
+        ? changeSummary.trim()
+        : null;
 
     // Auto-increment version
     const maxVersion = await prisma.systemPrompt.aggregate({
@@ -52,7 +53,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
         content: content.trim(),
         author: 'human',
         authorUserId: request.user.id,
-        changeSummary: changeSummary.trim(),
+        changeSummary: normalizedSummary,
         isActive: false,
       },
     });
