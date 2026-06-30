@@ -72,6 +72,33 @@ npm_ci_with_enotempty_retry() {
   npm ci --prefer-offline
 }
 
+# Per-app restart avoids PM2 crashing when a ghost whisper entry (id without process) exists.
+pm2_deploy_apps() {
+  local _apps=("${PM2_PREFIX}-api" "${PM2_PREFIX}-bot" "${PM2_PREFIX}-sync" "${PM2_PREFIX}-admin")
+  local _app _pid
+  if [ "${STT_ENABLED:-true}" = "true" ]; then
+    _apps+=("${PM2_PREFIX}-whisper")
+  else
+    pm2 delete "${PM2_PREFIX}-whisper" 2>/dev/null || true
+  fi
+
+  for _app in "${_apps[@]}"; do
+    if pm2 describe "$_app" > /dev/null 2>&1; then
+      _pid="$(pm2 pid "$_app" 2>/dev/null || true)"
+      if [ "$_app" = "${PM2_PREFIX}-whisper" ] && { [ -z "$_pid" ] || [ "$_pid" = "0" ]; }; then
+        echo "  WARN: ${_app} has no live process — removing stale PM2 entry..."
+        pm2 delete "$_app" >>"${DEPLOY_LOG}" 2>&1 || true
+      elif ! pm2 restart "$_app" --update-env >>"${DEPLOY_LOG}" 2>&1; then
+        echo "  WARN: pm2 restart ${_app} failed — recreating..."
+        pm2 delete "$_app" >>"${DEPLOY_LOG}" 2>&1 || true
+      fi
+    fi
+    if ! pm2 describe "$_app" > /dev/null 2>&1; then
+      pm2 start ecosystem.config.cjs --only "$_app" --update-env >>"${DEPLOY_LOG}" 2>&1
+    fi
+  done
+}
+
 echo "══════════════════════════════════════════════"
 echo "  Deploy: ${INSTANCE_NAME:-${INSTANCE_ID_UPPER}}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
@@ -177,9 +204,9 @@ PM2_PREFIX="${INSTANCE_ID_UPPER}"
 # 502 until a manual `pm2 restart all`. Brief downtime during deploy is
 # acceptable; correctness is not.
 if pm2 describe "${PM2_PREFIX}-api" > /dev/null 2>&1; then
-  pm2 restart ecosystem.config.cjs --update-env
+  pm2_deploy_apps
 else
-  pm2 start ecosystem.config.cjs
+  pm2 start ecosystem.config.cjs --update-env
 fi
 
 # ── Health check ──
