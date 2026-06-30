@@ -236,6 +236,15 @@
                 <p class="text-body-2 mb-2">
                   2. Вставте код з браузера після підтвердження доступу.
                 </p>
+                <v-alert
+                  v-if="claudeLoginCodeSubmitted"
+                  type="info"
+                  variant="tonal"
+                  density="compact"
+                  class="mb-3"
+                >
+                  Код надіслано — перевіряємо авторизацію…
+                </v-alert>
                 <v-text-field
                   v-model="claudeLoginCode"
                   label="Код авторизації"
@@ -245,6 +254,7 @@
                   hide-details
                   class="mb-3"
                   autocomplete="off"
+                  :disabled="claudeLoginCodeSubmitted"
                   @keyup.enter="submitClaudeLoginCode"
                 />
                 <div class="d-flex flex-wrap ga-2">
@@ -280,7 +290,9 @@
                   v-if="claudeLoginAuthUrl && claudeLoginStep === 1"
                   variant="tonal"
                   size="small"
-                  @click="claudeLoginStep = 2"
+                  :loading="claudeLoginAdvancing"
+                  :disabled="claudeLoginAdvancing"
+                  @click="advanceToClaudeCodeStep"
                 >
                   Маю код — далі
                 </v-btn>
@@ -2303,6 +2315,8 @@ interface ClaudeLoginStatusResult {
   status: string;
   authUrl: string | null;
   error: string | null;
+  expectsCode: boolean;
+  codeSubmitted: boolean;
   auth: ClaudeAuthStatus | null;
 }
 
@@ -2312,7 +2326,9 @@ const claudeLoginAuthUrl = ref<string | null>(null);
 const claudeLoginCode = ref('');
 const claudeLoginStep = ref(1);
 const claudeLoginLoading = ref(false);
+const claudeLoginAdvancing = ref(false);
 const claudeLoginSubmitting = ref(false);
+const claudeLoginCodeSubmitted = ref(false);
 const claudeLoginError = ref('');
 let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -2333,12 +2349,14 @@ function resetClaudeLoginUi() {
   claudeLoginStep.value = 1;
   claudeLoginError.value = '';
   claudeLoginLoading.value = false;
+  claudeLoginAdvancing.value = false;
   claudeLoginSubmitting.value = false;
+  claudeLoginCodeSubmitted.value = false;
   sessionStorage.removeItem(CLAUDE_LOGIN_SESSION_KEY);
 }
 
-async function pollClaudeLoginStatus() {
-  if (!claudeLoginSessionId.value) return;
+async function pollClaudeLoginStatus(): Promise<ClaudeLoginStatusResult | null> {
+  if (!claudeLoginSessionId.value) return null;
   try {
     const { data } = await api.get<ClaudeLoginStatusResult>('/settings/claude-auth/login/status', {
       params: { sessionId: claudeLoginSessionId.value },
@@ -2346,33 +2364,47 @@ async function pollClaudeLoginStatus() {
     if (data.authUrl && !claudeLoginAuthUrl.value) {
       claudeLoginAuthUrl.value = data.authUrl;
     }
-    if (data.status === 'completed') {
+    if (data.codeSubmitted) {
+      claudeLoginCodeSubmitted.value = true;
+    }
+    if (data.status === 'completed' && data.auth?.loggedIn) {
       stopClaudeLoginPoll();
       claudeLoginStep.value = 3;
       claudeLoginLoading.value = false;
+      claudeLoginAdvancing.value = false;
       claudeLoginSubmitting.value = false;
-      if (data.auth) {
-        claudeAuth.value = data.auth;
-      } else {
-        await loadClaudeAuth(false, true);
-      }
+      claudeLoginCodeSubmitted.value = false;
+      claudeAuth.value = data.auth;
       setTimeout(() => resetClaudeLoginUi(), 2500);
-      return;
+      return data;
+    }
+    if (data.status === 'completed' && !data.auth?.loggedIn) {
+      stopClaudeLoginPoll();
+      claudeLoginError.value = data.auth?.error ?? 'Авторизацію не завершено';
+      claudeLoginLoading.value = false;
+      claudeLoginAdvancing.value = false;
+      claudeLoginSubmitting.value = false;
+      return data;
     }
     if (data.status === 'failed' || data.status === 'cancelled') {
       stopClaudeLoginPoll();
       claudeLoginError.value = data.error ?? 'Авторизацію не завершено';
       claudeLoginLoading.value = false;
+      claudeLoginAdvancing.value = false;
       claudeLoginSubmitting.value = false;
+      return data;
     }
+    return data;
   } catch (e: any) {
     if (e.response?.status === 404) {
       stopClaudeLoginPoll();
       claudeLoginError.value = 'Сесія входу закінчилась (5 хвилин). Почніть заново.';
       claudeLoginLoading.value = false;
+      claudeLoginAdvancing.value = false;
       claudeLoginSubmitting.value = false;
       resetClaudeLoginUi();
     }
+    return null;
   }
 }
 
@@ -2382,6 +2414,26 @@ function startClaudeLoginPoll() {
   claudeLoginPollTimer = setInterval(() => {
     void pollClaudeLoginStatus();
   }, 2000);
+}
+
+async function advanceToClaudeCodeStep() {
+  if (claudeLoginAdvancing.value || !claudeLoginSessionId.value) return;
+  claudeLoginAdvancing.value = true;
+  claudeLoginError.value = '';
+  try {
+    const data = await pollClaudeLoginStatus();
+    if (!data) return;
+    if (data.status === 'completed') return;
+    if (data.status === 'failed' || data.status === 'cancelled') return;
+    if (data.expectsCode) {
+      claudeLoginStep.value = 2;
+      return;
+    }
+    claudeLoginError.value =
+      data.error ?? 'Сесія ще не готова прийняти код — зачекайте кілька секунд і спробуйте знову';
+  } finally {
+    claudeLoginAdvancing.value = false;
+  }
 }
 
 async function startClaudeLogin() {
@@ -2424,7 +2476,9 @@ async function copyClaudeAuthUrl() {
 
 async function submitClaudeLoginCode() {
   const code = claudeLoginCode.value.trim();
-  if (!code || !claudeLoginSessionId.value || claudeLoginSubmitting.value) return;
+  if (!code || !claudeLoginSessionId.value || claudeLoginSubmitting.value || claudeLoginCodeSubmitted.value) {
+    return;
+  }
   claudeLoginSubmitting.value = true;
   claudeLoginError.value = '';
   try {
@@ -2432,6 +2486,7 @@ async function submitClaudeLoginCode() {
       sessionId: claudeLoginSessionId.value,
       code,
     });
+    claudeLoginCodeSubmitted.value = true;
     startClaudeLoginPoll();
   } catch (e: any) {
     claudeLoginError.value = e.response?.data?.error ?? 'Не вдалося надіслати код';

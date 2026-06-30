@@ -133,6 +133,28 @@ async function readAuthStatusJson(): Promise<AuthStatusJson | null> {
   }
 }
 
+/** Drop stale local credentials so OAuth re-login is not short-circuited by `auth status`. */
+async function clearStaleClaudeAuthBeforeLogin(): Promise<void> {
+  const json = await readAuthStatusJson();
+  if (json?.loggedIn !== true) return;
+
+  const path = getClaudeBinaryPath();
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  try {
+    await execFileAsync(path, ['auth', 'logout'], {
+      timeout: 10_000,
+      env: { ...process.env },
+      maxBuffer: 64 * 1024,
+    });
+    clearClaudeAuthLiveCache();
+    log.info('Cleared stale Claude credentials before OAuth login');
+  } catch (err) {
+    log.warn({ err }, 'claude auth logout before login failed (continuing)');
+  }
+}
+
 function cleanupExpiredSessions(): void {
   const cutoff = Date.now() - SESSION_TTL_MS;
   for (const [id, session] of sessions) {
@@ -160,7 +182,7 @@ function spawnAuthLoginProcess(): ChildProcess {
   const env = buildAuthLoginEnv();
   const stdio: ['pipe', 'pipe', 'pipe'] = ['pipe', 'pipe', 'pipe'];
   if (process.platform === 'linux') {
-    return spawn('script', ['-q', '-c', `${claude} auth login`, '/dev/null'], {
+    return spawn('script', ['-qefc', `${claude} auth login`, '/dev/null'], {
       env,
       stdio,
     });
@@ -200,20 +222,25 @@ function attachLoginListeners(session: LoginSession): void {
     if (session.status === 'completed' || session.status === 'cancelled') return;
 
     void (async () => {
-      const auth = await claudeAuthCheck();
-      if (auth.ok) {
-        session.status = 'completed';
-        session.error = null;
-        clearClaudeAuthLiveCache();
-        return;
+      // `auth status` may still say loggedIn while tokens are expired — require live probe.
+      if (session.codeSubmitted || code === 0) {
+        const live = await verifyClaudeAuthLive();
+        if (live.ok) {
+          session.status = 'completed';
+          session.error = null;
+          clearClaudeAuthLiveCache();
+          return;
+        }
+        if (session.codeSubmitted) {
+          session.status = 'failed';
+          session.error = live.error ?? 'Авторизацію не завершено';
+          return;
+        }
       }
-      if (session.status === 'waiting' && code === 0) {
-        session.status = 'completed';
-        return;
-      }
+
       session.status = 'failed';
       session.error =
-        auth.error ??
+        session.error ??
         (code !== 0 ? `claude auth login завершився з кодом ${code}` : 'Авторизацію не завершено');
     })();
   });
@@ -417,6 +444,7 @@ export async function startClaudeAuthLogin(): Promise<StartClaudeLoginResult> {
   };
 
   try {
+    await clearStaleClaudeAuthBeforeLogin();
     session.child = spawnAuthLoginProcess();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -446,6 +474,9 @@ export interface ClaudeLoginStatusResult {
   status: LoginSessionStatus;
   authUrl: string | null;
   error: string | null;
+  /** CLI process is running and ready to accept the OAuth callback code on stdin. */
+  expectsCode: boolean;
+  codeSubmitted: boolean;
   auth: ClaudeAuthStatus | null;
 }
 
@@ -466,9 +497,14 @@ export async function getClaudeLoginStatus(sessionId: string): Promise<ClaudeLog
     }
   }
 
-  if (session.status === 'waiting' || session.status === 'starting') {
-    const auth = await claudeAuthCheck();
-    if (auth.ok) {
+  // Only finish after the tenant pasted the OAuth code — stale `auth status` must not
+  // complete the session while `claude auth login` is still waiting on stdin.
+  if (
+    (session.status === 'waiting' || session.status === 'starting') &&
+    session.codeSubmitted
+  ) {
+    const live = await verifyClaudeAuthLive();
+    if (live.ok) {
       session.status = 'completed';
       session.error = null;
       clearClaudeAuthLiveCache();
@@ -476,16 +512,24 @@ export async function getClaudeLoginStatus(sessionId: string): Promise<ClaudeLog
     }
   }
 
-  const authSnapshot =
+  let authSnapshot =
     session.status === 'completed'
       ? await getClaudeAuthStatus({ skipLiveCache: true })
       : null;
+
+  if (session.status === 'completed' && authSnapshot && !authSnapshot.loggedIn) {
+    session.status = 'failed';
+    session.error = authSnapshot.error ?? 'Авторизацію не завершено';
+    authSnapshot = null;
+  }
 
   return {
     sessionId: session.id,
     status: session.status,
     authUrl: session.authUrl,
     error: session.error,
+    expectsCode: session.status === 'waiting' || session.status === 'starting',
+    codeSubmitted: session.codeSubmitted,
     auth: authSnapshot,
   };
 }
@@ -533,6 +577,7 @@ export function submitClaudeAuthCode(
 
   try {
     session.child.stdin.write(`${trimmed}\n`);
+    session.child.stdin.end();
     session.codeSubmitted = true;
     return { ok: true, error: null };
   } catch (err) {
