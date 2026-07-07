@@ -75,6 +75,15 @@ export interface PromptBuildParams {
    * asking the same qualification questions again.
    */
   previousBriefSummary?: string;
+  /** Active branches for multi-location salons (injected into prompt). */
+  branchesList?: string;
+  /** Branch already selected in this conversation. */
+  selectedBranch?: {
+    slug: string;
+    displayName: string;
+    address?: string | null;
+    crmExternalId?: string | null;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -176,12 +185,15 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     managerSlaHoursBusiness = 2,
     workingHoursSummary,
     previousBriefSummary,
+    branchesList,
+    selectedBranch,
   } = params;
 
   const activePromptContent = applyPromptPlaceholders(rawPromptContent, {
     brandName: config.BRAND_NAME,
     managerSlaHours: managerSlaHoursBusiness,
     workingHoursSummary: workingHoursSummary ?? summariseWorkingHours(workingHours),
+    branchesList: branchesList ?? '(філії не налаштовані)',
   });
 
   // ── Format date/time ────────────────────────────────────────────────
@@ -231,6 +243,17 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
   // return it via update_client_info.custom_fields.{local_key}.
   const customFieldsBlock = buildCustomFieldsBlock(customFieldHints);
 
+  const branchesBlock =
+    branchesList && branchesList !== '(філії не налаштовані)'
+      ? `\nФілії (обери slug після уточнення локації у клієнта):\n${branchesList}\n`
+      : '';
+
+  const selectedBranchBlock = selectedBranch
+    ? `\nОбрана філія цієї розмови: [${selectedBranch.slug}] ${selectedBranch.displayName}${
+        selectedBranch.address ? ` — ${selectedBranch.address}` : ''
+      }${selectedBranch.crmExternalId ? ` (CRM #${selectedBranch.crmExternalId})` : ''}\n`
+    : '';
+
   // ── Session context block ───────────────────────────────────────────
   const sessionBlock = `════════════════════════════════════════
 ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ
@@ -239,7 +262,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
 Дата і час: ${dateTimeStr}, ${dayNameUk}
 Магазин зараз: ${isOpen ? 'працює' : 'не працює'}
 Години роботи сьогодні: ${hoursLine}
-
+${branchesBlock}${selectedBranchBlock}
 Клієнт: ${clientIdentityLine}, розмова #${conversationIdShort ?? '--------'}
 Стан розмови: ${stateLabel}
 ${clientDataBlock}${previousBriefBlock}${customFieldsBlock}
@@ -307,12 +330,14 @@ function applyPromptPlaceholders(
     brandName: string;
     managerSlaHours: number;
     workingHoursSummary: string;
+    branchesList: string;
   },
 ): string {
   return content
     .replace(/\{\{BRAND_NAME\}\}/g, values.brandName)
     .replace(/\{\{MANAGER_SLA_HOURS\}\}/g, String(values.managerSlaHours))
-    .replace(/\{\{WORKING_HOURS_SUMMARY\}\}/g, values.workingHoursSummary);
+    .replace(/\{\{WORKING_HOURS_SUMMARY\}\}/g, values.workingHoursSummary)
+    .replace(/\{\{BRANCHES_LIST\}\}/g, values.branchesList);
 }
 
 /**

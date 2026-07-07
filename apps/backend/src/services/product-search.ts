@@ -13,6 +13,7 @@
 import pino from 'pino';
 import { loadCatalogIndex, searchLocalProducts } from '../lib/catalog-index.js';
 import { getCrmAdapter } from './crm/index.js';
+import { resolveCrmProvider } from '../lib/crm-routing.js';
 import type { CrmOffer, CrmProduct } from './crm/index.js';
 
 const log = pino({ name: 'product-search' });
@@ -119,7 +120,8 @@ async function searchViaLocalIndex(
 }
 
 async function searchViaCrmApi(keywords: string): Promise<ProductAvailabilityResult> {
-  const crm = getCrmAdapter();
+  const provider = await resolveCrmProvider('catalog');
+  const crm = getCrmAdapter(provider);
   log.info({ keywords, provider: crm.name }, 'Searching products via CRM API');
 
   let products: CrmProduct[];

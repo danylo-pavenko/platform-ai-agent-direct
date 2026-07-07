@@ -309,6 +309,14 @@ async function paginate<Raw>(
 
 export const keycrmAdapter: CrmAdapter = {
   name: 'keycrm',
+  capabilities: {
+    catalog: true,
+    services: false,
+    branches: false,
+    orders: true,
+    leads: true,
+    booking: false,
+  },
 
   async fetchCategories() {
     log.info('Fetching categories from KeyCRM');

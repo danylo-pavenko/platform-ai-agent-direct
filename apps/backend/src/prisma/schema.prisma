@@ -42,6 +42,8 @@ model Client {
   conversations    Conversation[]
   orders           Order[]
   briefs           PresaleBrief[]
+  appointments     Appointment[]
+  referencePhotos  ClientReferencePhoto[]
 
   @@map("clients")
 }
@@ -91,11 +93,16 @@ model Conversation {
   briefQuality    Int?                @map("brief_quality")
   briefQualityNote String?            @map("brief_quality_note")
   createdAt       DateTime            @default(now()) @map("created_at")
+  // Salon / multi-location: set when the client picks a branch in chat.
+  branchId        String?             @map("branch_id") @db.Uuid
 
   client          Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  branch          Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
   messages        Message[]
   orders          Order[]
   briefs          PresaleBrief[]
+  appointments    Appointment[]
+  referencePhotos ClientReferencePhoto[]
 
   @@map("conversations")
 }
@@ -196,6 +203,45 @@ model Order {
   @@map("orders")
 }
 
+// ── Appointments (salon booking) ──
+
+enum AppointmentStatus {
+  draft
+  confirmed
+  synced
+  failed
+  cancelled
+
+  @@map("appointment_status")
+}
+
+model Appointment {
+  id               String            @id @default(uuid()) @db.Uuid
+  conversationId   String            @map("conversation_id") @db.Uuid
+  clientId         String            @map("client_id") @db.Uuid
+  branchId         String?           @map("branch_id") @db.Uuid
+  services         Json              @db.JsonB
+  scheduledDate    String            @map("scheduled_date")
+  scheduledTime    String            @map("scheduled_time")
+  customerName     String            @map("customer_name")
+  phone            String
+  comment          String?
+  referencePhotos  Json?             @map("reference_photos") @db.JsonB
+  status           AppointmentStatus @default(draft)
+  crmProvider      String            @map("crm_provider")
+  crmRecordId      String?           @map("crm_record_id")
+  crmSyncStatus    CrmSyncStatus     @default(pending) @map("crm_sync_status")
+  crmSyncError     String?           @map("crm_sync_error")
+  crmSyncedAt      DateTime?         @map("crm_synced_at")
+  createdAt        DateTime          @default(now()) @map("created_at")
+
+  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  client           Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  branch           Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@map("appointments")
+}
+
 // ── System Prompts ──
 
 enum PromptAuthor {
@@ -294,7 +340,7 @@ model Setting {
   @@map("settings")
 }
 
-// ── KeyCRM Sync Runs ──
+// ── CRM Sync Runs ──
 
 enum SyncStatus {
   running
@@ -304,15 +350,81 @@ enum SyncStatus {
   @@map("sync_status")
 }
 
-model KeycrmSyncRun {
+model CrmSyncRun {
   id            String      @id @default(uuid()) @db.Uuid
   startedAt     DateTime    @default(now()) @map("started_at")
   finishedAt    DateTime?   @map("finished_at")
   status        SyncStatus
+  /// CRM that supplied data for this run (keycrm, cleverbox, manual, mixed).
+  provider      String      @default("keycrm")
+  /// What was synced: catalog | services | branches | full
+  syncType      String      @default("catalog") @map("sync_type")
   counts        Json?       @db.JsonB
+  /// Generated artifact paths + per-source breakdown for admin UI.
+  artifacts     Json?       @db.JsonB
   errorMessage  String?     @map("error_message")
 
-  @@map("keycrm_sync_runs")
+  @@map("crm_sync_runs")
+}
+
+// ── Branches (salon locations / retail stores) ──
+
+enum BranchSource {
+  manual
+  crm
+
+  @@map("branch_source")
+}
+
+model Branch {
+  id              String        @id @default(uuid()) @db.Uuid
+  /// Internal stable key for tools / prompts (e.g. obolon, center).
+  slug            String        @unique
+  /// Name shown to clients in chat.
+  displayName     String        @map("display_name")
+  /// Keywords for matching client messages (district, street, mall…).
+  keywords        String[]      @default([])
+  address         String?
+  isActive        Boolean       @default(true) @map("is_active")
+  isDefault       Boolean       @default(false) @map("is_default")
+  sortOrder       Int           @default(0) @map("sort_order")
+  source          BranchSource  @default(manual)
+  crmProvider     String?       @map("crm_provider")
+  crmExternalId   String?       @map("crm_external_id")
+  crmSyncedAt     DateTime?     @map("crm_synced_at")
+  metadata        Json?         @db.JsonB
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at")
+
+  conversations   Conversation[]
+  referencePhotos ClientReferencePhoto[]
+  appointments    Appointment[]
+
+  @@unique([crmProvider, crmExternalId])
+  @@map("branches")
+}
+
+// ── Client reference photos (color samples, before/after refs) ──
+
+model ClientReferencePhoto {
+  id              String        @id @default(uuid()) @db.Uuid
+  clientId        String        @map("client_id") @db.Uuid
+  conversationId  String?       @map("conversation_id") @db.Uuid
+  branchId        String?       @map("branch_id") @db.Uuid
+  /// Relative path under tenant reference-photos root.
+  storageKey      String        @map("storage_key")
+  originalName    String?       @map("original_name")
+  note            String?
+  mimeType        String?       @map("mime_type")
+  sizeBytes       Int?          @map("size_bytes")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  client          Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  conversation    Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  branch          Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, createdAt])
+  @@map("client_reference_photos")
 }
 
 // ── Sandbox Test Cases ──

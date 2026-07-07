@@ -11,8 +11,33 @@
     </div>
 
     <template v-else>
+      <v-row>
+        <v-col cols="12" lg="3" class="settings-nav-col">
+          <v-card variant="outlined" class="settings-nav-card mb-4">
+            <v-list density="compact" nav>
+              <v-list-subheader>Навігація</v-list-subheader>
+              <v-list-item
+                v-for="item in settingsNav"
+                :key="item.id"
+                :prepend-icon="item.icon"
+                :title="item.title"
+                rounded
+                @click="scrollToSection(item.id)"
+              />
+              <v-divider class="my-2" />
+              <v-list-item
+                prepend-icon="mdi-sync"
+                title="Синхронізація"
+                subtitle="Каталог / CRM"
+                rounded
+                :to="{ name: 'sync' }"
+              />
+            </v-list>
+          </v-card>
+        </v-col>
+        <v-col cols="12" lg="9">
       <!-- Health Check -->
-      <v-card class="mb-4">
+      <v-card id="settings-health" class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
           <v-icon start color="teal">mdi-heart-pulse</v-icon>
           <span>Health Check</span>
@@ -81,7 +106,7 @@
       </v-card>
 
       <!-- Claude CLI auth -->
-      <v-card class="mb-4">
+      <v-card id="settings-claude" class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
           <v-icon start color="indigo">mdi-login</v-icon>
           <span>Claude — авторизація агента</span>
@@ -403,7 +428,7 @@
       </v-card>
 
       <!-- Runtime mode (Public / Debug) -->
-      <v-card class="mb-4">
+      <v-card id="settings-runtime" class="mb-4">
         <v-card-title class="d-flex align-center ga-2 flex-wrap">
           <v-icon start :color="runtimeMode === 'public' ? 'success' : 'warning'">
             {{ runtimeMode === 'public' ? 'mdi-earth' : 'mdi-bug-outline' }}
@@ -671,7 +696,7 @@
       </v-card>
 
       <!-- Agent type & SLA (agent_config) -->
-      <v-card class="mb-4">
+      <v-card id="settings-agent" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="deep-purple">mdi-account-tie</v-icon>
           Тип агента та SLA
@@ -687,6 +712,7 @@
                 :items="[
                   { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
                   { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
+                  { title: 'Запис (booking) — салон, послуги, CleverBOX', value: 'booking' },
                 ]"
                 item-title="title"
                 item-value="value"
@@ -696,7 +722,8 @@
                 hide-details
               />
               <div class="text-caption text-medium-emphasis mt-1">
-                <strong>sales</strong>: collect_order + get_delivery_cost; leadgen: classify_intent + submit_brief.
+                <strong>sales</strong>: collect_order; <strong>leadgen</strong>: submit_brief;
+                <strong>booking</strong>: search_services + book_appointment (CleverBOX).
               </div>
             </v-col>
             <v-col cols="12" sm="6">
@@ -922,11 +949,15 @@
 
       <v-divider class="mb-4" />
 
+      <CrmRoutingCard v-model="crmRouting" />
+
+      <BranchesCard />
+
       <!-- ── Integrations ── -->
       <div class="integrations-title">Інтеграції</div>
 
       <!-- Instagram -->
-      <v-card class="mb-4">
+      <v-card id="settings-instagram" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="pink-darken-2">mdi-instagram</v-icon>
           Instagram
@@ -1556,7 +1587,7 @@
       </v-card>
 
       <!-- KeyCRM -->
-      <v-card class="mb-4">
+      <v-card id="settings-keycrm" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="green-darken-1">mdi-database-sync</v-icon>
           KeyCRM
@@ -1688,6 +1719,8 @@
         </v-card-text>
       </v-card>
 
+      <CleverboxCard v-model="integrations.cleverbox" />
+
       <!-- Nova Poshta -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -1752,7 +1785,7 @@
       </v-card>
 
       <!-- Account security -->
-      <v-card class="mb-4">
+      <v-card id="settings-account" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="primary">mdi-shield-key</v-icon>
           Обліковий запис
@@ -2065,6 +2098,8 @@
           </v-card-actions>
         </v-card>
       </v-dialog>
+        </v-col>
+      </v-row>
     </template>
   </v-container>
 
@@ -2074,6 +2109,27 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import BranchesCard from '@/components/settings/BranchesCard.vue';
+import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
+import CleverboxCard from '@/components/settings/CleverboxCard.vue';
+
+const settingsNav = [
+  { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
+  { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
+  { id: 'settings-runtime', title: 'Режим бота', icon: 'mdi-toggle-switch' },
+  { id: 'settings-agent', title: 'Агент і SLA', icon: 'mdi-head-cog' },
+  { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
+  { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
+  { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
+  { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
+  { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
+  { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
+] as const;
+
+function scrollToSection(id: string) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 const authStore = useAuthStore();
 const accountUsername = computed(() => authStore.user?.username ?? 'admin');
@@ -2177,6 +2233,11 @@ const integrations = ref({
     syncIntervalMin: 30,
     defaultSourceId: 1,
     appUrl: '',
+  },
+  cleverbox: {
+    apiToken: '',
+    defaultBranchId: '',
+    syncIntervalMin: 60,
   },
   novaposhta: {
     apiKey: '',
@@ -3187,7 +3248,7 @@ function scheduleRuntimeSave() {
 
 watch([runtimeMode, debugWhitelistRaw, botIgnoreUsernamesRaw, runtimeBackfillLimit], scheduleRuntimeSave);
 
-type AgentModeValue = 'sales' | 'leadgen';
+type AgentModeValue = 'sales' | 'leadgen' | 'booking';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
 
 interface AgentConfigShape {
@@ -3203,6 +3264,23 @@ const agentConfig = ref<AgentConfigShape>({
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
 });
+
+const defaultCrmRouting = (): CrmRoutingShape => ({
+  mode: 'by_action',
+  default: 'keycrm',
+  enabled_providers: ['keycrm', 'cleverbox'],
+  routes: {
+    catalog: 'keycrm',
+    services: 'cleverbox',
+    branches: 'cleverbox',
+    booking: 'cleverbox',
+    order: 'keycrm',
+    lead: 'keycrm',
+    client_upsert: 'keycrm',
+  },
+});
+
+const crmRouting = ref<CrmRoutingShape>(defaultCrmRouting());
 
 const workingHours = ref<WorkingHoursMap>({
   mon: { start: '09:00', end: '20:00', enabled: true },
@@ -3284,7 +3362,12 @@ async function fetchSettings() {
     if (data.agent_config && typeof data.agent_config === 'object') {
       const raw = data.agent_config as Partial<AgentConfigShape>;
       agentConfig.value = {
-        mode: raw.mode === 'leadgen' ? 'leadgen' : 'sales',
+        mode:
+          raw.mode === 'leadgen'
+            ? 'leadgen'
+            : raw.mode === 'booking'
+              ? 'booking'
+              : 'sales',
         outOfHoursStrategy:
           raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
         managerSlaHoursBusiness:
@@ -3295,6 +3378,39 @@ async function fetchSettings() {
           typeof raw.sessionFreshnessDays === 'number' && raw.sessionFreshnessDays > 0
             ? raw.sessionFreshnessDays
             : 14,
+      };
+    }
+
+    if (data.crm_routing && typeof data.crm_routing === 'object') {
+      const raw = data.crm_routing as Record<string, unknown>;
+      const base = defaultCrmRouting();
+      const mode =
+        raw.mode === 'single' || raw.mode === 'by_action' || raw.mode === 'prompt'
+          ? raw.mode
+          : base.mode;
+      const defaultProvider =
+        raw.default === 'cleverbox' || raw.default === 'keycrm'
+          ? raw.default
+          : base.default;
+      const enabledRaw = Array.isArray(raw.enabled_providers) ? raw.enabled_providers : [];
+      const enabled = enabledRaw.filter(
+        (p): p is 'keycrm' | 'cleverbox' => p === 'keycrm' || p === 'cleverbox',
+      );
+      const routesRaw =
+        raw.routes && typeof raw.routes === 'object' && !Array.isArray(raw.routes)
+          ? (raw.routes as Record<string, unknown>)
+          : {};
+      const routes = { ...base.routes };
+      for (const [key, val] of Object.entries(routesRaw)) {
+        if (val === 'keycrm' || val === 'cleverbox') {
+          routes[key] = val;
+        }
+      }
+      crmRouting.value = {
+        mode,
+        default: defaultProvider,
+        enabled_providers: enabled.length > 0 ? enabled : base.enabled_providers,
+        routes,
       };
     }
 
@@ -3345,6 +3461,7 @@ async function saveSettings() {
       ),
       feature_flags: featureFlags.value,
       agent_config: agentConfig.value,
+      crm_routing: crmRouting.value,
       runtime_mode: {
         mode: runtimeMode.value,
         debugWhitelist: debugWhitelistParsed.value,
@@ -3367,6 +3484,7 @@ async function fetchIntegrations() {
     const m = data.integration_meta ?? {};
     const t = data.integration_telegram ?? {};
     const k = data.integration_keycrm ?? {};
+    const cb = data.integration_cleverbox ?? {};
     const np = data.integration_novaposhta ?? {};
 
     metaPageTokenMasked.value = m.pageAccessToken === '••••••';
@@ -3389,6 +3507,11 @@ async function fetchIntegrations() {
         ? k.defaultSourceId
         : 1,
       appUrl:            typeof k.appUrl === 'string' ? k.appUrl : '',
+    };
+    integrations.value.cleverbox = {
+      apiToken:          cb.apiToken          ?? '',
+      defaultBranchId:   cb.defaultBranchId   ?? '',
+      syncIntervalMin:   cb.syncIntervalMin   ?? 60,
     };
     integrations.value.novaposhta = {
       apiKey:         np.apiKey         ?? '',
@@ -3481,6 +3604,15 @@ async function saveIntegrations() {
       keycrmPayload.apiKey = keycrmKey;
     }
 
+    const cleverboxPayload: Record<string, unknown> = {
+      defaultBranchId: integrations.value.cleverbox.defaultBranchId.trim(),
+      syncIntervalMin: integrations.value.cleverbox.syncIntervalMin,
+    };
+    const cbToken = integrations.value.cleverbox.apiToken.trim();
+    if (cbToken && cbToken !== '••••••') {
+      cleverboxPayload.apiToken = cbToken;
+    }
+
     const npPayload: Record<string, unknown> = {
       senderCity: integrations.value.novaposhta.senderCity,
       senderCityRef: integrations.value.novaposhta.senderCityRef,
@@ -3495,6 +3627,7 @@ async function saveIntegrations() {
         integration_meta: metaPayload,
         integration_telegram: telegramPayload,
         integration_keycrm: keycrmPayload,
+        integration_cleverbox: cleverboxPayload,
         integration_novaposhta: npPayload,
       }),
       api.put('/settings', {
@@ -3635,6 +3768,18 @@ onUnmounted(() => {
 
 .health-check-item + .health-check-item {
   border-top: 1px solid #e8ecf1;
+}
+
+/* ── Settings side nav ─────────────────────────────────────────────────── */
+.settings-nav-col {
+  position: relative;
+}
+
+@media (min-width: 1280px) {
+  .settings-nav-card {
+    position: sticky;
+    top: 72px;
+  }
 }
 
 /* ── Dense divider inside cards ────────────────────────────────────────── */

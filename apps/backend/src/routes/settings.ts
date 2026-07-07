@@ -14,6 +14,7 @@ import { loadClaudeUsageSnapshot, runClaudeUsageCheck } from '../services/claude
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
+import { invalidateCrmRoutingCache } from '../lib/crm-routing.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 import { invalidateFeatureFlagsCache } from '../lib/feature-flags.js';
 import { bumpTelegramBotWake } from '../lib/telegram-bot-wake.js';
@@ -29,7 +30,13 @@ import {
   submitClaudeAuthCode,
 } from '../services/claude-auth.js';
 
-const INTEGRATION_KEYS = ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'];
+const INTEGRATION_KEYS = [
+  'integration_meta',
+  'integration_telegram',
+  'integration_keycrm',
+  'integration_cleverbox',
+  'integration_novaposhta',
+];
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // GET / - Get all non-integration settings
@@ -78,6 +85,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if ('agent_config' in filtered) {
       invalidateAgentConfigCache();
     }
+    if ('crm_routing' in filtered) {
+      invalidateCrmRoutingCache();
+    }
     if ('runtime_mode' in filtered) {
       invalidateRuntimeConfigCache();
     }
@@ -113,6 +123,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       integration_meta: {},
       integration_telegram: {},
       integration_keycrm: {},
+      integration_cleverbox: {},
       integration_novaposhta: {},
     };
 

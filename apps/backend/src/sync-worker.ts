@@ -23,8 +23,10 @@ import pino from 'pino';
 
 import { config } from './config.js';
 import { prisma } from './lib/prisma.js';
-import { REPO_ROOT, getCatalogPath } from './lib/paths.js';
+import { REPO_ROOT, getCatalogPath, getServicesCatalogPath } from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
+import { resolveCrmProvider } from './lib/crm-routing.js';
+import { getIntegrationConfig } from './lib/integration-config.js';
 import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
 import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
@@ -72,7 +74,7 @@ export class SyncInProgressError extends Error {
  */
 async function reapStaleRuns(): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_RUN_MS);
-  const reaped = await prisma.keycrmSyncRun.updateMany({
+  const reaped = await prisma.crmSyncRun.updateMany({
     where: {
       status: 'running',
       startedAt: { lt: cutoff },
@@ -434,10 +436,32 @@ function formatError(err: unknown): string {
   return String(err).slice(0, 2000);
 }
 
+function buildServicesCatalog(
+  services: Array<{
+    id: number;
+    name: string;
+    price: number;
+    durationMin: number;
+    categoryName?: string;
+  }>,
+): string {
+  const lines = [
+    '# Services catalog (synced from CRM)',
+    `# Generated: ${new Date().toISOString()}`,
+    '',
+  ];
+  for (const s of services) {
+    const price = s.price > 0 ? `від ${s.price} ₴` : 'ціна за запитом';
+    const cat = s.categoryName ? ` | ${s.categoryName}` : '';
+    lines.push(`[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${cat}`);
+  }
+  return lines.join('\n');
+}
+
 // ── Main (exported for use by routes/sync.ts) ─────────────────────────────
 
 export async function runSync(): Promise<void> {
-  log.info('KeyCRM sync started');
+  log.info('CRM sync started');
 
   // Reap dead locks before checking for live ones.
   const reaped = await reapStaleRuns();
@@ -448,7 +472,7 @@ export async function runSync(): Promise<void> {
   // Concurrency guard — only one 'running' row allowed. If one is alive
   // and young, bail fast so the caller (cron tick or admin click) can
   // show a useful 409 instead of queueing a duplicate.
-  const inFlight = await prisma.keycrmSyncRun.findFirst({
+  const inFlight = await prisma.crmSyncRun.findFirst({
     where: { status: 'running', finishedAt: null },
     orderBy: { startedAt: 'desc' },
   });
@@ -463,14 +487,19 @@ export async function runSync(): Promise<void> {
   // Create the run row up-front as 'running' — this IS the distributed
   // lock. Any other trigger hitting runSync() will see it via the check
   // above and back off.
-  const syncRun = await prisma.keycrmSyncRun.create({
-    data: { status: 'running' },
+  const syncRun = await prisma.crmSyncRun.create({
+    data: { status: 'running', provider: 'mixed', syncType: 'full' },
   });
 
+  const artifacts: Record<string, unknown> = { dataDir: DATA_DIR, sources: {} };
+  const counts: Record<string, number> = {};
+  let primaryProvider = 'keycrm';
+
   try {
-    // Fetch all data from the active CRM provider
-    const crm = getCrmAdapter();
-    log.info({ provider: crm.name }, 'Fetching data from CRM...');
+    const catalogProvider = await resolveCrmProvider('catalog');
+    const crm = getCrmAdapter(catalogProvider);
+    primaryProvider = crm.name;
+    log.info({ provider: catalogProvider }, 'Fetching catalog from CRM...');
     const [categories, products, offers] = await Promise.all([
       crm.fetchCategories(),
       crm.fetchProducts(),
@@ -479,7 +508,7 @@ export async function runSync(): Promise<void> {
 
     log.info(
       { categories: categories.length, products: products.length, offers: offers.length },
-      'Data fetched from KeyCRM',
+      'Data fetched from CRM',
     );
 
     const { liveProducts, liveOffers } = activeCatalogSets(products, offers);
@@ -507,28 +536,69 @@ export async function runSync(): Promise<void> {
     await atomicWrite(CATALOG_PATH, catalogText);
     log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
 
-    await prisma.keycrmSyncRun.update({
+    counts.categories = categories.length;
+    counts.products = liveProducts.length;
+    counts.offers = liveOffers.length;
+    artifacts.catalogPath = CATALOG_PATH;
+    (artifacts.sources as Record<string, unknown>).categories = {
+      provider: catalogProvider,
+      count: categories.length,
+    };
+    (artifacts.sources as Record<string, unknown>).products = {
+      provider: catalogProvider,
+      count: liveProducts.length,
+    };
+    (artifacts.sources as Record<string, unknown>).offers = {
+      provider: catalogProvider,
+      count: liveOffers.length,
+    };
+
+    const servicesProvider = await resolveCrmProvider('services');
+    const servicesCrm = getCrmAdapter(servicesProvider);
+    const { cleverbox } = await getIntegrationConfig();
+    const servicesConfigured =
+      servicesProvider === 'cleverbox' ? Boolean(cleverbox.apiToken) : true;
+
+    if (
+      servicesConfigured &&
+      servicesCrm.capabilities.services &&
+      servicesCrm.fetchServices
+    ) {
+      log.info({ provider: servicesProvider }, 'Fetching services from CRM...');
+      const services = await servicesCrm.fetchServices();
+      const servicesPath = getServicesCatalogPath();
+      const servicesText = buildServicesCatalog(services);
+      await atomicWrite(servicesPath, servicesText);
+      counts.services = services.length;
+      artifacts.servicesPath = servicesPath;
+      (artifacts.sources as Record<string, unknown>).services = {
+        provider: servicesProvider,
+        count: services.length,
+      };
+      log.info({ path: servicesPath, count: services.length }, 'Services catalog generated');
+    }
+
+    await prisma.crmSyncRun.update({
       where: { id: syncRun.id },
       data: {
         finishedAt: new Date(),
         status: 'ok',
-        counts: {
-          categories: categories.length,
-          products: liveProducts.length,
-          offers: liveOffers.length,
-        },
+        provider: counts.services ? 'mixed' : primaryProvider,
+        syncType: counts.services ? 'full' : 'catalog',
+        counts,
+        artifacts,
       },
     });
 
     // Retention: keep the last RETENTION_ROWS rows, drop the rest. Cheap
     // idempotent housekeeping — a single indexed query, safe to re-run.
-    const keepIds = await prisma.keycrmSyncRun.findMany({
+    const keepIds = await prisma.crmSyncRun.findMany({
       orderBy: { startedAt: 'desc' },
       take: RETENTION_ROWS,
       select: { id: true },
     });
     if (keepIds.length === RETENTION_ROWS) {
-      const { count } = await prisma.keycrmSyncRun.deleteMany({
+      const { count } = await prisma.crmSyncRun.deleteMany({
         where: { id: { notIn: keepIds.map((r) => r.id) } },
       });
       if (count > 0) log.info({ pruned: count }, 'Pruned old sync history');
@@ -551,8 +621,8 @@ export async function runSync(): Promise<void> {
       log.info(mirrorStats, 'CRM order mirror retry pass finished');
     }
   } catch (err) {
-    log.error({ err }, 'KeyCRM sync failed');
-    await prisma.keycrmSyncRun.update({
+    log.error({ err }, 'CRM sync failed');
+    await prisma.crmSyncRun.update({
       where: { id: syncRun.id },
       data: {
         finishedAt: new Date(),

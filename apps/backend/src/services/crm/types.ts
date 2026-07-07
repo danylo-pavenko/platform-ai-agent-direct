@@ -143,6 +143,14 @@ export interface CrmCustomFieldDef {
   options?: string[];
 }
 
+/** Salon / store location from CRM (CleverBOX filials, etc.). */
+export interface CrmBranch {
+  id: string;
+  name: string;
+  address?: string;
+  metadata?: Record<string, unknown>;
+}
+
 /**
  * Inputs for creating a presale lead (pipeline card in KeyCRM).
  * Kept separate from CrmOrderInput because a lead is pre-sale context
@@ -168,37 +176,93 @@ export interface CrmLeadInput {
   customFields?: Array<{ key: string; value: string }>;
 }
 
+// ── Booking / salon types (CleverBOX, future providers) ─────────────────
+
+export interface CrmServiceItem {
+  id: number;
+  name: string;
+  price: number;
+  durationMin: number;
+  categoryName?: string;
+  branchPrices?: Array<{ branchId: string; branchName: string; price: number }>;
+}
+
+export interface CrmSlotQuery {
+  date: string;
+  branchId: string;
+  services: Array<{ id: number; durationMin: number }>;
+  fullMonth?: boolean;
+}
+
+export interface CrmSlot {
+  date: string;
+  time: string;
+  masterIds: string[];
+}
+
+export interface CrmBookingInput {
+  date: string;
+  branchId: number;
+  clientId?: number;
+  clientName: string;
+  phone: string;
+  comment?: string;
+  services: Array<{
+    id: number;
+    durationMin: number;
+    masterId?: number;
+    startTime: string;
+  }>;
+}
+
+export interface CrmCapabilities {
+  catalog: boolean;
+  services: boolean;
+  branches: boolean;
+  orders: boolean;
+  leads: boolean;
+  booking: boolean;
+}
+
 // ── The adapter itself ─────────────────────────────────────────────────────
 
 export interface CrmAdapter {
   readonly name: string;
+  readonly capabilities: CrmCapabilities;
 
-  // Reads (mandatory)
+  // Reads (mandatory — e-commerce providers; empty for booking-only)
   fetchCategories(): Promise<CrmCategory[]>;
   fetchProducts(): Promise<CrmProduct[]>;
   fetchOffers(): Promise<CrmOffer[]>;
 
-  // Runtime search (mandatory — used by product-search on IG shared posts)
+  // Runtime search (mandatory)
   searchProducts(params: ProductSearchParams): Promise<CrmProduct[]>;
   searchOffers(params: OfferSearchParams): Promise<CrmOffer[]>;
 
-  // Writes (optional — Phase 2)
+  // Writes (optional)
   findClient?(match: CrmClientMatch): Promise<{ crmBuyerId: string } | null>;
   upsertClient?(
     crmBuyerId: string | null,
     input: CrmClientInput,
   ): Promise<{ crmBuyerId: string }>;
   createOrder?(input: CrmOrderInput): Promise<{ crmOrderId: string }>;
-
-  /**
-   * Creates a lead / pipeline card (leadgen mode).
-   * Providers that don't have a native pipeline concept may alias this to
-   * createOrder with a draft status, but should return a distinct lead id
-   * so the brief mirror is idempotent.
-   */
   createLead?(input: CrmLeadInput): Promise<{ crmLeadId: string }>;
 
-  // Custom fields discovery (optional — Phase 3)
+  // Salon / booking (optional — CleverBOX)
+  fetchBranches?(): Promise<CrmBranch[]>;
+  fetchServices?(): Promise<CrmServiceItem[]>;
+  searchServices?(query: string, limit?: number): Promise<CrmServiceItem[]>;
+  getAvailableSlots?(query: CrmSlotQuery): Promise<{
+    slots: Record<string, CrmSlot[]>;
+    masters: Array<{ id: string; name: string }>;
+  }>;
+  createBooking?(input: CrmBookingInput): Promise<{
+    crmRecordId: string;
+    comment?: string;
+    paymentLink?: string;
+  }>;
+  cancelBooking?(recordId: number, reason?: 'move' | 'cancel'): Promise<void>;
+
   listCustomFields?(
     scope: 'buyer' | 'order' | 'lead',
   ): Promise<CrmCustomFieldDef[]>;

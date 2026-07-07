@@ -224,7 +224,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       }),
-      prisma.keycrmSyncRun.findFirst({
+      prisma.crmSyncRun.findFirst({
         where: { status: 'ok' },
         orderBy: { finishedAt: 'desc' },
         select: { finishedAt: true, startedAt: true },

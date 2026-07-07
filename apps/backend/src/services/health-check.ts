@@ -9,12 +9,13 @@ import { getClaudeAuthStatus } from './claude-auth.js';
 import { fetchClaudeUsageSnapshot } from './claude-usage.js';
 import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import { getCrmAdapter } from './crm/registry.js';
+import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
 
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'crm_write' | 'agent_latency' | 'stt';
+  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'crm_write' | 'agent_latency' | 'stt';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -217,38 +218,49 @@ async function checkClaudeUsage(): Promise<HealthCheckItem> {
 
 async function checkCrm(): Promise<HealthCheckItem> {
   const label = 'CRM (каталог, read)';
-  const provider = (config.CRM_PROVIDER ?? 'keycrm').toLowerCase();
 
-  if (provider === 'none') {
+  if ((config.CRM_PROVIDER ?? 'keycrm').toLowerCase() === 'none') {
     return {
       id: 'crm',
       label,
       status: 'not_configured',
       message: 'CRM вимкнено (CRM_PROVIDER=none)',
-      details: { provider },
+      details: { provider: 'none' },
     };
   }
 
-  const { keycrm } = await getIntegrationConfig();
-  if (!keycrm.apiKey) {
+  const catalogProvider = await resolveCrmProvider('catalog');
+  const { keycrm, cleverbox } = await getIntegrationConfig();
+
+  if (catalogProvider === 'keycrm' && !keycrm.apiKey) {
     return {
       id: 'crm',
       label,
       status: 'not_configured',
-      message: 'API ключ KeyCRM не налаштовано',
-      details: { provider },
+      message: 'API ключ KeyCRM не налаштовано (каталог)',
+      details: { provider: catalogProvider },
+    };
+  }
+
+  if (catalogProvider === 'cleverbox' && !cleverbox.apiToken && !config.CLEVERBOX_API_TOKEN) {
+    return {
+      id: 'crm',
+      label,
+      status: 'not_configured',
+      message: 'API token CleverBOX не налаштовано (каталог)',
+      details: { provider: catalogProvider },
     };
   }
 
   try {
-    const adapter = getCrmAdapter();
+    const adapter = getCrmAdapter(catalogProvider);
     await adapter.searchProducts({ limit: 1 });
     return {
       id: 'crm',
       label,
       status: 'ok',
-      message: `Підключено (${adapter.name})`,
-      details: { provider: adapter.name },
+      message: `Каталог: ${adapter.name}`,
+      details: { provider: adapter.name, action: 'catalog' },
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -256,8 +268,51 @@ async function checkCrm(): Promise<HealthCheckItem> {
       id: 'crm',
       label,
       status: 'error',
-      message: `KeyCRM не відповідає: ${message.slice(0, 240)}`,
-      details: { provider },
+      message: `CRM каталог не відповідає: ${message.slice(0, 240)}`,
+      details: { provider: catalogProvider },
+    };
+  }
+}
+
+async function checkCleverbox(): Promise<HealthCheckItem> {
+  const label = 'CleverBOX (запис)';
+  const { cleverbox } = await getIntegrationConfig();
+  const token = cleverbox.apiToken || config.CLEVERBOX_API_TOKEN;
+
+  if (!token) {
+    return {
+      id: 'cleverbox',
+      label,
+      status: 'not_configured',
+      message: 'API token CleverBOX не налаштовано',
+    };
+  }
+
+  try {
+    const adapter = getCrmAdapter('cleverbox');
+    if (!adapter.fetchServices) {
+      return {
+        id: 'cleverbox',
+        label,
+        status: 'not_configured',
+        message: 'CleverBOX adapter без fetchServices',
+      };
+    }
+    const services = await adapter.fetchServices();
+    return {
+      id: 'cleverbox',
+      label,
+      status: 'ok',
+      message: `Підключено (${services.length} послуг у snapshot)`,
+      details: { serviceCount: services.length },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      id: 'cleverbox',
+      label,
+      status: 'error',
+      message: `CleverBOX не відповідає: ${message.slice(0, 240)}`,
     };
   }
 }
@@ -423,11 +478,12 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, claudeUsage, crm, crmWrite, stt] = await Promise.all([
+  const [instagram, claude, claudeUsage, crm, cleverbox, crmWrite, stt] = await Promise.all([
     checkInstagram(),
     checkClaude(),
     checkClaudeUsage(),
     checkCrm(),
+    checkCleverbox(),
     checkCrmWrite(),
     checkStt(),
   ]);
@@ -435,7 +491,7 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
 
-  const checks = [instagram, claude, claudeUsage, crm, crmWrite, stt, agentLatency];
+  const checks = [instagram, claude, claudeUsage, crm, cleverbox, crmWrite, stt, agentLatency];
   const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
 
   return {

@@ -46,6 +46,19 @@ export function getCatalogPath(): string {
   return resolve(getTenantKnowledgeDir(), 'knowledge', 'catalog.txt');
 }
 
+/** Shortcut: services catalog for booking-mode salons. */
+export function getServicesCatalogPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'knowledge', 'services-live.txt');
+}
+
+/**
+ * Reference photos from IG DM (color samples, hair refs) — outside git,
+ * on the tenant Linux user's home (under tenant_knowledge by default).
+ */
+export function getReferencePhotosDir(): string {
+  return resolve(getTenantKnowledgeDir(), 'reference_photos');
+}
+
 /** Shortcut: sales-agent.txt path inside the tenant knowledge dir. */
 export function getSalesAgentPromptPath(): string {
   return resolve(getTenantKnowledgeDir(), 'prompts', 'sales-agent.txt');

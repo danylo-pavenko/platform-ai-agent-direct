@@ -270,7 +270,7 @@ bot.on('callback_query:data', async (ctx, next) => {
         buildMenuKeyboard(),
       );
     } else if (data === 'menu:sync') {
-      const lastRun = await prisma.keycrmSyncRun.findFirst({
+      const lastRun = await prisma.crmSyncRun.findFirst({
         orderBy: { startedAt: 'desc' },
       });
       const status = lastRun

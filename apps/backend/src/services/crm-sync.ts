@@ -19,6 +19,7 @@ import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { getCrmAdapter } from './crm/index.js';
+import { resolveCrmProvider } from '../lib/crm-routing.js';
 import type {
   CrmClientInput,
   CrmOrderInput,
@@ -42,7 +43,8 @@ export async function mirrorClientToCrm(
 ): Promise<void> {
   if (!(await isCrmWriteEnabled())) return;
 
-  const crm = getCrmAdapter();
+  const provider = await resolveCrmProvider('client_upsert');
+  const crm = getCrmAdapter(provider);
   if (!crm.upsertClient || !crm.findClient) {
     log.debug({ provider: crm.name }, 'CRM adapter has no client writes — skipping');
     return;
@@ -148,7 +150,8 @@ export async function mirrorClientToCrm(
 export async function mirrorOrderToCrm(orderId: string): Promise<void> {
   if (!(await isCrmWriteEnabled())) return;
 
-  const crm = getCrmAdapter();
+  const provider = await resolveCrmProvider('order');
+  const crm = getCrmAdapter(provider);
   if (!crm.createOrder) {
     log.debug({ provider: crm.name }, 'CRM adapter has no order writes — skipping');
     return;
@@ -298,7 +301,8 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
 export async function mirrorBriefToCrm(briefId: string): Promise<void> {
   if (!(await isCrmWriteEnabled())) return;
 
-  const crm = getCrmAdapter();
+  const provider = await resolveCrmProvider('lead');
+  const crm = getCrmAdapter(provider);
   if (!crm.createLead) {
     log.debug(
       { provider: crm.name, briefId },

@@ -10,7 +10,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
   // We peek at the same state here to give the admin a useful 409 instead of
   // swallowing the second trigger silently.
   app.post('/trigger', { onRequest: [app.authenticate] }, async (_request, reply) => {
-    const inFlight = await prisma.keycrmSyncRun.findFirst({
+    const inFlight = await prisma.crmSyncRun.findFirst({
       where: { status: 'running', finishedAt: null },
       orderBy: { startedAt: 'desc' },
     });
@@ -42,7 +42,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /sync/status — return last 20 sync runs (newest first)
   app.get('/status', { onRequest: [app.authenticate] }, async () => {
-    const runs = await prisma.keycrmSyncRun.findMany({
+    const runs = await prisma.crmSyncRun.findMany({
       orderBy: { startedAt: 'desc' },
       take: 20,
     });

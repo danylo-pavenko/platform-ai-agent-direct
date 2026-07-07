@@ -53,10 +53,17 @@ export interface IntegrationNovaPoshta {
   senderCityRef: string;
 }
 
+export interface IntegrationCleverbox {
+  apiToken: string;
+  defaultBranchId: string;
+  syncIntervalMin: number;
+}
+
 export interface IntegrationConfig {
   meta: IntegrationMeta;
   telegram: IntegrationTelegram;
   keycrm: IntegrationKeycrm;
+  cleverbox: IntegrationCleverbox;
   novaposhta: IntegrationNovaPoshta;
 }
 
@@ -72,7 +79,7 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
   const rows = await prisma.setting.findMany({
     where: {
       key: {
-        in: ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_novaposhta'],
+        in: ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_cleverbox', 'integration_novaposhta'],
       },
     },
   });
@@ -85,6 +92,7 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
   const m = (db['integration_meta'] ?? {}) as Partial<IntegrationMeta>;
   const t = (db['integration_telegram'] ?? {}) as Partial<IntegrationTelegram>;
   const k = (db['integration_keycrm'] ?? {}) as Partial<IntegrationKeycrm>;
+  const cb = (db['integration_cleverbox'] ?? {}) as Partial<IntegrationCleverbox>;
   const np = (db['integration_novaposhta'] ?? {}) as Partial<IntegrationNovaPoshta>;
 
   _cache = {
@@ -115,6 +123,11 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
         normalizeKeycrmAppUrl(config.KEYCRM_APP_URL) ??
         '',
     },
+    cleverbox: {
+      apiToken: sanitizeIntegrationSecret(cb.apiToken) || config.CLEVERBOX_API_TOKEN,
+      defaultBranchId: cb.defaultBranchId || config.CLEVERBOX_DEFAULT_BRANCH_ID,
+      syncIntervalMin: cb.syncIntervalMin ?? config.CLEVERBOX_SYNC_INTERVAL_MIN,
+    },
     novaposhta: {
       apiKey:          sanitizeIntegrationSecret(np.apiKey) || config.NOVA_POSHTA_API_KEY,
       senderCity:      np.senderCity      || 'Київ',
@@ -136,6 +149,7 @@ export const SENSITIVE_FIELDS: Record<string, string[]> = {
   integration_meta:        ['pageAccessToken', 'userAccessToken'],
   integration_telegram:    ['botToken', 'adminPassword'],
   integration_keycrm:      ['apiKey'],
+  integration_cleverbox:   ['apiToken'],
   integration_novaposhta:  ['apiKey'],
 };
 

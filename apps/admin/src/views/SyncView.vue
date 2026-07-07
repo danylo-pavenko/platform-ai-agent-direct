@@ -3,6 +3,9 @@
     <v-row class="mb-4" align="center">
       <v-col>
         <div class="page-title">Синхронізація</div>
+        <div class="text-body-2 text-medium-emphasis">
+          Каталог товарів, послуг і цін з підключених CRM. Деталі кожного run — джерело даних.
+        </div>
       </v-col>
       <v-col cols="auto">
         <v-btn
@@ -30,6 +33,27 @@
       </div>
     </v-alert>
 
+    <v-row v-if="latestOkRun" class="mb-4">
+      <v-col cols="12" sm="6" md="3">
+        <v-card variant="tonal" color="primary">
+          <v-card-text>
+            <div class="text-caption">Останній успішний run</div>
+            <div class="text-h6">{{ providerLabel(latestOkRun.provider) }}</div>
+            <div class="text-caption">{{ syncTypeLabel(latestOkRun.syncType) }}</div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+      <v-col v-for="chip in latestSourceChips" :key="chip.label" cols="12" sm="6" md="3">
+        <v-card variant="outlined">
+          <v-card-text>
+            <div class="text-caption text-medium-emphasis">{{ chip.label }}</div>
+            <div class="text-h6">{{ chip.count ?? '—' }}</div>
+            <div class="text-caption">{{ chip.provider }}</div>
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
     <v-card>
       <v-card-title>Останні синхронізації</v-card-title>
       <v-data-table
@@ -55,6 +79,16 @@
           </v-chip>
         </template>
 
+        <template #item.provider="{ item }">
+          <v-chip size="small" variant="tonal" :color="providerColor(item.provider)">
+            {{ providerLabel(item.provider) }}
+          </v-chip>
+        </template>
+
+        <template #item.syncType="{ item }">
+          {{ syncTypeLabel(item.syncType) }}
+        </template>
+
         <template #item.startedAt="{ item }">
           {{ formatDate(item.startedAt) }}
         </template>
@@ -69,17 +103,27 @@
 
         <template #item.counts="{ item }">
           <template v-if="item.counts">
-            <v-chip size="x-small" class="mr-1" variant="outlined">
-              Категорій: {{ item.counts.categories ?? '-' }}
+            <v-chip v-if="item.counts.categories != null" size="x-small" class="mr-1" variant="outlined">
+              Категорій: {{ item.counts.categories }}
             </v-chip>
-            <v-chip size="x-small" class="mr-1" variant="outlined">
-              Товарів: {{ item.counts.products ?? '-' }}
+            <v-chip v-if="item.counts.products != null" size="x-small" class="mr-1" variant="outlined">
+              Товарів: {{ item.counts.products }}
             </v-chip>
-            <v-chip size="x-small" variant="outlined">
-              Варіантів: {{ item.counts.offers ?? '-' }}
+            <v-chip v-if="item.counts.offers != null" size="x-small" class="mr-1" variant="outlined">
+              Варіантів: {{ item.counts.offers }}
+            </v-chip>
+            <v-chip v-if="item.counts.services != null" size="x-small" variant="outlined">
+              Послуг: {{ item.counts.services }}
             </v-chip>
           </template>
           <span v-else class="text-grey">-</span>
+        </template>
+
+        <template #item.artifacts="{ item }">
+          <span v-if="artifactSummary(item)" class="text-caption text-medium-emphasis">
+            {{ artifactSummary(item) }}
+          </span>
+          <span v-else>-</span>
         </template>
 
         <template #item.errorMessage="{ item }">
@@ -101,14 +145,24 @@ interface SyncCounts {
   categories?: number;
   products?: number;
   offers?: number;
+  services?: number;
+}
+
+interface SyncArtifacts {
+  catalogPath?: string;
+  servicesPath?: string;
+  sources?: Record<string, { provider: string; count: number }>;
 }
 
 interface SyncRun {
   id: string;
   status: 'running' | 'ok' | 'error';
+  provider?: string;
+  syncType?: string;
   startedAt: string;
   finishedAt?: string | null;
   counts?: SyncCounts;
+  artifacts?: SyncArtifacts;
   errorMessage?: string | null;
 }
 
@@ -122,16 +176,82 @@ const POLL_INTERVAL_MS = 3_000;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 const headers = [
-  { title: 'Статус', key: 'status', width: '130px', sortable: false },
-  { title: 'Початок', key: 'startedAt', width: '180px', sortable: false },
-  { title: 'Завершення', key: 'finishedAt', width: '180px', sortable: false },
-  { title: 'Тривалість', key: 'duration', width: '120px', sortable: false },
+  { title: 'Статус', key: 'status', width: '120px', sortable: false },
+  { title: 'CRM', key: 'provider', width: '110px', sortable: false },
+  { title: 'Тип', key: 'syncType', width: '100px', sortable: false },
+  { title: 'Початок', key: 'startedAt', width: '160px', sortable: false },
+  { title: 'Завершення', key: 'finishedAt', width: '160px', sortable: false },
+  { title: 'Тривалість', key: 'duration', width: '110px', sortable: false },
   { title: 'Кількість', key: 'counts', sortable: false },
+  { title: 'Файли', key: 'artifacts', sortable: false },
   { title: 'Помилка', key: 'errorMessage', sortable: false },
 ];
 
 const latestRun = computed<SyncRun | null>(() => runs.value[0] ?? null);
 const isRunning = computed(() => latestRun.value?.status === 'running');
+const latestOkRun = computed(() => runs.value.find((r) => r.status === 'ok') ?? null);
+
+const latestSourceChips = computed(() => {
+  const run = latestOkRun.value;
+  if (!run?.artifacts?.sources) {
+    if (!run?.counts) return [];
+    const chips: Array<{ label: string; count: number; provider: string }> = [];
+    if (run.counts.products != null) {
+      chips.push({ label: 'Товари', count: run.counts.products, provider: providerLabel(run.provider) });
+    }
+    if (run.counts.services != null) {
+      chips.push({ label: 'Послуги', count: run.counts.services, provider: providerLabel(run.provider) });
+    }
+    return chips;
+  }
+  return Object.entries(run.artifacts.sources).map(([key, src]) => ({
+    label: sourceLabel(key),
+    count: src.count,
+    provider: providerLabel(src.provider),
+  }));
+});
+
+function sourceLabel(key: string): string {
+  const map: Record<string, string> = {
+    categories: 'Категорії',
+    products: 'Товари',
+    offers: 'Варіанти',
+    services: 'Послуги',
+    branches: 'Філії',
+  };
+  return map[key] ?? key;
+}
+
+function providerLabel(p?: string): string {
+  if (!p) return '—';
+  if (p === 'keycrm') return 'KeyCRM';
+  if (p === 'cleverbox') return 'CleverBOX';
+  return p;
+}
+
+function providerColor(p?: string): string {
+  if (p === 'cleverbox') return 'deep-purple';
+  if (p === 'keycrm') return 'green-darken-1';
+  return 'grey';
+}
+
+function syncTypeLabel(t?: string): string {
+  if (!t) return 'каталог';
+  const map: Record<string, string> = {
+    catalog: 'Каталог товарів',
+    services: 'Послуги',
+    branches: 'Філії',
+    full: 'Повна',
+  };
+  return map[t] ?? t;
+}
+
+function artifactSummary(item: SyncRun): string {
+  const parts: string[] = [];
+  if (item.artifacts?.catalogPath) parts.push('catalog.txt');
+  if (item.artifacts?.servicesPath) parts.push('services-live.txt');
+  return parts.join(', ');
+}
 
 function formatDate(dateStr?: string | null): string {
   if (!dateStr) return '-';
@@ -199,10 +319,6 @@ async function triggerSync() {
     triggering.value = false;
   }
 }
-
-// ── Polling ────────────────────────────────────────────────────────────────
-// Only poll while the latest run is still 'running'. Once it flips to
-// ok/error we stop, so the tab goes quiet when nothing's happening.
 
 function startPolling() {
   if (pollTimer) return;

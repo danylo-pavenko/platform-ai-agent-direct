@@ -73,6 +73,10 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v.toLowerCase() === 'true'),
 
+  CLEVERBOX_API_TOKEN: z.string().default(''),
+  CLEVERBOX_DEFAULT_BRANCH_ID: z.string().default(''),
+  CLEVERBOX_SYNC_INTERVAL_MIN: z.coerce.number().default(60),
+
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
   // Defaults: shared platform Meta App — override per tenant in .env if needed.
   FACEBOOK_APP_ID: envNonemptyString('26228249720190273'),

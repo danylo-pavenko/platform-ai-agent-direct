@@ -10,7 +10,7 @@
  * kick in so a fresh tenant works without explicit configuration.
  *
  *   {
- *     mode: 'sales' | 'leadgen',
+ *     mode: 'sales' | 'leadgen' | 'booking',
  *     outOfHoursStrategy: 'warn_early' | 'defer_to_end',
  *     managerSlaHoursBusiness: number,  // hours within working time
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
@@ -51,7 +51,12 @@ export async function getAgentConfig(): Promise<AgentConfig> {
   const raw = (row?.value ?? {}) as Partial<AgentConfig>;
 
   _cache = {
-    mode: raw.mode === 'leadgen' ? 'leadgen' : 'sales',
+    mode:
+      raw.mode === 'leadgen'
+        ? 'leadgen'
+        : raw.mode === 'booking'
+          ? 'booking'
+          : 'sales',
     outOfHoursStrategy:
       raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
     managerSlaHoursBusiness:

@@ -19,9 +19,16 @@ import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { notifyHandoff } from './telegram-notify.js';
-import { buildAgentTools } from '../lib/tool-definitions.js';
+import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
+import { handleBookAppointment } from './appointment.js';
+import { saveClientReferencePhoto } from './reference-photos.js';
+import {
+  getAvailableSlotsForContext,
+  searchServicesForContext,
+} from './service-search.js';
 import { handleCollectOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
@@ -188,7 +195,7 @@ async function handleIncomingMessageImpl(
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    include: { client: true },
+    include: { client: true, branch: true },
   });
 
   if (!conversation) {
@@ -231,7 +238,7 @@ async function handleIncomingMessageImpl(
       return items.map((i) => (i && typeof i === 'object' && !Array.isArray(i) ? String((i as Record<string, unknown>).name ?? '') : '')).filter(Boolean);
     });
     // Deduplicate and count
-    const counts = itemNames.reduce<Record<string, number>>((acc, name) => {
+    const counts = itemNames.reduce<Record<string, number>>((acc, name: string) => {
       acc[name] = (acc[name] ?? 0) + 1;
       return acc;
     }, {});
@@ -261,7 +268,7 @@ async function handleIncomingMessageImpl(
     if (returnedToBot) {
       const refreshed = await prisma.conversation.findUnique({
         where: { id: conversationId },
-        include: { client: true },
+        include: { client: true, branch: true },
       });
       if (!refreshed) {
         log.error({ conversationId }, 'Conversation not found after handoff auto-return');
@@ -356,6 +363,9 @@ async function handleIncomingMessageImpl(
     agentCfg.sessionFreshnessDays,
   );
 
+  const branchesList = await formatBranchesForPrompt();
+  const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
+
   const prompt = buildRuntimePrompt({
     activePromptContent: activePrompt,
     catalogSnippet: catalog,
@@ -375,11 +385,21 @@ async function handleIncomingMessageImpl(
     outOfHoursStrategy: agentCfg.outOfHoursStrategy,
     managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
     previousBriefSummary,
+    branchesList,
+    selectedBranch: conversation.branch
+      ? {
+          slug: conversation.branch.slug,
+          displayName: conversation.branch.displayName,
+          address: conversation.branch.address,
+          crmExternalId: conversation.branch.crmExternalId,
+        }
+      : undefined,
   });
 
   const tools = buildAgentTools(agentCfg.mode, {
     buyerScopeMappings: crmMappings?.buyer ?? [],
     leadScopeMappings: crmMappings?.lead ?? [],
+    hasBranches: activeBranchCount > 0,
   });
 
   // ── 6. Build conversation history (last 30 messages) ──────────────
@@ -514,7 +534,7 @@ async function handleIncomingMessageImpl(
   let agentErrorDetail: string | undefined = response.errorDetail;
 
   if (response.toolCalls && response.toolCalls.length > 0) {
-    await runSideEffectToolCalls(response.toolCalls, client.id, conversationId);
+    await runSideEffectToolCalls(response.toolCalls, client.id, conversationId, mediaAttachments);
 
     if (
       await tryTerminalToolCalls(response.toolCalls, {
@@ -530,6 +550,7 @@ async function handleIncomingMessageImpl(
 
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
+    const bookAppointment = response.toolCalls.find((tc) => tc.name === 'book_appointment');
     const submitBrief = response.toolCalls.find((tc) => tc.name === 'submit_brief');
 
     // submit_brief — leadgen-mode terminal tool. After persisting the
@@ -599,7 +620,7 @@ async function handleIncomingMessageImpl(
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -667,7 +688,7 @@ async function handleIncomingMessageImpl(
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -681,6 +702,128 @@ async function handleIncomingMessageImpl(
         }
       }
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
+    }
+
+    const searchServicesCall = response.toolCalls.find((tc) => tc.name === 'search_services');
+    const slotsCall = response.toolCalls.find((tc) => tc.name === 'get_available_slots');
+
+    if (searchServicesCall && !handoff && !collectOrder && !bookAppointment) {
+      const query =
+        typeof searchServicesCall.args.query === 'string'
+          ? searchServicesCall.args.query.trim()
+          : '';
+      let toolResultContent: string;
+      if (!query) {
+        toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
+      } else {
+        try {
+          const { contextBlock, matchCount } = await searchServicesForContext(query);
+          toolResultContent =
+            matchCount > 0
+              ? `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}`
+              : `[search_services] Нічого не знайдено за «${query}».`;
+        } catch (err) {
+          log.error({ err, query }, 'search_services failed');
+          toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
+        }
+      }
+
+      const response2 = await askClaude(
+        {
+          systemPrompt: prompt,
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            { role: 'assistant' as const, content: response.text || `[Шукаю послуги: ${query}]` },
+          ],
+          userMessage: toolResultContent,
+          tools,
+        },
+        { channel: conversation.channel, conversationId, clientId: client.id },
+      );
+      responseText = response2.text;
+      agentFallback = response2.fallback ?? agentFallback;
+      if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      if (response2.toolCalls?.length) {
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        if (
+          await tryTerminalToolCalls(response2.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(response2.text),
+            turnStartedAt,
+          })
+        ) {
+          return;
+        }
+      }
+    }
+
+    if (slotsCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall) {
+      const date = typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
+      const rawServices = Array.isArray(slotsCall.args.services) ? slotsCall.args.services : [];
+      const services = rawServices.flatMap((raw) => {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+        const o = raw as Record<string, unknown>;
+        const id = typeof o.id === 'number' ? o.id : Number(o.id);
+        const durationMin =
+          typeof o.duration_min === 'number' ? o.duration_min : Number(o.duration_min) || 60;
+        if (!Number.isFinite(id)) return [];
+        return [{ id, durationMin }];
+      });
+
+      let toolResultContent: string;
+      if (!date || services.length === 0) {
+        toolResultContent = '[get_available_slots] ПОМИЛКА: потрібні date та services';
+      } else if (!conversation.branch?.crmExternalId) {
+        toolResultContent =
+          '[get_available_slots] ПОМИЛКА: спочатку обери філію через set_conversation_branch';
+      } else {
+        try {
+          const slotsText = await getAvailableSlotsForContext({
+            date,
+            branchCrmId: conversation.branch.crmExternalId,
+            services,
+            fullMonth: slotsCall.args.full_month === true,
+          });
+          toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
+        } catch (err) {
+          log.error({ err, date }, 'get_available_slots failed');
+          toolResultContent = '[get_available_slots] ПОМИЛКА: не вдалося отримати слоти';
+        }
+      }
+
+      const response2 = await askClaude(
+        {
+          systemPrompt: prompt,
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            { role: 'assistant' as const, content: response.text || `[Перевіряю слоти на ${date}]` },
+          ],
+          userMessage: toolResultContent,
+          tools,
+        },
+        { channel: conversation.channel, conversationId, clientId: client.id },
+      );
+      responseText = response2.text;
+      agentFallback = response2.fallback ?? agentFallback;
+      if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      if (response2.toolCalls?.length) {
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        if (
+          await tryTerminalToolCalls(response2.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(response2.text),
+            turnStartedAt,
+          })
+        ) {
+          return;
+        }
+      }
     }
   }
 
@@ -836,7 +979,7 @@ async function handleIncomingMessageImpl(
 type TerminalToolContext = {
   conversationId: string;
   client: { id: string; igUserId: string | null };
-  agentMode: 'sales' | 'leadgen';
+  agentMode: AgentMode;
   /** Bot reply shown to the client — used as the order confirmation when collect_order fires. */
   clientMessage?: string;
   turnStartedAt: Date;
@@ -847,6 +990,7 @@ async function runSideEffectToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   clientId: string,
   conversationId: string,
+  mediaAttachments?: StoredMediaAttachment[],
 ): Promise<void> {
   const updateInfo = toolCalls.find((tc) => tc.name === 'update_client_info');
   if (updateInfo) {
@@ -876,6 +1020,22 @@ async function runSideEffectToolCalls(
     handleClassifyIntent(conversationId, classifyIntent.args).catch((err) => {
       log.error({ err, conversationId }, 'Failed to classify intent');
     });
+  }
+
+  const setBranch = toolCalls.find((tc) => tc.name === 'set_conversation_branch');
+  if (setBranch) {
+    handleSetConversationBranch(conversationId, setBranch.args).catch((err) => {
+      log.error({ err, conversationId }, 'Failed to set conversation branch');
+    });
+  }
+
+  const attachPhoto = toolCalls.find((tc) => tc.name === 'attach_reference_photo');
+  if (attachPhoto) {
+    handleAttachReferencePhoto(clientId, conversationId, attachPhoto.args, mediaAttachments).catch(
+      (err) => {
+        log.error({ err, conversationId, clientId }, 'Failed to attach reference photo');
+      },
+    );
   }
 }
 
@@ -917,6 +1077,16 @@ async function tryTerminalToolCalls(
       { clientMessage: ctx.clientMessage },
     );
     if (orderId) return true;
+  }
+
+  const bookAppointment = toolCalls.find((tc) => tc.name === 'book_appointment');
+  if (bookAppointment && agentMode === 'booking' && client.igUserId) {
+    const appointmentId = await handleBookAppointment(
+      conversationId,
+      client.id,
+      bookAppointment.args,
+    );
+    if (appointmentId) return true;
   }
 
   return false;
@@ -1016,6 +1186,65 @@ async function handleTagClient(
   });
 
   log.info({ clientId, tags: mergedTags, hasNotes: !!notes }, 'Client tagged from conversation');
+}
+
+async function handleSetConversationBranch(
+  conversationId: string,
+  args: Record<string, unknown>,
+): Promise<void> {
+  const slug =
+    typeof args.branch_slug === 'string' ? args.branch_slug.trim().toLowerCase() : '';
+  if (!slug) return;
+
+  const branch = await resolveBranchSlug(slug);
+  if (!branch) {
+    log.warn({ conversationId, slug }, 'set_conversation_branch: unknown or inactive slug');
+    return;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: { branchId: branch.id },
+  });
+
+  log.info({ conversationId, branchId: branch.id, slug }, 'Conversation branch set');
+}
+
+async function handleAttachReferencePhoto(
+  clientId: string,
+  conversationId: string,
+  args: Record<string, unknown>,
+  mediaAttachments?: StoredMediaAttachment[],
+): Promise<void> {
+  let storageKey =
+    typeof args.storage_key === 'string' && args.storage_key.trim()
+      ? args.storage_key.trim()
+      : undefined;
+
+  if (!storageKey && mediaAttachments?.length) {
+    const visual = mediaAttachments.find(
+      (a) => a.status === 'ready' && a.storageKey && (a.kind === 'image' || a.kind === 'video'),
+    );
+    storageKey = visual?.storageKey;
+  }
+
+  if (!storageKey) {
+    log.debug({ conversationId }, 'attach_reference_photo: no storage key available');
+    return;
+  }
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { branchId: true },
+  });
+
+  await saveClientReferencePhoto({
+    clientId,
+    conversationId,
+    branchId: conversation?.branchId ?? undefined,
+    sourceStorageKey: storageKey,
+    note: typeof args.note === 'string' ? args.note : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------

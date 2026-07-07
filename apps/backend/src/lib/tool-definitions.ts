@@ -1,7 +1,7 @@
 import type { ToolDefinition } from '../services/claude.js';
 import type { CrmFieldMapping } from '../generated/prisma/client.js';
 
-export type AgentMode = 'sales' | 'leadgen';
+export type AgentMode = 'sales' | 'leadgen' | 'booking';
 
 // ── Shared tools (both modes) ──────────────────────────────────────────────
 
@@ -118,6 +118,120 @@ const CLASSIFY_INTENT: ToolDefinition = {
       },
     },
     required: ['intent'],
+  },
+};
+
+const SET_CONVERSATION_BRANCH: ToolDefinition = {
+  name: 'set_conversation_branch',
+  description:
+    'Зафіксувати обрану клієнтом філію/локацію салону. Викликай після того, як клієнт назвав або підтвердив район/адресу. Використовуй slug зі списку філій у промпті.',
+  parameters: {
+    type: 'object',
+    properties: {
+      branch_slug: {
+        type: 'string',
+        description: 'Внутрішній slug філії, наприклад obolon або center',
+      },
+    },
+    required: ['branch_slug'],
+  },
+};
+
+// ── Booking-mode tools ─────────────────────────────────────────────────────
+
+const SEARCH_SERVICES: ToolDefinition = {
+  name: 'search_services',
+  description:
+    'Пошук послуг у CRM (назва, ціна, тривалість). Викликай коли клієнт питає про послугу, ціну або процедуру.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'Ключові слова з запиту клієнта' },
+      crm_provider: {
+        type: 'string',
+        enum: ['cleverbox', 'keycrm'],
+        description: 'Лише якщо системний промпт вказує інший CRM для послуг',
+      },
+    },
+    required: ['query'],
+  },
+};
+
+const GET_AVAILABLE_SLOTS: ToolDefinition = {
+  name: 'get_available_slots',
+  description:
+    'Вільні слоти для запису на обрану дату. Потрібна філія (set_conversation_branch) та список послуг з id і тривалістю.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: { type: 'string', description: 'Дата ДД.ММ.РРРР' },
+      services: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            duration_min: { type: 'number' },
+          },
+          required: ['id', 'duration_min'],
+        },
+      },
+      full_month: { type: 'boolean', description: 'Показати слоти на весь місяць' },
+    },
+    required: ['date', 'services'],
+  },
+};
+
+const BOOK_APPOINTMENT: ToolDefinition = {
+  name: 'book_appointment',
+  description:
+    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch).',
+  parameters: {
+    type: 'object',
+    properties: {
+      customer_name: { type: 'string' },
+      phone: { type: 'string' },
+      date: { type: 'string', description: 'ДД.ММ.РРРР' },
+      time: { type: 'string', description: 'ГГ:ХХ' },
+      services: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            name: { type: 'string' },
+            price: { type: 'number' },
+            duration_min: { type: 'number' },
+          },
+          required: ['id', 'name', 'duration_min'],
+        },
+      },
+      master_id: { type: 'number', description: 'ID майстра з get_available_slots' },
+      comment: { type: 'string' },
+      crm_provider: {
+        type: 'string',
+        enum: ['cleverbox', 'keycrm'],
+        description: 'Лише якщо промпт вказує інший CRM для запису',
+      },
+    },
+    required: ['customer_name', 'phone', 'date', 'time', 'services'],
+  },
+};
+
+const ATTACH_REFERENCE_PHOTO: ToolDefinition = {
+  name: 'attach_reference_photo',
+  description:
+    'Зберегти референс-фото від клієнта (колір волосся, приклад стрижки тощо). Викликай коли клієнт надіслав фото в цій розмові.',
+  parameters: {
+    type: 'object',
+    properties: {
+      note: { type: 'string', description: 'Короткий опис фото для менеджера' },
+      storage_key: {
+        type: 'string',
+        description: 'Ключ збереженого вкладення з повідомлення (якщо відомий)',
+      },
+    },
+    required: [],
   },
 };
 
@@ -342,6 +456,8 @@ function injectCustomFields(
 export interface BuildAgentToolsOptions {
   buyerScopeMappings?: CrmFieldMapping[];
   leadScopeMappings?: CrmFieldMapping[];
+  /** When true, inject set_conversation_branch for multi-location tenants. */
+  hasBranches?: boolean;
 }
 
 /**
@@ -363,6 +479,7 @@ export function buildAgentTools(
 ): ToolDefinition[] {
   const buyer = opts.buyerScopeMappings ?? [];
   const lead = opts.leadScopeMappings ?? [];
+  const hasBranches = opts.hasBranches ?? false;
 
   const updateClientInfo = injectCustomFields(
     UPDATE_CLIENT_INFO,
@@ -370,26 +487,33 @@ export function buildAgentTools(
     'Додаткові поля клієнта з активного CRM-мапінгу. Заповнюй лише ті ключі, про які клієнт явно сказав. Якщо не знаєш значення — не додавай ключ.',
   );
 
+  const sharedBase: ToolDefinition[] = [updateClientInfo];
+  if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
+  sharedBase.push(TAG_CLIENT, REQUEST_HANDOFF);
+
   if (mode === 'leadgen') {
     const submitBrief = injectCustomFields(
       SUBMIT_BRIEF,
       lead,
       'Додаткові поля пресейл-брифу з CRM-мапінгу (lead scope). Заповнюй лише те, про що клієнт явно сказав.',
     );
+    return [CLASSIFY_INTENT, ...sharedBase, submitBrief];
+  }
+
+  if (mode === 'booking') {
     return [
       CLASSIFY_INTENT,
-      updateClientInfo,
-      TAG_CLIENT,
-      REQUEST_HANDOFF,
-      submitBrief,
+      ...sharedBase,
+      SEARCH_SERVICES,
+      GET_AVAILABLE_SLOTS,
+      ATTACH_REFERENCE_PHOTO,
+      BOOK_APPOINTMENT,
     ];
   }
 
   // sales
   return [
-    updateClientInfo,
-    TAG_CLIENT,
-    REQUEST_HANDOFF,
+    ...sharedBase,
     SEARCH_CATALOG,
     GET_DELIVERY_COST,
     COLLECT_ORDER,

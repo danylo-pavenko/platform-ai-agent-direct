@@ -11,6 +11,7 @@ dist/
 
 # Uploads & data
 uploads/
+reference_photos/
 .whisper-venv/
 .whisper-models/
 data/
