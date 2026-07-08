@@ -22,7 +22,7 @@ import { pathToFileURL } from 'node:url';
 import pino from 'pino';
 
 import { config } from './config.js';
-import { prisma } from './lib/prisma.js';
+import { prisma, toInputJsonValue } from './lib/prisma.js';
 import { REPO_ROOT, getCatalogPath, getServicesCatalogPath } from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
 import { resolveCrmProvider } from './lib/crm-routing.js';
@@ -585,8 +585,8 @@ export async function runSync(): Promise<void> {
         status: 'ok',
         provider: counts.services ? 'mixed' : primaryProvider,
         syncType: counts.services ? 'full' : 'catalog',
-        counts,
-        artifacts,
+        counts: toInputJsonValue(counts),
+        artifacts: toInputJsonValue(artifacts),
       },
     });
 

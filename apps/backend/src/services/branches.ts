@@ -3,8 +3,7 @@
  */
 
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
-import { config } from '../config.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { getCrmAdapter } from '../services/crm/index.js';
 
@@ -198,7 +197,7 @@ export async function importBranchesFromCrm(opts: ImportBranchesOptions = {}) {
           displayName: candidate.name,
           address: candidate.address ?? existing.address,
           crmSyncedAt: new Date(),
-          metadata: candidate.metadata ?? undefined,
+          metadata: toInputJsonValue(candidate.metadata),
         },
       });
       updated++;
@@ -220,7 +219,7 @@ export async function importBranchesFromCrm(opts: ImportBranchesOptions = {}) {
         crmProvider: candidate.provider,
         crmExternalId: candidate.externalId,
         crmSyncedAt: new Date(),
-        metadata: candidate.metadata ?? undefined,
+        metadata: toInputJsonValue(candidate.metadata),
         keywords: [],
       },
     });
