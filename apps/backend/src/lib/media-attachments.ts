@@ -66,7 +66,7 @@ export function isPlayableMediaAttachment(item: StoredMediaAttachment): boolean 
   return item.status === 'ready' && !!item.storageKey;
 }
 
-/** Storage keys safe to pass to Claude vision (--image / video frames). */
+/** Storage keys for Claude vision (images via stream-json; video skipped with a prompt note). */
 export function visualStorageKeys(
   attachments: StoredMediaAttachment[] | undefined,
   legacyMediaUrls?: string[],

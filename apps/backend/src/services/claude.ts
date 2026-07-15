@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
 import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
+import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
@@ -131,8 +132,8 @@ function buildPrompt(req: ClaudeRequest): string {
   return parts.join('\n\n');
 }
 
-/** Build the CLI argument list. */
-function buildArgs(req: ClaudeRequest): string[] {
+/** Build the CLI argument list (prompt / images go via stdin). */
+function buildArgs(useStreamJsonInput = false): string[] {
   const args: string[] = [
     '-p',
     '--output-format', 'stream-json',
@@ -140,10 +141,10 @@ function buildArgs(req: ClaudeRequest): string[] {
     '--model', config.CLAUDE_MODEL,
   ];
 
-  if (req.images && req.images.length > 0) {
-    for (const img of req.images) {
-      args.push('--image', img);
-    }
+  // Claude Code has no `--image` flag. Vision uses Anthropic image content
+  // blocks on stdin with `--input-format stream-json`.
+  if (useStreamJsonInput) {
+    args.push('--input-format', 'stream-json');
   }
 
   return args;
@@ -375,8 +376,22 @@ export async function askClaude(
   context?: ClaudeCallContext,
 ): Promise<ClaudeResponse> {
   const prompt = buildPrompt(req);
-  const args = buildArgs(req);
+  const vision = await buildClaudeVisionStdin(prompt, req.images);
+  const args = buildArgs(vision.useStreamJsonInput);
   const startMs = Date.now();
+
+  if (req.images && req.images.length > 0) {
+    log.info(
+      {
+        requested: req.images.length,
+        attached: vision.attachedImages.length,
+        skipped: vision.skippedPaths.length,
+        streamJsonInput: vision.useStreamJsonInput,
+        channel: context?.channel ?? null,
+      },
+      'Claude vision stdin prepared',
+    );
+  }
 
   /**
    * Emit a dedicated warn-level log whenever the user actually receives a
@@ -440,7 +455,7 @@ export async function askClaude(
   try {
     release = await semaphore.acquire();
 
-    const response = await spawnClaude(prompt, args, timeoutFor(context), context);
+    const response = await spawnClaude(vision.stdin, args, timeoutFor(context), context);
 
     const durationMs = Date.now() - startMs;
     log.info(
@@ -452,6 +467,7 @@ export async function askClaude(
         fallback: response.fallback ?? null,
         channel: context?.channel ?? null,
         timeoutMs: timeoutFor(context),
+        visionAttached: vision.attachedImages.length,
       },
       'Claude invocation complete',
     );
@@ -628,11 +644,7 @@ export async function probeAgentLatency(
     conversationHistory: [],
     userMessage: AGENT_LATENCY_PROBE_USER,
   });
-  const args = buildArgs({
-    systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
-    conversationHistory: [],
-    userMessage: AGENT_LATENCY_PROBE_USER,
-  });
+  const args = buildArgs(false);
 
   const response = await spawnClaude(prompt, args, maxLatencyMs);
   const latencyMs = Date.now() - startMs;

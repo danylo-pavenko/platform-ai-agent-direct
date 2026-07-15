@@ -484,6 +484,10 @@ async function handleIncomingMessageImpl(
       },
       'Message enriched with shared post context',
     );
+  } else if (!messageText.trim() && localPaths.length > 0) {
+    // Image/video without caption — guide Claude to read product screenshots.
+    enrichedMessageText =
+      '[Клієнт надіслав зображення без тексту. Якщо це скрін/фото товару — прочитай назву, ціну, розмір/колір і допоможи оформити замовлення. Якщо відео не вклалось у vision — попроси фото або посилання.]';
   } else if (!messageText.trim() && localPaths.length === 0) {
     const audioItems = (mediaAttachments ?? []).filter((a) => a.kind === 'audio');
     const hasTranscript = audioItems.some((a) => a.transcript?.trim());
