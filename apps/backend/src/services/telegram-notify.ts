@@ -384,6 +384,73 @@ export async function notifyError(error: Error | string): Promise<void> {
   await sendToManagerGroup(text);
 }
 
+/** Soft debounce so retry worker + first fallback don't spam the group. */
+const AGENT_FAILURE_NOTIFY_COOLDOWN_MS = 90_000;
+const lastAgentFailureNotifyAt = new Map<string, number>();
+
+/**
+ * Alert when the sales agent could not produce a real reply (Claude busy /
+ * timeout / CLI error / output validation). Skips silently if Telegram is
+ * not configured. Debounced per conversation.
+ */
+export async function notifyAgentFailure(params: {
+  conversationId: string;
+  clientIgUserId?: string | null;
+  failureCode: 'busy' | 'timeout' | 'output_validation';
+  failureDetail: string;
+  clientMessage?: string | null;
+}): Promise<void> {
+  const {
+    conversationId,
+    clientIgUserId,
+    failureCode,
+    failureDetail,
+    clientMessage,
+  } = params;
+
+  const now = Date.now();
+  const lastAt = lastAgentFailureNotifyAt.get(conversationId) ?? 0;
+  if (now - lastAt < AGENT_FAILURE_NOTIFY_COOLDOWN_MS) {
+    log.debug({ conversationId }, 'Skipping agent-failure Telegram notify (cooldown)');
+    return;
+  }
+  lastAgentFailureNotifyAt.set(conversationId, now);
+
+  const shortId = conversationId.slice(0, 8);
+  const adminUrl = adminConversationUrl(conversationId);
+  const codeLabel =
+    failureCode === 'busy'
+      ? 'черга / перевантаження'
+      : failureCode === 'output_validation'
+        ? 'валідація відповіді'
+        : 'таймаут / помилка Claude';
+
+  const detail =
+    failureDetail.length > 700 ? `${failureDetail.slice(0, 700)}…` : failureDetail;
+  const clientPreview = clientMessage?.trim()
+    ? clientMessage.trim().slice(0, 200)
+    : null;
+
+  const lines = [
+    `🚨 <b>Агент не відповів</b> [${escapeHtml(config.INSTANCE_ID)}]`,
+    ``,
+    `Код: <code>${escapeHtml(failureCode)}</code> (${escapeHtml(codeLabel)})`,
+    `Розмова: <code>#${escapeHtml(shortId)}</code>`,
+  ];
+  if (clientIgUserId) {
+    lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
+  }
+  if (clientPreview) {
+    lines.push(`Запит: «${escapeHtml(clientPreview)}»`);
+  }
+  lines.push(``);
+  lines.push(`<code>${escapeHtml(detail)}</code>`);
+  lines.push(``);
+  lines.push(`<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`);
+
+  await sendToManagerGroup(lines.join('\n'));
+}
+
 /**
  * Sends a token expiry warning to the manager group.
  */

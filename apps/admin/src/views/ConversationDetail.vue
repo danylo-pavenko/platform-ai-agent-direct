@@ -211,8 +211,26 @@
             class="mb-3"
             :class="messageAlignment(msg)"
           >
-            <div v-if="msg.sender === 'system'" class="text-center">
-              <v-chip size="x-small" variant="outlined" class="font-italic">{{ formatChatPlain(msg.text) }}</v-chip>
+            <div v-if="msg.sender === 'system'" class="text-center system-note-wrap">
+              <v-chip
+                v-if="!isMultilineSystemNote(msg.text)"
+                size="x-small"
+                variant="outlined"
+                class="font-italic"
+              >
+                {{ formatChatPlain(msg.text) }}
+              </v-chip>
+              <v-card
+                v-else
+                flat
+                rounded="lg"
+                variant="tonal"
+                color="info"
+                class="system-note-card text-left pa-3 mx-auto"
+              >
+                <div class="text-caption font-weight-medium mb-1">Системна нота (лише адмінка)</div>
+                <div class="text-caption system-note-text">{{ formatChatPlain(msg.text) }}</div>
+              </v-card>
             </div>
             <div v-else :style="{ maxWidth: mobile ? '88%' : '72%' }">
               <div class="text-caption text-grey mb-1" :class="msg.direction === 'out' ? 'text-right' : ''">
@@ -620,6 +638,12 @@ const botIsThinking = computed(() => {
 
 function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
+}
+
+/** Vision/CRM debug notes are multiline; keep short status chips compact. */
+function isMultilineSystemNote(text: string | null | undefined): boolean {
+  if (!text) return false;
+  return text.includes('\n') || text.startsWith('🔍');
 }
 
 async function scrollToBottom() {
@@ -1244,6 +1268,23 @@ const ClientProfilePanel = defineComponent({
 </script>
 
 <style scoped>
+.system-note-wrap {
+  max-width: min(560px, 100%);
+  margin-inline: auto;
+}
+
+.system-note-card {
+  width: 100%;
+  border: 1px dashed rgba(var(--v-theme-info), 0.45);
+}
+
+.system-note-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  opacity: 0.95;
+}
+
 .detail-root {
   height: calc(100vh - 64px);
   overflow: hidden;

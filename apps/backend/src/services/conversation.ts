@@ -18,7 +18,7 @@ import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
-import { notifyHandoff } from './telegram-notify.js';
+import { notifyAgentFailure, notifyHandoff } from './telegram-notify.js';
 import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig } from '../lib/agent-config.js';
@@ -53,6 +53,12 @@ import {
   shouldHandoffAfterAgentFallback,
   type BotFailureCode,
 } from '../lib/agent-fallback.js';
+import { isClaudeVisionImagePath } from '../lib/claude-vision.js';
+import {
+  extractVisionInterpretation,
+  formatVisionDebugNote,
+  type CatalogDebugMatch,
+} from '../lib/vision-debug-note.js';
 import type { ClaudeResponse } from './claude.js';
 
 const log = pino({ name: 'conversation' });
@@ -438,6 +444,7 @@ async function handleIncomingMessageImpl(
   // no matches we fall through gracefully - the image + catalog.txt context
   // is still available to Claude via its vision capability.
   let enrichedMessageText = messageText;
+  let catalogDebug: CatalogDebugMatch | null = null;
 
   if (sharedPost) {
     log.info(
@@ -456,8 +463,14 @@ async function handleIncomingMessageImpl(
 
     if (keywords) {
       try {
-        const { contextBlock } = await searchActiveProductsForContext(keywords);
+        const { contextBlock, matchCount } = await searchActiveProductsForContext(keywords);
         availabilityBlock = contextBlock;
+        catalogDebug = {
+          query: keywords,
+          matchCount,
+          contextBlock,
+          source: 'shared_post',
+        };
       } catch (err) {
         // Non-critical - Claude can still use the image to identify the product
         log.warn({ err, keywords }, 'Product availability search failed (non-fatal)');
@@ -536,6 +549,8 @@ async function handleIncomingMessageImpl(
   let responseText = response.text;
   let agentFallback: ClaudeResponse['fallback'] | undefined = response.fallback;
   let agentErrorDetail: string | undefined = response.errorDetail;
+  /** First Claude text this turn — used for admin vision debug notes. */
+  const firstClaudeText = response.text;
 
   if (response.toolCalls && response.toolCalls.length > 0) {
     await runSideEffectToolCalls(response.toolCalls, client.id, conversationId, mediaAttachments);
@@ -586,6 +601,12 @@ async function handleIncomingMessageImpl(
       } else {
         try {
           const { contextBlock, matchCount } = await searchActiveProductsForContext(query);
+          catalogDebug = {
+            query,
+            matchCount,
+            contextBlock,
+            source: 'search_catalog',
+          };
           toolResultContent =
             matchCount > 0
               ? `[search_catalog] РЕЗУЛЬТАТ:\n${contextBlock}`
@@ -875,6 +896,29 @@ async function handleIncomingMessageImpl(
         },
         'Agent fallback limit reached — handing off to manager',
       );
+      if (localPaths.length > 0) {
+        await persistVisionDebugNote({
+          conversationId,
+          localPaths,
+          firstClaudeText,
+          finalBotText: clientFacingText,
+          agentFallback,
+          catalogDebug,
+          agentMode: agentCfg.mode,
+          clientMessage: messageText,
+        }).catch((err) =>
+          log.warn({ err, conversationId }, 'persistVisionDebugNote failed (non-fatal)'),
+        );
+      }
+      notifyAgentFailure({
+        conversationId,
+        clientIgUserId: client.igUserId,
+        failureCode: agentFallback,
+        failureDetail,
+        clientMessage: messageText,
+      }).catch((err) =>
+        log.warn({ err, conversationId }, 'notifyAgentFailure failed (non-fatal)'),
+      );
       await performManagerHandoff({
         conversationId,
         client,
@@ -967,6 +1011,34 @@ async function handleIncomingMessageImpl(
     log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
   );
 
+  if (botFailureCode && botFailureDetail && CUSTOMER_CHANNELS.has(conversation.channel)) {
+    notifyAgentFailure({
+      conversationId,
+      clientIgUserId: client.igUserId,
+      failureCode: botFailureCode,
+      failureDetail: botFailureDetail,
+      clientMessage: messageText,
+    }).catch((err) =>
+      log.warn({ err, conversationId }, 'notifyAgentFailure failed (non-fatal)'),
+    );
+  }
+
+  // Admin-only vision/CRM debug note (not sent to Instagram).
+  if (localPaths.length > 0) {
+    await persistVisionDebugNote({
+      conversationId,
+      localPaths,
+      firstClaudeText,
+      finalBotText: clientFacingText,
+      agentFallback,
+      catalogDebug,
+      agentMode: agentCfg.mode,
+      clientMessage: messageText,
+    }).catch((err) =>
+      log.warn({ err, conversationId }, 'persistVisionDebugNote failed (non-fatal)'),
+    );
+  }
+
   log.info(
     { conversationId, responseLength: clientFacingText.length },
     'Bot response sent and persisted',
@@ -974,6 +1046,86 @@ async function handleIncomingMessageImpl(
   } finally {
     await igTyping.end();
   }
+}
+
+async function persistVisionDebugNote(params: {
+  conversationId: string;
+  localPaths: string[];
+  firstClaudeText: string;
+  finalBotText: string;
+  agentFallback?: ClaudeResponse['fallback'];
+  catalogDebug: CatalogDebugMatch | null;
+  agentMode: AgentMode;
+  clientMessage: string;
+}): Promise<void> {
+  const {
+    conversationId,
+    localPaths,
+    firstClaudeText,
+    finalBotText,
+    agentFallback,
+    agentMode,
+    clientMessage,
+  } = params;
+  let { catalogDebug } = params;
+
+  const imagePaths = localPaths.filter(isClaudeVisionImagePath);
+  const imageCount = imagePaths.length > 0 ? imagePaths.length : localPaths.length;
+  const skippedNonImageCount = localPaths.length - imagePaths.length;
+
+  let interpretation = extractVisionInterpretation(
+    agentFallback ? null : firstClaudeText || finalBotText,
+  );
+  if (agentFallback) {
+    interpretation = `Claude не зміг завершити аналіз (${agentFallback})`;
+  }
+
+  // If Claude never called search_catalog on a sales vision turn, run a
+  // diagnostic lookup for the admin note only (does not change the client reply).
+  if (!catalogDebug && agentMode === 'sales' && !agentFallback) {
+    const seed =
+      extractKeywordsFromCaption(clientMessage) ||
+      extractKeywordsFromCaption(firstClaudeText || finalBotText);
+    if (seed) {
+      try {
+        const { contextBlock, matchCount } = await searchActiveProductsForContext(seed);
+        catalogDebug = {
+          query: seed,
+          matchCount,
+          contextBlock,
+          source: 'diagnostic',
+        };
+      } catch (err) {
+        log.warn({ err, seed, conversationId }, 'Diagnostic catalog search for vision note failed');
+      }
+    }
+  }
+
+  const note = formatVisionDebugNote({
+    imageCount,
+    interpretation,
+    catalog: catalogDebug,
+    skippedNonImageCount: skippedNonImageCount > 0 ? skippedNonImageCount : undefined,
+  });
+
+  await prisma.message.create({
+    data: {
+      conversationId,
+      direction: 'system',
+      sender: 'system',
+      text: note,
+    },
+  });
+
+  log.info(
+    {
+      conversationId,
+      imageCount,
+      catalogMatches: catalogDebug?.matchCount ?? 0,
+      catalogSource: catalogDebug?.source ?? null,
+    },
+    'Vision debug system note persisted',
+  );
 }
 
 // ---------------------------------------------------------------------------
