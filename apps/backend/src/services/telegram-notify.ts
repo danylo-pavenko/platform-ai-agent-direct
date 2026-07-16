@@ -1,10 +1,14 @@
 import pino from 'pino';
 import { InlineKeyboard } from 'grammy';
-import { getBot } from '../lib/telegram.js';
-import { getNotificationChatIds } from '../lib/telegram-groups.js';
+import { getBotWithToken } from '../lib/telegram.js';
+import { getNotificationChatIdsForBot } from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
 import { adminConversationUrl, adminSettingsUrl } from '../lib/admin-urls.js';
+import {
+  resolveTelegramBotsForChannel,
+  type TelegramNotifyChannel,
+} from '../lib/telegram-bots.js';
 
 const log = pino({ name: 'telegram-notify' });
 
@@ -39,48 +43,68 @@ function formatPaymentMethodLabel(method: string): string {
 async function sendToManagerGroup(
   text: string,
   keyboard?: InlineKeyboard,
+  channel: TelegramNotifyChannel = 'ops',
 ): Promise<void> {
   const { telegram } = await getIntegrationConfig();
+  const bots = resolveTelegramBotsForChannel(telegram, channel);
 
-  if (!telegram.botToken) {
+  if (bots.length === 0) {
     const now = Date.now();
     if (now - lastMissingTokenLogAt >= MISSING_TOKEN_LOG_INTERVAL_MS) {
-      log.debug('Telegram bot token not configured — skipping notification');
+      log.debug({ channel }, 'Telegram bot token not configured — skipping notification');
       lastMissingTokenLogAt = now;
     }
     return;
   }
 
-  const groupIds = await getNotificationChatIds();
-  if (groupIds.length === 0) {
-    log.warn(
-      'No Telegram notification targets — /login in private chat with the bot or add it to a manager group',
+  // Inline keyboards must be handled by a polled bot — attach to primary
+  // when present among recipients, otherwise the first matched bot.
+  const keyboardBotId =
+    bots.find((b) => b.isPrimary)?.id ?? bots[0]?.id ?? null;
+
+  let totalSuccess = 0;
+  let totalTargets = 0;
+
+  for (const botCfg of bots) {
+    const groupIds = await getNotificationChatIdsForBot(botCfg);
+    if (groupIds.length === 0) {
+      log.warn(
+        { botId: botCfg.id, label: botCfg.label, channel },
+        'No Telegram targets for bot — /login or set Manager Group ID',
+      );
+      continue;
+    }
+
+    const useKeyboard = Boolean(keyboard) && botCfg.id === keyboardBotId;
+    const bot = getBotWithToken(botCfg.botToken);
+    const opts = {
+      parse_mode: 'HTML' as const,
+      ...(useKeyboard && keyboard ? { reply_markup: keyboard } : {}),
+    };
+
+    totalTargets += groupIds.length;
+    await Promise.all(
+      groupIds.map(async (groupId) => {
+        try {
+          await bot.api.sendMessage(groupId, text, opts);
+          totalSuccess++;
+        } catch (err) {
+          log.error(
+            { err, groupId, botId: botCfg.id, channel },
+            'Failed to send Telegram notification',
+          );
+        }
+      }),
     );
-    return;
   }
 
-  const bot = await getBot();
-  const opts = {
-    parse_mode: 'HTML' as const,
-    ...(keyboard ? { reply_markup: keyboard } : {}),
-  };
-
-  let successCount = 0;
-  await Promise.all(
-    groupIds.map(async (groupId) => {
-      try {
-        await bot.api.sendMessage(groupId, text, opts);
-        successCount++;
-      } catch (err) {
-        log.error({ err, groupId }, 'Failed to send Telegram notification to group');
-      }
-    }),
-  );
-
-  if (successCount > 0) {
-    log.info({ successCount, totalGroups: groupIds.length }, 'Telegram notification delivered');
-  } else {
-    log.warn({ totalGroups: groupIds.length }, 'Telegram notification failed for all groups');
+  if (totalSuccess > 0) {
+    log.info(
+      { successCount: totalSuccess, totalTargets, channel, bots: bots.map((b) => b.id) },
+      'Telegram notification delivered',
+    );
+  } else if (totalTargets > 0) {
+    log.warn({ totalTargets, channel }, 'Telegram notification failed for all targets');
   }
 }
 
@@ -110,7 +134,7 @@ export async function notifyClaudeAuthRequired(params: {
     `<a href="${escapeHtml(settingsUrl)}">Адмінка → Налаштування → Claude</a>`,
   ].join('\n');
 
-  await sendToManagerGroup(text);
+  await sendToManagerGroup(text, undefined, 'auth');
 }
 
 /**
@@ -153,7 +177,7 @@ export async function notifyClaudeUsageLimit(params: {
     .filter((line) => line !== '')
     .join('\n');
 
-  await sendToManagerGroup(text);
+  await sendToManagerGroup(text, undefined, 'auth');
 }
 
 /**
@@ -195,7 +219,7 @@ export async function notifyHandoff(params: {
     .text('👤 Взяти', `takeover:${conversationId}`)
     .text('🤖 Повернути боту', `return:${conversationId}`);
 
-  await sendToManagerGroup(text, keyboard);
+  await sendToManagerGroup(text, keyboard, 'handoff');
 }
 
 /**
@@ -264,7 +288,7 @@ export async function notifyOrder(params: {
     .text('✅ Підтвердити', `approve:${orderId}`)
     .text('❌ Відхилити', `decline:${orderId}`);
 
-  await sendToManagerGroup(text, keyboard);
+  await sendToManagerGroup(text, keyboard, 'order');
 }
 
 /**
@@ -327,7 +351,7 @@ export async function notifyBrief(params: {
     .text('👤 Взяти', `takeover:${conversationId}`)
     .text('📌 Позначити hot', `brief_hot:${briefId}`);
 
-  await sendToManagerGroup(lines.join('\n'), keyboard);
+  await sendToManagerGroup(lines.join('\n'), keyboard, 'brief');
 }
 
 /**
@@ -363,7 +387,7 @@ export async function notifyCrmFallback(params: {
     lines.push(`<b>${escapeHtml(label)}:</b> ${escapeHtml(String(value))}`);
   }
 
-  await sendToManagerGroup(lines.join('\n'));
+  await sendToManagerGroup(lines.join('\n'), undefined, 'crm_fallback');
 }
 
 /**
@@ -381,7 +405,7 @@ export async function notifyError(error: Error | string): Promise<void> {
     `<code>${escapeHtml(truncated)}</code>`,
   ].join('\n');
 
-  await sendToManagerGroup(text);
+  await sendToManagerGroup(text, undefined, 'agent_failure');
 }
 
 /** Soft debounce so retry worker + first fallback don't spam the group. */
@@ -448,7 +472,7 @@ export async function notifyAgentFailure(params: {
   lines.push(``);
   lines.push(`<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`);
 
-  await sendToManagerGroup(lines.join('\n'));
+  await sendToManagerGroup(lines.join('\n'), undefined, 'agent_failure');
 }
 
 /**
@@ -462,5 +486,5 @@ export async function notifyTokenExpiry(daysLeft: number): Promise<void> {
     `Оновіть токен у .env та перезапустіть сервер.`,
   ].join('\n');
 
-  await sendToManagerGroup(text);
+  await sendToManagerGroup(text, undefined, 'auth');
 }

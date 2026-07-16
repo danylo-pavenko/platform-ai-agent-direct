@@ -20,6 +20,10 @@ import { invalidateFeatureFlagsCache } from '../lib/feature-flags.js';
 import { bumpTelegramBotWake } from '../lib/telegram-bot-wake.js';
 import { isMaskedIntegrationSecret } from '../lib/integration-secrets.js';
 import { normalizeKeycrmAppUrl } from '../lib/keycrm-urls.js';
+import {
+  maskTelegramBotsForResponse,
+  mergeTelegramIntegrationUpdate,
+} from '../lib/telegram-bots.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
 import {
@@ -129,6 +133,12 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     for (const row of rows) {
       const data = row.value as Record<string, unknown>;
+
+      if (row.key === 'integration_telegram') {
+        result[row.key] = maskTelegramBotsForResponse(data);
+        continue;
+      }
+
       const masked: Record<string, unknown> = { ...data };
       const sensitive = SENSITIVE_FIELDS[row.key] ?? [];
       const envOnly = row.key === 'integration_meta' ? META_ENV_ONLY_FIELDS : [];
@@ -173,6 +183,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       const merged: Record<string, unknown> = { ...existingData };
       const sensitive = SENSITIVE_FIELDS[key] ?? [];
       const envOnly = key === 'integration_meta' ? META_ENV_ONLY_FIELDS : [];
+
+      if (key === 'integration_telegram') {
+        const telegramMerged = mergeTelegramIntegrationUpdate(
+          existingData,
+          incoming,
+          isMaskedIntegrationSecret,
+        );
+        await prisma.setting.upsert({
+          where: { key },
+          create: { key, value: telegramMerged as never },
+          update: { value: telegramMerged as never },
+        });
+        telegramSettingsTouched = true;
+        continue;
+      }
 
       for (const [field, value] of Object.entries(incoming)) {
         // Never store env-only fields in DB

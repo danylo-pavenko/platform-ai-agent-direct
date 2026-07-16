@@ -1382,209 +1382,77 @@
         </v-card-text>
       </v-card>
 
-      <!-- Telegram -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="blue">mdi-send</v-icon>
-          Telegram
-        </v-card-title>
-        <v-card-subtitle class="pb-2">Бот-токен і групи для сповіщень менеджерам</v-card-subtitle>
-        <v-card-text>
-          <!-- Instructions -->
+      <TelegramBotsCard
+        v-model="integrations.telegram.bots"
+        :saving="savingIntegrations"
+        @save="saveTelegramBots"
+      >
+        <template #actions>
           <v-btn
-            variant="text"
+            color="primary"
+            variant="tonal"
             size="small"
-            color="info"
-            class="mb-3 px-1"
-            :prepend-icon="showTelegramHelp ? 'mdi-chevron-up' : 'mdi-help-circle-outline'"
-            @click="showTelegramHelp = !showTelegramHelp"
+            prepend-icon="mdi-send"
+            :loading="telegramTestLoading === 'connectivity'"
+            :disabled="!!telegramTestLoading"
+            @click="sendTelegramTest('connectivity')"
           >
-            Де взяти дані та як підключити бота? Натисни тут.
+            Тест Telegram
           </v-btn>
-          <v-expand-transition>
-            <v-alert v-if="showTelegramHelp" type="info" variant="tonal" density="compact" class="mb-4 text-body-2">
-              <div class="font-weight-bold mb-2">Покрокова інструкція</div>
-              <ol class="pl-4 mb-4" style="line-height:1.8;">
-                <li>
-                  Відкрийте Telegram → напишіть
-                  <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>
-                  → команда <code>/newbot</code> → введіть назву та username.
-                  Скопіюйте <strong>Bot Token</strong> формату <code>123456:ABC-DEF…</code>
-                </li>
-                <li>
-                  Збережіть токен і <strong>Admin Password</strong> тут. На сервері:
-                  <code>pm2 restart SB-bot</code> (після першого збереження токена).
-                </li>
-                <li>
-                  <strong>Особисті повідомлення (без групи):</strong> відкрийте бота в Telegram →
-                  <code>/start</code> → <code>/login ВАШ_ПАРОЛЬ</code>. Після цього сповіщення
-                  надходитимуть лише вам у цей чат.
-                </li>
-                <li>
-                  <strong>Або група менеджерів</strong> (опційно): створіть supergroup, додайте бота.
-                  У BotFather: <code>/setprivacy</code> → <strong>Disable</strong> (щоб бот бачив
-                  <code>/login</code> у групі). Поле <strong>Manager Group ID</strong> нижче — лише якщо
-                  потрібна фіксована група.
-                </li>
-                <li>
-                  Натисніть <strong>«Тест Telegram»</strong> після <code>/login</code> у боті (або після
-                  додавання в групу). Процеси <code>SB-api</code> і <code>SB-bot</code> мають бути online (PM2).
-                </li>
-              </ol>
-
-              <div class="font-weight-bold mb-2">Як працює бот у цій платформі</div>
-              <ul class="pl-4 mb-4" style="line-height:1.8;">
-                <li>
-                  Бот <strong>не відповідає клієнтам в Instagram</strong> через Telegram — лише сповіщає
-                  авторизованих менеджерів (особистий чат після <code>/login</code> або група).
-                </li>
-                <li>
-                  <strong>Сповіщення</strong> (замовлення, ескалації, ліміти Claude) надсилає backend
-                  (<code>SB-api</code>).
-                </li>
-                <li>
-                  <strong>Команди</strong> (<code>/login</code>, кнопки під картками) обробляє окремий процес
-                  <code>SB-bot</code>.
-                </li>
-              </ul>
-
-              <div class="font-weight-bold mb-2">Якщо Telegram пише, що бот «не може писати»</div>
-              <ul class="pl-4 mb-2" style="line-height:1.8;">
-                <li>
-                  <strong>Direct Agent</strong> (підключення до бізнес-акаунту) — інший режим. Для цієї
-                  платформи достатньо особистого чату з ботом після <code>/login</code> або групи менеджерів.
-                </li>
-                <li>
-                  Бот у <strong>каналі</strong> без прав адміна не може публікувати — використовуйте
-                  <strong>групу</strong> або зробіть бота адміном каналу.
-                </li>
-                <li>
-                  У групі з обмеженнями для учасників — зробіть бота <strong>адміном</strong> або дозвольте
-                  йому надсилати повідомлення в правах групи.
-                </li>
-                <li>
-                  «Has access to messages» означає лише <strong>читання</strong> — для надсилання перевірте
-                  права адміна та кнопку «Тест Telegram» після збереження токена.
-                </li>
-                <li>
-                  Якщо тест не доходить — перевірте <code>pm2 list</code>: <code>SB-api</code> і
-                  <code>SB-bot</code> мають бути <strong>online</strong>.
-                </li>
-              </ul>
-
-              <div class="mt-2">
-                <a href="https://core.telegram.org/bots/tutorial" target="_blank" rel="noopener">
-                  Офіційна документація Telegram Bots →
-                </a>
-              </div>
-            </v-alert>
-          </v-expand-transition>
-
-          <v-row dense>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.telegram.botToken"
-                label="Bot Token"
-                variant="outlined"
-                density="compact"
-                hide-details
-                :type="showSecrets.tgToken ? 'text' : 'password'"
-                :append-inner-icon="showSecrets.tgToken ? 'mdi-eye-off' : 'mdi-eye'"
-                @click:append-inner="showSecrets.tgToken = !showSecrets.tgToken"
-                placeholder="123456:ABC-DEF..."
-              />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.telegram.managerGroupId"
-                label="Manager Group ID (опційно, для групи)"
-                variant="outlined"
-                density="compact"
-                hide-details
-                placeholder="-1001234567890"
-              />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model="integrations.telegram.adminPassword"
-                label="Admin Password (для /login)"
-                variant="outlined"
-                density="compact"
-                hide-details
-                :type="showSecrets.tgPassword ? 'text' : 'password'"
-                :append-inner-icon="showSecrets.tgPassword ? 'mdi-eye-off' : 'mdi-eye'"
-                @click:append-inner="showSecrets.tgPassword = !showSecrets.tgPassword"
-              />
-            </v-col>
-          </v-row>
-
-          <div class="d-flex flex-wrap align-center ga-2 mt-3">
-            <v-btn
-              color="primary"
-              variant="tonal"
-              size="small"
-              prepend-icon="mdi-send"
-              :loading="telegramTestLoading === 'connectivity'"
-              :disabled="!!telegramTestLoading"
-              @click="sendTelegramTest('connectivity')"
-            >
-              Тест Telegram
-            </v-btn>
-            <v-btn
-              color="deep-purple"
-              variant="tonal"
-              size="small"
-              prepend-icon="mdi-robot-outline"
-              :loading="telegramTestLoading === 'meta_agent'"
-              :disabled="!!telegramTestLoading"
-              @click="sendTelegramTest('meta_agent')"
-            >
-              Тест сповіщення мета-агента
-            </v-btn>
-            <v-btn
-              color="amber-darken-2"
-              variant="outlined"
-              size="small"
-              prepend-icon="mdi-brain"
-              :loading="metaAgentTestLoading"
-              :disabled="metaAgentTestLoading"
-              @click="runMetaAgentClaudeTest"
-            >
-              Перевірити мета-агента (Claude)
-            </v-btn>
-          </div>
-
-          <v-alert
-            v-if="telegramTestResult"
-            :type="telegramTestResult.ok ? 'success' : 'error'"
+          <v-btn
+            color="deep-purple"
             variant="tonal"
-            density="compact"
-            class="mt-3"
-            closable
-            @click:close="telegramTestResult = null"
+            size="small"
+            prepend-icon="mdi-robot-outline"
+            :loading="telegramTestLoading === 'meta_agent'"
+            :disabled="!!telegramTestLoading"
+            @click="sendTelegramTest('meta_agent')"
           >
-            {{ telegramTestResult.message }}
-            <div v-if="telegramTestResult.sentTo?.length" class="text-caption mt-1">
-              Групи: {{ telegramTestResult.sentTo.join(', ') }}
-            </div>
-          </v-alert>
+            Тест сповіщення мета-агента
+          </v-btn>
+          <v-btn
+            color="amber-darken-2"
+            variant="outlined"
+            size="small"
+            prepend-icon="mdi-brain"
+            :loading="metaAgentTestLoading"
+            :disabled="metaAgentTestLoading"
+            @click="runMetaAgentClaudeTest"
+          >
+            Перевірити мета-агента (Claude)
+          </v-btn>
+        </template>
+      </TelegramBotsCard>
 
-          <v-alert
-            v-if="metaAgentTestResult"
-            :type="metaAgentTestResult.ok ? 'success' : 'warning'"
-            variant="tonal"
-            density="compact"
-            class="mt-3"
-            closable
-            @click:close="metaAgentTestResult = null"
-          >
-            <div class="font-weight-medium">{{ metaAgentTestResult.message }}</div>
-            <div v-if="metaAgentTestResult.reply" class="text-body-2 mt-2" style="white-space: pre-wrap;">
-              {{ metaAgentTestResult.reply }}
-            </div>
-          </v-alert>
-        </v-card-text>
-      </v-card>
+      <v-alert
+        v-if="telegramTestResult"
+        :type="telegramTestResult.ok ? 'success' : 'error'"
+        variant="tonal"
+        density="compact"
+        class="mb-4"
+        closable
+        @click:close="telegramTestResult = null"
+      >
+        {{ telegramTestResult.message }}
+        <div v-if="telegramTestResult.sentTo?.length" class="text-caption mt-1">
+          Групи: {{ telegramTestResult.sentTo.join(', ') }}
+        </div>
+      </v-alert>
+
+      <v-alert
+        v-if="metaAgentTestResult"
+        :type="metaAgentTestResult.ok ? 'success' : 'warning'"
+        variant="tonal"
+        density="compact"
+        class="mb-4"
+        closable
+        @click:close="metaAgentTestResult = null"
+      >
+        <div class="font-weight-medium">{{ metaAgentTestResult.message }}</div>
+        <div v-if="metaAgentTestResult.reply" class="text-body-2 mt-2" style="white-space: pre-wrap;">
+          {{ metaAgentTestResult.reply }}
+        </div>
+      </v-alert>
 
       <!-- KeyCRM -->
       <v-card id="settings-keycrm" class="mb-4">
@@ -2112,6 +1980,7 @@ import { useAuthStore } from '@/stores/auth';
 import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
+import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 
 const settingsNav = [
   { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
@@ -2121,6 +1990,7 @@ const settingsNav = [
   { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
   { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
   { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
+  { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
   { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
   { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
   { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
@@ -2227,6 +2097,7 @@ const integrations = ref({
     botToken: '',
     managerGroupId: '',
     adminPassword: '',
+    bots: [] as TelegramBotForm[],
   },
   keycrm: {
     apiKey: '',
@@ -3495,11 +3366,7 @@ async function fetchIntegrations() {
       igUserId:        m.igUserId        ?? '',
       igUsername:      m.igUsername      ?? '',
     };
-    integrations.value.telegram = {
-      botToken:        t.botToken        ?? '',
-      managerGroupId:  t.managerGroupId  ?? '',
-      adminPassword:   t.adminPassword   ?? '',
-    };
+    integrations.value.telegram = normalizeTelegramFromApi(t);
     integrations.value.keycrm = {
       apiKey:            k.apiKey            ?? '',
       syncIntervalMin:   k.syncIntervalMin   ?? 30,
@@ -3528,11 +3395,14 @@ async function sendTelegramTest(variant: TelegramTestVariant, fromDialog = false
   telegramTestResult.value = null;
   try {
     const payload: Record<string, string> = { variant };
-    const tgToken = integrations.value.telegram.botToken.trim();
+    const primary =
+      integrations.value.telegram.bots.find((b) => b.isPrimary) ??
+      integrations.value.telegram.bots[0];
+    const tgToken = (primary?.botToken || integrations.value.telegram.botToken).trim();
     if (tgToken && tgToken !== '••••••') {
       payload.botToken = tgToken;
     }
-    const groupId = integrations.value.telegram.managerGroupId.trim();
+    const groupId = (primary?.managerGroupId || integrations.value.telegram.managerGroupId).trim();
     if (groupId) {
       payload.managerGroupId = groupId;
     }
@@ -3584,15 +3454,12 @@ async function saveIntegrations() {
       metaPayload.pageAccessToken = pageToken;
     }
 
-    const telegramPayload: Record<string, unknown> = {
-      managerGroupId: integrations.value.telegram.managerGroupId,
-      adminPassword: integrations.value.telegram.adminPassword,
-    };
-    const tgToken = integrations.value.telegram.botToken.trim();
-    const tgTokenUpdated = tgToken.length > 0 && tgToken !== '••••••';
-    if (tgToken && tgToken !== '••••••') {
-      telegramPayload.botToken = tgToken;
-    }
+    const telegramPayload = buildTelegramPayload(integrations.value.telegram);
+    const tgTokenUpdated = Boolean(
+      (telegramPayload.bots as Array<{ botToken?: string }> | undefined)?.some(
+        (b) => typeof b.botToken === 'string' && b.botToken && b.botToken !== '••••••',
+      ),
+    );
 
     const keycrmPayload: Record<string, unknown> = {
       syncIntervalMin: integrations.value.keycrm.syncIntervalMin,
@@ -3640,6 +3507,93 @@ async function saveIntegrations() {
     }
   } catch {
     error.value = 'Не вдалося зберегти інтеграції';
+  } finally {
+    savingIntegrations.value = false;
+  }
+}
+
+function normalizeTelegramFromApi(t: Record<string, unknown>): typeof integrations.value.telegram {
+  const rawBots = Array.isArray(t.bots) ? t.bots : [];
+  let bots: TelegramBotForm[] = rawBots.map((raw, i) => {
+    const b = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    return {
+      id: typeof b.id === 'string' && b.id ? b.id : crypto.randomUUID(),
+      label: typeof b.label === 'string' && b.label ? b.label : i === 0 ? 'Основний бот' : `Бот ${i + 1}`,
+      rolePrompt: typeof b.rolePrompt === 'string' ? b.rolePrompt : '',
+      botToken: typeof b.botToken === 'string' ? b.botToken : '',
+      adminPassword: typeof b.adminPassword === 'string' ? b.adminPassword : '',
+      managerGroupId: typeof b.managerGroupId === 'string' ? b.managerGroupId : '',
+      enabled: b.enabled !== false,
+      isPrimary: b.isPrimary === true,
+      channels: Array.isArray(b.channels)
+        ? (b.channels.filter((c) => typeof c === 'string') as TelegramBotForm['channels'])
+        : (['handoff', 'order', 'brief', 'agent_failure', 'crm_fallback', 'auth', 'ops'] as TelegramBotForm['channels']),
+    };
+  });
+
+  if (bots.length === 0) {
+    bots = [
+      {
+        id: crypto.randomUUID(),
+        label: 'Основний бот',
+        rolePrompt:
+          'Основний бот для сповіщень менеджерам: ескалації, замовлення, ліди, системні алерти.',
+        botToken: typeof t.botToken === 'string' ? t.botToken : '',
+        adminPassword: typeof t.adminPassword === 'string' ? t.adminPassword : '',
+        managerGroupId: typeof t.managerGroupId === 'string' ? t.managerGroupId : '',
+        enabled: true,
+        isPrimary: true,
+        channels: ['handoff', 'order', 'brief', 'agent_failure', 'crm_fallback', 'auth', 'ops'],
+      },
+    ];
+  }
+
+  if (!bots.some((b) => b.isPrimary)) {
+    bots[0]!.isPrimary = true;
+  }
+
+  const primary = bots.find((b) => b.isPrimary) ?? bots[0]!;
+  return {
+    botToken: primary.botToken,
+    managerGroupId: primary.managerGroupId,
+    adminPassword: primary.adminPassword,
+    bots,
+  };
+}
+
+function buildTelegramPayload(tg: typeof integrations.value.telegram): Record<string, unknown> {
+  const bots = (tg.bots?.length ? tg.bots : []).map((b) => ({
+    id: b.id,
+    label: b.label,
+    rolePrompt: b.rolePrompt,
+    botToken: b.botToken,
+    adminPassword: b.adminPassword,
+    managerGroupId: b.managerGroupId,
+    enabled: b.enabled,
+    isPrimary: b.isPrimary,
+    channels: b.channels,
+  }));
+  const primary = bots.find((b) => b.isPrimary) ?? bots[0];
+  return {
+    botToken: primary?.botToken ?? tg.botToken,
+    managerGroupId: primary?.managerGroupId ?? tg.managerGroupId,
+    adminPassword: primary?.adminPassword ?? tg.adminPassword,
+    bots,
+  };
+}
+
+async function saveTelegramBots() {
+  savingIntegrations.value = true;
+  error.value = '';
+  try {
+    const telegramPayload = buildTelegramPayload(integrations.value.telegram);
+    await api.put('/settings/integrations', {
+      integration_telegram: telegramPayload,
+    });
+    integrationsSaved.value = true;
+    await fetchIntegrations();
+  } catch {
+    error.value = 'Не вдалося зберегти Telegram ботів';
   } finally {
     savingIntegrations.value = false;
   }

@@ -4,7 +4,7 @@
  * Stored in the `settings` table:
  *   integration_meta      → { facebookAppId, facebookAppSecret, pageId,
  *                             pageAccessToken, igUserId, igUsername, verifyToken }
- *   integration_telegram  → { botToken, managerGroupId, adminPassword }
+ *   integration_telegram  → { botToken, managerGroupId, adminPassword, bots[] }
  *   integration_keycrm    → { apiKey, syncIntervalMin, defaultSourceId }
  *   integration_novaposhta→ { apiKey, senderCity, senderCityRef }
  *
@@ -20,6 +20,12 @@ import { prisma } from './prisma.js';
 import { config } from '../config.js';
 import { sanitizeIntegrationSecret } from './integration-secrets.js';
 import { normalizeKeycrmAppUrl } from './keycrm-urls.js';
+import {
+  normalizeTelegramConfig,
+  type TelegramBotConfig,
+} from './telegram-bots.js';
+
+export type { TelegramBotConfig, TelegramNotifyChannel } from './telegram-bots.js';
 
 export interface IntegrationMeta {
   facebookAppId: string;
@@ -36,6 +42,8 @@ export interface IntegrationTelegram {
   botToken: string;
   managerGroupId: string;
   adminPassword: string;
+  /** Multi-bot list; normalized on read (legacy flat fields → one primary bot). */
+  bots: TelegramBotConfig[];
 }
 
 export interface IntegrationKeycrm {
@@ -106,11 +114,14 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
       igUsername:        m.igUsername        || '',
       verifyToken:       config.IG_WEBHOOK_VERIFY_TOKEN, // env-only
     },
-    telegram: {
-      botToken:        sanitizeIntegrationSecret(t.botToken) || config.TELEGRAM_BOT_TOKEN,
-      managerGroupId:  t.managerGroupId   || config.TELEGRAM_MANAGER_GROUP_ID,
-      adminPassword:   t.adminPassword    || config.TELEGRAM_ADMIN_PASSWORD,
-    },
+    telegram: normalizeTelegramConfig({
+      botToken: sanitizeIntegrationSecret(t.botToken) || config.TELEGRAM_BOT_TOKEN,
+      managerGroupId: t.managerGroupId || config.TELEGRAM_MANAGER_GROUP_ID,
+      adminPassword: t.adminPassword || config.TELEGRAM_ADMIN_PASSWORD,
+      bots: Array.isArray((t as { bots?: unknown }).bots)
+        ? (t as { bots: unknown[] }).bots
+        : undefined,
+    }),
     keycrm: {
       apiKey:          sanitizeIntegrationSecret(k.apiKey) || config.KEYCRM_API_KEY,
       syncIntervalMin: k.syncIntervalMin  ?? config.KEYCRM_SYNC_INTERVAL_MIN,

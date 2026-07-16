@@ -69,11 +69,25 @@ async function readAuthorizedManagerChatIds(): Promise<string[]> {
     .filter((id): id is string => !!id);
 }
 
-/** All chat ids that should receive manager notifications. */
+/** All chat ids that should receive manager notifications (legacy / shared). */
 export async function getNotificationChatIds(): Promise<string[]> {
   const { telegram } = await getIntegrationConfig();
   return mergeNotificationChatIds({
     managerGroupId: telegram.managerGroupId,
+    storedGroupIds: await readStoredGroupIds(),
+    authorizedManagerChatIds: await readAuthorizedManagerChatIds(),
+  });
+}
+
+/**
+ * Chat targets for a specific bot: its managerGroupId + shared discovered groups
+ * + authorized manager DMs (after /login).
+ */
+export async function getNotificationChatIdsForBot(bot: {
+  managerGroupId?: string;
+}): Promise<string[]> {
+  return mergeNotificationChatIds({
+    managerGroupId: bot.managerGroupId,
     storedGroupIds: await readStoredGroupIds(),
     authorizedManagerChatIds: await readAuthorizedManagerChatIds(),
   });

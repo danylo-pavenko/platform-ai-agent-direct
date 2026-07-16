@@ -4,6 +4,8 @@ import { askClaude } from '../services/claude.js';
 import { config } from '../config.js';
 import { loadCatalogSnippet } from '../services/prompt-builder.js';
 import { getClaudeAuthStatus, buildClaudeAuthPromptBlock, type ClaudeAuthStatus } from '../services/claude-auth.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
+import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +53,7 @@ export function buildMetaAgentSystemPrompt(
   conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
   catalogSnippet?: string,
   claudeAuth?: ClaudeAuthStatus,
+  telegramBotsBlock?: string,
 ): string {
   let contextBlock = '';
   if (conversationContext && conversationContext.length > 0) {
@@ -74,12 +77,16 @@ ${catalogSnippet.trim()}
   }
 
   const claudeAuthBlock = claudeAuth ? buildClaudeAuthPromptBlock(claudeAuth) : '';
+  const telegramBlock = telegramBotsBlock?.trim()
+    ? `\n\n${telegramBotsBlock.trim()}`
+    : '';
 
   return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
 
 Контекст:
 - Поточний активний системний промпт агента наведений нижче в блоці <current_prompt>.
 - Адміністратор магазину дає тобі інструкцію в чаті - як змінити поведінку бота.
+- Блок <telegram_bots> описує маршрутизацію сповіщень менеджерам (без токенів) — враховуй при правках про ескалації/ліди/замовлення.
 
 Твоя задача:
 1. Зрозуми, що саме адмін хоче змінити.
@@ -118,7 +125,7 @@ ${catalogSnippet.trim()}
 
 <current_prompt>
 ${currentPromptContent}
-</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}`;
+</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}`;
 }
 
 /**
@@ -279,15 +286,17 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // 2. Build meta-agent system prompt (catalog + Claude auth snapshot)
-      const [catalogSnippet, claudeAuth] = await Promise.all([
+      const [catalogSnippet, claudeAuth, integrationCfg] = await Promise.all([
         loadCatalogSnippet(),
         getClaudeAuthStatus(),
+        getIntegrationConfig(),
       ]);
       const metaAgentPrompt = buildMetaAgentSystemPrompt(
         promptContent,
         Array.isArray(conversationContext) ? conversationContext : undefined,
         catalogSnippet,
         claudeAuth,
+        formatTelegramBotsPromptBlock(integrationCfg.telegram),
       );
 
       // 3. Call Claude

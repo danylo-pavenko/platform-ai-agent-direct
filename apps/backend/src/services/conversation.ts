@@ -19,6 +19,8 @@ import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { notifyAgentFailure, notifyHandoff } from './telegram-notify.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
+import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig } from '../lib/agent-config.js';
@@ -371,6 +373,8 @@ async function handleIncomingMessageImpl(
 
   const branchesList = await formatBranchesForPrompt();
   const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
+  const { telegram: telegramCfg } = await getIntegrationConfig();
+  const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
 
   const prompt = buildRuntimePrompt({
     activePromptContent: activePrompt,
@@ -392,6 +396,7 @@ async function handleIncomingMessageImpl(
     managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
     previousBriefSummary,
     branchesList,
+    telegramBotsBlock,
     selectedBranch: conversation.branch
       ? {
           slug: conversation.branch.slug,

@@ -84,6 +84,8 @@ export interface PromptBuildParams {
     address?: string | null;
     crmExternalId?: string | null;
   };
+  /** Multi-bot Telegram routing summary (no secrets) for agent awareness. */
+  telegramBotsBlock?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +189,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     previousBriefSummary,
     branchesList,
     selectedBranch,
+    telegramBotsBlock,
   } = params;
 
   const activePromptContent = applyPromptPlaceholders(rawPromptContent, {
@@ -254,6 +257,10 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
       }${selectedBranch.crmExternalId ? ` (CRM #${selectedBranch.crmExternalId})` : ''}\n`
     : '';
 
+  const telegramBlock = telegramBotsBlock?.trim()
+    ? `\n${telegramBotsBlock.trim()}\n`
+    : '';
+
   // ── Session context block ───────────────────────────────────────────
   const sessionBlock = `════════════════════════════════════════
 ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ
@@ -262,7 +269,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
 Дата і час: ${dateTimeStr}, ${dayNameUk}
 Магазин зараз: ${isOpen ? 'працює' : 'не працює'}
 Години роботи сьогодні: ${hoursLine}
-${branchesBlock}${selectedBranchBlock}
+${branchesBlock}${selectedBranchBlock}${telegramBlock}
 Клієнт: ${clientIdentityLine}, розмова #${conversationIdShort ?? '--------'}
 Стан розмови: ${stateLabel}
 ${clientDataBlock}${previousBriefBlock}${customFieldsBlock}
