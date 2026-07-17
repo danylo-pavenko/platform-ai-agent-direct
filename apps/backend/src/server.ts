@@ -22,6 +22,7 @@ import { analyticsRoutes } from './routes/analytics.js';
 import { referencePhotoRoutes } from './routes/reference-photos.js';
 import { branchRoutes } from './routes/branches.js';
 import { mediaRoutes } from './routes/media.js';
+import { insightsRoutes } from './routes/insights.js';
 
 const app = Fastify({
   logger: {
@@ -71,6 +72,7 @@ await app.register(analyticsRoutes, { prefix: '/analytics' });
 await app.register(mediaRoutes, { prefix: '/media' });
 await app.register(branchRoutes, { prefix: '/branches' });
 await app.register(referencePhotoRoutes, { prefix: '/reference-photos' });
+await app.register(insightsRoutes, { prefix: '/insights' });
 
 // Health check
 app.get('/health', async () => {

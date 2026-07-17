@@ -72,7 +72,12 @@ const semaphore = new Semaphore(config.CLAUDE_MAX_CONCURRENCY);
 // customer in IG/TG. A "менеджер відпише" reply there is misleading — the
 // admin *is* the manager. We keep the customer-friendly fallback for IG/TG
 // and show a technical error in admin channels instead.
-const ADMIN_CHANNELS = new Set<AgentChannel>(['meta_agent', 'sandbox', 'supervisor']);
+const ADMIN_CHANNELS = new Set<AgentChannel>([
+  'meta_agent',
+  'sandbox',
+  'supervisor',
+  'insights',
+]);
 
 const ADMIN_FALLBACK_BUSY =
   'Агент зараз перевантажений (забагато одночасних запитів). Спробуйте за хвилину.';

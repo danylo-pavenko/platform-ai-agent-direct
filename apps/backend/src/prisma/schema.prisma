@@ -603,6 +603,7 @@ enum AgentChannel {
   sandbox
   meta_agent
   supervisor
+  insights
 
   @@map("agent_channel")
 }

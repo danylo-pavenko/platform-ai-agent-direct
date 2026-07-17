@@ -44,6 +44,12 @@
           @click="onNavClick"
         />
         <v-list-item
+          prepend-icon="mdi-chart-timeline-variant-shimmer"
+          title="AI-помічник"
+          :to="{ name: 'insights' }"
+          @click="onNavClick"
+        />
+        <v-list-item
           prepend-icon="mdi-message-text-outline"
           title="Розмови"
           :to="{ name: 'conversations' }"

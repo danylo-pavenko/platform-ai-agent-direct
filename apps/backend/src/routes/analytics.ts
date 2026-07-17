@@ -29,7 +29,13 @@ function periodStart(period: Period): Date | null {
 
 // ── Types for raw query rows ─────────────────────────────────────────
 
-type AgentChannelValue = 'ig' | 'tg' | 'sandbox' | 'meta_agent' | 'supervisor';
+type AgentChannelValue =
+  | 'ig'
+  | 'tg'
+  | 'sandbox'
+  | 'meta_agent'
+  | 'supervisor'
+  | 'insights';
 
 type TotalsRow = {
   total: bigint;
