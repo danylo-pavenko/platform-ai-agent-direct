@@ -113,6 +113,16 @@ describe('resolveTelegramBotsForChannel', () => {
     });
     expect(resolveTelegramBotsForChannel(cfg, 'brief').map((b) => b.id)).toEqual(['primary']);
   });
+
+  it('accepts legacy config without bots[]', () => {
+    const bots = resolveTelegramBotsForChannel(
+      { botToken: '1:legacy', managerGroupId: '', adminPassword: '' },
+      'order',
+    );
+    expect(bots).toHaveLength(1);
+    expect(bots[0]?.botToken).toBe('1:legacy');
+    expect(bots[0]?.isPrimary).toBe(true);
+  });
 });
 
 describe('formatTelegramBotsPromptBlock', () => {

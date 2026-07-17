@@ -1,13 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
+const sendMessage = vi.fn().mockResolvedValue({});
+
 vi.mock('../lib/telegram.js', () => ({
   getBot: vi.fn(),
+  getBotWithToken: vi.fn(() => ({
+    api: { sendMessage },
+  })),
 }));
 vi.mock('../lib/telegram-groups.js', () => ({
   getNotificationChatIds: vi.fn().mockResolvedValue(['-100123']),
+  getNotificationChatIdsForBot: vi.fn().mockResolvedValue(['-100123']),
 }));
 vi.mock('../lib/integration-config.js', () => ({
   getIntegrationConfig: vi.fn().mockResolvedValue({
+    // Legacy shape without bots[] — must still work via normalizeTelegramConfig
     telegram: { botToken: 'test-token', managerGroupId: '', adminPassword: '' },
   }),
 }));
@@ -15,13 +22,14 @@ vi.mock('../config.js', () => ({
   config: { INSTANCE_ID: 'sb', ADMIN_DOMAIN: 'agent.example.com' },
 }));
 
-import { getBot } from '../lib/telegram.js';
+import { getBotWithToken } from '../lib/telegram.js';
 import { notifyOrder } from './telegram-notify.js';
 
 describe('notifyOrder', () => {
   beforeEach(() => {
-    vi.mocked(getBot).mockResolvedValue({
-      api: { sendMessage: vi.fn().mockResolvedValue({}) },
+    sendMessage.mockClear();
+    vi.mocked(getBotWithToken).mockReturnValue({
+      api: { sendMessage },
     } as never);
   });
 
@@ -38,9 +46,9 @@ describe('notifyOrder', () => {
       paymentMethod: 'cod',
     });
 
-    const bot = await getBot();
-    expect(bot.api.sendMessage).toHaveBeenCalledOnce();
-    const [groupId, text] = vi.mocked(bot.api.sendMessage).mock.calls[0];
+    expect(getBotWithToken).toHaveBeenCalledWith('test-token');
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const [groupId, text] = sendMessage.mock.calls[0];
     expect(groupId).toBe('-100123');
     expect(text).toContain('Нове замовлення');
     expect(text).toContain('Товар');

@@ -146,8 +146,15 @@ export function normalizeTelegramConfig(raw: Partial<IntegrationTelegramMulti> |
   };
 }
 
-export function getPrimaryTelegramBot(cfg: IntegrationTelegramMulti): TelegramBotConfig | null {
-  return cfg.bots.find((b) => b.isPrimary && b.enabled) ?? cfg.bots.find((b) => b.enabled) ?? null;
+export function getPrimaryTelegramBot(
+  cfg: IntegrationTelegramMulti | Partial<IntegrationTelegramMulti> | null | undefined,
+): TelegramBotConfig | null {
+  const normalized = normalizeTelegramConfig(cfg);
+  return (
+    normalized.bots.find((b) => b.isPrimary && b.enabled) ??
+    normalized.bots.find((b) => b.enabled) ??
+    null
+  );
 }
 
 /**
@@ -155,23 +162,27 @@ export function getPrimaryTelegramBot(cfg: IntegrationTelegramMulti): TelegramBo
  * Fallback: primary (or first enabled) when nobody opted into the channel.
  */
 export function resolveTelegramBotsForChannel(
-  cfg: IntegrationTelegramMulti,
+  cfg: IntegrationTelegramMulti | Partial<IntegrationTelegramMulti> | null | undefined,
   channel: TelegramNotifyChannel,
 ): TelegramBotConfig[] {
-  const enabled = cfg.bots.filter((b) => b.enabled && b.botToken.trim());
+  const normalized = normalizeTelegramConfig(cfg);
+  const enabled = normalized.bots.filter((b) => b.enabled && b.botToken.trim());
   if (enabled.length === 0) return [];
 
   const matched = enabled.filter((b) => b.channels.includes(channel));
   if (matched.length > 0) return matched;
 
-  const primary = getPrimaryTelegramBot(cfg);
+  const primary = getPrimaryTelegramBot(normalized);
   if (primary?.botToken.trim()) return [primary];
   return enabled.slice(0, 1);
 }
 
 /** Safe summary for agent prompts (no tokens / passwords). */
-export function formatTelegramBotsPromptBlock(cfg: IntegrationTelegramMulti): string {
-  const enabled = cfg.bots.filter((b) => b.enabled);
+export function formatTelegramBotsPromptBlock(
+  cfg: IntegrationTelegramMulti | Partial<IntegrationTelegramMulti> | null | undefined,
+): string {
+  const normalized = normalizeTelegramConfig(cfg);
+  const enabled = normalized.bots.filter((b) => b.enabled);
   if (enabled.length === 0) {
     return '<telegram_bots>\n(не налаштовано)\n</telegram_bots>';
   }
