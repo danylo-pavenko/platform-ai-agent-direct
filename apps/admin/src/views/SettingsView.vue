@@ -705,14 +705,42 @@
 
       <!-- AI Agent mode -->
       <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
+        <v-card-title class="d-flex align-center flex-wrap ga-2">
           <v-icon start color="primary">mdi-robot</v-icon>
-          Режим роботи AI-агента
+          <span>Режим роботи AI-агента</span>
+          <v-chip
+            v-if="scheduleSaveState === 'saving'"
+            size="small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-content-save-outline"
+          >
+            Зберігаю…
+          </v-chip>
+          <v-chip
+            v-else-if="scheduleSaveState === 'saved'"
+            size="small"
+            color="success"
+            variant="tonal"
+            prepend-icon="mdi-check"
+          >
+            Збережено
+          </v-chip>
+          <v-chip
+            v-else-if="scheduleSaveState === 'error'"
+            size="small"
+            color="error"
+            variant="tonal"
+            prepend-icon="mdi-alert-circle-outline"
+          >
+            Помилка збереження
+          </v-chip>
         </v-card-title>
         <v-card-text>
           <v-alert type="info" variant="tonal" density="compact" class="mb-4">
             AI-агент може працювати <strong>24/7</strong> без перерв. Робочі години впливають лише на те,
             чи відповідає бот автоматично, чи надсилає шаблон "ми зараз не працюємо".
+            Зміни зберігаються одразу.
           </v-alert>
 
           <v-radio-group v-model="scheduleMode" @update:model-value="onScheduleModeChange">
@@ -738,92 +766,6 @@
               </template>
             </v-radio>
           </v-radio-group>
-        </v-card-text>
-      </v-card>
-
-      <!-- Agent type & SLA (agent_config) -->
-      </div>
-
-      <div v-if="activeSection === 'settings-agent'" class="settings-section">
-      <v-card id="settings-agent" class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="deep-purple">mdi-account-tie</v-icon>
-          Тип агента та SLA
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Визначає, які інструменти має агент та як поводиться поза робочими годинами.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-row dense>
-            <v-col cols="12" sm="6">
-              <v-select
-                v-model="agentConfig.mode"
-                :items="[
-                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
-                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
-                  { title: 'Запис (booking) — салон, послуги, CleverBOX', value: 'booking' },
-                ]"
-                item-title="title"
-                item-value="value"
-                label="Режим агента"
-                variant="outlined"
-                density="compact"
-                hide-details
-              />
-              <div class="text-caption text-medium-emphasis mt-1">
-                <strong>sales</strong>: collect_order; <strong>leadgen</strong>: submit_brief;
-                <strong>booking</strong>: search_services + book_appointment (CleverBOX).
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-select
-                v-model="agentConfig.outOfHoursStrategy"
-                :items="[
-                  { title: 'Попередити одразу (warn_early)', value: 'warn_early' },
-                  { title: 'Повідомити в кінці розмови (defer_to_end)', value: 'defer_to_end' },
-                ]"
-                item-title="title"
-                item-value="value"
-                label="Поведінка поза годинами"
-                variant="outlined"
-                density="compact"
-                hide-details
-              />
-              <div class="text-caption text-medium-emphasis mt-1">
-                <strong>warn_early</strong> для продажів, <strong>defer_to_end</strong> для лідгену (не переривати бриф).
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model.number="agentConfig.managerSlaHoursBusiness"
-                type="number"
-                min="1"
-                max="48"
-                label="SLA відповіді менеджера (робочих годин)"
-                variant="outlined"
-                density="compact"
-                hide-details
-              />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Використовується в промпті як <code v-pre>{{MANAGER_SLA_HOURS}}</code>.
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field
-                v-model.number="agentConfig.sessionFreshnessDays"
-                type="number"
-                min="1"
-                max="90"
-                label="Свіжість розмови (днів)"
-                variant="outlined"
-                density="compact"
-                hide-details
-              />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Після стількох днів тиші розмова вважається закритою (для брифів / метрик).
-              </div>
-            </v-col>
-          </v-row>
         </v-card-text>
       </v-card>
 
@@ -904,6 +846,91 @@
             hide-details
             placeholder="Дякуємо за повідомлення! Зараз ми не на зв'язку. Відповімо вам у робочий час."
           />
+        </v-card-text>
+      </v-card>
+      </div>
+
+      <div v-if="activeSection === 'settings-agent'" class="settings-section">
+      <!-- Agent type & SLA (agent_config) -->
+      <v-card id="settings-agent" class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="deep-purple">mdi-account-tie</v-icon>
+          Тип агента та SLA
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Визначає, які інструменти має агент та як поводиться поза робочими годинами.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="agentConfig.mode"
+                :items="[
+                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
+                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
+                  { title: 'Запис (booking) — салон, послуги, CleverBOX', value: 'booking' },
+                ]"
+                item-title="title"
+                item-value="value"
+                label="Режим агента"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                <strong>sales</strong>: collect_order; <strong>leadgen</strong>: submit_brief;
+                <strong>booking</strong>: search_services + book_appointment (CleverBOX).
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="agentConfig.outOfHoursStrategy"
+                :items="[
+                  { title: 'Попередити одразу (warn_early)', value: 'warn_early' },
+                  { title: 'Повідомити в кінці розмови (defer_to_end)', value: 'defer_to_end' },
+                ]"
+                item-title="title"
+                item-value="value"
+                label="Поведінка поза годинами"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                <strong>warn_early</strong> для продажів, <strong>defer_to_end</strong> для лідгену (не переривати бриф).
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.managerSlaHoursBusiness"
+                type="number"
+                min="1"
+                max="48"
+                label="SLA відповіді менеджера (робочих годин)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Використовується в промпті як <code v-pre>{{MANAGER_SLA_HOURS}}</code>.
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.sessionFreshnessDays"
+                type="number"
+                min="1"
+                max="90"
+                label="Свіжість розмови (днів)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Після стількох днів тиші розмова вважається закритою (для брифів / метрик).
+              </div>
+            </v-col>
+          </v-row>
         </v-card-text>
       </v-card>
 
@@ -3264,6 +3291,36 @@ function scheduleRuntimeSave() {
 
 watch([runtimeMode, debugWhitelistRaw, botIgnoreUsernamesRaw, runtimeBackfillLimit], scheduleRuntimeSave);
 
+// ── Schedule / working hours autosave ───────────────────────────────────────
+// 24/7 vs schedule + day hours should apply immediately (same UX as Public/Debug).
+type ScheduleSaveState = 'idle' | 'saving' | 'saved' | 'error';
+const scheduleSaveState = ref<ScheduleSaveState>('idle');
+let scheduleSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function saveScheduleSettingsNow() {
+  scheduleSaveState.value = 'saving';
+  try {
+    await api.put('/settings', {
+      working_hours: workingHours.value,
+      out_of_hours_template: outOfHoursTemplate.value,
+    });
+    scheduleSaveState.value = 'saved';
+    setTimeout(() => {
+      if (scheduleSaveState.value === 'saved') scheduleSaveState.value = 'idle';
+    }, 2000);
+  } catch {
+    scheduleSaveState.value = 'error';
+  }
+}
+
+function scheduleScheduleSave() {
+  if (!runtimeHydrated) return;
+  if (scheduleSaveTimer) clearTimeout(scheduleSaveTimer);
+  scheduleSaveTimer = setTimeout(() => {
+    void saveScheduleSettingsNow();
+  }, 500);
+}
+
 type AgentModeValue = 'sales' | 'leadgen' | 'booking';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
 
@@ -3337,8 +3394,36 @@ function onScheduleModeChange(mode: '24_7' | 'schedule' | null) {
     for (const day of days) {
       workingHours.value[day.key] = { start: '00:00', end: '23:59', enabled: true };
     }
+  } else {
+    // Leaving 24/7: restore a typical business schedule so "за розкладом" persists on reload
+    // (schedule mode is inferred from hours, not a separate Setting key).
+    const all247 = days.every((d) => {
+      const h = workingHours.value[d.key];
+      return h?.enabled && h.start === '00:00' && h.end === '23:59';
+    });
+    if (all247) {
+      for (const day of days) {
+        const isWeekend = day.key === 'sat' || day.key === 'sun';
+        workingHours.value[day.key] = isWeekend
+          ? { start: '10:00', end: '18:00', enabled: day.key === 'sat' }
+          : { start: '09:00', end: '20:00', enabled: true };
+      }
+    }
   }
+  scheduleScheduleSave();
 }
+
+watch(
+  workingHours,
+  () => {
+    scheduleScheduleSave();
+  },
+  { deep: true },
+);
+
+watch(outOfHoursTemplate, () => {
+  scheduleScheduleSave();
+});
 
 async function fetchSettings() {
   loading.value = true;
