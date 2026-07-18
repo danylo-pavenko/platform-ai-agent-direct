@@ -1,9 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { PrismaClient } from '@prisma/client';
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
+import { prisma } from '../lib/prisma.js';
 import {
   collectTenantInstagramRoutingIds,
   mergeTenantInstagramRoutingIds,
@@ -26,8 +26,8 @@ import {
   getLatestDeployJob,
   startDeployJob,
 } from '../lib/deploy-job.js';
+
 const execAsync = promisify(exec);
-const prisma = new PrismaClient();
 
 /** Platform monorepo — same for all tenants unless overridden in Server setup. */
 export { DEFAULT_TENANT_GIT_REPO };

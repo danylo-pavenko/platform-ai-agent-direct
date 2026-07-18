@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Tenant } from '@prisma/client';
+import type { Tenant } from '../generated/prisma/client.js';
 import {
   DEFAULT_FACEBOOK_APP_ID,
   DEFAULT_FACEBOOK_APP_SECRET,

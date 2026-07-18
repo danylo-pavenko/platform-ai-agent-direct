@@ -74,6 +74,10 @@ if ! command -v node &>/dev/null || [[ "$(node -v)" != v${NODE_VERSION}* ]]; the
 fi
 echo "  Node: $(node -v)  npm: $(npm -v)"
 
+# Keep npm current (Prisma CLI / tooling)
+echo "[2b/9] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+bash "${SCRIPT_DIR}/ensure-npm.sh" || true
+
 # ── 3. PM2 ────────────────────────────────────────────────────────
 echo "[3/9] Installing PM2..."
 npm install -g pm2 --silent

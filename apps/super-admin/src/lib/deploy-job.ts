@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import type { Tenant } from '@prisma/client';
+import type { Tenant } from '../generated/prisma/client.js';
 import { prisma } from './prisma.js';
 import { config } from '../config.js';
 import {

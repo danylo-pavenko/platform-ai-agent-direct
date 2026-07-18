@@ -118,6 +118,10 @@ echo "════════════════════════�
 echo "[1/11] Pulling latest code..."
 git pull --ff-only
 
+# ── 1b. npm version ──
+echo "[1b/11] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+bash "${SCRIPT_DIR}/ensure-npm.sh" || true
+
 # ── 2. Claude Code CLI (idempotent) ──
 echo "[2/11] Ensuring Claude Code CLI..."
 bash "${SCRIPT_DIR}/setup-claude-cli.sh"

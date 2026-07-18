@@ -16,16 +16,14 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
 import { config } from '../config.js';
+import { prisma } from '../lib/prisma.js';
 import {
   collectTenantInstagramRoutingIds,
   collectWebhookDebugCandidateIds,
   collectWebhookRoutingCandidateIds,
   tenantMatchesWebhookCandidates,
 } from '../lib/tenant-webhook-routing.js';
-
-const prisma = new PrismaClient();
 
 interface RawRequest extends FastifyRequest {
   rawBodyBuf?: Buffer;

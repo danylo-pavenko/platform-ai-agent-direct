@@ -45,6 +45,10 @@ if ! command -v node &>/dev/null || [[ "$(node -v)" != v${NODE_VERSION}* ]]; the
 fi
 echo "  Node: $(node -v), npm: $(npm -v)"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "[2b/6] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+bash "${SCRIPT_DIR}/ensure-npm.sh" || true
+
 # ── 3. PM2 ──
 echo "[3/6] Installing PM2 globally..."
 npm install -g pm2

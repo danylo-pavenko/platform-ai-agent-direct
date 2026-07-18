@@ -31,6 +31,10 @@ set -a; source "${ENV_FILE}"; set +a
 echo "[1/6] Pulling latest..."
 git pull --ff-only
 
+# ── 1b. npm version ──
+echo "[1b/6] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+bash "${SCRIPT_DIR}/ensure-npm.sh" || true
+
 # ── 2. Install deps (include dev — потрібен tsc для build) ──
 echo "[2/6] Installing dependencies..."
 NODE_ENV=development npm install --prefix "${APP_DIR}"
@@ -38,13 +42,13 @@ NODE_ENV=development npm install --prefix "${APP_DIR}"
 # ── 3. Generate Prisma client ──
 echo "[3/6] Generating Prisma client..."
 cd "${APP_DIR}"
-DATABASE_URL="${DATABASE_URL}" npx prisma generate --schema=prisma/schema.prisma
+DATABASE_URL="${DATABASE_URL}" npx prisma generate
 
 # ── 3b. Sync DB schema (prefer migrate; fallback to db push) ──
 echo "[3b/6] Syncing database schema..."
-if ! DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy --schema=prisma/schema.prisma; then
+if ! DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy; then
   echo "  migrate deploy failed — falling back to prisma db push..."
-  DATABASE_URL="${DATABASE_URL}" npx prisma db push --schema=prisma/schema.prisma --accept-data-loss || {
+  DATABASE_URL="${DATABASE_URL}" npx prisma db push --accept-data-loss || {
     echo ""
     echo "  ✗ prisma schema sync failed."
     echo "  Likely cause: DB user lacks privileges on the schema."

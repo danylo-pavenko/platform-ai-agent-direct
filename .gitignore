@@ -39,6 +39,7 @@ pm2-*.log
 
 # Prisma
 apps/backend/src/generated/
+apps/super-admin/src/generated/
 apps/backend/src/prisma/migrations/**/migration_lock.toml
 
 # Admin — stray JS emit next to Vue/TS sources (do not commit)
