@@ -149,7 +149,7 @@ const SEARCH_SERVICES: ToolDefinition = {
       query: { type: 'string', description: 'Ключові слова з запиту клієнта' },
       crm_provider: {
         type: 'string',
-        enum: ['cleverbox', 'keycrm'],
+        enum: ['cleverbox', 'beautypro', 'keycrm'],
         description: 'Лише якщо системний промпт вказує інший CRM для послуг',
       },
     },
@@ -170,7 +170,10 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
         items: {
           type: 'object',
           properties: {
-            id: { type: 'number' },
+            id: {
+              type: 'string',
+              description: 'ID послуги з search_services (число або UUID)',
+            },
             duration_min: { type: 'number' },
           },
           required: ['id', 'duration_min'],
@@ -198,7 +201,10 @@ const BOOK_APPOINTMENT: ToolDefinition = {
         items: {
           type: 'object',
           properties: {
-            id: { type: 'number' },
+            id: {
+              type: 'string',
+              description: 'ID послуги з search_services (число або UUID)',
+            },
             name: { type: 'string' },
             price: { type: 'number' },
             duration_min: { type: 'number' },
@@ -206,11 +212,14 @@ const BOOK_APPOINTMENT: ToolDefinition = {
           required: ['id', 'name', 'duration_min'],
         },
       },
-      master_id: { type: 'number', description: 'ID майстра з get_available_slots' },
+      master_id: {
+        type: 'string',
+        description: 'ID майстра з get_available_slots (число або UUID)',
+      },
       comment: { type: 'string' },
       crm_provider: {
         type: 'string',
-        enum: ['cleverbox', 'keycrm'],
+        enum: ['cleverbox', 'beautypro', 'keycrm'],
         description: 'Лише якщо промпт вказує інший CRM для запису',
       },
     },
@@ -231,6 +240,17 @@ const ATTACH_REFERENCE_PHOTO: ToolDefinition = {
         description: 'Ключ збереженого вкладення з повідомлення (якщо відомий)',
       },
     },
+    required: [],
+  },
+};
+
+const GET_CLIENT_CRM_HISTORY: ToolDefinition = {
+  name: 'get_client_crm_history',
+  description:
+    'Історія візитів клієнта з CRM (тривалість попередніх послуг, майстер, дати). Викликай перед записом, якщо клієнт уже дав телефон, або щоб уточнити скільки часу займала минула послуга.',
+  parameters: {
+    type: 'object',
+    properties: {},
     required: [],
   },
 };
@@ -506,6 +526,7 @@ export function buildAgentTools(
       ...sharedBase,
       SEARCH_SERVICES,
       GET_AVAILABLE_SLOTS,
+      GET_CLIENT_CRM_HISTORY,
       ATTACH_REFERENCE_PHOTO,
       BOOK_APPOINTMENT,
     ];

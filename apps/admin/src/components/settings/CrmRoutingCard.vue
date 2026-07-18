@@ -86,7 +86,7 @@
 </template>
 
 <script setup lang="ts">
-export type CrmProviderValue = 'keycrm' | 'cleverbox';
+export type CrmProviderValue = 'keycrm' | 'cleverbox' | 'beautypro';
 export type CrmRoutingMode = 'single' | 'by_action' | 'prompt';
 
 export interface CrmRoutingShape {
@@ -107,6 +107,7 @@ const modeItems = [
 const providerItems = [
   { title: 'KeyCRM', value: 'keycrm' },
   { title: 'CleverBOX', value: 'cleverbox' },
+  { title: 'BeautyPro', value: 'beautypro' },
 ] as const;
 
 const actionRows = [

@@ -100,7 +100,7 @@ async function cboxJson<T>(
 
 function mapService(raw: RawServiceItem): CrmServiceItem {
   return {
-    id: raw.id,
+    id: String(raw.id),
     name: raw.name,
     price: typeof raw.price === 'number' ? raw.price : Number(raw.price) || 0,
     durationMin: raw.time ?? 60,
@@ -111,6 +111,14 @@ function mapService(raw: RawServiceItem): CrmServiceItem {
       price: typeof p.price === 'number' ? p.price : Number(p.price) || 0,
     })),
   };
+}
+
+function toCboxNumericId(id: string): number {
+  const n = Number(id);
+  if (!Number.isFinite(n)) {
+    throw new Error(`CleverBOX expects numeric id, got "${id}"`);
+  }
+  return n;
 }
 
 async function fetchAllServices(): Promise<CrmServiceItem[]> {
@@ -212,15 +220,15 @@ export const cleverboxAdapter: CrmAdapter = {
   async createBooking(input: CrmBookingInput) {
     const res = await cboxJson<RawBookingResponse>('v3', '/slots/save', {
       date: input.date,
-      salon_id: input.branchId,
-      client_id: input.clientId ?? 0,
+      salon_id: toCboxNumericId(input.branchId),
+      client_id: input.clientId ? toCboxNumericId(input.clientId) : 0,
       name: input.clientName,
       phone: input.phone.replace(/\D/g, ''),
       comment: input.comment,
       services: input.services.map((s) => ({
-        id: s.id,
+        id: toCboxNumericId(s.id),
         long: s.durationMin,
-        master_id: s.masterId,
+        master_id: s.masterId ? toCboxNumericId(s.masterId) : undefined,
         time: s.startTime,
       })),
     });
@@ -237,9 +245,9 @@ export const cleverboxAdapter: CrmAdapter = {
     };
   },
 
-  async cancelBooking(recordId: number, reason?: 'move' | 'cancel') {
+  async cancelBooking(recordId: string, reason?: 'move' | 'cancel') {
     await cboxJson('v3', '/slots/cancel', {
-      record_id: recordId,
+      record_id: toCboxNumericId(recordId),
       ...(reason === 'move' ? { status: 'move' } : {}),
     });
   },

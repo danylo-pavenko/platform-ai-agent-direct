@@ -38,6 +38,7 @@ import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
+import { fetchClientCrmHistory } from './client-crm-link.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
@@ -268,7 +269,21 @@ async function handleIncomingMessageImpl(
     previousOrdersCount: previousOrders.length > 0 ? previousOrders.length : undefined,
     previousOrdersSummary,
     conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
+    crmBuyerId: client.crmBuyerId ?? undefined,
   };
+
+  // Salon CRM visit history — only when already linked (avoid CRM hit every turn).
+  // Agent can call get_client_crm_history after phone is collected to refresh.
+  if (client.crmBuyerId) {
+    try {
+      const history = await fetchClientCrmHistory(client.id, { limit: 8 });
+      if (history.text) {
+        clientProfile.crmVisitHistory = history.text;
+      }
+    } catch (err) {
+      log.warn({ err, clientId: client.id }, 'CRM history for prompt failed');
+    }
+  }
 
   // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
   if (conversation.state === 'handoff') {
@@ -736,6 +751,52 @@ async function handleIncomingMessageImpl(
 
     const searchServicesCall = response.toolCalls.find((tc) => tc.name === 'search_services');
     const slotsCall = response.toolCalls.find((tc) => tc.name === 'get_available_slots');
+    const crmHistoryCall = response.toolCalls.find((tc) => tc.name === 'get_client_crm_history');
+
+    if (crmHistoryCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall) {
+      let toolResultContent: string;
+      try {
+        const history = await fetchClientCrmHistory(client.id, { limit: 10 });
+        toolResultContent = `[get_client_crm_history] РЕЗУЛЬТАТ:\n${history.text}`;
+      } catch (err) {
+        log.error({ err, clientId: client.id }, 'get_client_crm_history failed');
+        toolResultContent = '[get_client_crm_history] ПОМИЛКА: не вдалося отримати історію CRM';
+      }
+
+      const response2 = await askClaude(
+        {
+          systemPrompt: prompt,
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            {
+              role: 'assistant' as const,
+              content: response.text || '[Дивлюсь історію візитів клієнта в CRM]',
+            },
+          ],
+          userMessage: toolResultContent,
+          tools,
+        },
+        { channel: conversation.channel, conversationId, clientId: client.id },
+      );
+      responseText = response2.text;
+      agentFallback = response2.fallback ?? agentFallback;
+      if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      if (response2.toolCalls?.length) {
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        if (
+          await tryTerminalToolCalls(response2.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(response2.text),
+            turnStartedAt,
+          })
+        ) {
+          return;
+        }
+      }
+    }
 
     if (searchServicesCall && !handoff && !collectOrder && !bookAppointment) {
       const query =
@@ -790,16 +851,21 @@ async function handleIncomingMessageImpl(
       }
     }
 
-    if (slotsCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall) {
+    if (slotsCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall && !crmHistoryCall) {
       const date = typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
       const rawServices = Array.isArray(slotsCall.args.services) ? slotsCall.args.services : [];
       const services = rawServices.flatMap((raw) => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
         const o = raw as Record<string, unknown>;
-        const id = typeof o.id === 'number' ? o.id : Number(o.id);
+        const id =
+          typeof o.id === 'string'
+            ? o.id.trim()
+            : typeof o.id === 'number' && Number.isFinite(o.id)
+              ? String(o.id)
+              : '';
         const durationMin =
           typeof o.duration_min === 'number' ? o.duration_min : Number(o.duration_min) || 60;
-        if (!Number.isFinite(id)) return [];
+        if (!id) return [];
         return [{ id, durationMin }];
       });
 

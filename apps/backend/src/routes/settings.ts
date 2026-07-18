@@ -39,6 +39,7 @@ const INTEGRATION_KEYS = [
   'integration_telegram',
   'integration_keycrm',
   'integration_cleverbox',
+  'integration_beautypro',
   'integration_novaposhta',
 ];
 
@@ -128,6 +129,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       integration_telegram: {},
       integration_keycrm: {},
       integration_cleverbox: {},
+      integration_beautypro: {},
       integration_novaposhta: {},
     };
 

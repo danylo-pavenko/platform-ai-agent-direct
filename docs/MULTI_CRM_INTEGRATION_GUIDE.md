@@ -2,8 +2,10 @@
 
 Інструкція для розробників і AI-агентів: як додавати нові CRM до платформи так, щоб **кожен тенант** міг мати **кілька CRM одночасно** (гібрид e-commerce + салон, або інша комбінація).
 
-**Версія:** 2026-07-07  
-**Референс-реалізації:** KeyCRM (каталог, замовлення, ліди) + CleverBOX (послуги, філії, запис)
+**Версія:** 2026-07-18  
+**Cursor rule:** `.cursor/rules/beautypro-crm.mdc` (always-on hint for agents)
+
+**Референс-реалізації:** KeyCRM (каталог, замовлення, ліди) + CleverBOX / BeautyPro (послуги, філії, запис)
 
 ---
 
@@ -135,17 +137,17 @@ client_upsert: 'keycrm'
 
 ## 4. Матриця: функції × провайдери (поточний стан)
 
-| Функція | KeyCRM | CleverBOX | Де в коді |
-|---------|--------|-----------|-----------|
-| Каталог товарів | ✅ | ❌ (empty stubs) | `keycrm.ts`, sync-worker |
-| Пошук товарів | ✅ | ❌ | `product-search.ts` |
-| Послуги | ❌ | ✅ | `cleverbox.ts`, `service-search.ts` |
-| Філії | ❌ | ✅ | `branches.ts`, `fetchBranches` |
-| Слоти / запис | ❌ | ✅ | `appointment.ts`, `cleverbox.ts` |
-| Замовлення | ✅ | ❌ | `crm-sync.ts` |
-| Ліди | ✅ | ❌ | `crm-sync.ts` |
-| Клієнт upsert | ✅ | ❌ | `crm-sync.ts` |
-| Custom fields | ✅ | ❌ | `crm-fields.ts`, `listCustomFields` |
+| Функція | KeyCRM | CleverBOX | BeautyPro | Де в коді |
+|---------|--------|-----------|-----------|-----------|
+| Каталог товарів | ✅ | ❌ (empty stubs) | ❌ | `keycrm.ts`, sync-worker |
+| Пошук товарів | ✅ | ❌ | ❌ | `product-search.ts` |
+| Послуги | ❌ | ✅ | ✅ | `cleverbox.ts`, `beautypro.ts`, `service-search.ts` |
+| Філії | ❌ | ✅ | ✅ | `branches.ts`, `fetchBranches` |
+| Слоти / запис | ❌ | ✅ | ✅ | `appointment.ts`, adapters |
+| Замовлення | ✅ | ❌ | ❌ | `crm-sync.ts` |
+| Ліди | ✅ | ❌ | ❌ | `crm-sync.ts` |
+| Клієнт upsert | ✅ | ❌ | ✅ | `crm-sync.ts`, `beautypro.ts` |
+| Custom fields | ✅ | ❌ | ❌ | `crm-fields.ts`, `listCustomFields` |
 
 **Гібридний tenant (салон + магазин):** `crm_routing.mode = by_action`, KeyCRM для catalog/order, CleverBOX для services/booking/branches.
 
@@ -420,7 +422,8 @@ API документація / endpoints:
 | `services/crm/types.ts` | CrmAdapter interface |
 | `services/crm/registry.ts` | Factory + cache |
 | `services/crm/keycrm.ts` | E-commerce reference |
-| `services/crm/cleverbox.ts` | Salon/booking reference |
+| `services/crm/cleverbox.ts` | Salon/booking reference (CleverBOX) |
+| `services/crm/beautypro.ts` | Salon/booking (BeautyPro / AI Helps) |
 | `lib/integration-config.ts` | Per-tenant secrets (DB + env) |
 | `sync-worker.ts` | Catalog + services sync |
 | `services/crm-sync.ts` | Mirror client/order/lead |

@@ -1,48 +1,39 @@
-# Sales Agent — орієнтир для Claude Code
+# IG DM Agent — орієнтир (tenant workspace)
 
-Ти працюєш як **AI Sales Agent** цього тенанта в Instagram DM. Це не мета-агент і не адмін-редактор промптів.
+Ти — рантайм-агент цього тенанта в Instagram DM. Системний промпт у БД головніший за цей файл.
+Tools виконує **бекенд** (формат `<tool_call>` у відповіді); CRM напряму не викликай.
 
-## Джерела правди (читай у такому порядку)
+## Режими (налаштування tenant: agent_mode)
 
-1. **Системний промпт** — активна версія в БД (`system_prompts`, `is_active=true`). Seed: `prompts/sales-agent.txt` у tenant knowledge dir. **Промпт тенанта головніший за цей файл.**
-2. **Runtime-блок** — бекенд додає сесію, профіль клієнта, робочі години, знімок каталогу (~6k символів з `knowledge/catalog.txt`).
-3. **Живий каталог** — інструмент `search_catalog` (KeyCRM API: наявність, варіанти, ціни). Використовуй для конкретних запитів про товар; не покладайся лише на знімок.
-4. **Статичні знання** — `knowledge/{brand,contacts,delivery,faq,categories,services}.txt` у `$TENANT_KNOWLEDGE_DIR` (зазвичай `~/tenant_knowledge/`). На проді вони вже вшиті в системний промпт через seed; файли — для оновлень і bootstrap.
+| Mode | Tools (окрім спільних) | Фінал |
+|------|------------------------|-------|
+| **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | замовлення → KeyCRM |
+| **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
+| **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment` | запис → CleverBOX / BeautyPro |
 
-## Що ти НЕ робиш напряму
+Спільні: `update_client_info`, `tag_client`, `request_handoff`; `set_conversation_branch` якщо є філії.
 
-- Не ходи в PostgreSQL і не викликай CRM API сам — лише через **tools**, які виконує бекенд.
-- Не змішуй повідомлення різних клієнтів (макс. 30 повідомлень поточної розмови).
-- Не виводь `product_id`, `offer_id`, `purchased_price` клієнту.
+Telegram менеджерам — не окремий tool (йде з order/brief/booking/handoff).
 
-## Tools (sales mode)
+## CRM (коротко)
 
-| Tool | Коли |
-|------|------|
-| `update_client_info` | Як тільки є ПІБ / телефон / місто / НП |
-| `search_catalog` | Питання про товар, розмір, колір, наявність |
-| `get_delivery_cost` | Вартість НП до міста |
-| `collect_order` | Усі поля замовлення підтверджені |
-| `tag_client` | Теги в кінці або коли зрозумілий профіль |
-| `request_handoff` | Скарга, повернення, людина, невпевненість |
+- **KeyCRM** — каталог товарів, замовлення, ліди.
+- **CleverBOX / BeautyPro** — послуги, філії, слоти, запис; BeautyPro ще історія візитів (тривалість).
+- Routing per-tenant (`crm_routing`). Після телефону клієнт може привʼязатись до CRM (`crmBuyerId`).
 
-## Швидкий старт сесії
+## Джерела правди
 
-```
-1. Прочитай системний промпт (tone, заборони, ескалація).
-2. Подивись профіль клієнта в runtime-блоці — не питай те, що вже є.
-3. Для товарів → search_catalog або знімок каталогу.
-4. Контакти збирай поступово → update_client_info.
-5. Замовлення → collect_order лише після явного «так».
-```
+1. Активний системний промпт (БД / seed `prompts/*-agent.txt`).
+2. Runtime-блок бекенду (профіль, години, філії, знімок catalog/services, CRM history якщо linked).
+3. `knowledge/*.txt` у `$TENANT_KNOWLEDGE_DIR` (~/tenant_knowledge).
+4. Живі tools: `search_catalog` / `search_services` — не вигадуй ціни з голови.
 
-## Мета-агент vs Sales Agent
+## Заборони
 
-- **Мета-агент** (адмінка: Промпти / Навчання) — редагує системний промпт, бачить знімок каталогу для контексту. **Не спілкується з клієнтами в IG.**
-- **Sales Agent** (цей проєкт) — відповідає клієнтам у DM.
+- Не світити клієнту internal ids (`product_id`, `offer_id`, CRM UUID).
+- Не змішувати розмови різних клієнтів.
+- Не вигадувати tools поза списком режиму.
 
-## Деплой / оновлення знань
+## Мета-агент
 
-- Каталог: sync-worker → `knowledge/catalog.txt` (KeyCRM).
-- Нові tenant-файли: `npm run bootstrap:knowledge` (не перезаписує існуючі).
-- Повна специфікація платформи: репозиторій `platform-ai-agent-direct` + `../IMPLEMENTATION.md`.
+Редагує промпт в адмінці. **Не** відповідає клієнтам у IG. Знає карту можливостей платформи окремо.

@@ -37,7 +37,7 @@ export async function searchServicesForContext(
 export async function getAvailableSlotsForContext(args: {
   date: string;
   branchCrmId: string;
-  services: Array<{ id: number; durationMin: number }>;
+  services: Array<{ id: string; durationMin: number }>;
   fullMonth?: boolean;
 }): Promise<string> {
   const provider = await resolveCrmProvider('booking');

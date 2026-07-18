@@ -1,14 +1,16 @@
 /**
- * Salon appointment persistence + CRM mirror (CleverBOX slots/save).
+ * Salon appointment persistence + CRM mirror (CleverBOX / BeautyPro booking).
  */
 
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { asCrmId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { getBranchById } from './branches.js';
 import { notifyCrmFallback } from './telegram-notify.js';
+import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -23,28 +25,23 @@ export async function handleBookAppointment(
   const date = typeof args.date === 'string' ? args.date.trim() : '';
   const time = typeof args.time === 'string' ? args.time.trim() : '';
   const comment = typeof args.comment === 'string' ? args.comment.trim() : undefined;
-  const masterId =
-    typeof args.master_id === 'number'
-      ? args.master_id
-      : typeof args.master_id === 'string'
-        ? Number(args.master_id)
-        : undefined;
+  const masterId = asCrmId(args.master_id) ?? undefined;
 
   const rawServices = Array.isArray(args.services) ? args.services : [];
   const services = rawServices.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const o = raw as Record<string, unknown>;
-    const id = typeof o.id === 'number' ? o.id : Number(o.id);
+    const id = asCrmId(o.id);
     const durationMin =
       typeof o.duration_min === 'number'
         ? o.duration_min
         : typeof o.long === 'number'
           ? o.long
           : 60;
-    const name = typeof o.name === 'string' ? o.name : `Послуга #${id}`;
+    const name = typeof o.name === 'string' ? o.name : `Послуга #${id ?? '?'}`;
     const price = typeof o.price === 'number' ? o.price : 0;
-    if (!Number.isFinite(id) || id <= 0) return [];
-    return [{ id, durationMin, name, price, masterId: masterId && Number.isFinite(masterId) ? masterId : undefined }];
+    if (!id) return [];
+    return [{ id, durationMin, name, price, masterId }];
   });
 
   if (!customerName || !phone || !date || !time || services.length === 0) {
@@ -122,8 +119,8 @@ export async function mirrorAppointmentToCrm(appointmentId: string): Promise<voi
     return;
   }
 
-  const branchCrmId = Number(appointment.branch?.crmExternalId);
-  if (!Number.isFinite(branchCrmId)) {
+  const branchCrmId = appointment.branch?.crmExternalId?.trim();
+  if (!branchCrmId) {
     throw new Error('Branch CRM external id missing');
   }
 
@@ -131,10 +128,10 @@ export async function mirrorAppointmentToCrm(appointmentId: string): Promise<voi
   const services = rawServices.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const o = raw as Record<string, unknown>;
-    const id = typeof o.id === 'number' ? o.id : Number(o.id);
+    const id = asCrmId(o.id);
     const durationMin = typeof o.durationMin === 'number' ? o.durationMin : 60;
-    const masterId = typeof o.masterId === 'number' ? o.masterId : undefined;
-    if (!Number.isFinite(id)) return [];
+    const masterId = asCrmId(o.masterId) ?? undefined;
+    if (!id) return [];
     return [{
       id,
       durationMin,
@@ -173,6 +170,16 @@ export async function mirrorAppointmentToCrm(appointmentId: string): Promise<voi
         status: 'synced',
       },
     });
+
+    if (result.crmBuyerId) {
+      await persistCrmBuyerIdFromBooking(
+        appointment.clientId,
+        result.crmBuyerId,
+        provider,
+      ).catch((err) => {
+        log.warn({ err, appointmentId }, 'Failed to persist crmBuyerId from booking');
+      });
+    }
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
     await prisma.appointment.update({

@@ -485,6 +485,9 @@ interface ClientData {
   deliveryNpType?: string;
   notes?: string;
   tags?: string[];
+  crmBuyerId?: string | null;
+  crmProvider?: string | null;
+  crmLinkedAt?: string | null;
 }
 
 interface ConversationData {
@@ -927,6 +930,11 @@ const ClientProfilePanel = defineComponent({
     const saving = ref(false);
     const importing = ref(false);
     const newTag = ref('');
+    const crmLinking = ref(false);
+    const crmHistoryLoading = ref(false);
+    const crmManualId = ref('');
+    const crmHistoryText = ref('');
+    const crmLinkMessage = ref('');
 
     const form = ref<Partial<ClientData>>({});
 
@@ -940,6 +948,7 @@ const ClientProfilePanel = defineComponent({
         deliveryNpType: props.client?.deliveryNpType ?? '',
         notes: props.client?.notes ?? '',
         tags: [...(props.client?.tags ?? [])],
+        crmBuyerId: props.client?.crmBuyerId ?? '',
       };
       editing.value = true;
     }
@@ -1019,6 +1028,89 @@ const ClientProfilePanel = defineComponent({
         importing.value = false;
       }
     }
+
+    async function linkCrmByPhone() {
+      if (!props.client?.id) return;
+      crmLinking.value = true;
+      crmLinkMessage.value = '';
+      try {
+        const { data } = await api.post(`/conversations/clients/${props.client.id}/crm-link`);
+        if (data.client) emit('updated', data.client);
+        crmLinkMessage.value = data.linked
+          ? `Привʼязано (${data.source})`
+          : data.message || 'Не знайдено в CRM';
+        if (data.linked) await loadCrmHistory();
+      } catch (e: any) {
+        crmLinkMessage.value = e.response?.data?.error || 'Помилка привʼязки';
+      } finally {
+        crmLinking.value = false;
+      }
+    }
+
+    async function linkCrmManual() {
+      if (!props.client?.id) return;
+      const id = crmManualId.value.trim();
+      if (!id) {
+        crmLinkMessage.value = 'Вкажи CRM client UUID';
+        return;
+      }
+      crmLinking.value = true;
+      crmLinkMessage.value = '';
+      try {
+        const { data } = await api.post(`/conversations/clients/${props.client.id}/crm-link`, {
+          crmBuyerId: id,
+        });
+        if (data.client) emit('updated', data.client);
+        crmManualId.value = '';
+        crmLinkMessage.value = 'Привʼязано вручну';
+        await loadCrmHistory();
+      } catch (e: any) {
+        crmLinkMessage.value = e.response?.data?.error || 'Помилка привʼязки';
+      } finally {
+        crmLinking.value = false;
+      }
+    }
+
+    async function unlinkCrm() {
+      if (!props.client?.id) return;
+      if (!confirm('Відвʼязати клієнта від CRM?')) return;
+      crmLinking.value = true;
+      try {
+        const { data } = await api.delete(`/conversations/clients/${props.client.id}/crm-link`);
+        if (data.client) emit('updated', data.client);
+        crmHistoryText.value = '';
+        crmLinkMessage.value = 'Відвʼязано';
+      } catch (e: any) {
+        crmLinkMessage.value = e.response?.data?.error || 'Помилка';
+      } finally {
+        crmLinking.value = false;
+      }
+    }
+
+    async function loadCrmHistory() {
+      if (!props.client?.id) return;
+      crmHistoryLoading.value = true;
+      try {
+        const { data } = await api.get(`/conversations/clients/${props.client.id}/crm-history`);
+        crmHistoryText.value = data.text || '';
+        if (data.crmBuyerId && data.client === undefined && props.client && !props.client.crmBuyerId) {
+          // history may have auto-linked — refresh via link response preferred
+        }
+      } catch (e: any) {
+        crmHistoryText.value = e.response?.data?.error || 'Не вдалося завантажити історію';
+      } finally {
+        crmHistoryLoading.value = false;
+      }
+    }
+
+    watch(
+      () => props.client?.crmBuyerId,
+      (id) => {
+        if (id) void loadCrmHistory();
+        else crmHistoryText.value = '';
+      },
+      { immediate: true },
+    );
 
     return () => {
       const c = props.client;
@@ -1231,6 +1323,67 @@ const ClientProfilePanel = defineComponent({
                 }, 'Скасувати'),
               ])
             : null,
+        ]),
+
+        h('hr', { class: 'v-divider' }),
+
+        // CRM link + visit history
+        h('div', { class: 'pa-3' }, [
+          h('div', { class: 'text-caption text-grey text-uppercase mb-2', style: 'letter-spacing:0.04em;' }, 'CRM клієнт'),
+          c?.crmBuyerId
+            ? h('div', { class: 'mb-2' }, [
+                h('div', { class: 'text-body-2 text-break' }, c.crmBuyerId),
+                h('div', { class: 'text-caption text-grey' },
+                  [c.crmProvider, c.crmLinkedAt ? `з ${formatLeadDate(c.crmLinkedAt)}` : null]
+                    .filter(Boolean)
+                    .join(' · ') || 'привʼязано',
+                ),
+              ])
+            : h('div', { class: 'text-body-2 text-grey mb-2' }, 'Не привʼязано'),
+          h('div', { class: 'd-flex flex-wrap ga-2 mb-2' }, [
+            h('button', {
+              class: 'import-btn',
+              disabled: crmLinking.value || !c?.phone,
+              onClick: linkCrmByPhone,
+              title: c?.phone ? 'Знайти в CRM за телефоном' : 'Спочатку вкажи телефон',
+            }, crmLinking.value ? '…' : 'Знайти за телефоном'),
+            c?.crmBuyerId
+              ? h('button', {
+                  class: 'profile-cancel-btn',
+                  disabled: crmLinking.value,
+                  onClick: unlinkCrm,
+                }, 'Відвʼязати')
+              : null,
+            h('button', {
+              class: 'import-btn',
+              disabled: crmHistoryLoading.value || !c?.id,
+              onClick: loadCrmHistory,
+            }, crmHistoryLoading.value ? '…' : 'Оновити історію'),
+          ]),
+          h('div', { class: 'd-flex ga-1 mb-2' }, [
+            h('input', {
+              class: 'profile-input flex-grow-1',
+              value: crmManualId.value,
+              placeholder: 'CRM client UUID (вручну)',
+              onInput: (e: Event) => { crmManualId.value = (e.target as HTMLInputElement).value; },
+            }),
+            h('button', {
+              class: 'profile-save-btn',
+              disabled: crmLinking.value,
+              onClick: linkCrmManual,
+            }, 'Привʼязати'),
+          ]),
+          crmLinkMessage.value
+            ? h('div', { class: 'text-caption mb-2' }, crmLinkMessage.value)
+            : null,
+          crmHistoryText.value
+            ? h('pre', {
+                class: 'text-caption',
+                style: 'white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; margin: 0;',
+              }, crmHistoryText.value)
+            : h('div', { class: 'text-caption text-grey' },
+                'Історія візитів зʼявиться після привʼязки (тривалість послуг для планування запису).',
+              ),
         ]),
 
         h('hr', { class: 'v-divider' }),

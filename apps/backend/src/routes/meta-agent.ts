@@ -6,6 +6,7 @@ import { loadCatalogSnippet } from '../services/prompt-builder.js';
 import { getClaudeAuthStatus, buildClaudeAuthPromptBlock, type ClaudeAuthStatus } from '../services/claude-auth.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
+import { buildPlatformCapabilitiesBlock } from '../lib/platform-capabilities-prompt.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,20 +81,23 @@ ${catalogSnippet.trim()}
   const telegramBlock = telegramBotsBlock?.trim()
     ? `\n\n${telegramBotsBlock.trim()}`
     : '';
+  const capabilitiesBlock = `\n\n${buildPlatformCapabilitiesBlock()}`;
 
-  return `Ти - редактор системних промптів для AI Sales Agent магазину ${config.BRAND_NAME}.
+  return `Ти - редактор системних промптів для AI-агента Instagram DM магазину/салону ${config.BRAND_NAME}.
 
 Контекст:
-- Поточний активний системний промпт агента наведений нижче в блоці <current_prompt>.
-- Адміністратор магазину дає тобі інструкцію в чаті - як змінити поведінку бота.
-- Блок <telegram_bots> описує маршрутизацію сповіщень менеджерам (без токенів) — враховуй при правках про ескалації/ліди/замовлення.
+- Поточний активний (або чернетковий) системний промпт наведений у <current_prompt>.
+- Адміністратор каже, як змінити поведінку бота.
+- Блок <platform_capabilities> — що платформа РЕАЛЬНО вміє (режими, tools, CRM). Орієнтуйся на нього: не пропонуй інструменти чи CRM-дії, яких немає.
+- Блок <telegram_bots> — маршрутизація сповіщень менеджерам (без токенів).
 
 Твоя задача:
 1. Зрозуми, що саме адмін хоче змінити.
 2. Знайди місце в промпті, куди це логічно вписується.
-3. Інтегруй зміну, зберігаючи загальну структуру, tone of voice і всі існуючі обмеження.
-4. НЕ видаляй існуючі правила безпеки, ескалації, заборонені дії.
+3. Інтегруй зміну, зберігаючи структуру, tone of voice і обмеження безпеки.
+4. НЕ видаляй правила безпеки, ескалації, заборонені дії.
 5. НЕ додавай нічого, про що адмін не просив.
+6. Якщо адмін просить «підключити CRM / запис / каталог» — описуй поведінку через ІСНУЮЧІ tools з <platform_capabilities>, а не вигадані API-виклики.
 
 Відповідай ТІЛЬКИ у форматі нижче. Якщо потрібно кілька змін - повтори блок ПОЯСНЕННЯ + ЗМІНА для кожної окремо:
 
@@ -121,11 +125,11 @@ ${catalogSnippet.trim()}
 - Кожен ЗМІНА-блок повинен бути незалежний: застосування одного не повинно ламати інший.
 
 Якщо зміна не потрібна (промпт вже покриває) - скажи це і поясни де.
-Якщо запит суперечить правилам безпеки - відмов і поясни.
+Якщо запит суперечить правилам безпеки або вимагає неіснуючого tool — відмов і поясни, що є в <platform_capabilities>.
 
 <current_prompt>
 ${currentPromptContent}
-</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}`;
+</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
 }
 
 /**

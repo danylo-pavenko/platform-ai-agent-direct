@@ -438,7 +438,7 @@ function formatError(err: unknown): string {
 
 function buildServicesCatalog(
   services: Array<{
-    id: number;
+    id: string | number;
     name: string;
     price: number;
     durationMin: number;
@@ -555,9 +555,17 @@ export async function runSync(): Promise<void> {
 
     const servicesProvider = await resolveCrmProvider('services');
     const servicesCrm = getCrmAdapter(servicesProvider);
-    const { cleverbox } = await getIntegrationConfig();
+    const { cleverbox, beautypro } = await getIntegrationConfig();
     const servicesConfigured =
-      servicesProvider === 'cleverbox' ? Boolean(cleverbox.apiToken) : true;
+      servicesProvider === 'cleverbox'
+        ? Boolean(cleverbox.apiToken)
+        : servicesProvider === 'beautypro'
+          ? Boolean(
+              beautypro.applicationId &&
+                beautypro.applicationSecret &&
+                beautypro.databaseCode,
+            )
+          : true;
 
     if (
       servicesConfigured &&

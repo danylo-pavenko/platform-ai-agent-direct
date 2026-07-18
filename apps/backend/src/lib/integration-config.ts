@@ -67,11 +67,26 @@ export interface IntegrationCleverbox {
   syncIntervalMin: number;
 }
 
+export interface IntegrationBeautypro {
+  applicationId: string;
+  applicationSecret: string;
+  databaseCode: string;
+  defaultLocationId: string;
+  syncIntervalMin: number;
+  /** Persisted after Marketplace grant / refresh — masked in GET. */
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: string;
+  apiServer: number;
+  authStatus: 'pending' | 'granted' | 'refused' | '';
+}
+
 export interface IntegrationConfig {
   meta: IntegrationMeta;
   telegram: IntegrationTelegram;
   keycrm: IntegrationKeycrm;
   cleverbox: IntegrationCleverbox;
+  beautypro: IntegrationBeautypro;
   novaposhta: IntegrationNovaPoshta;
 }
 
@@ -87,7 +102,14 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
   const rows = await prisma.setting.findMany({
     where: {
       key: {
-        in: ['integration_meta', 'integration_telegram', 'integration_keycrm', 'integration_cleverbox', 'integration_novaposhta'],
+        in: [
+          'integration_meta',
+          'integration_telegram',
+          'integration_keycrm',
+          'integration_cleverbox',
+          'integration_beautypro',
+          'integration_novaposhta',
+        ],
       },
     },
   });
@@ -101,7 +123,15 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
   const t = (db['integration_telegram'] ?? {}) as Partial<IntegrationTelegram>;
   const k = (db['integration_keycrm'] ?? {}) as Partial<IntegrationKeycrm>;
   const cb = (db['integration_cleverbox'] ?? {}) as Partial<IntegrationCleverbox>;
+  const bp = (db['integration_beautypro'] ?? {}) as Partial<IntegrationBeautypro>;
   const np = (db['integration_novaposhta'] ?? {}) as Partial<IntegrationNovaPoshta>;
+
+  const bpAuthStatus =
+    bp.authStatus === 'pending' ||
+    bp.authStatus === 'granted' ||
+    bp.authStatus === 'refused'
+      ? bp.authStatus
+      : '';
 
   _cache = {
     meta: {
@@ -139,6 +169,27 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
       defaultBranchId: cb.defaultBranchId || config.CLEVERBOX_DEFAULT_BRANCH_ID,
       syncIntervalMin: cb.syncIntervalMin ?? config.CLEVERBOX_SYNC_INTERVAL_MIN,
     },
+    beautypro: {
+      applicationId:
+        (typeof bp.applicationId === 'string' ? bp.applicationId : '') ||
+        config.BEAUTYPRO_APPLICATION_ID,
+      applicationSecret:
+        sanitizeIntegrationSecret(bp.applicationSecret) ||
+        config.BEAUTYPRO_APPLICATION_SECRET,
+      databaseCode:
+        (typeof bp.databaseCode === 'string' ? bp.databaseCode : '') ||
+        config.BEAUTYPRO_DATABASE_CODE,
+      defaultLocationId:
+        (typeof bp.defaultLocationId === 'string' ? bp.defaultLocationId : '') ||
+        config.BEAUTYPRO_DEFAULT_LOCATION_ID,
+      syncIntervalMin: bp.syncIntervalMin ?? config.BEAUTYPRO_SYNC_INTERVAL_MIN,
+      accessToken: sanitizeIntegrationSecret(bp.accessToken),
+      refreshToken: sanitizeIntegrationSecret(bp.refreshToken),
+      tokenExpiresAt: typeof bp.tokenExpiresAt === 'string' ? bp.tokenExpiresAt : '',
+      apiServer:
+        typeof bp.apiServer === 'number' && bp.apiServer > 0 ? bp.apiServer : 1,
+      authStatus: bpAuthStatus,
+    },
     novaposhta: {
       apiKey:          sanitizeIntegrationSecret(np.apiKey) || config.NOVA_POSHTA_API_KEY,
       senderCity:      np.senderCity      || 'Київ',
@@ -161,6 +212,7 @@ export const SENSITIVE_FIELDS: Record<string, string[]> = {
   integration_telegram:    ['botToken', 'adminPassword'],
   integration_keycrm:      ['apiKey'],
   integration_cleverbox:   ['apiToken'],
+  integration_beautypro:   ['applicationSecret', 'accessToken', 'refreshToken'],
   integration_novaposhta:  ['apiKey'],
 };
 

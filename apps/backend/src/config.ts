@@ -77,6 +77,12 @@ const envSchema = z.object({
   CLEVERBOX_DEFAULT_BRANCH_ID: z.string().default(''),
   CLEVERBOX_SYNC_INTERVAL_MIN: z.coerce.number().default(60),
 
+  BEAUTYPRO_APPLICATION_ID: z.string().default(''),
+  BEAUTYPRO_APPLICATION_SECRET: z.string().default(''),
+  BEAUTYPRO_DATABASE_CODE: z.string().default(''),
+  BEAUTYPRO_DEFAULT_LOCATION_ID: z.string().default(''),
+  BEAUTYPRO_SYNC_INTERVAL_MIN: z.coerce.number().default(60),
+
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
   // Defaults: shared platform Meta App — override per tenant in .env if needed.
   FACEBOOK_APP_ID: envNonemptyString('26228249720190273'),

@@ -27,6 +27,7 @@ import type {
 } from './crm/index.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { notifyCrmFallback } from './telegram-notify.js';
+import { linkClientToCrm } from './client-crm-link.js';
 
 const log = pino({ name: 'crm-sync' });
 
@@ -36,11 +37,19 @@ const log = pino({ name: 'crm-sync' });
  * Push the local client's contact + extracted custom-field snapshot
  * into the CRM. Safe to call on every `update_client_info` turn; the
  * CRM de-duplicates via crmBuyerId once populated.
+ *
+ * Always attempts a read-only phone match first (even when CRM writes
+ * are disabled) so booking history can be attached for salon CRMs.
  */
 export async function mirrorClientToCrm(
   clientId: string,
   extractedCustomFields: Record<string, unknown> = {},
 ): Promise<void> {
+  // 0. Ensure CRM link by phone (works without CRM_WRITE_ENABLED).
+  await linkClientToCrm(clientId, { upsert: false }).catch((err) => {
+    log.warn({ err, clientId }, 'linkClientToCrm (read) failed');
+  });
+
   if (!(await isCrmWriteEnabled())) return;
 
   const provider = await resolveCrmProvider('client_upsert');
@@ -56,8 +65,6 @@ export async function mirrorClientToCrm(
     return;
   }
 
-  // KeyCRM requires full_name on buyer create. If we don't have even an
-  // IG handle yet, there's nothing meaningful to push — try again later.
   const fullName = client.displayName
     ?? client.igFullName
     ?? (client.igUsername ? `@${client.igUsername}` : null);
@@ -66,10 +73,6 @@ export async function mirrorClientToCrm(
     return;
   }
 
-  // 1. Resolve (or defer creation of) crmBuyerId.
-  //    Trust the local link if present, otherwise reach into the CRM
-  //    by phone/email. IG-only match is handled by the later upsert
-  //    creating a fresh buyer and closing the loop via crmBuyerId.
   let crmBuyerId: string | null = client.crmBuyerId;
   if (!crmBuyerId) {
     try {
@@ -84,7 +87,6 @@ export async function mirrorClientToCrm(
     }
   }
 
-  // 2. Translate extracted custom fields (buyer-scope only) local_key → CRM uuid.
   const customFields: Array<{ key: string; value: string }> = [];
   if (Object.keys(extractedCustomFields).length > 0) {
     const { byLocalKey } = await getActiveCrmFieldMappings();
@@ -116,12 +118,14 @@ export async function mirrorClientToCrm(
 
   const result = await crm.upsertClient(crmBuyerId, input);
 
-  // 3. Persist the link the first time we learn it (or if the CRM
-  //    merged a duplicate and gave us a different id).
   if (client.crmBuyerId !== result.crmBuyerId) {
     await prisma.client.update({
       where: { id: clientId },
-      data: { crmBuyerId: result.crmBuyerId },
+      data: {
+        crmBuyerId: result.crmBuyerId,
+        crmProvider: provider,
+        crmLinkedAt: new Date(),
+      },
     });
     log.info(
       { clientId, crmBuyerId: result.crmBuyerId, provider: crm.name },

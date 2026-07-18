@@ -1,0 +1,87 @@
+---
+description: BeautyPro / AI Helps CRM — auth, booking, client link, history; avoid CleverBOX assumptions
+alwaysApply: true
+---
+
+# BeautyPro (AI Helps) CRM — agent hint
+
+Products: **Beauty Pro / Fitness Pro / Denta Pro**. Same REST API.
+
+**Docs:** https://aihelpssoft.github.io/documentations/  
+**Onboarding:** Ultimate tariff + AI Helps registers app → Marketplace **Grant access**  
+**Code:** `apps/backend/src/services/crm/beautypro.ts`, `client-crm-link.ts`  
+**Guide:** `docs/BEAUTYPRO_CRM_INTEGRATION.md`, checklist in `docs/MULTI_CRM_INTEGRATION_GUIDE.md`
+
+## Auth (not a static CleverBOX token)
+
+| Step | Endpoint / storage |
+|------|-------------------|
+| Credentials | `application_id`, `application_secret`, `database_code` → `integration_beautypro` |
+| Issue | `GET /auth/database` → access_token + refresh_token + `server` index |
+| Refresh | `GET /auth/refresh` (access TTL **24h**) |
+| Header | `Authorization: Bearer {access_token}` |
+| Host | `api.aihelps.com/v1` (server 1/5); `api4.aihelps.com` for server 4 |
+| Pending | Marketplace grant → `status: pending` until owner grants |
+
+Do **not** treat BeautyPro like CleverBOX `token` header. Always refresh / re-request on `401 EXPIRED`.
+
+## IDs are UUIDs
+
+All resource ids are GUID strings. Salon adapter contract uses **string** ids (`CrmServiceItem.id`, `CrmBookingInput.branchId`, etc.). Never `Number(crmExternalId)` for BeautyPro.
+
+## Capabilities we use
+
+| Capability | API | Adapter method |
+|------------|-----|----------------|
+| Branches | `GET /locations?active=true` | `fetchBranches` |
+| Services | `GET /services` + `/services/categories` | `fetchServices` / `searchServices` |
+| Slots | `GET /employees/free_time` | `getAvailableSlots` |
+| Book | `POST /appointments` (`state: planned`) | `createBooking` |
+| Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` |
+| Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
+| History | `GET /clients/{id}/history` | `fetchClientHistory` |
+
+**Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks.
+
+## Booking nuances (from official docs)
+
+- One **planned/confirmed** appointment per `date + location + client` — API **merges** services if duplicate.
+- Prefer cancel (`state: cancelled`) over DELETE.
+- `409 TIME_CONFLICT` — do not `force=true` in agent prod path.
+- `smsError` on create is non-fatal (log only).
+- Agent dates often `DD.MM.YYYY` → convert to ISO `YYYY-MM-DD` in adapter.
+- History: **last ~2 months only**; field `duration` (minutes) + `items[].name/type` for planning next slot.
+- History scope needs **`full`** (not only `clients_module`).
+
+## Client ↔ dialog link (local)
+
+- Store CRM client UUID on `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`).
+- **Auto:** phone via `linkClientToCrm` / `mirrorClientToCrm` (read match works even if CRM write off).
+- **Booking:** `createBooking` returns `crmBuyerId` → `persistCrmBuyerIdFromBooking`.
+- **Admin:** Conversation profile → find by phone / paste UUID / history.
+- **Agent:** prompt inject when linked; tool `get_client_crm_history` in booking mode.
+
+## Routing example (salon-only)
+
+```json
+{
+  "mode": "by_action",
+  "enabled_providers": ["beautypro"],
+  "routes": {
+    "services": "beautypro",
+    "branches": "beautypro",
+    "booking": "beautypro",
+    "client_upsert": "beautypro"
+  }
+}
+```
+
+## Anti-patterns
+
+| Don't | Why |
+|-------|-----|
+| Suggest CleverBOX-only endpoints (`slots/save`, header `token`) for BeautyPro | Different vendor |
+| Use numeric service/branch ids | BeautyPro = UUID |
+| Poll API aggressively | Vendor rate-limits; review before prod |
+| Assume history without Marketplace grant / Ultimate | Auth pending or 403 LICENSE |
+| Put CRM HTTP in `conversation.ts` | Only via `CrmAdapter` + `resolveCrmProvider` |

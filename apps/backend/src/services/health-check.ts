@@ -15,7 +15,7 @@ import { isCrmWriteReady } from '../lib/crm-write.js';
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'crm_write' | 'agent_latency' | 'stt';
+  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'beautypro' | 'crm_write' | 'agent_latency' | 'stt';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -329,6 +329,64 @@ async function checkCleverbox(): Promise<HealthCheckItem> {
   }
 }
 
+async function checkBeautypro(): Promise<HealthCheckItem> {
+  const label = 'BeautyPro (запис)';
+  const { beautypro } = await getIntegrationConfig();
+  const configured = Boolean(
+    (beautypro.applicationId || config.BEAUTYPRO_APPLICATION_ID) &&
+      (beautypro.applicationSecret || config.BEAUTYPRO_APPLICATION_SECRET) &&
+      (beautypro.databaseCode || config.BEAUTYPRO_DATABASE_CODE),
+  );
+
+  if (!configured) {
+    return {
+      id: 'beautypro',
+      label,
+      status: 'not_configured',
+      message: 'BeautyPro credentials не налаштовано (applicationId / secret / databaseCode)',
+    };
+  }
+
+  try {
+    const adapter = getCrmAdapter('beautypro');
+    if (!adapter.fetchBranches) {
+      return {
+        id: 'beautypro',
+        label,
+        status: 'not_configured',
+        message: 'BeautyPro adapter без fetchBranches',
+      };
+    }
+    const branches = await adapter.fetchBranches();
+    const statusNote =
+      beautypro.authStatus === 'pending'
+        ? ' (Marketplace: pending grant)'
+        : beautypro.authStatus === 'granted'
+          ? ''
+          : beautypro.authStatus
+            ? ` (auth: ${beautypro.authStatus})`
+            : '';
+    return {
+      id: 'beautypro',
+      label,
+      status: 'ok',
+      message: `Підключено (${branches.length} локацій)${statusNote}`,
+      details: { branchCount: branches.length, authStatus: beautypro.authStatus },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isPending = /pending/i.test(message);
+    return {
+      id: 'beautypro',
+      label,
+      status: isPending ? 'not_configured' : 'error',
+      message: isPending
+        ? 'Очікує Grant access у BeautyPro → Settings → Marketplace'
+        : `BeautyPro не відповідає: ${message.slice(0, 240)}`,
+    };
+  }
+}
+
 async function checkCrmWrite(): Promise<HealthCheckItem> {
   const label = 'CRM (замовлення, write)';
   const write = await isCrmWriteReady();
@@ -490,20 +548,32 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, claudeUsage, crm, cleverbox, crmWrite, stt] = await Promise.all([
-    checkInstagram(),
-    checkClaude(),
-    checkClaudeUsage(),
-    checkCrm(),
-    checkCleverbox(),
-    checkCrmWrite(),
-    checkStt(),
-  ]);
+  const [instagram, claude, claudeUsage, crm, cleverbox, beautypro, crmWrite, stt] =
+    await Promise.all([
+      checkInstagram(),
+      checkClaude(),
+      checkClaudeUsage(),
+      checkCrm(),
+      checkCleverbox(),
+      checkBeautypro(),
+      checkCrmWrite(),
+      checkStt(),
+    ]);
 
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
 
-  const checks = [instagram, claude, claudeUsage, crm, cleverbox, crmWrite, stt, agentLatency];
+  const checks = [
+    instagram,
+    claude,
+    claudeUsage,
+    crm,
+    cleverbox,
+    beautypro,
+    crmWrite,
+    stt,
+    agentLatency,
+  ];
   const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
 
   return {

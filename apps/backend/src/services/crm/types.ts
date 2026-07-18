@@ -179,7 +179,8 @@ export interface CrmLeadInput {
 // ── Booking / salon types (CleverBOX, future providers) ─────────────────
 
 export interface CrmServiceItem {
-  id: number;
+  /** CRM service id — numeric string for CleverBOX, UUID for BeautyPro. */
+  id: string;
   name: string;
   price: number;
   durationMin: number;
@@ -190,7 +191,7 @@ export interface CrmServiceItem {
 export interface CrmSlotQuery {
   date: string;
   branchId: string;
-  services: Array<{ id: number; durationMin: number }>;
+  services: Array<{ id: string; durationMin: number }>;
   fullMonth?: boolean;
 }
 
@@ -202,17 +203,35 @@ export interface CrmSlot {
 
 export interface CrmBookingInput {
   date: string;
-  branchId: number;
-  clientId?: number;
+  /** CRM location / salon id (string — numeric or UUID depending on provider). */
+  branchId: string;
+  clientId?: string;
   clientName: string;
   phone: string;
   comment?: string;
   services: Array<{
-    id: number;
+    id: string;
     durationMin: number;
-    masterId?: number;
+    masterId?: string;
     startTime: string;
   }>;
+}
+
+/** Past visit / sale from CRM client history (BeautyPro last ~2 months). */
+export interface CrmVisitHistoryItem {
+  id: string;
+  date: string;
+  durationMin: number;
+  professionalName?: string;
+  paid?: boolean;
+  items: Array<{
+    name: string;
+    type: string;
+    quantity?: number;
+    sum?: number;
+  }>;
+  feedbackRating?: number;
+  feedbackText?: string;
 }
 
 export interface CrmCapabilities {
@@ -260,8 +279,16 @@ export interface CrmAdapter {
     crmRecordId: string;
     comment?: string;
     paymentLink?: string;
+    /** CRM client id resolved/created during booking (persist on local Client). */
+    crmBuyerId?: string;
   }>;
-  cancelBooking?(recordId: number, reason?: 'move' | 'cancel'): Promise<void>;
+  cancelBooking?(recordId: string, reason?: 'move' | 'cancel'): Promise<void>;
+
+  /** Past visits for duration / preference context (BeautyPro history, etc.). */
+  fetchClientHistory?(
+    crmBuyerId: string,
+    opts?: { limit?: number },
+  ): Promise<CrmVisitHistoryItem[]>;
 
   listCustomFields?(
     scope: 'buyer' | 'order' | 'lead',

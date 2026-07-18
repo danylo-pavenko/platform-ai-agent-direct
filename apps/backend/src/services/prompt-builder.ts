@@ -31,6 +31,9 @@ export interface ClientProfile {
   previousOrdersCount?: number;  // How many orders this client has placed
   previousOrdersSummary?: string; // e.g. "Замовляв: Футболка з принтом (2), Худі"
   conversationsCount?: number;    // Total conversations (incl. current)
+  /** Formatted CRM visit history (BeautyPro etc.) for booking duration planning. */
+  crmVisitHistory?: string;
+  crmBuyerId?: string;
 }
 
 /**
@@ -557,6 +560,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   if (profile.tags && profile.tags.length > 0) {
     historyLines.push(`Теги: ${profile.tags.join(', ')}`);
   }
+  if (profile.crmBuyerId) {
+    historyLines.push(`CRM клієнт: привʼязано (${profile.crmBuyerId.slice(0, 8)}…)`);
+  }
 
   const parts: string[] = [];
 
@@ -565,6 +571,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (historyLines.length > 0) {
     parts.push('\nКонтекст клієнта:\n' + historyLines.join('\n'));
+  }
+  if (profile.crmVisitHistory) {
+    parts.push('\n' + profile.crmVisitHistory);
   }
 
   return parts.join('\n');

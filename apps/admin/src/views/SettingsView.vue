@@ -1692,6 +1692,16 @@
       />
       </div>
 
+      <div v-if="activeSection === 'settings-beautypro'" class="settings-section">
+      <BeautyproCard v-model="integrations.beautypro" />
+
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        @save="saveIntegrations"
+      />
+      </div>
+
       <div v-if="activeSection === 'settings-novaposhta'" class="settings-section">
       <!-- Nova Poshta -->
       <v-card id="settings-novaposhta" class="mb-4">
@@ -2068,6 +2078,7 @@ import { useAuthStore } from '@/stores/auth';
 import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
+import BeautyproCard from '@/components/settings/BeautyproCard.vue';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
 
@@ -2095,6 +2106,7 @@ const settingsNavGroups = [
       { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
       { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
       { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
+      { id: 'settings-beautypro', title: 'BeautyPro', icon: 'mdi-spa' },
       { id: 'settings-novaposhta', title: 'Нова Пошта', icon: 'mdi-truck-fast' },
     ],
   },
@@ -2119,6 +2131,7 @@ const INTEGRATION_SECTION_SET = new Set<string>([
   'settings-telegram',
   'settings-keycrm',
   'settings-cleverbox',
+  'settings-beautypro',
   'settings-novaposhta',
 ]);
 
@@ -2257,6 +2270,18 @@ const integrations = ref({
     apiToken: '',
     defaultBranchId: '',
     syncIntervalMin: 60,
+  },
+  beautypro: {
+    applicationId: '',
+    applicationSecret: '',
+    databaseCode: '',
+    defaultLocationId: '',
+    syncIntervalMin: 60,
+    accessToken: '',
+    refreshToken: '',
+    tokenExpiresAt: '',
+    apiServer: 1,
+    authStatus: '' as '' | 'pending' | 'granted' | 'refused',
   },
   novaposhta: {
     apiKey: '',
@@ -3490,12 +3515,15 @@ async function fetchSettings() {
           ? raw.mode
           : base.mode;
       const defaultProvider =
-        raw.default === 'cleverbox' || raw.default === 'keycrm'
+        raw.default === 'cleverbox' ||
+        raw.default === 'keycrm' ||
+        raw.default === 'beautypro'
           ? raw.default
           : base.default;
       const enabledRaw = Array.isArray(raw.enabled_providers) ? raw.enabled_providers : [];
       const enabled = enabledRaw.filter(
-        (p): p is 'keycrm' | 'cleverbox' => p === 'keycrm' || p === 'cleverbox',
+        (p): p is 'keycrm' | 'cleverbox' | 'beautypro' =>
+          p === 'keycrm' || p === 'cleverbox' || p === 'beautypro',
       );
       const routesRaw =
         raw.routes && typeof raw.routes === 'object' && !Array.isArray(raw.routes)
@@ -3503,7 +3531,7 @@ async function fetchSettings() {
           : {};
       const routes = { ...base.routes };
       for (const [key, val] of Object.entries(routesRaw)) {
-        if (val === 'keycrm' || val === 'cleverbox') {
+        if (val === 'keycrm' || val === 'cleverbox' || val === 'beautypro') {
           routes[key] = val;
         }
       }
@@ -3586,6 +3614,7 @@ async function fetchIntegrations() {
     const t = data.integration_telegram ?? {};
     const k = data.integration_keycrm ?? {};
     const cb = data.integration_cleverbox ?? {};
+    const bp = data.integration_beautypro ?? {};
     const np = data.integration_novaposhta ?? {};
 
     metaPageTokenMasked.value = m.pageAccessToken === '••••••';
@@ -3609,6 +3638,24 @@ async function fetchIntegrations() {
       apiToken:          cb.apiToken          ?? '',
       defaultBranchId:   cb.defaultBranchId   ?? '',
       syncIntervalMin:   cb.syncIntervalMin   ?? 60,
+    };
+    const bpAuth =
+      bp.authStatus === 'pending' ||
+      bp.authStatus === 'granted' ||
+      bp.authStatus === 'refused'
+        ? bp.authStatus
+        : '';
+    integrations.value.beautypro = {
+      applicationId: bp.applicationId ?? '',
+      applicationSecret: bp.applicationSecret ?? '',
+      databaseCode: bp.databaseCode ?? '',
+      defaultLocationId: bp.defaultLocationId ?? '',
+      syncIntervalMin: bp.syncIntervalMin ?? 60,
+      accessToken: bp.accessToken ?? '',
+      refreshToken: bp.refreshToken ?? '',
+      tokenExpiresAt: bp.tokenExpiresAt ?? '',
+      apiServer: typeof bp.apiServer === 'number' ? bp.apiServer : 1,
+      authStatus: bpAuth,
     };
     integrations.value.novaposhta = {
       apiKey:         np.apiKey         ?? '',
@@ -3710,6 +3757,29 @@ async function saveIntegrations() {
       cleverboxPayload.apiToken = cbToken;
     }
 
+    const beautyproPayload: Record<string, unknown> = {
+      applicationId: integrations.value.beautypro.applicationId.trim(),
+      databaseCode: integrations.value.beautypro.databaseCode.trim(),
+      defaultLocationId: integrations.value.beautypro.defaultLocationId.trim(),
+      syncIntervalMin: integrations.value.beautypro.syncIntervalMin,
+      apiServer: integrations.value.beautypro.apiServer || 1,
+      authStatus: integrations.value.beautypro.authStatus || '',
+      tokenExpiresAt: integrations.value.beautypro.tokenExpiresAt || '',
+    };
+    const bpSecret = integrations.value.beautypro.applicationSecret.trim();
+    if (bpSecret && bpSecret !== '••••••') {
+      beautyproPayload.applicationSecret = bpSecret;
+    }
+    // Keep existing tokens unless admin pasted new ones (normally managed by adapter)
+    const bpAccess = integrations.value.beautypro.accessToken.trim();
+    if (bpAccess && bpAccess !== '••••••') {
+      beautyproPayload.accessToken = bpAccess;
+    }
+    const bpRefresh = integrations.value.beautypro.refreshToken.trim();
+    if (bpRefresh && bpRefresh !== '••••••') {
+      beautyproPayload.refreshToken = bpRefresh;
+    }
+
     const npPayload: Record<string, unknown> = {
       senderCity: integrations.value.novaposhta.senderCity,
       senderCityRef: integrations.value.novaposhta.senderCityRef,
@@ -3725,6 +3795,7 @@ async function saveIntegrations() {
         integration_telegram: telegramPayload,
         integration_keycrm: keycrmPayload,
         integration_cleverbox: cleverboxPayload,
+        integration_beautypro: beautyproPayload,
         integration_novaposhta: npPayload,
       }),
       api.put('/settings', {

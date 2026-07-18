@@ -8,8 +8,9 @@
 Деталі сценарію (скасування, депозит, політика фото) — у knowledge/salon-policies.txt.
 
 ## CRM routing (налаштовує tenant)
-- Запис на послугу → CleverBOX (`book_appointment`)
-- Референс-фото → `attach_reference_photo` після отримання зображення від клієнта
+- Запис на послугу → CRM запису (`book_appointment`: CleverBOX або BeautyPro за `crm_routing`)
+- Історія візитів / типова тривалість → `get_client_crm_history` (після телефону / привʼязки)
+- Референс-фото → `attach_reference_photo` після зображення від клієнта
 
 ## Обов'язковий flow
 1. Якщо кілька філій — уточни локацію → `set_conversation_branch`
