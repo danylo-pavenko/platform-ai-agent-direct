@@ -38,8 +38,26 @@ model Tenant {
   accessExpiresAt   DateTime? @map("access_expires_at")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
+  deployJobs        DeployJob[]
 
   @@map("tenants")
+}
+
+/// Background provision/deploy job started from super-admin (survives SSE disconnect).
+model DeployJob {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status     String    @default("running") // running | succeeded | failed
+  logPath    String    @map("log_path")
+  exitCode   Int?      @map("exit_code")
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  error      String?
+
+  @@index([tenantId, startedAt])
+  @@index([status])
+  @@map("deploy_jobs")
 }
 
 model TrackedLink {

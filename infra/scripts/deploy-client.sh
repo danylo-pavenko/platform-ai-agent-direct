@@ -52,6 +52,16 @@ fi
 
 INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
 
+# Serialize deploys for this tenant (super-admin + manual SSH).
+DEPLOY_LOCK="/tmp/deploy-${INSTANCE_ID}.lock"
+exec 9>"${DEPLOY_LOCK}"
+if ! flock -n 9; then
+  echo "ERROR: Deploy already running for instance '${INSTANCE_ID}' (lock: ${DEPLOY_LOCK})."
+  echo "       Wait for it to finish, or check: ps aux | grep deploy-client"
+  exit 1
+fi
+echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
+
 # npm ci can fail with ENOTEMPTY when node_modules is partially corrupted; one clean retry only.
 npm_ci_with_enotempty_retry() {
   local _log

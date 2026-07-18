@@ -40,28 +40,27 @@ echo "[3/6] Generating Prisma client..."
 cd "${APP_DIR}"
 DATABASE_URL="${DATABASE_URL}" npx prisma generate --schema=prisma/schema.prisma
 
-# ── 3b. Sync DB schema (db push = apply schema without migration history) ──
-# Uses --accept-data-loss because we manage schema via Prisma only (no manual ALTER).
-# Safe on a fresh or already-in-sync DB. Idempotent.
-echo "[3b/6] Syncing database schema (prisma db push)..."
-DATABASE_URL="${DATABASE_URL}" npx prisma db push --schema=prisma/schema.prisma --accept-data-loss || {
-  echo ""
-  echo "  ✗ prisma db push failed."
-  echo "  Likely cause: DB user lacks privileges on the schema."
-  echo "  Fix (run as postgres superuser):"
-  echo ""
-  # Extract user from DATABASE_URL: postgresql://USER:pass@host/db
-  DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
-  DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
-  echo "    sudo -u postgres psql ${DB_NAME} -c \\"
-  echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
-  echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
-  echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
-  echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
-  echo ""
-  echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
-  exit 1
-}
+# ── 3b. Sync DB schema (prefer migrate; fallback to db push) ──
+echo "[3b/6] Syncing database schema..."
+if ! DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy --schema=prisma/schema.prisma; then
+  echo "  migrate deploy failed — falling back to prisma db push..."
+  DATABASE_URL="${DATABASE_URL}" npx prisma db push --schema=prisma/schema.prisma --accept-data-loss || {
+    echo ""
+    echo "  ✗ prisma schema sync failed."
+    echo "  Likely cause: DB user lacks privileges on the schema."
+    echo ""
+    DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
+    DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
+    echo "    sudo -u postgres psql ${DB_NAME} -c \\"
+    echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
+    echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
+    echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
+    echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
+    echo ""
+    echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
+    exit 1
+  }
+fi
 
 cd "${PROJECT_ROOT}"
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import { exec, spawn } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
 import {
@@ -16,18 +16,16 @@ import {
   platformDefaultsForSlug,
   suggestNextPortPair,
 } from '../lib/tenant-domains.js';
-import {
-  buildEnvMergePatch,
-  buildEnvMergeScript,
-  buildProvisionClientArgs,
-  listLiveApiPorts,
-  provisionClientEnv,
-  resolveMergeEnvScriptPath,
-  resolveProvisionScriptPath,
-} from '../lib/tenant-provision.js';
+import { listLiveApiPorts } from '../lib/tenant-provision.js';
 import { DEFAULT_TENANT_GIT_REPO } from '../lib/constants.js';
 import { computeExtendedExpiry } from '../lib/tenant-access.js';
-
+import {
+  followDeployLog,
+  getActiveDeployJob,
+  getDeployJob,
+  getLatestDeployJob,
+  startDeployJob,
+} from '../lib/deploy-job.js';
 const execAsync = promisify(exec);
 const prisma = new PrismaClient();
 
@@ -336,176 +334,99 @@ export async function tenantsRoutes(app: FastifyInstance) {
     }
   });
 
-  // Trigger deploy for tenant (legacy non-streaming, kept for compat)
+  // Start deploy job (or return already-running job). Detached from HTTP lifetime.
   app.post<{ Params: { id: string } }>('/api/tenants/:id/deploy', auth, async (req, reply) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
 
-    const deployScript = `${tenant.appDir}/infra/scripts/deploy-client.sh`;
-    const cmd = `sudo -u ${tenant.linuxUser} bash ${deployScript}`;
-
-    app.log.info({ cmd }, 'Triggering deploy');
     try {
-      const { stdout, stderr } = await execAsync(cmd, { timeout: 300_000 });
-      return { ok: true, stdout: stdout.slice(-2000), stderr: stderr.slice(-500) };
+      const result = await startDeployJob(tenant.id);
+      return {
+        ok: true,
+        started: result.started,
+        job: result.job,
+      };
     } catch (err: any) {
-      app.log.error({ err }, 'Deploy failed');
+      app.log.error({ err }, 'Failed to start deploy job');
       return reply.status(500).send({ ok: false, error: err.message });
     }
   });
 
-  // Stream deploy logs via SSE (with auto-provision on first deploy)
-  app.get<{ Params: { id: string } }>('/api/tenants/:id/deploy/stream', auth, async (req, reply) => {
+  // Latest / active deploy job status for UI (button disable + reopen log).
+  app.get<{ Params: { id: string } }>('/api/tenants/:id/deploy/status', auth, async (req, reply) => {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
 
-    reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-      'Connection': 'keep-alive',
-    });
-
-    const send = (line: string) => reply.raw.write(`data: ${line}\n\n`);
-    send(`[deploy started] ${tenant.name} (${tenant.instanceId})`);
-
-    // Run a command, stream its output, return exit code
-    const runStream = (args: string[], stdin?: string): Promise<number> =>
-      new Promise((resolve) => {
-        const child = spawn(args[0], args.slice(1), {
-          stdio: stdin !== undefined ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
-        });
-        if (stdin !== undefined) {
-          (child.stdin as NodeJS.WritableStream).write(stdin);
-          (child.stdin as NodeJS.WritableStream).end();
-        }
-        child.stdout?.on('data', (chunk: Buffer) => {
-          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(l); });
-        });
-        child.stderr?.on('data', (chunk: Buffer) => {
-          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(`[err] ${l}`); });
-        });
-        req.raw.on('close', () => child.kill());
-        child.on('close', resolve);
-        child.on('error', (err: Error) => { send(`[error] ${err.message}`); resolve(1); });
-      });
-
-    const deployScript = `${tenant.appDir}/infra/scripts/deploy-client.sh`;
-
-    // Check if project is already cloned
-    const checkCode = await runStream(
-      ['bash', '-c', `sudo -u ${tenant.linuxUser} test -f '${deployScript}'`],
-    );
-
-    if (checkCode !== 0) {
-      // ── Auto-provision via provision-client.sh ─────────────────────────────
-      const dirNonEmptyCode = await runStream([
-        'bash', '-c',
-        `sudo -u ${tenant.linuxUser} bash -c '[ -d "${tenant.appDir}" ] && [ -n "$(ls -A "${tenant.appDir}" 2>/dev/null)" ]'`,
-      ]);
-      if (dirNonEmptyCode === 0) {
-        send(`[error] ${tenant.appDir} already exists and is not empty, but deploy-client.sh was not found.`);
-        send('[error] Re-provision aborted to protect existing data. Check App Dir / Linux User / sudo permissions, or clean the directory manually.');
-        send('[✗ provision aborted]');
-        reply.raw.end();
-        return;
-      }
-
-      send('[provision] Project not found — running provision-client.sh (user, DB, nginx, TLS, clone)...');
-
-      let provisionScript: string;
-      try {
-        provisionScript = await resolveProvisionScriptPath();
-      } catch (err: any) {
-        send(`[error] ${err.message}`);
-        send('[✗ provision failed]');
-        reply.raw.end();
-        return;
-      }
-
-      const provisionArgs = buildProvisionClientArgs(tenant);
-      send(`[provision] bash ${provisionScript} ${provisionArgs.join(' ')}`);
-
-      app.log.info({ provisionScript, provisionArgs }, 'Running provision-client.sh');
-      const provisionCode = await new Promise<number>((resolveExit) => {
-        const child = spawn('sudo', ['bash', provisionScript, ...provisionArgs], {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: provisionClientEnv(tenant),
-        });
-        child.stdout?.on('data', (chunk: Buffer) => {
-          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(l); });
-        });
-        child.stderr?.on('data', (chunk: Buffer) => {
-          chunk.toString().split('\n').forEach((l) => { if (l.trim()) send(`[err] ${l}`); });
-        });
-        req.raw.on('close', () => child.kill());
-        child.on('close', resolveExit);
-        child.on('error', (err: Error) => { send(`[error] ${err.message}`); resolveExit(1); });
-      });
-
-      if (provisionCode !== 0) {
-        send('[✗ provision failed — check errors above]');
-        reply.raw.end();
-        return;
-      }
-
-      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, true, config.SA_API_PORT);
-      let mergeScript = '';
-      try {
-        const mergeScriptPath = await resolveMergeEnvScriptPath();
-        mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
-      } catch (err: any) {
-        send(`[warn] env merge script not found: ${err.message}`);
-      }
-      if (mergeScript) {
-        send('[provision] Merging super-admin env overrides into .env...');
-        const mergeCode = await runStream(['sudo', 'bash', '-s'], mergeScript);
-        if (mergeCode !== 0) {
-          send('[✗ env merge failed]');
-          reply.raw.end();
-          return;
-        }
-      }
-
-      send('[provision] ✓ Server setup complete');
-      send('[provision] Starting deploy...');
-    } else {
-      send('[check] Existing installation found — running safe update deploy (re-provision skipped, .env untouched)');
-
-      const envPatch = buildEnvMergePatch(tenant, config.SUPERVISOR_SHARED_SECRET, false, config.SA_API_PORT);
-      try {
-        const mergeScriptPath = await resolveMergeEnvScriptPath();
-        const mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
-        if (mergeScript) await runStream(['sudo', 'bash', '-s'], mergeScript);
-      } catch {
-        // optional on redeploy
-      }
-    }
-
-    // ── Deploy ──────────────────────────────────────────────────────────────
-    app.log.info({ deployScript }, 'Running deploy-client.sh');
-    const deployCode = await runStream([
-      'bash', '-c', `sudo -u ${tenant.linuxUser} bash '${deployScript}'`,
-    ]);
-
-    send(deployCode === 0
-      ? '[✓ deploy finished successfully]'
-      : `[✗ deploy failed with exit code ${deployCode}]`);
-
-    if (deployCode === 0 && tenant.status === 'provisioned') {
-      try {
-        await prisma.tenant.update({
-          where: { id: tenant.id },
-          data: { status: 'active' },
-        });
-        send('[status] Registry updated: provisioned → active');
-      } catch (err: any) {
-        send(`[warn] Deploy OK but failed to set status=active: ${err?.message ?? err}`);
-      }
-    }
-
-    reply.raw.end();
+    const active = await getActiveDeployJob(tenant.id);
+    const latest = active ?? (await getLatestDeployJob(tenant.id));
+    return {
+      running: Boolean(active),
+      job: latest,
+    };
   });
+
+  // Stream deploy logs via SSE. Starts a job if none running; never kills on disconnect.
+  app.get<{ Params: { id: string }; Querystring: { jobId?: string } }>(
+    '/api/tenants/:id/deploy/stream',
+    auth,
+    async (req, reply) => {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+      if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+      let jobId = '';
+      const rawJobId = req.query.jobId;
+      if (typeof rawJobId === 'string' && rawJobId.trim()) {
+        jobId = rawJobId.trim();
+      } else if (Array.isArray(rawJobId) && typeof rawJobId[0] === 'string') {
+        jobId = rawJobId[0].trim();
+      }
+
+      if (jobId) {
+        const existing = await getDeployJob(jobId);
+        if (!existing || existing.tenantId !== tenant.id) {
+          return reply.status(404).send({ error: 'Deploy job not found' });
+        }
+      } else {
+        const result = await startDeployJob(tenant.id);
+        jobId = result.job.id;
+      }
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+        Connection: 'keep-alive',
+      });
+
+      let clientOpen = true;
+      req.raw.on('close', () => {
+        clientOpen = false;
+      });
+
+      const send = (line: string) => {
+        if (!clientOpen) return;
+        try {
+          reply.raw.write(`data: ${line}\n\n`);
+        } catch {
+          clientOpen = false;
+        }
+      };
+
+      try {
+        await followDeployLog(jobId, send, () => clientOpen);
+      } catch (err: any) {
+        send(`[error] ${err?.message ?? err}`);
+      }
+
+      if (clientOpen) {
+        try {
+          reply.raw.end();
+        } catch {
+          // ignore
+        }
+      }
+    },
+  );
 
   // Proxy supervisor chat to tenant backend.
   // Accepts { message, history } from the UI and forwards as

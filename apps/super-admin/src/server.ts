@@ -73,6 +73,9 @@ app.setNotFoundHandler(async (req, reply) => {
 
 // ── Start ──
 try {
+  const { markStaleDeployJobsFailed } = await import('./lib/deploy-job.js');
+  await markStaleDeployJobsFailed();
+
   await app.listen({ port: config.SA_API_PORT, host: '127.0.0.1' });
   app.log.info(`Super Admin API running on port ${config.SA_API_PORT}`);
 } catch (err) {

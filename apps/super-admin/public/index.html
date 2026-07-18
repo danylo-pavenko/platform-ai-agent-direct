@@ -545,9 +545,15 @@
                       </button>
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
-                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
+                      <button
+                        v-if="isDeployRunning(t.id)"
+                        class="btn btn-ghost btn-sm"
+                        @click="openDeployLog(t)"
+                        title="Відкрити лог поточного деплою"
+                      >📋 Log</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
                         :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
-                        {{ deploying===t.id ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
+                        {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                     </div>
                   </td>
@@ -615,9 +621,15 @@
                       </button>
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
-                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="deploying===t.id"
+                      <button
+                        v-if="isDeployRunning(t.id)"
+                        class="btn btn-ghost btn-sm"
+                        @click="openDeployLog(t)"
+                        title="Відкрити лог поточного деплою"
+                      >📋 Log</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
                         :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
-                        {{ deploying===t.id ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
+                        {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
                     </div>
@@ -1336,19 +1348,22 @@
     </div>
   </div>
 
-  <!-- Deploy log modal -->
-  <div class="modal-overlay" v-if="deployLog.open" @click.self="!deployLog.running && (deployLog.open=false)">
+  <!-- Deploy log modal — can close while running; job continues on server -->
+  <div class="modal-overlay" v-if="deployLog.open" @click.self="deployLog.open=false">
     <div class="modal" style="width:660px;max-width:96vw">
       <h2>
         <span v-if="deployLog.running" class="deploy-running"></span>
         🚀 Deploy: {{ deployLog.name }}
       </h2>
+      <p v-if="deployLog.running" style="font-size:11px;color:var(--muted);margin:-8px 0 12px">
+        Деплой триває у фоні — можна закрити вікно і відкрити лог знову кнопкою «Log».
+      </p>
       <div class="deploy-log-wrap">
         <div class="deploy-log" ref="deployLogEl" v-html="deployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-ghost" @click="deployLog.open=false" :disabled="deployLog.running">
-          {{ deployLog.running ? 'Running...' : 'Close' }}
+        <button class="btn btn-ghost" @click="deployLog.open=false">
+          {{ deployLog.running ? 'Hide (keeps running)' : 'Close' }}
         </button>
       </div>
     </div>
@@ -1378,12 +1393,20 @@ createApp({
     const tenants = ref([]);
     const health = reactive({});
     const deploying = ref(null);
-    const deployLog = reactive({ open: false, name: '', text: '', html: '', running: false });
+    const deployJobs = reactive({}); // tenantId -> { running, job }
+    const deployLog = reactive({ open: false, name: '', text: '', html: '', running: false, tenantId: null, jobId: null });
     const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
     const chatMessages = ref(null);
     const deployLogEl = ref(null);
     const tenantModalOverlay = ref(null);
     const slugInputEl = ref(null);
+
+    function isDeployRunning(tenantId) {
+      return !!deployJobs[tenantId]?.running;
+    }
+    function isDeployBusy(tenantId) {
+      return deploying.value === tenantId || isDeployRunning(tenantId);
+    }
 
     function resetTenantModalScroll(focusSlug) {
       nextTick(() => {
@@ -2120,6 +2143,134 @@ createApp({
           .catch(() => {
             health[t.id] = { online: false, deployed: t.status === 'provisioned' ? false : null };
           });
+        refreshDeployStatus(t.id);
+      }
+    }
+
+    async function refreshDeployStatus(tenantId) {
+      try {
+        const r = await fetch(`${BASE}/tenants/${tenantId}/deploy/status`, { headers: authHeaders() });
+        if (!r.ok) return;
+        const d = await r.json();
+        deployJobs[tenantId] = { running: !!d.running, job: d.job || null };
+      } catch {
+        // ignore
+      }
+    }
+
+    function escapeLine(line) {
+      return line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function appendDeployLine(line) {
+      const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
+      const isDone = line.startsWith('[✓') || line.startsWith('[✗') || line.startsWith('[job] finished');
+      const escaped = escapeLine(line);
+      let span;
+      if (isErr) span = `<span class="err-line">${escaped}</span>`;
+      else if (isDone) span = `<strong style="color:${line.startsWith('[✓') || line.includes('succeeded') ? '#22c55e' : '#ef4444'}">${escaped}</strong>`;
+      else span = escaped;
+      deployLog.html += (deployLog.html ? '\n' : '') + span;
+      nextTick(() => {
+        if (deployLogEl.value) deployLogEl.value.scrollTop = deployLogEl.value.scrollHeight;
+      });
+    }
+
+    async function streamDeployLog(tenantId, jobId) {
+      const url = jobId
+        ? `${BASE}/tenants/${tenantId}/deploy/stream?jobId=${encodeURIComponent(jobId)}`
+        : `${BASE}/tenants/${tenantId}/deploy/stream`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+      if (!r.ok) {
+        appendDeployLine(`[error] HTTP ${r.status} ${r.statusText}`);
+        return;
+      }
+
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split('\n\n');
+        buf = parts.pop() ?? '';
+        for (const part of parts) {
+          if (part.startsWith('data: ')) appendDeployLine(part.slice(6));
+        }
+      }
+      if (buf.startsWith('data: ')) appendDeployLine(buf.slice(6));
+    }
+
+    async function openDeployLog(t) {
+      await refreshDeployStatus(t.id);
+      const job = deployJobs[t.id]?.job;
+      deployLog.open = true;
+      deployLog.name = t.name;
+      deployLog.tenantId = t.id;
+      deployLog.jobId = job?.id || null;
+      deployLog.text = '';
+      deployLog.html = '';
+      deployLog.running = !!deployJobs[t.id]?.running;
+
+      if (!job?.id) {
+        appendDeployLine('[error] No deploy job found');
+        return;
+      }
+
+      try {
+        await streamDeployLog(t.id, job.id);
+      } catch (e) {
+        appendDeployLine(`[error] ${e.message}`);
+      } finally {
+        deployLog.running = false;
+        await refreshDeployStatus(t.id);
+        await loadTenants();
+      }
+    }
+
+    async function triggerDeploy(t) {
+      if (isDeployBusy(t.id)) {
+        openDeployLog(t);
+        return;
+      }
+
+      deploying.value = t.id;
+      deployLog.open = true;
+      deployLog.name = t.name;
+      deployLog.tenantId = t.id;
+      deployLog.jobId = null;
+      deployLog.text = '';
+      deployLog.html = '';
+      deployLog.running = true;
+
+      try {
+        const startRes = await fetch(`${BASE}/tenants/${t.id}/deploy`, {
+          method: 'POST',
+          headers: authHeaders(),
+        });
+        const startData = await startRes.json().catch(() => ({}));
+        if (!startRes.ok) {
+          appendDeployLine(`[error] ${startData.error || `HTTP ${startRes.status}`}`);
+          return;
+        }
+
+        const jobId = startData.job?.id;
+        deployLog.jobId = jobId || null;
+        deployJobs[t.id] = { running: true, job: startData.job || null };
+        if (!startData.started) {
+          appendDeployLine('[job] Attach to already-running deploy');
+        }
+
+        await streamDeployLog(t.id, jobId);
+      } catch (e) {
+        appendDeployLine(`[error] ${e.message}`);
+      } finally {
+        deploying.value = null;
+        deployLog.running = false;
+        await refreshDeployStatus(t.id);
+        await loadTenants();
       }
     }
 
@@ -2210,70 +2361,6 @@ createApp({
       await loadTenants();
     }
 
-    function escapeLine(line) {
-      return line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-
-    async function triggerDeploy(t) {
-      deploying.value = t.id;
-      deployLog.open = true;
-      deployLog.name = t.name;
-      deployLog.text = '';
-      deployLog.html = '';
-      deployLog.running = true;
-
-      function appendLine(line) {
-        const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
-        const isDone = line.startsWith('[✓') || line.startsWith('[✗');
-        const escaped = escapeLine(line);
-        let span;
-        if (isErr) span = `<span class="err-line">${escaped}</span>`;
-        else if (isDone) span = `<strong style="color:${line.startsWith('[✓') ? '#22c55e' : '#ef4444'}">${escaped}</strong>`;
-        else span = escaped;
-        deployLog.html += (deployLog.html ? '\n' : '') + span;
-        nextTick(() => {
-          if (deployLogEl.value) deployLogEl.value.scrollTop = deployLogEl.value.scrollHeight;
-        });
-      }
-
-      try {
-        const r = await fetch(`${BASE}/tenants/${t.id}/deploy/stream`, {
-          headers: { Authorization: `Bearer ${auth.token}` },
-        });
-
-        if (!r.ok) {
-          appendLine(`[error] HTTP ${r.status} ${r.statusText}`);
-          return;
-        }
-
-        const reader = r.body.getReader();
-        const decoder = new TextDecoder();
-        let buf = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buf += decoder.decode(value, { stream: true });
-          const parts = buf.split('\n\n');
-          buf = parts.pop() ?? '';
-          for (const part of parts) {
-            if (part.startsWith('data: ')) {
-              appendLine(part.slice(6));
-            }
-          }
-        }
-        // flush remaining
-        if (buf.startsWith('data: ')) appendLine(buf.slice(6));
-
-      } catch (e) {
-        appendLine(`[error] ${e.message}`);
-      } finally {
-        deploying.value = null;
-        deployLog.running = false;
-        await loadTenants();
-      }
-    }
-
     async function checkClaudeHealth(t) {
       claudeHealth.loading = t.id;
       claudeHealth.tenantName = t.name;
@@ -2345,14 +2432,15 @@ createApp({
     });
 
     return {
-      auth, login, page, sidebarOpen, tenants, health, deploying, deployLog, deployLogEl,
+      auth, login, page, sidebarOpen, tenants, health, deploying, deployJobs, deployLog, deployLogEl,
       chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
       tenantModalOverlay, slugInputEl,
       fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort, platformPreview,
       links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
-      triggerDeploy, openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
+      triggerDeploy, openDeployLog, isDeployRunning, isDeployBusy,
+      openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
       openAccessModal, applyAccessExtend, applyAccessAction, applyAccessSetDate,
       onSlugInput, onCustomInstanceIdInput, onDomainModeChange, refreshPortDefaults,
       loadLinks, openLinkModal, saveLink, toggleLink, deleteLink, copyText,
