@@ -13,17 +13,34 @@
     <template v-else>
       <v-row>
         <v-col cols="12" lg="3" class="settings-nav-col">
-          <v-card variant="outlined" class="settings-nav-card mb-4">
+          <v-select
+            class="d-lg-none mb-4"
+            :model-value="activeSection"
+            :items="settingsNavFlat"
+            item-title="title"
+            item-value="id"
+            label="Розділ"
+            variant="outlined"
+            density="compact"
+            hide-details
+            @update:model-value="onMobileSectionSelect"
+          />
+          <v-card variant="outlined" class="settings-nav-card mb-4 d-none d-lg-block">
             <v-list density="compact" nav>
-              <v-list-subheader>Навігація</v-list-subheader>
-              <v-list-item
-                v-for="item in settingsNav"
-                :key="item.id"
-                :prepend-icon="item.icon"
-                :title="item.title"
-                rounded
-                @click="scrollToSection(item.id)"
-              />
+              <template v-for="(group, gi) in settingsNavGroups" :key="group.label">
+                <v-divider v-if="gi > 0" class="my-2" />
+                <v-list-subheader>{{ group.label }}</v-list-subheader>
+                <v-list-item
+                  v-for="item in group.items"
+                  :key="item.id"
+                  :prepend-icon="item.icon"
+                  :title="item.title"
+                  :active="activeSection === item.id"
+                  color="primary"
+                  rounded
+                  @click="selectSection(item.id)"
+                />
+              </template>
               <v-divider class="my-2" />
               <v-list-item
                 prepend-icon="mdi-sync"
@@ -36,6 +53,8 @@
           </v-card>
         </v-col>
         <v-col cols="12" lg="9">
+
+      <div v-if="activeSection === 'settings-health'" class="settings-section">
       <!-- Health Check -->
       <v-card id="settings-health" class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
@@ -106,6 +125,9 @@
       </v-card>
 
       <!-- Claude CLI auth -->
+      </div>
+
+      <div v-if="activeSection === 'settings-claude'" class="settings-section">
       <v-card id="settings-claude" class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
           <v-icon start color="indigo">mdi-login</v-icon>
@@ -428,6 +450,9 @@
       </v-card>
 
       <!-- Runtime mode (Public / Debug) -->
+      </div>
+
+      <div v-if="activeSection === 'settings-runtime'" class="settings-section">
       <v-card id="settings-runtime" class="mb-4">
         <v-card-title class="d-flex align-center ga-2 flex-wrap">
           <v-icon start :color="runtimeMode === 'public' ? 'success' : 'warning'">
@@ -696,6 +721,9 @@
       </v-card>
 
       <!-- Agent type & SLA (agent_config) -->
+      </div>
+
+      <div v-if="activeSection === 'settings-agent'" class="settings-section">
       <v-card id="settings-agent" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="deep-purple">mdi-account-tie</v-icon>
@@ -946,16 +974,18 @@
           </v-btn>
         </v-col>
       </v-row>
+      </div>
 
-      <v-divider class="mb-4" />
-
+      <div v-if="activeSection === 'settings-crm-routing'" class="settings-section">
       <CrmRoutingCard v-model="crmRouting" />
+      </div>
 
+      <div v-if="activeSection === 'settings-branches'" class="settings-section">
       <BranchesCard />
 
-      <!-- ── Integrations ── -->
-      <div class="integrations-title">Інтеграції</div>
+      </div>
 
+      <div v-if="activeSection === 'settings-instagram'" class="settings-section">
       <!-- Instagram -->
       <v-card id="settings-instagram" class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -1382,6 +1412,14 @@
         </v-card-text>
       </v-card>
 
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        @save="saveIntegrations"
+      />
+      </div>
+
+      <div v-if="activeSection === 'settings-telegram'" class="settings-section">
       <TelegramBotsCard
         v-model="integrations.telegram.bots"
         :saving="savingIntegrations"
@@ -1453,7 +1491,9 @@
           {{ metaAgentTestResult.reply }}
         </div>
       </v-alert>
+      </div>
 
+      <div v-if="activeSection === 'settings-keycrm'" class="settings-section">
       <!-- KeyCRM -->
       <v-card id="settings-keycrm" class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -1587,10 +1627,26 @@
         </v-card-text>
       </v-card>
 
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        @save="saveIntegrations"
+      />
+      </div>
+
+      <div v-if="activeSection === 'settings-cleverbox'" class="settings-section">
       <CleverboxCard v-model="integrations.cleverbox" />
 
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        @save="saveIntegrations"
+      />
+      </div>
+
+      <div v-if="activeSection === 'settings-novaposhta'" class="settings-section">
       <!-- Nova Poshta -->
-      <v-card class="mb-4">
+      <v-card id="settings-novaposhta" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="red-darken-1">mdi-truck-fast</v-icon>
           Нова Пошта
@@ -1652,6 +1708,14 @@
         </v-card-text>
       </v-card>
 
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        @save="saveIntegrations"
+      />
+      </div>
+
+      <div v-if="activeSection === 'settings-account'" class="settings-section">
       <!-- Account security -->
       <v-card id="settings-account" class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -1752,31 +1816,7 @@
           </v-btn>
         </v-card-text>
       </v-card>
-
-      <!-- Save integrations -->
-      <v-row class="mb-5">
-        <v-col cols="auto">
-          <v-btn
-            color="primary"
-            size="large"
-            :loading="savingIntegrations"
-            @click="saveIntegrations"
-          >
-            <v-icon start>mdi-content-save</v-icon>
-            Зберегти інтеграції
-          </v-btn>
-        </v-col>
-        <v-col cols="auto" class="d-flex align-center">
-          <v-chip
-            v-if="integrationsSaved"
-            color="success"
-            size="small"
-            prepend-icon="mdi-check"
-          >
-            Збережено - перезапустіть сервер
-          </v-chip>
-        </v-col>
-      </v-row>
+      </div>
 
       <v-alert v-if="error" type="error" density="compact" class="mb-4">
         {{ error }}
@@ -1981,24 +2021,85 @@ import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
+import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
 
-const settingsNav = [
-  { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
-  { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
-  { id: 'settings-runtime', title: 'Режим бота', icon: 'mdi-toggle-switch' },
-  { id: 'settings-agent', title: 'Агент і SLA', icon: 'mdi-head-cog' },
-  { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
-  { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
-  { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
-  { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
-  { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
-  { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
-  { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
+const settingsNavGroups = [
+  {
+    label: 'Система',
+    items: [
+      { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
+      { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
+      { id: 'settings-runtime', title: 'Режим бота', icon: 'mdi-toggle-switch' },
+      { id: 'settings-agent', title: 'Агент і SLA', icon: 'mdi-head-cog' },
+    ],
+  },
+  {
+    label: 'CRM і філії',
+    items: [
+      { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
+      { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
+    ],
+  },
+  {
+    label: 'Інтеграції',
+    items: [
+      { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
+      { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
+      { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
+      { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
+      { id: 'settings-novaposhta', title: 'Нова Пошта', icon: 'mdi-truck-fast' },
+    ],
+  },
+  {
+    label: 'Акаунт',
+    items: [
+      { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
+    ],
+  },
 ] as const;
 
-function scrollToSection(id: string) {
-  const el = document.getElementById(id);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+type SettingsSectionId = (typeof settingsNavGroups)[number]['items'][number]['id'];
+
+const settingsNavFlat = settingsNavGroups.flatMap((g) => [...g.items]);
+
+const activeSection = ref<SettingsSectionId>('settings-health');
+const integrationsLoaded = ref(false);
+const claudeSectionLoaded = ref(false);
+
+const INTEGRATION_SECTION_SET = new Set<string>([
+  'settings-instagram',
+  'settings-telegram',
+  'settings-keycrm',
+  'settings-cleverbox',
+  'settings-novaposhta',
+]);
+
+function selectSection(id: SettingsSectionId) {
+  activeSection.value = id;
+  if (typeof history !== 'undefined' && history.replaceState) {
+    history.replaceState(null, '', `#${id}`);
+  }
+  void ensureSectionData(id);
+}
+
+function onMobileSectionSelect(id: unknown) {
+  if (typeof id !== 'string') return;
+  if (!settingsNavFlat.some((item) => item.id === id)) return;
+  selectSection(id as SettingsSectionId);
+}
+
+async function ensureSectionData(id: SettingsSectionId) {
+  if (INTEGRATION_SECTION_SET.has(id) && !integrationsLoaded.value) {
+    await fetchIntegrations();
+    integrationsLoaded.value = true;
+  }
+  if (id === 'settings-claude' && !claudeSectionLoaded.value) {
+    await Promise.all([
+      refreshClaudeUsage(false),
+      loadClaudeAuth(false, true).then(() => resumeClaudeLoginIfNeeded()),
+    ]);
+    claudeSectionLoaded.value = true;
+  }
 }
 
 const authStore = useAuthStore();
@@ -2022,7 +2123,7 @@ const days = [
   { key: 'sun', label: 'Неділя' },
 ];
 
-const loading = ref(false);
+const loading = ref(true);
 const saving = ref(false);
 const savingIntegrations = ref(false);
 const integrationsSaved = ref(false);
@@ -3599,11 +3700,14 @@ async function saveTelegramBots() {
   }
 }
 
-onMounted(() => {
-  fetchSettings();
-  fetchIntegrations();
-  void refreshClaudeUsage(false);
-  void loadClaudeAuth(false, true).then(() => resumeClaudeLoginIfNeeded());
+onMounted(async () => {
+  await fetchSettings();
+  const hash = (typeof location !== 'undefined' ? location.hash : '').replace(/^#/, '');
+  const allIds = settingsNavGroups.flatMap((g) => g.items.map((i) => i.id));
+  if (allIds.includes(hash as SettingsSectionId)) {
+    activeSection.value = hash as SettingsSectionId;
+  }
+  await ensureSectionData(activeSection.value);
 });
 
 onUnmounted(() => {
@@ -3722,6 +3826,10 @@ onUnmounted(() => {
 
 .health-check-item + .health-check-item {
   border-top: 1px solid #e8ecf1;
+}
+
+.settings-section {
+  min-height: 120px;
 }
 
 /* ── Settings side nav ─────────────────────────────────────────────────── */

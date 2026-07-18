@@ -133,19 +133,19 @@
           </v-col>
         </v-row>
 
-        <div class="text-caption text-medium-emphasis mb-1">Типи сповіщень</div>
-        <div class="d-flex flex-wrap ga-1">
-          <v-checkbox
+        <div class="text-caption text-medium-emphasis mb-2">Типи сповіщень</div>
+        <v-chip-group v-model="bot.channels" multiple column selected-class="text-primary">
+          <v-chip
             v-for="ch in channelOptions"
             :key="ch.value"
-            v-model="bot.channels"
-            :label="ch.label"
             :value="ch.value"
-            density="compact"
-            hide-details
-            class="channel-check"
-          />
-        </div>
+            filter
+            variant="outlined"
+            size="small"
+          >
+            {{ ch.label }}
+          </v-chip>
+        </v-chip-group>
       </div>
 
       <div class="d-flex flex-wrap align-center ga-2 mt-2">
@@ -164,7 +164,7 @@
           size="small"
           prepend-icon="mdi-content-save"
           :loading="saving"
-          @click="emitSave"
+          @click="commitAndSave"
         >
           Зберегти Telegram
         </v-btn>
@@ -228,25 +228,19 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+/** Local draft — edits stay here until Save (no parent re-render on keystroke). */
 const bots = ref<TelegramBotForm[]>(normalizeIncoming(props.modelValue));
 const showHelp = ref(false);
 const showToken = reactive<Record<string, boolean>>({});
 const showPassword = reactive<Record<string, boolean>>({});
 
+// Sync from parent only when the array reference changes (e.g. after fetch/save),
+ // not on every deep mutation — avoids dual deep-watch feedback loops.
 watch(
   () => props.modelValue,
   (v) => {
     bots.value = normalizeIncoming(v);
   },
-  { deep: true },
-);
-
-watch(
-  bots,
-  (v) => {
-    emit('update:modelValue', v);
-  },
-  { deep: true },
 );
 
 function normalizeIncoming(list: TelegramBotForm[] | undefined): TelegramBotForm[] {
@@ -276,6 +270,13 @@ function normalizeIncoming(list: TelegramBotForm[] | undefined): TelegramBotForm
   return copy;
 }
 
+function snapshotBots(): TelegramBotForm[] {
+  return bots.value.map((b) => ({
+    ...b,
+    channels: [...b.channels],
+  }));
+}
+
 function setPrimary(id: string) {
   for (const b of bots.value) {
     b.isPrimary = b.id === id;
@@ -302,7 +303,8 @@ function removeBot(idx: number) {
   bots.value.splice(idx, 1);
 }
 
-function emitSave() {
+function commitAndSave() {
+  emit('update:modelValue', snapshotBots());
   emit('save');
 }
 </script>
@@ -316,9 +318,5 @@ function emitSave() {
 
 .bot-label-field {
   max-width: 220px;
-}
-
-.channel-check {
-  margin-inline-end: 4px;
 }
 </style>
