@@ -25,6 +25,11 @@ export interface ClaudeAuthStatus {
   loggedIn: boolean;
   /** auth status JSON said loggedIn but live API probe failed (401 / expired token). */
   sessionExpired: boolean;
+  /**
+   * True if this instance has (or had) Claude credentials / account metadata —
+   * email, auth method, org, or an expired session. False = never authorized here.
+   */
+  previouslyAuthorized: boolean;
   authMethod: string | null;
   email: string | null;
   subscriptionType: string | null;
@@ -255,6 +260,21 @@ function attachLoginListeners(session: LoginSession): void {
 }
 
 /** Compact snapshot for meta-agent / supervisor prompts (no secrets). */
+function derivePreviouslyAuthorized(
+  json: AuthStatusJson | null,
+  sessionExpired = false,
+): boolean {
+  if (sessionExpired) return true;
+  if (!json) return false;
+  return Boolean(
+    json.email ||
+      json.authMethod ||
+      json.orgName ||
+      json.loggedIn === true ||
+      json.subscriptionType,
+  );
+}
+
 export function formatClaudeAuthSnapshot(status: ClaudeAuthStatus): Record<string, unknown> {
   return {
     binaryOk: status.binaryOk,
@@ -262,6 +282,7 @@ export function formatClaudeAuthSnapshot(status: ClaudeAuthStatus): Record<strin
     binaryVersion: status.binaryVersion,
     loggedIn: status.loggedIn,
     sessionExpired: status.sessionExpired,
+    previouslyAuthorized: status.previouslyAuthorized,
     email: status.email,
     subscriptionType: status.subscriptionType,
     authMethod: status.authMethod,
@@ -299,6 +320,7 @@ export async function getClaudeAuthStatus(
     binaryVersion: binary.version,
     loggedIn: false,
     sessionExpired: false,
+    previouslyAuthorized: false,
     authMethod: null,
     email: null,
     subscriptionType: null,
@@ -311,38 +333,49 @@ export async function getClaudeAuthStatus(
     return baseUnavailable(binary.error ?? 'Claude CLI недоступний');
   }
 
+  // Prefer one `auth status` JSON parse; only fall back to text heuristics if needed.
   const json = await readAuthStatusJson();
-  const sessionCheck = await claudeAuthCheck();
-  const reportedlyLoggedIn = json?.loggedIn === true || (json?.loggedIn !== false && sessionCheck.ok);
+  let reportedlyLoggedIn = json?.loggedIn === true;
+  let notLoggedInError: string | null = 'Claude не авторизовано';
+
+  if (json?.loggedIn === false) {
+    reportedlyLoggedIn = false;
+  } else if (json == null || json.loggedIn === undefined) {
+    const sessionCheck = await claudeAuthCheck();
+    reportedlyLoggedIn = sessionCheck.ok;
+    notLoggedInError = sessionCheck.error ?? notLoggedInError;
+  }
+
+  const previouslyAuthorized =
+    derivePreviouslyAuthorized(json) || reportedlyLoggedIn;
+
+  const meta = {
+    binaryOk: true as const,
+    binaryPath: binary.path,
+    binaryVersion: binary.version,
+    authMethod: json?.authMethod ?? null,
+    email: json?.email ?? null,
+    subscriptionType: json?.subscriptionType ?? null,
+    orgName: json?.orgName ?? null,
+    previouslyAuthorized,
+  };
 
   if (!reportedlyLoggedIn) {
     return {
-      binaryOk: true,
-      binaryPath: binary.path,
-      binaryVersion: binary.version,
+      ...meta,
       loggedIn: false,
       sessionExpired: false,
-      authMethod: json?.authMethod ?? null,
-      email: json?.email ?? null,
-      subscriptionType: json?.subscriptionType ?? null,
-      orgName: json?.orgName ?? null,
-      error: sessionCheck.error ?? 'Claude не авторизовано',
+      error: notLoggedInError,
       loginInProgress,
     };
   }
 
-  // Skip live probe while OAuth login is in progress — tokens may not be ready yet.
   if (loginInProgress) {
     return {
-      binaryOk: true,
-      binaryPath: binary.path,
-      binaryVersion: binary.version,
+      ...meta,
+      previouslyAuthorized: true,
       loggedIn: false,
       sessionExpired: false,
-      authMethod: json?.authMethod ?? null,
-      email: json?.email ?? null,
-      subscriptionType: json?.subscriptionType ?? null,
-      orgName: json?.orgName ?? null,
       error: null,
       loginInProgress: true,
     };
@@ -351,30 +384,20 @@ export async function getClaudeAuthStatus(
   const live = await verifyClaudeAuthLiveCached(Boolean(opts.skipLiveCache));
   if (!live.ok) {
     return {
-      binaryOk: true,
-      binaryPath: binary.path,
-      binaryVersion: binary.version,
+      ...meta,
+      previouslyAuthorized: true,
       loggedIn: false,
       sessionExpired: true,
-      authMethod: json?.authMethod ?? null,
-      email: json?.email ?? null,
-      subscriptionType: json?.subscriptionType ?? null,
-      orgName: json?.orgName ?? null,
       error: live.error,
       loginInProgress: false,
     };
   }
 
   return {
-    binaryOk: true,
-    binaryPath: binary.path,
-    binaryVersion: binary.version,
+    ...meta,
+    previouslyAuthorized: true,
     loggedIn: true,
     sessionExpired: false,
-    authMethod: json?.authMethod ?? null,
-    email: json?.email ?? null,
-    subscriptionType: json?.subscriptionType ?? null,
-    orgName: json?.orgName ?? null,
     error: null,
     loginInProgress: false,
   };

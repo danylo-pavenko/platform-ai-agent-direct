@@ -61,6 +61,7 @@ describe('buildClaudeAuthPromptBlock', () => {
       binaryVersion: '2.1.181',
       loggedIn: true,
       sessionExpired: false,
+      previouslyAuthorized: true,
       authMethod: 'oauth',
       email: 'user@example.com',
       subscriptionType: 'pro',
@@ -70,6 +71,7 @@ describe('buildClaudeAuthPromptBlock', () => {
     });
     expect(block).toContain('<claude_runtime>');
     expect(block).toContain('"loggedIn": true');
+    expect(block).toContain('"previouslyAuthorized": true');
     expect(block).toContain('user@example.com');
   });
 });

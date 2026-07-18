@@ -73,6 +73,7 @@ interface DiagnosticSnapshot {
     binaryOk: boolean;
     loggedIn: boolean;
     sessionExpired: boolean;
+    previouslyAuthorized: boolean;
     binaryVersion: string | null;
     email: string | null;
     subscriptionType: string | null;
@@ -245,6 +246,7 @@ async function buildDiagnosticSnapshot(): Promise<DiagnosticSnapshot> {
       binaryOk: claudeAuthStatus.binaryOk,
       loggedIn: claudeAuthStatus.loggedIn,
       sessionExpired: claudeAuthStatus.sessionExpired,
+      previouslyAuthorized: claudeAuthStatus.previouslyAuthorized,
       binaryVersion: claudeAuthStatus.binaryVersion,
       email: claudeAuthStatus.email,
       subscriptionType: claudeAuthStatus.subscriptionType,

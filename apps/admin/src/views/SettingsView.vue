@@ -123,11 +123,10 @@
           </v-list>
         </v-card-text>
       </v-card>
-
-      <!-- Claude CLI auth -->
       </div>
 
       <div v-if="activeSection === 'settings-claude'" class="settings-section">
+      <!-- Claude CLI auth -->
       <v-card id="settings-claude" class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
           <v-icon start color="indigo">mdi-login</v-icon>
@@ -147,6 +146,17 @@
         <v-card-text>
           <div class="d-flex flex-wrap align-center ga-2 mb-3">
             <v-btn
+              v-if="showClaudeAuthorizeButton"
+              color="indigo"
+              variant="flat"
+              prepend-icon="mdi-login"
+              :loading="claudeLoginLoading"
+              :disabled="claudeLoginLoading || claudeAuthLoading"
+              @click="startClaudeLogin"
+            >
+              {{ claudeAuthorizeButtonLabel }}
+            </v-btn>
+            <v-btn
               color="indigo"
               variant="tonal"
               prepend-icon="mdi-refresh"
@@ -157,6 +167,16 @@
               Перевірити статус
             </v-btn>
           </div>
+
+          <v-alert
+            v-if="claudeAuthLoading && !claudeAuth"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            Перевіряємо статус Claude…
+          </v-alert>
 
           <v-alert
             v-if="claudeAuthError"
@@ -170,13 +190,13 @@
 
           <v-alert
             v-if="claudeAuth && !claudeAuth.loggedIn && !claudeLoginActive"
-            type="warning"
+            :type="claudeAuth.sessionExpired ? 'warning' : 'info'"
             variant="tonal"
             density="compact"
             class="mb-3"
           >
             <div class="font-weight-medium mb-1">
-              {{ claudeAuth.sessionExpired ? 'Сесія Claude застаріла' : 'Потрібна авторизація агента' }}
+              {{ claudeAuthNeedsAuthTitle }}
             </div>
             <div class="text-caption">
               AI-агент не може відповідати клієнтам, поки не увійдете в підписку Claude
@@ -186,19 +206,6 @@
               Останній акаунт: {{ claudeAuth.email }}
               <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
             </div>
-            <v-btn
-              v-if="claudeAuth.binaryOk"
-              color="indigo"
-              variant="flat"
-              size="small"
-              class="mt-3"
-              prepend-icon="mdi-login"
-              :loading="claudeLoginLoading"
-              :disabled="claudeLoginLoading"
-              @click="startClaudeLogin"
-            >
-              Увійти в Claude
-            </v-btn>
           </v-alert>
 
           <v-card
@@ -374,7 +381,7 @@
           <v-icon start color="deep-purple">mdi-gauge</v-icon>
           <span>Claude — ліміти підписки</span>
           <v-chip
-            v-if="claudeUsageSnapshot"
+            v-if="claudeUsageSnapshot && claudeAuth?.loggedIn"
             size="small"
             :color="claudeUsageStatusColor"
             variant="tonal"
@@ -383,17 +390,30 @@
           </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв через <code>claude /usage</code>.
+          Автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв через <code>claude /usage</code>
+          (лише коли Claude авторизовано).
           Telegram-сповіщення при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
         </v-card-subtitle>
         <v-card-text>
+          <v-alert
+            v-if="claudeAuth && !claudeAuth.loggedIn"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            Ліміти підписки з’являться після авторизації Claude.
+            Поки агент не увійшов — live-перевірка <code>/usage</code> не запускається.
+          </v-alert>
+
+          <template v-else>
           <div class="d-flex flex-wrap align-center ga-2 mb-3">
             <v-btn
               color="deep-purple"
               variant="tonal"
               prepend-icon="mdi-refresh"
               :loading="claudeUsageLoading"
-              :disabled="claudeUsageLoading"
+              :disabled="claudeUsageLoading || !claudeAuth?.loggedIn"
               @click="refreshClaudeUsage(true)"
             >
               Оновити зараз
@@ -446,6 +466,7 @@
               </div>
             </v-col>
           </v-row>
+          </template>
         </v-card-text>
       </v-card>
 
@@ -2094,10 +2115,9 @@ async function ensureSectionData(id: SettingsSectionId) {
     integrationsLoaded.value = true;
   }
   if (id === 'settings-claude' && !claudeSectionLoaded.value) {
-    await Promise.all([
-      refreshClaudeUsage(false),
-      loadClaudeAuth(false, true).then(() => resumeClaudeLoginIfNeeded()),
-    ]);
+    // Cached auth + DB usage snapshot only — no live Haiku probe / /usage spawn on open.
+    await loadClaudeAuth(false, false).then(() => resumeClaudeLoginIfNeeded());
+    await refreshClaudeUsage(false);
     claudeSectionLoaded.value = true;
   }
 }
@@ -2292,6 +2312,7 @@ interface ClaudeAuthStatus {
   binaryVersion: string | null;
   loggedIn: boolean;
   sessionExpired: boolean;
+  previouslyAuthorized: boolean;
   authMethod: string | null;
   email: string | null;
   subscriptionType: string | null;
@@ -2309,6 +2330,7 @@ const claudeAuthStatusLabel = computed(() => {
   if (claudeAuth.value.loggedIn) return 'Авторизовано';
   if (claudeAuth.value.sessionExpired) return 'Сесія застаріла';
   if (!claudeAuth.value.binaryOk) return 'Недоступно';
+  if (!claudeAuth.value.previouslyAuthorized) return 'Не авторизовано';
   return 'Потрібна авторизація';
 });
 
@@ -2320,8 +2342,22 @@ const claudeAuthChipColor = computed(() => {
   return 'warning';
 });
 
+const claudeAuthorizeButtonLabel = computed(() => {
+  if (!claudeAuth.value || !claudeAuth.value.previouslyAuthorized) {
+    return 'Авторизувати Claude';
+  }
+  return claudeAuth.value.sessionExpired ? 'Увійти знову' : 'Увійти в Claude';
+});
+
+const claudeAuthNeedsAuthTitle = computed(() => {
+  if (!claudeAuth.value) return 'Потрібна авторизація агента';
+  if (claudeAuth.value.sessionExpired) return 'Сесія Claude застаріла';
+  if (!claudeAuth.value.previouslyAuthorized) return 'Claude ще не авторизовано';
+  return 'Потрібна авторизація агента';
+});
+
 async function loadClaudeAuth(manual = false, fresh = manual) {
-  if (manual) claudeAuthLoading.value = true;
+  if (manual || !claudeAuth.value) claudeAuthLoading.value = true;
   claudeAuthError.value = '';
   try {
     const { data } = await api.get<ClaudeAuthStatus>('/settings/claude-auth', {
@@ -2367,6 +2403,13 @@ let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
 
 const claudeLoginActive = computed(() => !!claudeLoginSessionId.value);
 
+const showClaudeAuthorizeButton = computed(() => {
+  if (claudeLoginActive.value) return false;
+  if (claudeAuthLoading.value && !claudeAuth.value) return true;
+  if (!claudeAuth.value) return false;
+  return claudeAuth.value.binaryOk && !claudeAuth.value.loggedIn;
+});
+
 function stopClaudeLoginPoll() {
   if (claudeLoginPollTimer) {
     clearInterval(claudeLoginPollTimer);
@@ -2408,6 +2451,7 @@ async function pollClaudeLoginStatus(): Promise<ClaudeLoginStatusResult | null> 
       claudeLoginSubmitting.value = false;
       claudeLoginCodeSubmitted.value = false;
       claudeAuth.value = data.auth;
+      void refreshClaudeUsage(true);
       setTimeout(() => resetClaudeLoginUi(), 2500);
       return data;
     }

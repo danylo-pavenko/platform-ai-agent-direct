@@ -13,6 +13,7 @@ function authStatus(overrides: Partial<ClaudeAuthStatus> = {}): ClaudeAuthStatus
     binaryVersion: '1.0.0',
     loggedIn: true,
     sessionExpired: false,
+    previouslyAuthorized: true,
     authMethod: 'oauth',
     email: 'test@example.com',
     subscriptionType: 'pro',

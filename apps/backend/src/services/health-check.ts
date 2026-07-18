@@ -160,6 +160,18 @@ async function checkClaudeUsage(): Promise<HealthCheckItem> {
   }
 
   if (!snap || snap.status === 'unavailable') {
+    if (snap?.error === 'not_authenticated') {
+      return {
+        id: 'claude_usage',
+        label,
+        status: 'not_configured',
+        message: 'Claude ще не авторизовано — ліміти недоступні',
+        details: {
+          checkedAt: snap.checkedAt,
+          error: snap.error,
+        },
+      };
+    }
     return {
       id: 'claude_usage',
       label,

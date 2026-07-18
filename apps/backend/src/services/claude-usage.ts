@@ -198,6 +198,7 @@ async function fetchClaudeUsageText(timeoutMs = 25_000): Promise<string> {
 }
 
 async function fetchClaudeAuthMeta(): Promise<{
+  loggedIn: boolean;
   subscriptionType: string | null;
   authEmail: string | null;
 }> {
@@ -212,16 +213,16 @@ async function fetchClaudeAuthMeta(): Promise<{
       email?: string;
       loggedIn?: boolean;
     };
-    if (!obj.loggedIn) {
-      return { subscriptionType: null, authEmail: null };
-    }
+    const loggedIn = obj.loggedIn === true;
     return {
-      subscriptionType: typeof obj.subscriptionType === 'string' ? obj.subscriptionType : null,
-      authEmail: typeof obj.email === 'string' ? obj.email : null,
+      loggedIn,
+      subscriptionType:
+        loggedIn && typeof obj.subscriptionType === 'string' ? obj.subscriptionType : null,
+      authEmail: loggedIn && typeof obj.email === 'string' ? obj.email : null,
     };
   } catch (err) {
     log.debug({ err }, 'claude auth status unavailable');
-    return { subscriptionType: null, authEmail: null };
+    return { loggedIn: false, subscriptionType: null, authEmail: null };
   }
 }
 
@@ -230,11 +231,24 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
   const checkedAt = new Date().toISOString();
 
   try {
-    const [usageText, auth] = await Promise.all([
-      fetchClaudeUsageText(),
-      fetchClaudeAuthMeta(),
-    ]);
+    // Cheap gate: do not spawn `claude -p /usage` when there is no session.
+    const auth = await fetchClaudeAuthMeta();
+    if (!auth.loggedIn) {
+      return {
+        checkedAt,
+        status: 'unavailable',
+        subscriptionType: null,
+        authEmail: null,
+        buckets: [],
+        worstPercent: 0,
+        message:
+          'Claude ще не авторизовано — спочатку увійдіть у Налаштування → Claude.',
+        rawText: null,
+        error: 'not_authenticated',
+      };
+    }
 
+    const usageText = await fetchClaudeUsageText();
     const parsed = parseClaudeUsageText(usageText);
     return {
       checkedAt,
