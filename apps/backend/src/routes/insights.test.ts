@@ -74,9 +74,18 @@ describe('insights routes', () => {
     const snapshot = {
       generatedAt: '2026-07-17T06:00:00.000Z',
       period: '7d',
+      periodLabel: 'за останні 7 днів',
       from: '2026-07-10T06:00:00.000Z',
       to: '2026-07-17T06:00:00.000Z',
       business: { brandName: 'Test Brand' },
+      totalsAllTime: {
+        conversations: 3,
+        messages: 10,
+        inboundMessages: 5,
+        botReplies: 3,
+        managerReplies: 2,
+        clients: 3,
+      },
     };
     buildInsightsSnapshot.mockResolvedValue(snapshot);
     askClaude.mockResolvedValue({ text: 'CRM готова до роботи.' });
@@ -117,13 +126,28 @@ describe('insights routes', () => {
     const prompt = buildInsightsSystemPrompt({
       business: { brandName: 'Test Brand' },
       period: '30d',
+      periodLabel: 'за останні 30 днів',
       from: '2026-06-17T00:00:00.000Z',
       to: '2026-07-17T00:00:00.000Z',
+      totalsAllTime: {
+        conversations: 3,
+        messages: 12,
+        inboundMessages: 6,
+        botReplies: 4,
+        managerReplies: 2,
+        clients: 3,
+      },
+      conversations: { active: 0 },
+      messages: { total: 0 },
+      clients: { total: 3, active: 0 },
     } as Parameters<typeof buildInsightsSystemPrompt>[0]);
 
     expect(prompt).toContain('Чітко відділяй факти');
     expect(prompt).toContain('Ніколи не виводь');
     expect(prompt).toContain('[Налаштування](/settings)');
     expect(prompt).toContain('[CRM-поля](/crm-fields)');
+    expect(prompt).toContain('totalsAllTime');
+    expect(prompt).toContain('recentAll');
+    expect(prompt).toContain('Усього в базі зараз: 3 діалогів');
   });
 });

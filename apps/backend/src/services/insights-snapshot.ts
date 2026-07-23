@@ -13,13 +13,13 @@ import { prisma } from '../lib/prisma.js';
 import { getRuntimeConfig } from '../lib/runtime-config.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
 
-export const INSIGHTS_PERIODS = ['7d', '30d', '90d'] as const;
+export const INSIGHTS_PERIODS = ['7d', '30d', '90d', 'all'] as const;
 export type InsightsPeriod = (typeof INSIGHTS_PERIODS)[number];
 
 const DAY_MS = 86_400_000;
 const SAMPLE_LIMIT = 15;
-const SAMPLE_MESSAGE_LIMIT = 3;
-const SAMPLE_TEXT_LIMIT = 200;
+const SAMPLE_MESSAGE_LIMIT = 4;
+const SAMPLE_TEXT_LIMIT = 220;
 const KNOWLEDGE_TEXT_LIMIT = 2_500;
 const BUSINESS_KNOWLEDGE_FILES = [
   ['brand', 'brand.txt'],
@@ -35,9 +35,18 @@ export function parseInsightsPeriod(value: unknown): InsightsPeriod {
     : '7d';
 }
 
-export function insightsPeriodStart(period: InsightsPeriod, now = new Date()): Date {
+/** Rolling window start, or `null` for all-time (no lower bound). */
+export function insightsPeriodStart(period: InsightsPeriod, now = new Date()): Date | null {
+  if (period === 'all') return null;
   const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
   return new Date(now.getTime() - days * DAY_MS);
+}
+
+export function insightsPeriodLabel(period: InsightsPeriod): string {
+  if (period === 'all') return 'за весь час';
+  if (period === '7d') return 'за останні 7 днів';
+  if (period === '30d') return 'за останні 30 днів';
+  return 'за останні 90 днів';
 }
 
 /**
@@ -139,8 +148,18 @@ type TagRow = {
 export interface InsightsSnapshot {
   generatedAt: string;
   period: InsightsPeriod;
-  from: string;
+  periodLabel: string;
+  from: string | null;
   to: string;
+  /** Always-present inventory of the whole tenant DB (independent of period). */
+  totalsAllTime: {
+    conversations: number;
+    messages: number;
+    inboundMessages: number;
+    botReplies: number;
+    managerReplies: number;
+    clients: number;
+  };
   messages: {
     total: number;
     inbound: number;
@@ -150,6 +169,7 @@ export interface InsightsSnapshot {
     botFailures: number;
   };
   conversations: {
+    /** Conversations with lastMessageAt inside the selected period (or all if period=all). */
     active: number;
     byState: Record<string, number>;
     byIntent: Array<{ intent: string; count: number }>;
@@ -157,7 +177,9 @@ export interface InsightsSnapshot {
     topHandoffReasons: Array<{ reason: string; count: number }>;
   };
   clients: {
+    /** All clients in DB (all-time). */
     total: number;
+    /** Distinct clients with a conversation active in the selected period. */
     active: number;
     new: number;
     repeat: number;
@@ -264,6 +286,25 @@ export interface InsightsSnapshot {
       createdAt: string;
     }>;
   }>;
+  /**
+   * Most recent dialogues in the whole DB (ignores period).
+   * Use when period samples are empty or the user asks about “усі діалоги”.
+   */
+  recentAll: Array<{
+    id: string;
+    path: string;
+    channel: string;
+    state: string;
+    intent: string | null;
+    clientName: string;
+    lastMessageAt: string | null;
+    messages: Array<{
+      direction: string;
+      sender: string;
+      text: string;
+      createdAt: string;
+    }>;
+  }>;
 }
 
 export async function buildInsightsSnapshot(
@@ -271,8 +312,36 @@ export async function buildInsightsSnapshot(
 ): Promise<InsightsSnapshot> {
   const now = new Date();
   const from = insightsPeriodStart(period, now);
-  const conversationWindow = { lastMessageAt: { gte: from } };
-  const messageWindow = { createdAt: { gte: from } };
+  const conversationWindow = from ? { lastMessageAt: { gte: from } } : {};
+  const messageWindow = from ? { createdAt: { gte: from } } : {};
+  const clientActivityWindow = from ? { lastActivityAt: { gte: from } } : {};
+  const clientCreatedWindow = from ? { createdAt: { gte: from } } : {};
+
+  const conversationSampleSelect = {
+    id: true,
+    channel: true,
+    state: true,
+    intent: true,
+    lastMessageAt: true,
+    client: {
+      select: {
+        displayName: true,
+        igUsername: true,
+        igFullName: true,
+      },
+    },
+    messages: {
+      where: { text: { not: null } },
+      orderBy: { createdAt: 'desc' as const },
+      take: SAMPLE_MESSAGE_LIMIT,
+      select: {
+        direction: true,
+        sender: true,
+        text: true,
+        createdAt: true,
+      },
+    },
+  };
 
   const [
     messageGroups,
@@ -295,6 +364,9 @@ export async function buildInsightsSnapshot(
     clientsLinkedToCrm,
     botFailures,
     sampleRows,
+    recentAllRows,
+    allTimeConversations,
+    allTimeMessageGroups,
     claudeAuth,
     agentConfig,
     runtimeConfig,
@@ -342,17 +414,17 @@ export async function buildInsightsSnapshot(
     }),
     prisma.order.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: from }, isArchived: false },
+      where: { ...(from ? { createdAt: { gte: from } } : {}), isArchived: false },
       _count: { _all: true },
     }),
     prisma.order.groupBy({
       by: ['crmSyncStatus'],
-      where: { createdAt: { gte: from }, isArchived: false },
+      where: { ...(from ? { createdAt: { gte: from } } : {}), isArchived: false },
       _count: { _all: true },
     }),
     prisma.appointment.groupBy({
       by: ['status'],
-      where: { createdAt: { gte: from } },
+      where: from ? { createdAt: { gte: from } } : {},
       _count: { _all: true },
     }),
     prisma.conversation.aggregate({
@@ -360,7 +432,8 @@ export async function buildInsightsSnapshot(
       _count: { briefQuality: true },
       _avg: { briefQuality: true },
     }),
-    prisma.$queryRaw<BriefRow[]>`
+    from
+      ? prisma.$queryRaw<BriefRow[]>`
       SELECT
         COUNT(*) FILTER (WHERE status IN ('submitted', 'synced'))::bigint AS total,
         COUNT(*) FILTER (
@@ -373,8 +446,22 @@ export async function buildInsightsSnapshot(
         )::float8 AS avg_completeness
       FROM presale_briefs
       WHERE created_at >= ${from}
+    `
+      : prisma.$queryRaw<BriefRow[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('submitted', 'synced'))::bigint AS total,
+        COUNT(*) FILTER (
+          WHERE status IN ('submitted', 'synced') AND completeness_pct >= 80
+        )::bigint AS high_completeness,
+        COUNT(*) FILTER (WHERE status = 'synced')::bigint AS synced,
+        COUNT(*) FILTER (WHERE status = 'failed')::bigint AS failed,
+        AVG(completeness_pct) FILTER (
+          WHERE status IN ('submitted', 'synced')
+        )::float8 AS avg_completeness
+      FROM presale_briefs
     `,
-    prisma.$queryRaw<TtfrRow[]>`
+    from
+      ? prisma.$queryRaw<TtfrRow[]>`
       SELECT
         COUNT(*)::bigint AS samples,
         percentile_cont(0.5) WITHIN GROUP (
@@ -389,32 +476,55 @@ export async function buildInsightsSnapshot(
         AND first_outbound_at IS NOT NULL
         AND first_outbound_at > first_inbound_at
         AND first_inbound_at >= ${from}
+    `
+      : prisma.$queryRaw<TtfrRow[]>`
+      SELECT
+        COUNT(*)::bigint AS samples,
+        percentile_cont(0.5) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))
+        ) AS p50,
+        percentile_cont(0.95) WITHIN GROUP (
+          ORDER BY EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at))
+        ) AS p95,
+        AVG(EXTRACT(EPOCH FROM (first_outbound_at - first_inbound_at)))::float8 AS avg
+      FROM conversations
+      WHERE first_inbound_at IS NOT NULL
+        AND first_outbound_at IS NOT NULL
+        AND first_outbound_at > first_inbound_at
     `,
-    prisma.$queryRaw<TagRow[]>`
+    from
+      ? prisma.$queryRaw<TagRow[]>`
       SELECT tag, COUNT(*)::bigint AS count
       FROM clients, LATERAL unnest(tags) AS tag
       WHERE last_activity_at >= ${from}
       GROUP BY tag
       ORDER BY count DESC, tag ASC
       LIMIT 10
+    `
+      : prisma.$queryRaw<TagRow[]>`
+      SELECT tag, COUNT(*)::bigint AS count
+      FROM clients, LATERAL unnest(tags) AS tag
+      GROUP BY tag
+      ORDER BY count DESC, tag ASC
+      LIMIT 10
     `,
     prisma.client.count(),
-    prisma.client.count({ where: { createdAt: { gte: from } } }),
+    prisma.client.count({ where: clientCreatedWindow }),
     prisma.client.count({
       where: {
-        lastActivityAt: { gte: from },
+        ...clientActivityWindow,
         OR: [{ phone: { not: null } }, { email: { not: null } }],
       },
     }),
     prisma.client.count({
       where: {
-        lastActivityAt: { gte: from },
+        ...clientActivityWindow,
         crmBuyerId: { not: null },
       },
     }),
     prisma.message.count({
       where: {
-        createdAt: { gte: from },
+        ...messageWindow,
         botFailureCode: { not: null },
       },
     }),
@@ -422,31 +532,17 @@ export async function buildInsightsSnapshot(
       where: conversationWindow,
       orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }],
       take: SAMPLE_LIMIT,
-      select: {
-        id: true,
-        channel: true,
-        state: true,
-        intent: true,
-        lastMessageAt: true,
-        client: {
-          select: {
-            displayName: true,
-            igUsername: true,
-            igFullName: true,
-          },
-        },
-        messages: {
-          where: { text: { not: null } },
-          orderBy: { createdAt: 'desc' },
-          take: SAMPLE_MESSAGE_LIMIT,
-          select: {
-            direction: true,
-            sender: true,
-            text: true,
-            createdAt: true,
-          },
-        },
-      },
+      select: conversationSampleSelect,
+    }),
+    prisma.conversation.findMany({
+      orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }],
+      take: SAMPLE_LIMIT,
+      select: conversationSampleSelect,
+    }),
+    prisma.conversation.count(),
+    prisma.message.groupBy({
+      by: ['direction', 'sender'],
+      _count: { _all: true },
     }),
     getClaudeAuthStatus(),
     getAgentConfig(),
@@ -491,6 +587,41 @@ export async function buildInsightsSnapshot(
       )
       .reduce((sum, row) => sum + row._count._all, 0);
 
+  const allTimeMessageCount = (direction?: string, sender?: string): number =>
+    allTimeMessageGroups
+      .filter(
+        (row) =>
+          (!direction || row.direction === direction) &&
+          (!sender || row.sender === sender),
+      )
+      .reduce((sum, row) => sum + row._count._all, 0);
+
+  const mapConversationSample = (
+    conversation: (typeof sampleRows)[number],
+  ) => ({
+    id: conversation.id,
+    path: `/conversations/${conversation.id}`,
+    channel: conversation.channel,
+    state: conversation.state,
+    intent: conversation.intent,
+    clientName:
+      conversation.client.displayName ??
+      conversation.client.igFullName ??
+      (conversation.client.igUsername
+        ? `@${conversation.client.igUsername}`
+        : 'Клієнт'),
+    lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
+    messages: [...conversation.messages].reverse().flatMap((message) => {
+      if (!message.text?.trim()) return [];
+      return [{
+        direction: message.direction,
+        sender: message.sender,
+        text: truncateInsightText(message.text),
+        createdAt: message.createdAt.toISOString(),
+      }];
+    }),
+  });
+
   const byState: Record<string, number> = {
     bot: 0,
     handoff: 0,
@@ -530,8 +661,17 @@ export async function buildInsightsSnapshot(
   return {
     generatedAt: now.toISOString(),
     period,
-    from: from.toISOString(),
+    periodLabel: insightsPeriodLabel(period),
+    from: from?.toISOString() ?? null,
     to: now.toISOString(),
+    totalsAllTime: {
+      conversations: allTimeConversations,
+      messages: allTimeMessageCount(),
+      inboundMessages: allTimeMessageCount('in'),
+      botReplies: allTimeMessageCount(undefined, 'bot'),
+      managerReplies: allTimeMessageCount(undefined, 'manager'),
+      clients: totalClients,
+    },
     messages: {
       total: messageCount(),
       inbound: messageCount('in'),
@@ -665,28 +805,7 @@ export async function buildInsightsSnapshot(
           }
         : null,
     },
-    samples: sampleRows.map((conversation) => ({
-      id: conversation.id,
-      path: `/conversations/${conversation.id}`,
-      channel: conversation.channel,
-      state: conversation.state,
-      intent: conversation.intent,
-      clientName:
-        conversation.client.displayName ??
-        conversation.client.igFullName ??
-        (conversation.client.igUsername
-          ? `@${conversation.client.igUsername}`
-          : 'Клієнт'),
-      lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
-      messages: [...conversation.messages].reverse().flatMap((message) => {
-        if (!message.text?.trim()) return [];
-        return [{
-          direction: message.direction,
-          sender: message.sender,
-          text: truncateInsightText(message.text),
-          createdAt: message.createdAt.toISOString(),
-        }];
-      }),
-    })),
+    samples: sampleRows.map(mapConversationSample),
+    recentAll: recentAllRows.map(mapConversationSample),
   };
 }

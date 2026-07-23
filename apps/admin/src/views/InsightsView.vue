@@ -35,9 +35,27 @@
       </div>
 
       <div v-if="snapshot" class="insights-summary mt-2" aria-label="Коротка статистика">
-        <span><strong>{{ snapshot.messages.total }}</strong> повідомлень</span>
-        <span><strong>{{ snapshot.conversations.active }}</strong> діалогів</span>
-        <span><strong>{{ snapshot.clients.active }}</strong> клієнтів</span>
+        <span>
+          <strong>{{ snapshot.conversations.active }}</strong>
+          {{ period === 'all' ? 'діалогів' : 'діалогів за період' }}
+          <template v-if="period !== 'all' && snapshot.totalsAllTime">
+            <span class="text-medium-emphasis"> / {{ snapshot.totalsAllTime.conversations }} усього</span>
+          </template>
+        </span>
+        <span>
+          <strong>{{ snapshot.messages.total }}</strong>
+          {{ period === 'all' ? 'повідомлень' : 'повідомлень за період' }}
+          <template v-if="period !== 'all' && snapshot.totalsAllTime">
+            <span class="text-medium-emphasis"> / {{ snapshot.totalsAllTime.messages }} усього</span>
+          </template>
+        </span>
+        <span>
+          <strong>{{ snapshot.clients.active }}</strong>
+          {{ period === 'all' ? 'клієнтів' : 'активних клієнтів' }}
+          <template v-if="period !== 'all'">
+            <span class="text-medium-emphasis"> / {{ snapshot.clients.total ?? snapshot.totalsAllTime?.clients ?? 0 }} усього</span>
+          </template>
+        </span>
         <span v-if="topIntent">
           Топ тема: <strong>{{ intentLabel(topIntent.intent) }}</strong>
         </span>
@@ -49,7 +67,18 @@
         </span>
         <span>Оновлено {{ formattedSnapshotTime }}</span>
       </div>
-      <div v-else-if="snapshotLoading" class="insights-summary mt-2 text-medium-emphasis">
+      <v-alert
+        v-if="snapshot && period !== 'all' && snapshot.conversations.active === 0 && (snapshot.totalsAllTime?.conversations ?? 0) > 0"
+        type="info"
+        variant="tonal"
+        density="compact"
+        class="mt-2"
+      >
+        За вибраний період активних діалогів немає, але в базі є
+        <strong>{{ snapshot.totalsAllTime?.conversations ?? 0 }}</strong>.
+        Спробуйте «30 днів», «90 днів» або «Весь час» — або запитайте помічника про всі діалоги.
+      </v-alert>
+      <div v-else-if="!snapshot && snapshotLoading" class="insights-summary mt-2 text-medium-emphasis">
         Оновлюємо статистику…
       </div>
     </header>
@@ -179,7 +208,8 @@
           />
         </div>
         <div class="insights-input-note">
-          Метрики залежать від періоду; налаштування та CRM-стан — поточні. Контакти клієнтів маскуються.
+          Цифри в шапці — за вибраний період; «усього» — вся база.
+          Діалог активний, якщо була активність у періоді. Контакти клієнтів маскуються.
           <span v-if="historyTrimmed">
             Для нової відповіді враховуються останні 19 повідомлень.
           </span>
@@ -195,7 +225,7 @@ import { useRouter } from 'vue-router';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 
-type Period = '7d' | '30d' | '90d';
+type Period = '7d' | '30d' | '90d' | 'all';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -205,12 +235,20 @@ interface ChatMessage {
 interface InsightsSnapshot {
   generatedAt: string;
   period: Period;
-  messages: { total: number };
+  periodLabel?: string;
+  messages: { total: number; botReplies?: number; managerReplies?: number };
   conversations: {
     active: number;
     byIntent: Array<{ intent: string; count: number }>;
   };
-  clients: { active: number };
+  clients: { active: number; total: number };
+  totalsAllTime?: {
+    conversations: number;
+    messages: number;
+    botReplies: number;
+    managerReplies: number;
+    clients: number;
+  };
   configuration: {
     agent: { mode: string };
   };
@@ -226,7 +264,7 @@ interface InsightsSnapshot {
 
 const CHAT_STORAGE_PREFIX = 'tenant_insights_chat_';
 const router = useRouter();
-const period = ref<Period>('7d');
+const period = ref<Period>('30d');
 const snapshot = ref<InsightsSnapshot | null>(null);
 const snapshotLoading = ref(false);
 const messages = ref<ChatMessage[]>([]);
@@ -241,32 +279,35 @@ const periodOptions: Array<{ value: Period; label: string }> = [
   { value: '7d', label: '7 днів' },
   { value: '30d', label: '30 днів' },
   { value: '90d', label: '90 днів' },
+  { value: 'all', label: 'Весь час' },
 ];
 
 const suggestions = [
   {
     icon: 'mdi-chart-box-outline',
     title: 'Огляд бізнесу',
-    copy: 'Показники, слабкі місця та 3 пріоритетні дії',
-    prompt: 'Зроби короткий огляд мого бізнесу за період і дай 3 пріоритетні поради.',
+    copy: 'Показники за період і за весь час',
+    prompt:
+      'Зроби короткий огляд бізнесу за вибраний період і за весь час: діалоги, повідомлення бота vs менеджера, клієнти. Дай 3 пріоритетні дії.',
+  },
+  {
+    icon: 'mdi-forum-outline',
+    title: 'Скільки діалогів?',
+    copy: 'За період і загалом у базі',
+    prompt:
+      'Скільки в мене діалогів і повідомлень за вибраний період і загалом? Скільки відповів бот, а скільки менеджер?',
   },
   {
     icon: 'mdi-account-group-outline',
     title: 'Клієнти та попит',
-    copy: 'Хто пише, про що запитує і як підвищити конверсію',
-    prompt: 'Які клієнти та теми звернень зараз найважливіші? Як краще їх конвертувати?',
+    copy: 'Хто пише і про що запитує',
+    prompt: 'Які клієнти та теми звернень зараз найважливіші? Покажи посилання на діалоги.',
   },
   {
     icon: 'mdi-database-sync-outline',
     title: 'CRM та інтеграції',
-    copy: 'Готовність запису, синхронізація та проблемні місця',
+    copy: 'Готовність запису і проблемні місця',
     prompt: 'Перевір стан CRM та інтеграцій. Що працює, що потребує уваги і що робити далі?',
-  },
-  {
-    icon: 'mdi-tune-variant',
-    title: 'Налаштування агента',
-    copy: 'Режим роботи, графік, маршрутизація та рекомендації',
-    prompt: 'Оціни поточні налаштування AI-агента та порадь, що варто покращити для мого бізнесу.',
   },
 ];
 

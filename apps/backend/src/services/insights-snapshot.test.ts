@@ -24,18 +24,20 @@ describe('insights snapshot helpers', () => {
   it('accepts supported periods and defaults unknown values to 7d', () => {
     expect(parseInsightsPeriod('30D')).toBe('30d');
     expect(parseInsightsPeriod('90d')).toBe('90d');
-    expect(parseInsightsPeriod('all')).toBe('7d');
+    expect(parseInsightsPeriod('all')).toBe('all');
+    expect(parseInsightsPeriod('lifetime')).toBe('7d');
     expect(parseInsightsPeriod(undefined)).toBe('7d');
   });
 
   it('calculates an exact rolling period start', () => {
     const now = new Date('2026-07-16T12:00:00.000Z');
-    expect(insightsPeriodStart('7d', now).toISOString()).toBe(
+    expect(insightsPeriodStart('7d', now)?.toISOString()).toBe(
       '2026-07-09T12:00:00.000Z',
     );
-    expect(insightsPeriodStart('30d', now).toISOString()).toBe(
+    expect(insightsPeriodStart('30d', now)?.toISOString()).toBe(
       '2026-06-16T12:00:00.000Z',
     );
+    expect(insightsPeriodStart('all', now)).toBeNull();
   });
 
   it('redacts email and Ukrainian phone numbers from dialogue samples', () => {
