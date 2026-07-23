@@ -439,11 +439,17 @@ export async function startDeployJob(tenantId: string): Promise<{
 /**
  * Tail a deploy log file over SSE-style callbacks until the job finishes.
  * Safe to disconnect — does not kill the job.
+ *
+ * @param sendKeepalive  Optional raw SSE comment writer (`: ping`) for proxies;
+ *                       also emits a quiet `[stream] keepalive` data line.
+ * @param opts.fromEnd   Start at current EOF (reconnect without replaying history).
  */
 export async function followDeployLog(
   jobId: string,
   send: (line: string) => void,
   isClientConnected: () => boolean,
+  sendKeepalive?: () => void,
+  opts?: { fromEnd?: boolean },
 ): Promise<void> {
   const job = await prisma.deployJob.findUnique({ where: { id: jobId } });
   if (!job) {
@@ -455,7 +461,24 @@ export async function followDeployLog(
   send(`[job] log=${job.logPath}`);
 
   let offset = 0;
+  if (opts?.fromEnd) {
+    try {
+      offset = (await stat(job.logPath)).size;
+      send('[stream] resumed from live tail');
+    } catch {
+      offset = 0;
+    }
+  }
+
   const pollMs = 400;
+  /** Proxies (nginx) often idle-close SSE around 30–60s without bytes. */
+  const keepaliveMs = 10_000;
+  let lastByteAt = Date.now();
+
+  const emit = (line: string) => {
+    send(line);
+    lastByteAt = Date.now();
+  };
 
   const pump = async (): Promise<'running' | 'done'> => {
     try {
@@ -469,7 +492,7 @@ export async function followDeployLog(
           offset = st.size;
           const text = buf.toString('utf8');
           for (const line of text.split('\n')) {
-            if (line.length) send(line);
+            if (line.length) emit(line);
           }
         } finally {
           await fh.close();
@@ -492,7 +515,7 @@ export async function followDeployLog(
             await fh.read(buf, 0, length, offset);
             const text = buf.toString('utf8');
             for (const line of text.split('\n')) {
-              if (line.length) send(line);
+              if (line.length) emit(line);
             }
           } finally {
             await fh.close();
@@ -502,7 +525,7 @@ export async function followDeployLog(
         // ignore
       }
       const status = fresh?.status ?? 'failed';
-      send(
+      emit(
         status === 'succeeded'
           ? '[job] finished: succeeded'
           : `[job] finished: ${status}${fresh?.exitCode != null ? ` (exit ${fresh.exitCode})` : ''}`,
@@ -515,6 +538,17 @@ export async function followDeployLog(
   while (isClientConnected()) {
     const state = await pump();
     if (state === 'done') return;
+
+    if (Date.now() - lastByteAt >= keepaliveMs) {
+      try {
+        sendKeepalive?.();
+      } catch {
+        // ignore
+      }
+      // Data frame so browsers/fetch see activity even when comments are stripped.
+      emit('[stream] keepalive');
+    }
+
     await new Promise((r) => setTimeout(r, pollMs));
   }
 }

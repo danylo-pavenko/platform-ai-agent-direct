@@ -78,11 +78,18 @@ await app.register(insightsRoutes, { prefix: '/insights' });
 app.get('/health', async () => {
   await prisma.$queryRawUnsafe('SELECT 1');
   const { pingWhisperService } = await import('./services/transcribe.js');
+  const { getPlatformVersion } = await import('./lib/platform-version-runtime.js');
   const sttOk = config.STT_ENABLED ? await pingWhisperService() : null;
+  const version = getPlatformVersion();
   return {
     status: 'ok',
     instance: config.INSTANCE_ID,
     timestamp: new Date().toISOString(),
+    version: {
+      name: version.name,
+      code: version.code,
+      label: `v${version.name} (${version.code})`,
+    },
     stt: config.STT_ENABLED
       ? { enabled: true, whisperReachable: sttOk }
       : { enabled: false },

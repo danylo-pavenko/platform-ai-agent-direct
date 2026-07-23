@@ -36,6 +36,8 @@
     .sidebar-bottom { padding: 12px 8px; border-top: 1px solid var(--border); }
     .logout-btn { width: 100%; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 8px 10px; border-radius: 7px; text-align: left; display: flex; align-items: center; gap: 9px; }
     .logout-btn:hover { background: var(--surface2); color: var(--danger); }
+    .sa-version { font-size: 10px; color: var(--muted); padding: 6px 10px 0; font-variant-numeric: tabular-nums; }
+    .tenant-version { font-size: 10px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 
     /* ── Topbar ── */
     .topbar { height: 52px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; flex-shrink: 0; }
@@ -464,6 +466,7 @@
         <button class="logout-btn" @click="logout">
           <span class="icon">→</span> Logout
         </button>
+        <div v-if="saVersionLabel" class="sa-version">{{ saVersionLabel }}</div>
       </div>
     </aside>
     <div class="sidebar-backdrop" :class="{'show': sidebarOpen}" @click="sidebarOpen=false"></div>
@@ -538,6 +541,9 @@
                     <span v-else>
                       <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
                       {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
+                      <div v-if="tenantVersionLabel(t.id)" class="tenant-version" :title="'Platform version on this tenant'">
+                        {{ tenantVersionLabel(t.id) }}
+                      </div>
                     </span>
                   </td>
                   <td data-label="Actions">
@@ -614,6 +620,9 @@
                     <span v-else>
                       <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
                       {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
+                      <div v-if="tenantVersionLabel(t.id)" class="tenant-version" :title="'Platform version on this tenant'">
+                        {{ tenantVersionLabel(t.id) }}
+                      </div>
                     </span>
                   </td>
                   <td data-label="Actions">
@@ -1402,6 +1411,7 @@ createApp({
     const sidebarOpen = ref(false);
     const tenants = ref([]);
     const health = reactive({});
+    const saVersionLabel = ref('');
     const deploying = ref(null);
     const deployJobs = reactive({}); // tenantId -> { running, job }
     const deployLog = reactive({
@@ -1777,6 +1787,11 @@ createApp({
       return !!(h && h.online);
     }
 
+    function tenantVersionLabel(id) {
+      const h = health[id];
+      return (h && h.versionLabel) || '';
+    }
+
     /** First-time server setup vs git pull update — not the same as DB status alone. */
     function tenantNeedsProvision(t) {
       const h = health[t.id];
@@ -1895,6 +1910,7 @@ createApp({
         if (!r.ok) { login.error = d.error || 'Login failed'; return; }
         auth.token = d.token;
         localStorage.setItem('sa_token', d.token);
+        await loadSaVersion();
         await loadTenants();
         await refreshCurrentPageData();
       } catch { login.error = 'Network error'; }
@@ -2199,18 +2215,33 @@ createApp({
       for (const t of tenants.value) {
         fetch(`${BASE}/tenants/${t.id}/health`, { headers: authHeaders() })
           .then(r => r.json())
-          // deployed: true/false from the server, null = unknown → treat as
-          // deployed so a live instance is never mislabeled "Not deployed".
           .then(d => {
+            const ver = d.status && d.status.version;
+            const versionLabel = ver
+              ? (ver.label || `v${ver.name} (${ver.code})`)
+              : '';
             health[t.id] = {
               online: !!d.online,
               deployed: d.deployed === true ? true : d.deployed === false ? false : null,
+              versionLabel,
             };
           })
           .catch(() => {
-            health[t.id] = { online: false, deployed: t.status === 'provisioned' ? false : null };
+            health[t.id] = { online: false, deployed: t.status === 'provisioned' ? false : null, versionLabel: '' };
           });
         refreshDeployStatus(t.id);
+      }
+    }
+
+    async function loadSaVersion() {
+      try {
+        const r = await fetch(`${BASE}/health`);
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.version?.label) saVersionLabel.value = d.version.label;
+        else if (d.version?.name != null) saVersionLabel.value = `v${d.version.name} (${d.version.code})`;
+      } catch {
+        // ignore
       }
     }
 
@@ -2235,13 +2266,17 @@ createApp({
     }
 
     function appendDeployLine(line) {
+      // Quiet stream pings — keep the socket alive, don't spam the log view.
+      if (line === '[stream] keepalive') return;
       const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
       const isStderr = line.startsWith('[stderr]');
+      const isStream = line.startsWith('[stream]');
       const isWarn = /\bWARN:/i.test(line) || line.includes('skip upgrade');
       const isDone = line.startsWith('[✓') || line.startsWith('[✗') || line.startsWith('[job] finished');
       const escaped = escapeLine(line);
       let span;
       if (isErr) span = `<span class="err-line">${escaped}</span>`;
+      else if (isStream) span = `<span class="meta-line">${escaped}</span>`;
       else if (isStderr) span = `<span class="stderr-line">${escaped}</span>`;
       else if (isWarn) span = `<span class="warn-line">${escaped}</span>`;
       else if (isDone) span = `<strong style="color:${line.startsWith('[✓') || line.includes('succeeded') ? '#22c55e' : '#ef4444'}">${escaped}</strong>`;
@@ -2252,19 +2287,26 @@ createApp({
       });
     }
 
-    async function streamDeployLog(tenantId, jobId) {
-      const url = jobId
-        ? `${BASE}/tenants/${tenantId}/deploy/stream?jobId=${encodeURIComponent(jobId)}`
-        : `${BASE}/tenants/${tenantId}/deploy/stream`;
+    function sleepMs(ms) {
+      return new Promise((r) => setTimeout(r, ms));
+    }
+
+    /** One SSE attach. Returns true if the job finished cleanly in this session. */
+    async function streamDeployLogOnce(tenantId, jobId, fromEnd = false) {
+      const params = new URLSearchParams();
+      if (jobId) params.set('jobId', jobId);
+      if (fromEnd) params.set('fromEnd', '1');
+      const qs = params.toString();
+      const url = `${BASE}/tenants/${tenantId}/deploy/stream${qs ? `?${qs}` : ''}`;
       const r = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
       if (!r.ok) {
-        appendDeployLine(`[error] HTTP ${r.status} ${r.statusText}`);
-        return;
+        throw new Error(`HTTP ${r.status} ${r.statusText}`);
       }
 
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
       let buf = '';
+      let sawFinished = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -2273,14 +2315,56 @@ createApp({
         const parts = buf.split('\n\n');
         buf = parts.pop() ?? '';
         for (const part of parts) {
-          if (part.startsWith('data: ')) appendDeployLine(part.slice(6));
+          if (!part.startsWith('data: ')) continue;
+          const line = part.slice(6);
+          if (line.startsWith('[job] finished')) sawFinished = true;
+          appendDeployLine(line);
         }
-        // Keep modal pulse aligned with DB while SSE is open.
         if (deployJobs[tenantId]?.job) {
           syncDeployLogFromJob(deployJobs[tenantId].job, !!deployJobs[tenantId].running);
         }
       }
-      if (buf.startsWith('data: ')) appendDeployLine(buf.slice(6));
+      if (buf.startsWith('data: ')) {
+        const line = buf.slice(6);
+        if (line.startsWith('[job] finished')) sawFinished = true;
+        appendDeployLine(line);
+      }
+      return sawFinished;
+    }
+
+    /**
+     * Follow deploy log until the job finishes. Auto-reconnects when the
+     * proxy/browser drops the SSE socket (common during long npm ci).
+     */
+    async function streamDeployLog(tenantId, jobId) {
+      let attempt = 0;
+      const maxAttempts = 90; // ~10–15 min of reconnect backoff
+
+      while (deployLog.open && attempt < maxAttempts) {
+        try {
+          const finished = await streamDeployLogOnce(tenantId, jobId, attempt > 0);
+          await refreshDeployStatus(tenantId);
+          if (finished || !deployJobs[tenantId]?.running) return;
+
+          attempt += 1;
+          appendDeployLine(`[stream] connection closed — reconnecting… (${attempt})`);
+          await sleepMs(Math.min(1000 + attempt * 500, 5000));
+        } catch (e) {
+          await refreshDeployStatus(tenantId);
+          if (!deployJobs[tenantId]?.running) return;
+
+          attempt += 1;
+          const msg = (e && e.message) ? e.message : String(e);
+          // Don't paint as fatal [error] — deploy is still running server-side.
+          appendDeployLine(`[stream] ${msg} — reconnecting… (${attempt})`);
+          await sleepMs(Math.min(1000 + attempt * 500, 5000));
+        }
+      }
+
+      await refreshDeployStatus(tenantId);
+      if (deployJobs[tenantId]?.running) {
+        appendDeployLine('[stream] live tail paused — open «Log» again to continue watching (deploy still running)');
+      }
     }
 
     async function openDeployLog(t) {
@@ -2508,6 +2592,7 @@ createApp({
     }
 
     onMounted(async () => {
+      await loadSaVersion();
       if (auth.token) {
         await loadTenants();
         await refreshCurrentPageData();
@@ -2536,7 +2621,8 @@ createApp({
       loadLeads, updateLeadStatus, formatDate,
       linkHumanClicks, linkRawClicks, linkFormSubmissions, linkCountryEntries, linkCountryCount,
       linkActiveClass, linkActiveLabel, leadEmailClass, formatInstagram,
-      isTenantOnline, tenantNeedsProvision, chatTenantName, chatTenantDomain,
+      isTenantOnline, tenantVersionLabel, tenantNeedsProvision, chatTenantName, chatTenantDomain,
+      saVersionLabel,
     };
   }
 }).mount('#app');

@@ -66,7 +66,7 @@ echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
 # Long hangs are killed via DEPLOY_NPM_CI_TIMEOUT_SEC (default 20 min) with stdout heartbeats.
 npm_ci_with_enotempty_retry() {
   local _timeout_sec="${DEPLOY_NPM_CI_TIMEOUT_SEC:-1200}"
-  local _heartbeat_sec="${DEPLOY_NPM_CI_HEARTBEAT_SEC:-30}"
+  local _heartbeat_sec="${DEPLOY_NPM_CI_HEARTBEAT_SEC:-15}"
   local _pid _hb_pid _elapsed _rc
   local _has_timeout=0
 

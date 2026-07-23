@@ -58,7 +58,19 @@ await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
 
 // Health check
-app.get('/api/health', async () => ({ status: 'ok', service: 'super-admin' }));
+app.get('/api/health', async () => {
+  const { getPlatformVersion } = await import('./lib/platform-version.js');
+  const version = getPlatformVersion();
+  return {
+    status: 'ok',
+    service: 'super-admin',
+    version: {
+      name: version.name,
+      code: version.code,
+      label: version.label,
+    },
+  };
+});
 
 // SPA fallback — all non-API routes → index.html (except /go/ redirects)
 app.setNotFoundHandler(async (req, reply) => {

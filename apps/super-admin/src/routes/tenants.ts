@@ -366,7 +366,7 @@ export async function tenantsRoutes(app: FastifyInstance) {
   });
 
   // Stream deploy logs via SSE. Starts a job if none running; never kills on disconnect.
-  app.get<{ Params: { id: string }; Querystring: { jobId?: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { jobId?: string; fromEnd?: string } }>(
     '/api/tenants/:id/deploy/stream',
     auth,
     async (req, reply) => {
@@ -381,6 +381,12 @@ export async function tenantsRoutes(app: FastifyInstance) {
         jobId = rawJobId[0].trim();
       }
 
+      const fromEndRaw = req.query.fromEnd;
+      const fromEnd =
+        fromEndRaw === '1' ||
+        fromEndRaw === 'true' ||
+        (Array.isArray(fromEndRaw) && (fromEndRaw[0] === '1' || fromEndRaw[0] === 'true'));
+
       if (jobId) {
         const existing = await getDeployJob(jobId);
         if (!existing || existing.tenantId !== tenant.id) {
@@ -393,7 +399,7 @@ export async function tenantsRoutes(app: FastifyInstance) {
 
       reply.raw.writeHead(200, {
         'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
+        'Cache-Control': 'no-cache, no-transform',
         'X-Accel-Buffering': 'no',
         Connection: 'keep-alive',
       });
@@ -412,8 +418,18 @@ export async function tenantsRoutes(app: FastifyInstance) {
         }
       };
 
+      const sendKeepalive = () => {
+        if (!clientOpen) return;
+        try {
+          // SSE comment — keeps nginx/proxies from idle-closing the socket.
+          reply.raw.write(`: keepalive ${Date.now()}\n\n`);
+        } catch {
+          clientOpen = false;
+        }
+      };
+
       try {
-        await followDeployLog(jobId, send, () => clientOpen);
+        await followDeployLog(jobId, send, () => clientOpen, sendKeepalive, { fromEnd });
       } catch (err: any) {
         send(`[error] ${err?.message ?? err}`);
       }

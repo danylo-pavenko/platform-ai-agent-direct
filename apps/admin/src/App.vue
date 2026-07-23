@@ -123,6 +123,9 @@
             Вийти
           </v-btn>
         </div>
+        <div class="sidebar-version px-3 pb-2">
+          {{ versionLabel }}
+        </div>
         <div class="sidebar-legal pa-3 pt-1">
           <a href="https://direct-ai-agents.com/data-deletion" target="_blank" rel="noopener" class="legal-link">
             Видалення даних
@@ -146,12 +149,14 @@ import { ref } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { formatPlatformVersion } from '@/lib/platform-version';
 
 const authStore = useAuthStore();
 const { mobile } = useDisplay();
 const route = useRoute();
 const drawer = ref(true);
 const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent';
+const versionLabel = formatPlatformVersion();
 
 function onNavClick() {
   if (mobile.value) drawer.value = false;
@@ -204,6 +209,14 @@ function onNavClick() {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.sidebar-version {
+  font-size: 10px;
+  font-weight: 500;
+  color: #97a4b1;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .legal-link {

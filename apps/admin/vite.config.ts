@@ -24,9 +24,13 @@ export default defineConfig(({ mode }) => {
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
+      '@platform-version': resolve(__dirname, '..', '..', 'VERSION.json'),
     },
   },
   server: {
+    fs: {
+      allow: [resolve(__dirname, '..', '..')],
+    },
     port: 3101,
     proxy: {
       '/api': {
