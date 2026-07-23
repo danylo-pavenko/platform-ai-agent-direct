@@ -26,14 +26,18 @@ class IgTypingSession implements IgTypingHandle {
   async begin(): Promise<void> {
     activeByRecipient.set(this.recipientId, this);
     await this.fireAction('mark_seen', () => markSeen(this.recipientId));
-    await this.fireAction('typing_on', () => sendTypingOn(this.recipientId));
+    if (this.stopped) return;
+    await this.fireTypingOn('typing_on');
+    if (this.stopped) return;
     this.interval = setInterval(() => {
-      void this.fireAction('typing_on_keepalive', () => sendTypingOn(this.recipientId));
+      void this.fireTypingOn('typing_on_keepalive');
     }, TYPING_KEEPALIVE_MS);
   }
 
   async stopBeforeSend(): Promise<void> {
     if (this.stopped) return;
+    // Mark stopped first so any in-flight keepalive cannot re-assert typing
+    // after we clear the indicator / send the reply.
     this.stopped = true;
     if (this.interval) {
       clearInterval(this.interval);
@@ -47,6 +51,46 @@ class IgTypingSession implements IgTypingHandle {
 
   async end(): Promise<void> {
     await this.stopBeforeSend();
+  }
+
+  /** Sync cleanup for tests — clears timers without awaiting Meta. */
+  forceResetForTests(): void {
+    this.stopped = true;
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = null;
+    }
+  }
+
+  /**
+   * Send typing_on only while this session is still the active owner.
+   * If a keepalive request finishes after stop/send, clear the stale
+   * indicator — but never clobber a newer session for the same recipient.
+   */
+  private async fireTypingOn(label: string): Promise<void> {
+    if (this.stopped || activeByRecipient.get(this.recipientId) !== this) {
+      return;
+    }
+    try {
+      await sendTypingOn(this.recipientId);
+    } catch (err) {
+      log.warn(
+        { err, recipientId: this.recipientId, action: label },
+        'IG sender action failed (non-fatal)',
+      );
+      return;
+    }
+
+    if (this.stopped && activeByRecipient.get(this.recipientId) == null) {
+      try {
+        await sendTypingOff(this.recipientId);
+      } catch (err) {
+        log.warn(
+          { err, recipientId: this.recipientId, action: 'typing_off_after_stale_on' },
+          'IG sender action failed (non-fatal)',
+        );
+      }
+    }
   }
 
   private async fireAction(label: string, fn: () => Promise<void>): Promise<void> {
@@ -86,4 +130,12 @@ export async function beginIgTypingIndicator(params: {
   const session = new IgTypingSession(recipientId);
   await session.begin();
   return session;
+}
+
+/** Test helper — drop in-memory typing sessions. */
+export function resetIgTypingSessionsForTests(): void {
+  for (const session of activeByRecipient.values()) {
+    session.forceResetForTests();
+  }
+  activeByRecipient.clear();
 }
