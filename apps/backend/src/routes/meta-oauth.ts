@@ -42,7 +42,7 @@ const FB_SCOPES = [
 // Webhook fields we want the Page subscribed to.
 // `standby` is required when another messaging app (Business Suite, another bot, etc.)
 // owns the thread: Meta delivers the customer's new messages there instead of `messaging`.
-const WEBHOOK_FIELDS = 'messages,messaging_postbacks,messaging_seen,standby';
+const WEBHOOK_FIELDS = 'messages,messaging_postbacks,messaging_seen,message_reactions,standby';
 
 // ── State store (in-memory, expires in 10 min) ───────────────────────────────
 const pendingStates = new Map<string, { expiresAt: number }>();

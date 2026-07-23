@@ -30,6 +30,7 @@ describe('joinInboundBatch', () => {
     mediaUrls: null,
     mediaAttachments: null,
     sharedPost: null,
+    igContext: null,
     igMessageId: null,
     createdAt: new Date(),
     ...over,

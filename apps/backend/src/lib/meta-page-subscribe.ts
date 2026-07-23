@@ -3,6 +3,7 @@ export const META_PAGE_WEBHOOK_FIELDS = [
   'messages',
   'messaging_postbacks',
   'messaging_seen',
+  'message_reactions',
   'standby',
 ] as const;
 const WEBHOOK_FIELDS = META_PAGE_WEBHOOK_FIELDS.join(',');

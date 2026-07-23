@@ -113,6 +113,7 @@ export async function loadPendingInbound(
       mediaUrls: true,
       mediaAttachments: true,
       sharedPost: true,
+      igContext: true,
       igMessageId: true,
       createdAt: true,
     },

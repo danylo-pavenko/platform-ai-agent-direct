@@ -1,5 +1,9 @@
 import type { StoredMediaAttachment } from './media-attachments.js';
 import type { SharedPostData } from '../routes/webhooks.js';
+import {
+  type IgInboundContext,
+  parseIgInboundContext,
+} from './ig-inbound-context.js';
 
 export interface PendingInboundMessage {
   id: string;
@@ -7,6 +11,7 @@ export interface PendingInboundMessage {
   mediaUrls: unknown;
   mediaAttachments: unknown;
   sharedPost: unknown;
+  igContext: unknown;
   igMessageId: string | null;
   createdAt: Date;
 }
@@ -16,6 +21,7 @@ export interface JoinedInboundBatch {
   mediaUrls?: string[];
   mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData;
+  igContext?: IgInboundContext;
   igMessageIds: string[];
   messageIds: string[];
 }
@@ -81,11 +87,21 @@ export function joinInboundBatch(messages: PendingInboundMessage[]): JoinedInbou
     }
   }
 
+  let igContext: IgInboundContext | undefined;
+  for (const m of messages) {
+    const ctx = parseIgInboundContext(m.igContext);
+    if (ctx) {
+      igContext = ctx;
+      break;
+    }
+  }
+
   return {
     text,
     mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
     mediaAttachments: mediaAttachments.length > 0 ? mediaAttachments : undefined,
     sharedPost,
+    igContext,
     igMessageIds,
     messageIds,
   };

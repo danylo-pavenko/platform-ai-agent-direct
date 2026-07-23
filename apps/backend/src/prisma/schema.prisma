@@ -139,6 +139,8 @@ model Message {
   mediaUrls       Json?             @map("media_urls") @db.JsonB
   mediaAttachments Json?            @map("media_attachments") @db.JsonB
   sharedPost      Json?             @map("shared_post") @db.JsonB
+  /** Story reply / mention / reaction metadata for Claude context. */
+  igContext       Json?             @map("ig_context") @db.JsonB
   igMessageId     String?           @unique @map("ig_message_id")
   claudeTurnId    String?           @map("claude_turn_id")
   // Set when the bot sent a canned fallback instead of a real model reply.

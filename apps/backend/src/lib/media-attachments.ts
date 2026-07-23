@@ -33,6 +33,7 @@ export function igTypeToMediaKind(igType: string): MediaKind {
     case 'image':
     case 'sticker':
     case 'share_image':
+    case 'story_reply_image':
       return 'image';
     case 'video':
     case 'ig_reel':
@@ -42,6 +43,9 @@ export function igTypeToMediaKind(igType: string): MediaKind {
       return 'audio';
     case 'file':
       return 'file';
+    case 'story_mention':
+      // Ephemeral — we do not treat as durable visual for Claude disk cache.
+      return 'unknown';
     default:
       return 'unknown';
   }

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { prisma } from '../lib/prisma.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
 import { scheduleInboundBotTurn } from '../lib/inbound-coalesce.js';
@@ -23,6 +23,10 @@ import {
   shouldProcessIncoming,
 } from '../lib/runtime-config.js';
 import { evaluateBotAccessForClient } from '../lib/platform-bot-access.js';
+import {
+  type IgInboundContext,
+  reactionDisplay,
+} from '../lib/ig-inbound-context.js';
 
 // ── Meta webhook payload types (subset we care about) ──
 
@@ -61,6 +65,18 @@ interface MetaMessagingEvent {
     is_echo?: boolean;
     is_unsupported?: boolean;
     attachments?: MetaAttachment[];
+    /** Story reply / quote-reply to a prior DM. */
+    reply_to?: {
+      mid?: string;
+      story?: { url?: string; id?: string };
+    };
+  };
+  /** Emoji reaction on a prior DM (`message_reactions` field). */
+  reaction?: {
+    mid: string;
+    action?: string;
+    reaction?: string;
+    emoji?: string;
   };
 }
 
@@ -92,11 +108,20 @@ interface MetaWebhookChange {
       is_echo?: boolean;
       is_unsupported?: boolean;
       attachments?: MetaAttachment[];
+      reply_to?: {
+        mid?: string;
+        story?: { url?: string; id?: string };
+      };
     };
     // field=message_edit (ignored — no re-processing)
     message_edit?: unknown;
-    // field=message_reactions (ignored)
-    reaction?: unknown;
+    // field=message_reactions
+    reaction?: {
+      mid: string;
+      action?: string;
+      reaction?: string;
+      emoji?: string;
+    };
   };
 }
 
@@ -285,8 +310,8 @@ async function processWebhookEvents(
     // while message_edit and other updates still appear under messaging[].
     const fromStandby: MetaMessagingEvent[] = entry.standby ?? [];
 
-    // Instagram API (dashboard tests, newer subs): entry.changes[].field=messages
-    const fromChanges: MetaMessagingEvent[] = (entry.changes ?? [])
+    // Instagram API (dashboard tests, newer subs): entry.changes[]
+    const fromChangesMessages: MetaMessagingEvent[] = (entry.changes ?? [])
       .filter((c) => c.field === 'messages' && c.value?.message)
       .map((c) => ({
         sender:    { id: c.value.sender?.id ?? '' },
@@ -295,19 +320,46 @@ async function processWebhookEvents(
         message:   c.value.message!,
       }));
 
-    const events = [...fromMessaging, ...fromStandby, ...fromChanges];
+    const fromChangesReactions: MetaMessagingEvent[] = (entry.changes ?? [])
+      .filter((c) => c.field === 'message_reactions' && c.value?.reaction)
+      .map((c) => ({
+        sender:    { id: c.value.sender?.id ?? '' },
+        recipient: { id: c.value.recipient?.id ?? '' },
+        timestamp: Number(c.value.timestamp ?? 0),
+        reaction:  c.value.reaction!,
+      }));
+
+    const events = [
+      ...fromMessaging,
+      ...fromStandby,
+      ...fromChangesMessages,
+      ...fromChangesReactions,
+    ];
 
     app.log.debug(
       {
         entryId: entry.id,
         fromMessaging: fromMessaging.length,
         fromStandby: fromStandby.length,
-        fromChanges: fromChanges.length,
+        fromChangesMessages: fromChangesMessages.length,
+        fromChangesReactions: fromChangesReactions.length,
       },
       'Webhook entry events resolved',
     );
 
     for (const event of events) {
+      if (event.reaction) {
+        try {
+          await processReactionEvent(app, event);
+        } catch (err) {
+          app.log.error(
+            { err, senderId: event.sender.id, targetMid: event.reaction.mid },
+            'Error processing reaction event',
+          );
+        }
+        continue;
+      }
+
       if (!event.message) {
         app.log.debug({ eventKeys: Object.keys(event) }, 'Skipping non-message webhook event');
         continue;
@@ -327,6 +379,8 @@ async function processWebhookEvents(
           senderId: event.sender.id,
           hasText: !!event.message.text,
           attachmentTypes: (event.message.attachments ?? []).map((a) => a.type),
+          hasStoryReply: !!event.message.reply_to?.story,
+          replyToMid: event.message.reply_to?.mid,
           isUnsupported: event.message.is_unsupported === true,
         },
         'Processing incoming message event',
@@ -342,6 +396,169 @@ async function processWebhookEvents(
       }
     }
   }
+}
+
+/**
+ * Client emoji-reacted to a prior DM. Persist a synthetic inbound turn so the
+ * sales agent can acknowledge warmly (unreact → no bot turn).
+ */
+async function processReactionEvent(
+  app: FastifyInstance,
+  event: MetaMessagingEvent,
+): Promise<void> {
+  const reaction = event.reaction;
+  if (!reaction?.mid) return;
+
+  const action = (reaction.action ?? 'react').toLowerCase();
+  if (action === 'unreact') {
+    app.log.debug(
+      { senderId: event.sender.id, targetMid: reaction.mid },
+      'Ignoring unreact event',
+    );
+    return;
+  }
+
+  const igUserId = event.sender.id;
+  const emoji = reactionDisplay(reaction.reaction, reaction.emoji);
+  const igMessageId = `react:${reaction.mid}:${event.timestamp || Date.now()}`;
+
+  const existingMessage = await prisma.message.findUnique({
+    where: { igMessageId },
+  });
+  if (existingMessage) {
+    app.log.debug({ igMessageId }, 'Duplicate reaction — skipping');
+    return;
+  }
+
+  const runtime = await getRuntimeConfig();
+  if (runtime.mode === 'debug') {
+    const cachedClient = await prisma.client.findUnique({
+      where: { igUserId },
+      select: { igUsername: true },
+    });
+    let username = cachedClient?.igUsername ?? null;
+    if (!username) {
+      const profile = await fetchIgUserProfile(igUserId).catch(() => null);
+      username = profile?.username ?? null;
+    }
+    if (!shouldProcessIncoming(runtime, username)) {
+      app.log.debug(
+        { igUserId, igUsername: username },
+        'Debug mode: ignoring reaction from non-whitelisted IG user',
+      );
+      return;
+    }
+  }
+
+  const target = await prisma.message.findFirst({
+    where: { igMessageId: reaction.mid },
+    select: { text: true, sender: true, conversationId: true },
+  });
+
+  const client = await prisma.client.upsert({
+    where: { igUserId },
+    update: { lastActivityAt: new Date() },
+    create: { igUserId, lastActivityAt: new Date() },
+  });
+
+  let conversation = target
+    ? await prisma.conversation.findUnique({ where: { id: target.conversationId } })
+    : null;
+
+  if (!conversation || conversation.clientId !== client.id) {
+    conversation = await prisma.conversation.findFirst({
+      where: {
+        clientId: client.id,
+        channel: 'ig',
+        state: { in: ['bot', 'handoff', 'paused'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  if (!conversation) {
+    conversation = await prisma.conversation.create({
+      data: { clientId: client.id, channel: 'ig', state: 'bot' },
+    });
+  }
+
+  if (conversation.state === 'handoff' || conversation.state === 'paused') {
+    app.log.debug(
+      { conversationId: conversation.id, state: conversation.state },
+      'Reaction in non-bot conversation — storing without agent turn',
+    );
+  }
+
+  const igContext: IgInboundContext = {
+    kind: 'reaction',
+    reaction: {
+      targetMid: reaction.mid,
+      action: 'react',
+      reaction: reaction.reaction,
+      emoji: reaction.emoji ?? emoji,
+      targetSnippet: target?.text?.trim() || undefined,
+      targetSender: target?.sender,
+    },
+  };
+
+  const text = `Реакція ${emoji}`;
+
+  try {
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        direction: 'in',
+        sender: 'client',
+        text,
+        igContext: toInputJsonValue(igContext),
+        igMessageId,
+      },
+    });
+  } catch (err: unknown) {
+    if (
+      typeof err === 'object' &&
+      err !== null &&
+      'code' in err &&
+      (err as { code: string }).code === 'P2002'
+    ) {
+      return;
+    }
+    throw err;
+  }
+
+  const now = new Date();
+  await prisma.conversation.update({
+    where: { id: conversation.id },
+    data: {
+      lastMessageAt: now,
+      followUpSentAt: null,
+      ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
+    },
+  });
+
+  app.log.info(
+    {
+      igUserId,
+      conversationId: conversation.id,
+      targetMid: reaction.mid,
+      emoji,
+      hasTargetSnippet: !!target?.text,
+    },
+    'Persisted Instagram message reaction',
+  );
+
+  if (conversation.state !== 'bot') return;
+
+  const access = await evaluateBotAccessForClient(client.id);
+  if (!access.allow) {
+    app.log.debug(
+      { conversationId: conversation.id, reason: access.reason },
+      'Bot access denied for reaction — not scheduling turn',
+    );
+    return;
+  }
+
+  scheduleInboundBotTurn(conversation.id);
 }
 
 async function processMessageEvent(
@@ -454,9 +671,35 @@ async function processMessageEvent(
     );
   }
 
-  // ── Extract direct media (images / video / audio / file; not share) ──
+  // ── Story reply / mention / inline reply context ──
+  let igContext: IgInboundContext | null = null;
+  const storyReply = message.reply_to?.story;
+  const storyMentionAtt = attachments.find((a) => a.type === 'story_mention');
+  if (storyReply) {
+    igContext = {
+      kind: 'story_reply',
+      story: {
+        id: storyReply.id,
+        url: storyReply.url,
+      },
+    };
+  } else if (storyMentionAtt) {
+    const mentionUrl = (storyMentionAtt.payload as MediaAttachmentPayload | undefined)?.url;
+    igContext = {
+      kind: 'story_mention',
+      story: mentionUrl ? { url: mentionUrl } : undefined,
+    };
+  } else if (message.reply_to?.mid) {
+    igContext = {
+      kind: 'inline_reply',
+      replyToMid: message.reply_to.mid,
+    };
+  }
+
+  // ── Extract direct media (images / video / audio / file; not share / story_mention) ──
+  // story_mention CDN is ephemeral — Meta asks not to store it; keep URL only in igContext.
   const directMediaItems = attachments
-    .filter((a) => a.type !== 'share')
+    .filter((a) => a.type !== 'share' && a.type !== 'story_mention')
     .map((a) => {
       const url = (a.payload as MediaAttachmentPayload | undefined)?.url;
       return url ? { url, igType: a.type } : null;
@@ -501,6 +744,26 @@ async function processMessageEvent(
       mediaAttachments.unshift(shareImage);
     } else if (shareImage) {
       mediaAttachments.unshift(shareImage);
+    }
+  }
+
+  // Story reply frame — our business Stories; OK to download for Claude vision (expires fast).
+  if (
+    igContext?.kind === 'story_reply' &&
+    igContext.story?.url &&
+    isRemoteMediaUrl(igContext.story.url)
+  ) {
+    const [storyImage] = await persistIncomingMediaItems([
+      { url: igContext.story.url, igType: 'story_reply_image' },
+    ]);
+    if (storyImage?.status === 'ready' && storyImage.storageKey) {
+      igContext = {
+        ...igContext,
+        story: { ...igContext.story, storageKey: storyImage.storageKey },
+      };
+      mediaAttachments.unshift(storyImage);
+    } else if (storyImage) {
+      mediaAttachments.unshift(storyImage);
     }
   }
 
@@ -647,6 +910,7 @@ async function processMessageEvent(
         sharedPost: sharedPost
           ? (sharedPost as unknown as Record<string, string | undefined>)
           : undefined,
+        igContext: toInputJsonValue(igContext),
         igMessageId,
       },
     });
@@ -683,6 +947,7 @@ async function processMessageEvent(
       igMessageId,
       conversationId: conversation.id,
       hasSharedPost: !!sharedPost,
+      igContextKind: igContext?.kind ?? null,
       mediaCount: storedMediaKeys.length,
       mediaAttachmentSummary: mediaAttachments.map((a) => ({
         kind: a.kind,

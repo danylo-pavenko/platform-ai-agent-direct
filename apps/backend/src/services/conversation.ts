@@ -46,6 +46,10 @@ import {
 } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
+import {
+  enrichUserMessageWithIgContext,
+  type IgInboundContext,
+} from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
@@ -211,6 +215,7 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
         batch.sharedPost,
         batch.mediaAttachments,
         batch.igMessageIds,
+        batch.igContext,
       );
     } catch (err) {
       await releaseInboundClaim(turnId);
@@ -235,6 +240,7 @@ async function handleIncomingMessageImpl(
   sharedPost?: SharedPostData,
   mediaAttachments?: StoredMediaAttachment[],
   sourceIgMessageIds?: string[],
+  igContext?: IgInboundContext,
 ): Promise<BotTurnOutcome> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
@@ -510,6 +516,15 @@ async function handleIncomingMessageImpl(
   let enrichedMessageText = messageText;
   let catalogDebug: CatalogDebugMatch | null = null;
 
+  const igContextHeader = enrichUserMessageWithIgContext(messageText, igContext);
+  if (igContextHeader) {
+    enrichedMessageText = igContextHeader;
+    log.info(
+      { conversationId, kind: igContext?.kind },
+      'Message enriched with IG inbound context (story/reaction)',
+    );
+  }
+
   if (sharedPost) {
     log.info(
       { conversationId, postUrl: sharedPost.postUrl },
@@ -542,12 +557,14 @@ async function handleIncomingMessageImpl(
     }
 
     // Build the enriched user message that Claude will receive.
-    // Structure: [shared post header] + [availability data if found] + [original text if any]
+    // Structure: [shared post header] + [availability data if found] + [original / IG context text]
     const parts: string[] = [sharedPostHeader];
     if (availabilityBlock) {
       parts.push(availabilityBlock);
     }
-    if (messageText.trim()) {
+    if (igContextHeader) {
+      parts.push(igContextHeader);
+    } else if (messageText.trim()) {
       parts.push(`Повідомлення клієнта: "${messageText.trim()}"`);
     }
     enrichedMessageText = parts.join('\n\n');
@@ -561,11 +578,11 @@ async function handleIncomingMessageImpl(
       },
       'Message enriched with shared post context',
     );
-  } else if (!messageText.trim() && localPaths.length > 0) {
+  } else if (!igContextHeader && !messageText.trim() && localPaths.length > 0) {
     // Image/video without caption — guide Claude to read product screenshots.
     enrichedMessageText =
       '[Клієнт надіслав зображення без тексту. Якщо це скрін/фото товару — прочитай назву, ціну, розмір/колір і допоможи оформити замовлення. Якщо відео не вклалось у vision — попроси фото або посилання.]';
-  } else if (!messageText.trim() && localPaths.length === 0) {
+  } else if (!igContextHeader && !messageText.trim() && localPaths.length === 0) {
     const audioItems = (mediaAttachments ?? []).filter((a) => a.kind === 'audio');
     const hasTranscript = audioItems.some((a) => a.transcript?.trim());
     if (audioItems.length > 0 && !hasTranscript) {
