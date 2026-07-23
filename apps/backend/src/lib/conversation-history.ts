@@ -10,35 +10,58 @@ export interface ClaudeHistoryTurn {
   content: string;
 }
 
+export interface BuildClaudeHistoryOptions {
+  excludeIgMessageId?: string | null;
+  excludeIgMessageIds?: string[] | null;
+}
+
+function buildExcludeMidSet(options?: BuildClaudeHistoryOptions): Set<string> {
+  const set = new Set<string>();
+  const single = options?.excludeIgMessageId?.trim();
+  if (single) set.add(single);
+  for (const id of options?.excludeIgMessageIds ?? []) {
+    const trimmed = id?.trim();
+    if (trimmed) set.add(trimmed);
+  }
+  return set;
+}
+
 /**
  * Build Claude conversation history without duplicating the current user turn.
  *
  * The webhook persists the inbound message before calling the agent, so the
- * latest row often matches `currentUserText` — exclude it from history and
- * keep it only in `userMessage` (saves tokens, Phase 4).
+ * latest row(s) often match the coalesced `userMessage` — exclude them from
+ * history and keep them only in `userMessage` (saves tokens, Phase 4).
  */
 export function buildClaudeHistoryTurns(
   messagesAsc: HistoryMessageRow[],
   currentUserText: string,
-  options?: { excludeIgMessageId?: string | null },
+  options?: BuildClaudeHistoryOptions,
 ): ClaudeHistoryTurn[] {
   const current = currentUserText.trim();
-  const excludeMid = options?.excludeIgMessageId?.trim() || null;
+  const excludeMids = buildExcludeMidSet(options);
 
   let rows = messagesAsc.filter(
     (m) => m.direction !== 'system' && typeof m.text === 'string' && m.text.trim().length > 0,
   );
 
-  if (rows.length > 0) {
+  // Drop trailing inbound rows that belong to the current coalesced turn.
+  while (rows.length > 0) {
     const last = rows[rows.length - 1]!;
+    if (last.direction !== 'in') break;
+
     const lastText = last.text!.trim();
     const matchesCurrent = current.length > 0 && lastText === current;
     const matchesMid =
-      excludeMid && last.igMessageId && last.igMessageId === excludeMid;
+      last.igMessageId != null && excludeMids.has(last.igMessageId);
 
-    if (last.direction === 'in' && (matchesCurrent || matchesMid)) {
+    if (matchesCurrent || matchesMid) {
       rows = rows.slice(0, -1);
+      // Only strip a single text-match when no mid set (legacy single-message path).
+      if (matchesCurrent && !matchesMid && excludeMids.size === 0) break;
+      continue;
     }
+    break;
   }
 
   return rows.map((m) => ({

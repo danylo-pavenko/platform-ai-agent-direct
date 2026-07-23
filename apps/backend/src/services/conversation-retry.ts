@@ -3,10 +3,11 @@ import pino from 'pino';
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { isAgentFallbackReply } from '../lib/agent-fallback.js';
-import type { StoredMediaAttachment } from '../lib/media-attachments.js';
+import {
+  clearInboundClaims,
+  flushInboundBotTurnNow,
+} from '../lib/inbound-coalesce.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
-import { handleIncomingMessage } from './conversation.js';
-import type { SharedPostData } from '../routes/webhooks.js';
 
 const log = pino({ name: 'conversation-retry' });
 
@@ -94,23 +95,7 @@ export function evaluateConversationRetryNeed(
 
 const inFlight = new Set<string>();
 
-function parseMediaUrls(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const keys = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
-  return keys.length > 0 ? keys : undefined;
-}
-
-function parseMediaAttachments(value: unknown): StoredMediaAttachment[] | undefined {
-  if (!Array.isArray(value) || value.length === 0) return undefined;
-  return value as StoredMediaAttachment[];
-}
-
-function parseSharedPost(value: unknown): SharedPostData | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  return value as SharedPostData;
-}
-
-/** Re-run the bot turn for the latest client inbound message in a conversation. */
+/** Re-run the bot turn for unanswered client inbound messages in a conversation. */
 export async function retryConversationBotReply(conversationId: string): Promise<boolean> {
   if (inFlight.has(conversationId)) {
     return false;
@@ -133,13 +118,11 @@ export async function retryConversationBotReply(conversationId: string): Promise
     orderBy: { createdAt: 'desc' },
     take: 30,
     select: {
+      id: true,
       direction: true,
       sender: true,
       text: true,
       createdAt: true,
-      mediaUrls: true,
-      mediaAttachments: true,
-      sharedPost: true,
       igMessageId: true,
     },
   });
@@ -150,16 +133,38 @@ export async function retryConversationBotReply(conversationId: string): Promise
     maxBotAttemptsAfterInbound: config.CONVERSATION_RETRY_MAX_BOT_ATTEMPTS,
   });
 
-  if (!evalResult.needed) {
+  if (!evalResult.needed || !evalResult.inboundAt) {
     return false;
   }
 
-  const lastInbound = [...recentMessages]
+  // Clear claims on unanswered inbounds so coalesce drain can pick them up.
+  const inboundAt = evalResult.inboundAt;
+  const toClear = recentMessages
+    .filter(
+      (m) =>
+        m.direction === 'in' &&
+        m.sender === 'client' &&
+        m.createdAt >= inboundAt,
+    )
+    .map((m) => m.id);
+  // Also clear earlier unclaimed-or-claimed inbounds after the previous real reply:
+  // include all client inbounds with no real bot reply after them, from the
+  // unanswered streak ending at lastInbound.
+  const unansweredIds = recentMessages
     .filter((m) => m.direction === 'in' && m.sender === 'client')
-    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-    .at(-1);
+    .filter((m) => {
+      const hasRealReplyAfter = recentMessages.some(
+        (r) =>
+          r.createdAt > m.createdAt &&
+          r.direction === 'out' &&
+          ((r.sender === 'bot' && r.text && !isAgentFallbackReply(r.text)) ||
+            r.sender === 'manager'),
+      );
+      return !hasRealReplyAfter;
+    })
+    .map((m) => m.id);
 
-  if (!lastInbound) return false;
+  const claimClearIds = [...new Set([...toClear, ...unansweredIds])];
 
   inFlight.add(conversationId);
   try {
@@ -167,20 +172,14 @@ export async function retryConversationBotReply(conversationId: string): Promise
       {
         event: 'conversation_retry_start',
         conversationId,
-        inboundAgeMs: Date.now() - lastInbound.createdAt.getTime(),
-        igMessageId: lastInbound.igMessageId,
+        inboundAgeMs: Date.now() - inboundAt.getTime(),
+        clearCount: claimClearIds.length,
       },
       'Retrying bot reply for unanswered client message',
     );
 
-    await handleIncomingMessage(
-      conversationId,
-      lastInbound.text ?? '',
-      parseMediaUrls(lastInbound.mediaUrls),
-      parseSharedPost(lastInbound.sharedPost),
-      parseMediaAttachments(lastInbound.mediaAttachments),
-      lastInbound.igMessageId ?? undefined,
-    );
+    await clearInboundClaims(claimClearIds);
+    await flushInboundBotTurnNow(conversationId);
 
     const afterMessages = await prisma.message.findMany({
       where: { conversationId },

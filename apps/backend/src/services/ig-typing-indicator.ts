@@ -80,6 +80,9 @@ export async function beginIgTypingIndicator(params: {
   const enabled = await isSendTypingIndicatorEnabled();
   if (!enabled) return noopHandle;
 
+  const existing = activeByRecipient.get(recipientId);
+  if (existing) return existing;
+
   const session = new IgTypingSession(recipientId);
   await session.begin();
   return session;

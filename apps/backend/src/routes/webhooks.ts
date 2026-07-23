@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
-import { handleIncomingMessage } from '../services/conversation.js';
+import { scheduleInboundBotTurn } from '../lib/inbound-coalesce.js';
 import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.js';
 import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
@@ -716,17 +716,8 @@ async function processMessageEvent(
     return;
   }
 
-  // Enqueue Claude turn asynchronously (don't await - webhook already responded)
-  handleIncomingMessage(
-    conversation.id,
-    redacted || '',
-    storedMediaKeys,
-    sharedPost ?? undefined,
-    mediaAttachments.length > 0 ? mediaAttachments : undefined,
-    igMessageId,
-  ).catch((err) => {
-    app.log.error({ err, conversationId: conversation.id }, 'Error in conversation handler');
-  });
+  // Enqueue coalesced Claude turn asynchronously (don't await - webhook already responded)
+  scheduleInboundBotTurn(conversation.id);
 }
 
 // ── Helpers ──

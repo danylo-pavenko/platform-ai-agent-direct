@@ -48,7 +48,15 @@ import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
-import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
+import {
+  claimInboundMessages,
+  joinInboundBatch,
+  loadPendingInbound,
+  markInboundSkipped,
+  MAX_DRAIN_ITERATIONS,
+  newClaudeTurnId,
+  releaseInboundClaim,
+} from '../lib/inbound-coalesce.js';
 import {
   countConsecutiveBotFallbacks,
   formatBotFailureDetail,
@@ -73,6 +81,9 @@ const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 const MAX_HISTORY_MESSAGES = 30;
 
 const CUSTOMER_CHANNELS = new Set(['ig', 'tg']);
+
+/** Outcome of one Claude turn — drives inbound claim keep / skip / release. */
+export type BotTurnOutcome = 'completed' | 'skipped' | 'released';
 
 // ---------------------------------------------------------------------------
 // Handoff helper
@@ -160,37 +171,61 @@ async function performManagerHandoff(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Handles an incoming Instagram message for a conversation.
- *
- * Orchestrates the full flow: state check, working-hours gate,
- * prompt building, Claude invocation, tool-call handling, output
- * validation, and response delivery.
- *
- * @param conversationId  The DB conversation UUID.
- * @param messageText     Sanitized message text (may be empty for image-only messages).
- * @param mediaUrls         Storage keys for successfully downloaded media.
- * @param sharedPost        Parsed metadata if the user forwarded an IG post.
- * @param mediaAttachments  Structured attachment metadata (kind, playback status).
- * @param sourceIgMessageId Meta message id — excludes duplicate from Claude history.
+ * Drain unclaimed inbound client messages into one or more Claude turns.
+ * Caller must already hold `runConversationTurnSerialized` (see inbound-coalesce flush).
  */
-export function handleIncomingMessage(
-  conversationId: string,
-  messageText: string,
-  mediaUrls?: string[],
-  sharedPost?: SharedPostData,
-  mediaAttachments?: StoredMediaAttachment[],
-  sourceIgMessageId?: string,
-): Promise<void> {
-  return runConversationTurnSerialized(conversationId, () =>
-    handleIncomingMessageImpl(
-      conversationId,
-      messageText,
-      mediaUrls,
-      sharedPost,
-      mediaAttachments,
-      sourceIgMessageId,
-    ),
-  );
+export async function drainPendingInboundTurns(conversationId: string): Promise<void> {
+  let onlyAfter: Date | undefined;
+
+  for (let i = 0; i < MAX_DRAIN_ITERATIONS; i++) {
+    const pending = await loadPendingInbound(conversationId, { onlyAfter });
+    if (pending.length === 0) break;
+
+    const turnId = newClaudeTurnId();
+    const claimed = await claimInboundMessages(
+      pending.map((m) => m.id),
+      turnId,
+    );
+    if (claimed === 0) break;
+
+    const batch = joinInboundBatch(pending);
+    const turnGateAt = new Date();
+
+    log.info(
+      {
+        conversationId,
+        turnId,
+        batchSize: pending.length,
+        igMessageIds: batch.igMessageIds,
+        drainIteration: i,
+      },
+      'Starting coalesced inbound bot turn',
+    );
+
+    let outcome: BotTurnOutcome = 'released';
+    try {
+      outcome = await handleIncomingMessageImpl(
+        conversationId,
+        batch.text,
+        batch.mediaUrls,
+        batch.sharedPost,
+        batch.mediaAttachments,
+        batch.igMessageIds,
+      );
+    } catch (err) {
+      await releaseInboundClaim(turnId);
+      throw err;
+    }
+
+    if (outcome === 'skipped') {
+      await markInboundSkipped(turnId);
+    } else if (outcome === 'released') {
+      await releaseInboundClaim(turnId);
+    }
+
+    // Follow-up iterations only pick up mids that arrived during this turn.
+    onlyAfter = turnGateAt;
+  }
 }
 
 async function handleIncomingMessageImpl(
@@ -199,8 +234,8 @@ async function handleIncomingMessageImpl(
   mediaUrls?: string[],
   sharedPost?: SharedPostData,
   mediaAttachments?: StoredMediaAttachment[],
-  sourceIgMessageId?: string,
-): Promise<void> {
+  sourceIgMessageIds?: string[],
+): Promise<BotTurnOutcome> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
@@ -209,14 +244,14 @@ async function handleIncomingMessageImpl(
 
   if (!conversation) {
     log.error({ conversationId }, 'Conversation not found');
-    return;
+    return 'released';
   }
 
   const { client } = conversation;
 
   if (!client.igUserId) {
     log.error({ conversationId, clientId: client.id }, 'Client has no igUserId');
-    return;
+    return 'released';
   }
 
   // Build a typed profile object from the client record.
@@ -295,7 +330,7 @@ async function handleIncomingMessageImpl(
       });
       if (!refreshed) {
         log.error({ conversationId }, 'Conversation not found after handoff auto-return');
-        return;
+        return 'released';
       }
       conversation = refreshed;
     } else {
@@ -316,7 +351,7 @@ async function handleIncomingMessageImpl(
           ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
           : [],
       }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
-      return;
+      return 'skipped';
     }
   }
 
@@ -326,7 +361,7 @@ async function handleIncomingMessageImpl(
       { conversationId, state: conversation.state },
       'Conversation closed or paused, ignoring',
     );
-    return;
+    return 'skipped';
   }
 
   // ── 3.5 Tenant-wide bot ignore list ───────────────────────────────
@@ -336,7 +371,7 @@ async function handleIncomingMessageImpl(
       { conversationId, igUsername: client.igUsername },
       'Username on bot ignore list — skipping bot response',
     );
-    return;
+    return 'skipped';
   }
 
   const igTyping = await beginIgTypingIndicator({
@@ -447,7 +482,7 @@ async function handleIncomingMessageImpl(
 
   // Exclude current turn from history — it is passed separately as userMessage (Phase 4).
   const history = buildClaudeHistoryTurns(dedupedAsc, messageText, {
-    excludeIgMessageId: sourceIgMessageId,
+    excludeIgMessageIds: sourceIgMessageIds,
   });
 
   // ── 7. Resolve visual media for Claude (images/video only — not audio) ──
@@ -584,7 +619,7 @@ async function handleIncomingMessageImpl(
         turnStartedAt,
       })
     ) {
-      return;
+      return 'completed';
     }
 
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
@@ -675,7 +710,7 @@ async function handleIncomingMessageImpl(
             turnStartedAt,
           })
         ) {
-          return;
+          return 'completed';
         }
       }
       log.info({ conversationId, query }, 'Catalog search completed and Claude re-invoked');
@@ -743,7 +778,7 @@ async function handleIncomingMessageImpl(
             turnStartedAt,
           })
         ) {
-          return;
+          return 'completed';
         }
       }
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
@@ -793,7 +828,7 @@ async function handleIncomingMessageImpl(
             turnStartedAt,
           })
         ) {
-          return;
+          return 'completed';
         }
       }
     }
@@ -846,7 +881,7 @@ async function handleIncomingMessageImpl(
             turnStartedAt,
           })
         ) {
-          return;
+          return 'completed';
         }
       }
     }
@@ -917,7 +952,7 @@ async function handleIncomingMessageImpl(
             turnStartedAt,
           })
         ) {
-          return;
+          return 'completed';
         }
       }
     }
@@ -939,7 +974,7 @@ async function handleIncomingMessageImpl(
 
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
-    return;
+    return 'skipped';
   }
 
   // After two consecutive agent fallbacks, escalate to a live manager.
@@ -996,7 +1031,7 @@ async function handleIncomingMessageImpl(
         reason: `Агент не зміг обробити запит після ${priorFallbacks + 1} спроб. ${failureDetail}`,
         turnStartedAt,
       });
-      return;
+      return 'completed';
     }
   }
 
@@ -1114,6 +1149,7 @@ async function handleIncomingMessageImpl(
     { conversationId, responseLength: clientFacingText.length },
     'Bot response sent and persisted',
   );
+  return 'completed';
   } finally {
     await igTyping.end();
   }

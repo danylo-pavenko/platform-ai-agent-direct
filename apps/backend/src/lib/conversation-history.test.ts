@@ -29,6 +29,19 @@ describe('buildClaudeHistoryTurns', () => {
     expect(history).toEqual([{ role: 'user', content: 'old' }]);
   });
 
+  it('excludes multiple trailing inbound mids from a coalesced turn', () => {
+    const history = buildClaudeHistoryTurns(
+      [
+        { direction: 'out', text: 'Вітаю!' },
+        { direction: 'in', text: 'Привіт', igMessageId: 'm1' },
+        { direction: 'in', text: 'Хочу стрижку', igMessageId: 'm2' },
+      ],
+      'Клієнт надіслав кілька повідомлень підряд:\n\nПривіт\n\nХочу стрижку',
+      { excludeIgMessageIds: ['m1', 'm2'] },
+    );
+    expect(history).toEqual([{ role: 'assistant', content: 'Вітаю!' }]);
+  });
+
   it('skips system and empty rows', () => {
     const history = buildClaudeHistoryTurns(
       [

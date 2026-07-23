@@ -96,6 +96,9 @@ const envSchema = z.object({
 
   // Claude
   CLAUDE_MAX_CONCURRENCY: z.coerce.number().default(2),
+  // Dedicated slot(s) for meta-agent teach so customer IG/TG traffic is not
+  // starved (and vice versa) by long prompt-editing turns.
+  CLAUDE_META_MAX_CONCURRENCY: z.coerce.number().default(1),
   // IG/TG customer turns — catalog tool calls on a VPS often exceed 30s.
   CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
   // Voice notes: STT already consumed wall time; allow a longer Claude window.
@@ -136,6 +139,16 @@ const envSchema = z.object({
   CONVERSATION_RETRY_BATCH_SIZE: envCoerceNumber({ default: 15, min: 1, max: 50 }),
   /** Initial attempt + automatic retries (fallback-only replies count toward limit). */
   CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: envCoerceNumber({ default: 3, min: 1, max: 5 }),
+
+  // Coalesce rapid IG bubbles into one Claude turn (silence + max-wait).
+  INBOUND_COALESCE_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  /** Quiet period after the last inbound mid before starting Claude. */
+  INBOUND_COALESCE_SILENCE_MS: envCoerceNumber({ default: 600, min: 0, max: 5_000 }),
+  /** Cap wait from the first mid in a burst (keeps multi-bubble replies snappy). */
+  INBOUND_COALESCE_MAX_WAIT_MS: envCoerceNumber({ default: 1_500, min: 0, max: 10_000 }),
 
   // Auth
   JWT_SECRET: z.string().min(16),
