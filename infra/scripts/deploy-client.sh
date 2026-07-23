@@ -63,23 +63,86 @@ fi
 echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
 
 # npm ci can fail with ENOTEMPTY when node_modules is partially corrupted; one clean retry only.
+# Long hangs are killed via DEPLOY_NPM_CI_TIMEOUT_SEC (default 20 min) with stdout heartbeats.
 npm_ci_with_enotempty_retry() {
-  local _log
-  _log="$(mktemp)"
-  if npm ci --prefer-offline >"$_log" 2>&1; then
-    rm -f "$_log"
-    return 0
+  local _timeout_sec="${DEPLOY_NPM_CI_TIMEOUT_SEC:-1200}"
+  local _heartbeat_sec="${DEPLOY_NPM_CI_HEARTBEAT_SEC:-30}"
+  local _pid _hb_pid _elapsed _rc
+  local _has_timeout=0
+
+  _run_npm_ci() {
+    local __log
+    __log="$(mktemp)"
+    if npm ci --prefer-offline >"$__log" 2>&1; then
+      rm -f "$__log"
+      return 0
+    fi
+    if ! grep -qE 'ENOTEMPTY|directory not empty, rmdir' "$__log"; then
+      cat "$__log" >&2
+      rm -f "$__log"
+      return 1
+    fi
+    echo "  WARN: npm ci failed (corrupt node_modules) — removing and retrying once..."
+    cat "$__log" >&2
+    rm -f "$__log"
+    rm -rf node_modules apps/backend/node_modules apps/admin/node_modules apps/super-admin/node_modules
+    npm ci --prefer-offline
+  }
+
+  if command -v timeout >/dev/null 2>&1; then
+    _has_timeout=1
   fi
-  if ! grep -qE 'ENOTEMPTY|directory not empty, rmdir' "$_log"; then
-    cat "$_log" >&2
-    rm -f "$_log"
-    return 1
+
+  # Heartbeat so SA log shows progress while npm is quiet.
+  (
+    _elapsed=0
+    while true; do
+      sleep "${_heartbeat_sec}"
+      _elapsed=$((_elapsed + _heartbeat_sec))
+      echo "[3/11] npm ci still running... (${_elapsed}s / ${_timeout_sec}s timeout)"
+    done
+  ) &
+  _hb_pid=$!
+
+  set +e
+  if [ "${_has_timeout}" -eq 1 ]; then
+    # GNU timeout kills the whole process group (npm + children).
+    timeout --foreground "${_timeout_sec}" bash -c "$(declare -f _run_npm_ci); _run_npm_ci"
+    _rc=$?
+    if [ "${_rc}" -eq 124 ]; then
+      echo "[err] npm ci timed out after ${_timeout_sec}s" >&2
+    fi
+  else
+    # Fallback without GNU timeout: own process group + kill.
+    set -m
+    _run_npm_ci &
+    _pid=$!
+    (
+      sleep "${_timeout_sec}"
+      if kill -0 "${_pid}" 2>/dev/null; then
+        echo "[err] npm ci timed out after ${_timeout_sec}s — killing process group ${_pid}" >&2
+        kill -TERM -"${_pid}" 2>/dev/null || kill -TERM "${_pid}" 2>/dev/null || true
+        sleep 2
+        kill -KILL -"${_pid}" 2>/dev/null || kill -KILL "${_pid}" 2>/dev/null || true
+      fi
+    ) &
+    local _killer_pid=$!
+    wait "${_pid}"
+    _rc=$?
+    kill "${_killer_pid}" 2>/dev/null || true
+    wait "${_killer_pid}" 2>/dev/null || true
   fi
-  echo "  WARN: npm ci failed (corrupt node_modules) — removing and retrying once..."
-  cat "$_log" >&2
-  rm -f "$_log"
-  rm -rf node_modules apps/backend/node_modules apps/admin/node_modules apps/super-admin/node_modules
-  npm ci --prefer-offline
+  set -e
+
+  kill "${_hb_pid}" 2>/dev/null || true
+  wait "${_hb_pid}" 2>/dev/null || true
+
+  if [ "${_rc}" -ne 0 ]; then
+    echo "[err] npm ci failed (exit ${_rc})" >&2
+    return "${_rc}"
+  fi
+  echo "  npm ci OK"
+  return 0
 }
 
 # Per-app restart avoids PM2 crashing when a ghost whisper entry (id without process) exists.

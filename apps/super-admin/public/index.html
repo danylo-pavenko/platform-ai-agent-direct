@@ -262,6 +262,9 @@
     .port-conflict-warn { font-size: 11px; color: var(--warn); margin-top: 6px; }
     .deploy-log { background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 12px; font-family: monospace; font-size: 11px; color: #a0ffb0; max-height: 380px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; min-height: 80px; }
     .deploy-log .err-line { color: #ff8080; }
+    .deploy-log .stderr-line { color: #a8a29e; }
+    .deploy-log .warn-line { color: #fbbf24; }
+    .deploy-log .meta-line { color: #94a3b8; font-size: 11px; }
     .deploy-log-wrap { position: relative; }
     .deploy-running { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; margin-right: 6px; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -1355,8 +1358,15 @@
         <span v-if="deployLog.running" class="deploy-running"></span>
         🚀 Deploy: {{ deployLog.name }}
       </h2>
-      <p v-if="deployLog.running" style="font-size:11px;color:var(--muted);margin:-8px 0 12px">
-        Деплой триває у фоні — можна закрити вікно і відкрити лог знову кнопкою «Log».
+      <p style="font-size:11px;color:var(--muted);margin:-8px 0 12px;line-height:1.45">
+        <template v-if="deployLog.running">
+          Деплой триває у фоні — можна закрити вікно і відкрити лог знову кнопкою «Log».
+        </template>
+        <template v-else-if="deployLog.status">
+          Status: <strong>{{ deployLog.status }}</strong>
+          <span v-if="deployLog.exitCode != null"> (exit {{ deployLog.exitCode }})</span>
+        </template>
+        <span v-if="deployLogElapsed" style="margin-left:8px">· {{ deployLogElapsed }}</span>
       </p>
       <div class="deploy-log-wrap">
         <div class="deploy-log" ref="deployLogEl" v-html="deployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
@@ -1394,12 +1404,69 @@ createApp({
     const health = reactive({});
     const deploying = ref(null);
     const deployJobs = reactive({}); // tenantId -> { running, job }
-    const deployLog = reactive({ open: false, name: '', text: '', html: '', running: false, tenantId: null, jobId: null });
+    const deployLog = reactive({
+      open: false,
+      name: '',
+      text: '',
+      html: '',
+      running: false,
+      tenantId: null,
+      jobId: null,
+      status: null,
+      startedAt: null,
+      exitCode: null,
+      tick: 0,
+    });
     const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
     const chatMessages = ref(null);
     const deployLogEl = ref(null);
     const tenantModalOverlay = ref(null);
     const slugInputEl = ref(null);
+    let deployLogTickTimer = null;
+
+    const deployLogElapsed = computed(() => {
+      void deployLog.tick;
+      if (!deployLog.startedAt) return '';
+      const start = Date.parse(deployLog.startedAt);
+      if (Number.isNaN(start)) return '';
+      const finishedAt = deployJobs[deployLog.tenantId]?.job?.finishedAt;
+      const endMs = deployLog.running
+        ? Date.now()
+        : (finishedAt ? Date.parse(finishedAt) : Date.now());
+      const sec = Math.max(0, Math.floor(((Number.isNaN(endMs) ? Date.now() : endMs) - start) / 1000));
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    });
+
+    function syncDeployLogFromJob(job, runningOverride) {
+      if (!job) {
+        deployLog.status = null;
+        deployLog.startedAt = null;
+        deployLog.exitCode = null;
+        if (runningOverride !== undefined) deployLog.running = !!runningOverride;
+        return;
+      }
+      deployLog.jobId = job.id || deployLog.jobId;
+      deployLog.status = job.status || null;
+      deployLog.startedAt = job.startedAt || null;
+      deployLog.exitCode = job.exitCode ?? null;
+      deployLog.running = runningOverride !== undefined
+        ? !!runningOverride
+        : job.status === 'running';
+    }
+
+    function startDeployLogTicker() {
+      if (deployLogTickTimer) return;
+      deployLogTickTimer = setInterval(() => { deployLog.tick += 1; }, 1000);
+    }
+
+    function stopDeployLogTicker() {
+      if (deployLogTickTimer) {
+        clearInterval(deployLogTickTimer);
+        deployLogTickTimer = null;
+      }
+    }
 
     function isDeployRunning(tenantId) {
       return !!deployJobs[tenantId]?.running;
@@ -2153,6 +2220,11 @@ createApp({
         if (!r.ok) return;
         const d = await r.json();
         deployJobs[tenantId] = { running: !!d.running, job: d.job || null };
+        if (deployLog.open && deployLog.tenantId === tenantId) {
+          syncDeployLogFromJob(d.job || null, !!d.running);
+          if (d.running) startDeployLogTicker();
+          else stopDeployLogTicker();
+        }
       } catch {
         // ignore
       }
@@ -2164,10 +2236,14 @@ createApp({
 
     function appendDeployLine(line) {
       const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
+      const isStderr = line.startsWith('[stderr]');
+      const isWarn = /\bWARN:/i.test(line) || line.includes('skip upgrade');
       const isDone = line.startsWith('[✓') || line.startsWith('[✗') || line.startsWith('[job] finished');
       const escaped = escapeLine(line);
       let span;
       if (isErr) span = `<span class="err-line">${escaped}</span>`;
+      else if (isStderr) span = `<span class="stderr-line">${escaped}</span>`;
+      else if (isWarn) span = `<span class="warn-line">${escaped}</span>`;
       else if (isDone) span = `<strong style="color:${line.startsWith('[✓') || line.includes('succeeded') ? '#22c55e' : '#ef4444'}">${escaped}</strong>`;
       else span = escaped;
       deployLog.html += (deployLog.html ? '\n' : '') + span;
@@ -2199,6 +2275,10 @@ createApp({
         for (const part of parts) {
           if (part.startsWith('data: ')) appendDeployLine(part.slice(6));
         }
+        // Keep modal pulse aligned with DB while SSE is open.
+        if (deployJobs[tenantId]?.job) {
+          syncDeployLogFromJob(deployJobs[tenantId].job, !!deployJobs[tenantId].running);
+        }
       }
       if (buf.startsWith('data: ')) appendDeployLine(buf.slice(6));
     }
@@ -2209,13 +2289,14 @@ createApp({
       deployLog.open = true;
       deployLog.name = t.name;
       deployLog.tenantId = t.id;
-      deployLog.jobId = job?.id || null;
       deployLog.text = '';
       deployLog.html = '';
-      deployLog.running = !!deployJobs[t.id]?.running;
+      syncDeployLogFromJob(job, !!deployJobs[t.id]?.running);
+      startDeployLogTicker();
 
       if (!job?.id) {
         appendDeployLine('[error] No deploy job found');
+        stopDeployLogTicker();
         return;
       }
 
@@ -2224,8 +2305,9 @@ createApp({
       } catch (e) {
         appendDeployLine(`[error] ${e.message}`);
       } finally {
-        deployLog.running = false;
         await refreshDeployStatus(t.id);
+        syncDeployLogFromJob(deployJobs[t.id]?.job, !!deployJobs[t.id]?.running);
+        if (!deployLog.running) stopDeployLogTicker();
         await loadTenants();
       }
     }
@@ -2244,6 +2326,10 @@ createApp({
       deployLog.text = '';
       deployLog.html = '';
       deployLog.running = true;
+      deployLog.status = 'running';
+      deployLog.startedAt = new Date().toISOString();
+      deployLog.exitCode = null;
+      startDeployLogTicker();
 
       try {
         const startRes = await fetch(`${BASE}/tenants/${t.id}/deploy`, {
@@ -2257,8 +2343,8 @@ createApp({
         }
 
         const jobId = startData.job?.id;
-        deployLog.jobId = jobId || null;
         deployJobs[t.id] = { running: true, job: startData.job || null };
+        syncDeployLogFromJob(startData.job, true);
         if (!startData.started) {
           appendDeployLine('[job] Attach to already-running deploy');
         }
@@ -2268,8 +2354,9 @@ createApp({
         appendDeployLine(`[error] ${e.message}`);
       } finally {
         deploying.value = null;
-        deployLog.running = false;
         await refreshDeployStatus(t.id);
+        syncDeployLogFromJob(deployJobs[t.id]?.job, !!deployJobs[t.id]?.running);
+        if (!deployLog.running) stopDeployLogTicker();
         await loadTenants();
       }
     }
@@ -2433,6 +2520,7 @@ createApp({
 
     return {
       auth, login, page, sidebarOpen, tenants, health, deploying, deployJobs, deployLog, deployLogEl,
+      deployLogElapsed,
       chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
       tenantModalOverlay, slugInputEl,
       fieldHints, portDefaults, portRegistryRows, portConflictWarning, tenantWhisperPort, platformPreview,

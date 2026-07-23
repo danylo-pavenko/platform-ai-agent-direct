@@ -20,7 +20,9 @@ const log = {
 };
 
 const LOG_DIR = process.env.SA_DEPLOY_LOG_DIR || '/tmp/platform-sa-deploys';
-const STALE_JOB_MS = 3 * 60 * 60 * 1000; // 3h — mark abandoned running jobs failed
+/** Safety net for abandoned running jobs (npm timeout should fail sooner). */
+const STALE_JOB_MS = 90 * 60 * 1000; // 90 minutes
+const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /** In-process set of tenant IDs currently deploying (fast double-click guard). */
 const runningTenantIds = new Set<string>();
@@ -52,7 +54,22 @@ function shellSingleQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Run a command; stream stdout/stderr to log file. Never tied to HTTP. */
+/** True when a line already carries an explicit failure/diagnostic tag. */
+function lineHasExplicitTag(line: string): boolean {
+  return (
+    line.startsWith('[err]') ||
+    line.startsWith('[error]') ||
+    line.startsWith('[✗') ||
+    line.startsWith('ERROR:') ||
+    line.startsWith('FATAL')
+  );
+}
+
+/**
+ * Run a command; stream stdout/stderr to log file. Never tied to HTTP.
+ * stderr is labeled `[stderr]` (not `[err]`) — git/npm progress often uses stderr.
+ * On non-zero exit, a final `[err]` summary line is appended.
+ */
 function runLogged(
   args: string[],
   logPath: string,
@@ -64,11 +81,21 @@ function runLogged(
       env: opts?.env ?? process.env,
     });
 
-    const writeChunk = (prefix: string, chunk: Buffer) => {
+    const writeChunk = (kind: 'out' | 'err', chunk: Buffer) => {
       const text = chunk.toString();
-      for (const line of text.split('\n')) {
+      for (const raw of text.split('\n')) {
+        const line = raw.replace(/\r$/, '');
         if (!line.trim()) continue;
-        appendLine(logPath, prefix ? `${prefix}${line}` : line);
+        if (kind === 'out') {
+          appendLine(logPath, line);
+          continue;
+        }
+        // Preserve script-authored failure tags; otherwise mark as stderr only.
+        if (lineHasExplicitTag(line)) {
+          appendLine(logPath, line);
+        } else {
+          appendLine(logPath, `[stderr] ${line}`);
+        }
       }
     };
 
@@ -76,9 +103,18 @@ function runLogged(
       child.stdin?.write(opts.stdin);
       child.stdin?.end();
     }
-    child.stdout?.on('data', (c: Buffer) => writeChunk('', c));
-    child.stderr?.on('data', (c: Buffer) => writeChunk('[err] ', c));
-    child.on('close', (code) => resolve(code ?? 1));
+    child.stdout?.on('data', (c: Buffer) => writeChunk('out', c));
+    child.stderr?.on('data', (c: Buffer) => writeChunk('err', c));
+    child.on('close', (code) => {
+      const exitCode = code ?? 1;
+      if (exitCode !== 0) {
+        appendLine(
+          logPath,
+          `[err] command exited ${exitCode}: ${args.slice(0, 4).join(' ')}${args.length > 4 ? ' …' : ''}`,
+        );
+      }
+      resolve(exitCode);
+    });
     child.on('error', (err) => {
       appendLine(logPath, `[error] ${err.message}`);
       resolve(1);
@@ -129,7 +165,7 @@ export async function getDeployJob(jobId: string): Promise<DeployJobPublic | nul
   return job ? toDeployJobPublic(job) : null;
 }
 
-/** Mark orphaned running jobs as failed (SA process restart mid-deploy). */
+/** Mark orphaned running jobs as failed (SA restart mid-deploy or hung pipeline). */
 export async function markStaleDeployJobsFailed(): Promise<number> {
   const cutoff = new Date(Date.now() - STALE_JOB_MS);
   const result = await prisma.deployJob.updateMany({
@@ -140,7 +176,7 @@ export async function markStaleDeployJobsFailed(): Promise<number> {
     data: {
       status: 'failed',
       finishedAt: new Date(),
-      error: 'Marked stale after super-admin restart or timeout',
+      error: `Marked stale after ${Math.round(STALE_JOB_MS / 60_000)}m without finish`,
       exitCode: 1,
     },
   });
@@ -148,6 +184,37 @@ export async function markStaleDeployJobsFailed(): Promise<number> {
     log.warn({ count: result.count }, 'Marked stale deploy jobs as failed');
   }
   return result.count;
+}
+
+let staleSweepTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Periodic reclaim of stuck `running` jobs (also call once on SA boot). */
+export function startStaleDeployJobSweeper(logger?: {
+  info: (obj: unknown, msg?: string) => void;
+}): void {
+  if (staleSweepTimer) return;
+  const run = () => {
+    void markStaleDeployJobsFailed().catch((err) => {
+      log.warn({ err }, 'Stale deploy job sweep failed');
+    });
+  };
+  run();
+  staleSweepTimer = setInterval(run, STALE_SWEEP_INTERVAL_MS);
+  // Don't keep the event loop alive solely for the sweeper.
+  if (typeof staleSweepTimer === 'object' && 'unref' in staleSweepTimer) {
+    staleSweepTimer.unref();
+  }
+  logger?.info(
+    { intervalMs: STALE_SWEEP_INTERVAL_MS, staleAfterMs: STALE_JOB_MS },
+    'Deploy job stale sweeper started',
+  );
+}
+
+export function stopStaleDeployJobSweeper(): void {
+  if (staleSweepTimer) {
+    clearInterval(staleSweepTimer);
+    staleSweepTimer = null;
+  }
 }
 
 async function finishJob(
