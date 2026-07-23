@@ -964,20 +964,20 @@
         </v-card-text>
       </v-card>
 
-      <!-- Smart-trigger: silence follow-up -->
+      <!-- Smart-trigger: remarketing silence follow-up -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="teal">mdi-bell-ring-outline</v-icon>
-          Smart-trigger (follow-up при тиші)
+          Smart-trigger (ремаркетинг)
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Якщо бот написав, а клієнт не відповів — один раз надіслати нагадування після паузи.
+          Якщо бот написав, а клієнт не відповів — один раз надіслати нагадування після паузи (у годинах).
           Після відповіді клієнта лічильник скидається.
         </v-card-subtitle>
         <v-card-text>
           <v-switch
             v-model="followUpConfig.enabled"
-            label="Увімкнути Smart-trigger"
+            label="Увімкнути Smart-trigger (ремаркетинг)"
             color="teal"
             hide-details
             class="mb-3"
@@ -985,14 +985,14 @@
           <v-row dense>
             <v-col cols="12" sm="4">
               <v-text-field
-                v-model.number="followUpConfig.delayMinutes"
+                v-model.number="followUpConfig.delayHours"
                 type="number"
                 min="1"
-                max="1440"
-                label="Затримка (хвилин)"
+                max="168"
+                label="Затримка (годин)"
                 variant="outlined"
                 density="compact"
-                hint="За замовчуванням 30, максимум 1440 (24 год)"
+                hint="За замовчуванням 72 (3 дні), максимум 168 (7 днів)"
                 persistent-hint
                 :disabled="!followUpConfig.enabled"
               />
@@ -3451,13 +3451,13 @@ const DEFAULT_FOLLOW_UP_TEMPLATE =
 
 interface FollowUpConfigShape {
   enabled: boolean;
-  delayMinutes: number;
+  delayHours: number;
   template: string;
 }
 
 const followUpConfig = ref<FollowUpConfigShape>({
   enabled: false,
-  delayMinutes: 30,
+  delayHours: 72,
   template: DEFAULT_FOLLOW_UP_TEMPLATE,
 });
 
@@ -3619,14 +3619,16 @@ async function fetchSettings() {
     }
 
     if (data.follow_up_config && typeof data.follow_up_config === 'object') {
-      const raw = data.follow_up_config as Partial<FollowUpConfigShape>;
+      const raw = data.follow_up_config as Partial<FollowUpConfigShape> & {
+        delayMinutes?: number;
+      };
       const delay =
-        typeof raw.delayMinutes === 'number' && Number.isFinite(raw.delayMinutes)
-          ? Math.max(1, Math.min(1440, Math.floor(raw.delayMinutes)))
-          : 30;
+        typeof raw.delayHours === 'number' && Number.isFinite(raw.delayHours)
+          ? Math.max(1, Math.min(168, Math.floor(raw.delayHours)))
+          : 72;
       followUpConfig.value = {
         enabled: raw.enabled === true,
-        delayMinutes: delay,
+        delayHours: delay,
         template:
           typeof raw.template === 'string' && raw.template.trim()
             ? raw.template.trim()
@@ -3736,9 +3738,9 @@ async function saveSettings() {
       },
       follow_up_config: {
         enabled: followUpConfig.value.enabled === true,
-        delayMinutes: Math.max(
+        delayHours: Math.max(
           1,
-          Math.min(1440, Math.floor(Number(followUpConfig.value.delayMinutes) || 30)),
+          Math.min(168, Math.floor(Number(followUpConfig.value.delayHours) || 72)),
         ),
         template:
           (followUpConfig.value.template || '').trim() || DEFAULT_FOLLOW_UP_TEMPLATE,

@@ -44,7 +44,7 @@ Telegram-сповіщення менеджерам — НЕ окремий tool 
 Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox).
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
 Історія візитів BeautyPro (тривалість послуг) — get_client_crm_history + runtime-блок.
-Smart-trigger (налаштування Агент і SLA): якщо бот написав і клієнт мовчить N хв — платформа може надіслати 1 follow-up з шаблону (не окремий tool).
+Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 72 / max 168) — платформа може надіслати 1 follow-up з шаблону (не окремий tool).
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.
 
 ## Knowledge files (tenant_knowledge)

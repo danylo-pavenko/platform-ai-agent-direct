@@ -1,40 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clampFollowUpDelayMinutes,
+  clampFollowUpDelayHours,
   normalizeFollowUpConfig,
-  FOLLOW_UP_DELAY_MAX,
+  FOLLOW_UP_DELAY_HOURS_MAX,
+  FOLLOW_UP_DELAY_HOURS_DEFAULT,
   DEFAULT_FOLLOW_UP_TEMPLATE,
 } from './follow-up-config.js';
 
-describe('clampFollowUpDelayMinutes', () => {
-  it('defaults invalid values to 30', () => {
-    expect(clampFollowUpDelayMinutes(undefined)).toBe(30);
-    expect(clampFollowUpDelayMinutes('x')).toBe(30);
+describe('clampFollowUpDelayHours', () => {
+  it('defaults invalid values to 72h (3 days)', () => {
+    expect(clampFollowUpDelayHours(undefined)).toBe(FOLLOW_UP_DELAY_HOURS_DEFAULT);
+    expect(clampFollowUpDelayHours('x')).toBe(FOLLOW_UP_DELAY_HOURS_DEFAULT);
   });
 
-  it('clamps to 1..1440', () => {
-    expect(clampFollowUpDelayMinutes(0)).toBe(1);
-    expect(clampFollowUpDelayMinutes(30)).toBe(30);
-    expect(clampFollowUpDelayMinutes(99999)).toBe(FOLLOW_UP_DELAY_MAX);
+  it('clamps to 1..168', () => {
+    expect(clampFollowUpDelayHours(0)).toBe(1);
+    expect(clampFollowUpDelayHours(72)).toBe(72);
+    expect(clampFollowUpDelayHours(99999)).toBe(FOLLOW_UP_DELAY_HOURS_MAX);
   });
 });
 
 describe('normalizeFollowUpConfig', () => {
-  it('defaults enabled false and template', () => {
+  it('defaults enabled false and 72h', () => {
     const cfg = normalizeFollowUpConfig({});
     expect(cfg.enabled).toBe(false);
-    expect(cfg.delayMinutes).toBe(30);
+    expect(cfg.delayHours).toBe(72);
     expect(cfg.template).toBe(DEFAULT_FOLLOW_UP_TEMPLATE);
   });
 
-  it('accepts enabled + custom template', () => {
+  it('accepts enabled + custom delayHours', () => {
     const cfg = normalizeFollowUpConfig({
       enabled: true,
-      delayMinutes: 45,
+      delayHours: 48,
       template: '  Привіт знову  ',
     });
     expect(cfg.enabled).toBe(true);
-    expect(cfg.delayMinutes).toBe(45);
+    expect(cfg.delayHours).toBe(48);
     expect(cfg.template).toBe('Привіт знову');
+  });
+
+  it('ignores legacy delayMinutes and uses default hours', () => {
+    const cfg = normalizeFollowUpConfig({
+      enabled: true,
+      delayMinutes: 30,
+    } as Partial<{ enabled: boolean; delayMinutes: number }>);
+    expect(cfg.delayHours).toBe(72);
   });
 });

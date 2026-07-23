@@ -5,25 +5,25 @@ import {
   type MessageForFollowUpEval,
 } from './follow-up-eval.js';
 
-const delayMs = 30 * 60_000;
+const delayMs = 72 * 60 * 60_000; // 3 days
 const now = Date.parse('2026-07-23T12:00:00Z');
 
 function msg(
   direction: string,
   sender: string,
-  minutesAgo: number,
+  hoursAgo: number,
 ): MessageForFollowUpEval {
   return {
     direction,
     sender,
-    createdAt: new Date(now - minutesAgo * 60_000),
+    createdAt: new Date(now - hoursAgo * 60 * 60_000),
   };
 }
 
 describe('evaluateFollowUpNeed', () => {
   it('eligible when last message is bot outbound past delay', () => {
     const result = evaluateFollowUpNeed(
-      [msg('in', 'client', 60), msg('out', 'bot', 45)],
+      [msg('in', 'client', 80), msg('out', 'bot', 75)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: false },
     );
@@ -33,7 +33,7 @@ describe('evaluateFollowUpNeed', () => {
 
   it('skips when client replied after bot', () => {
     const result = evaluateFollowUpNeed(
-      [msg('out', 'bot', 45), msg('in', 'client', 10)],
+      [msg('out', 'bot', 75), msg('in', 'client', 10)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: false },
     );
@@ -43,7 +43,7 @@ describe('evaluateFollowUpNeed', () => {
 
   it('skips when already sent', () => {
     const result = evaluateFollowUpNeed(
-      [msg('out', 'bot', 45)],
+      [msg('out', 'bot', 75)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: true },
     );
@@ -53,7 +53,7 @@ describe('evaluateFollowUpNeed', () => {
 
   it('skips when delay not reached', () => {
     const result = evaluateFollowUpNeed(
-      [msg('out', 'bot', 10)],
+      [msg('out', 'bot', 24)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: false },
     );
@@ -61,9 +61,9 @@ describe('evaluateFollowUpNeed', () => {
     expect(result.reason).toBe('too_soon');
   });
 
-  it('skips when older than max age', () => {
+  it('skips when older than max age (7d)', () => {
     const result = evaluateFollowUpNeed(
-      [msg('out', 'bot', 25 * 60)],
+      [msg('out', 'bot', 8 * 24)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: false },
     );
@@ -73,7 +73,7 @@ describe('evaluateFollowUpNeed', () => {
 
   it('skips when manager spoke last', () => {
     const result = evaluateFollowUpNeed(
-      [msg('out', 'manager', 45)],
+      [msg('out', 'manager', 75)],
       now,
       { delayMs, maxAgeMs: FOLLOW_UP_MAX_AGE_MS, followUpAlreadySent: false },
     );

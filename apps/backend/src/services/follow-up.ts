@@ -118,7 +118,7 @@ export async function runFollowUpPass(): Promise<FollowUpStats> {
     return stats;
   }
 
-  const delayMs = followCfg.delayMinutes * 60_000;
+  const delayMs = followCfg.delayHours * 60 * 60_000;
   const now = Date.now();
   const cutoffMax = new Date(now - delayMs);
   const cutoffMin = new Date(now - FOLLOW_UP_MAX_AGE_MS);

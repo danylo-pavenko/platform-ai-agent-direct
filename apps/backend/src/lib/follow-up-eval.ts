@@ -1,4 +1,5 @@
-export const FOLLOW_UP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** Hard ceiling: never nudge conversations quieter than 7 days. */
+export const FOLLOW_UP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type FollowUpSkipReason =
   | 'no_bot_outbound'
