@@ -4,7 +4,6 @@ import {
   normalizeFollowUpConfig,
   FOLLOW_UP_DELAY_HOURS_MAX,
   FOLLOW_UP_DELAY_HOURS_DEFAULT,
-  DEFAULT_FOLLOW_UP_TEMPLATE,
 } from './follow-up-config.js';
 
 describe('clampFollowUpDelayHours', () => {
@@ -25,10 +24,9 @@ describe('normalizeFollowUpConfig', () => {
     const cfg = normalizeFollowUpConfig({});
     expect(cfg.enabled).toBe(false);
     expect(cfg.delayHours).toBe(72);
-    expect(cfg.template).toBe(DEFAULT_FOLLOW_UP_TEMPLATE);
   });
 
-  it('accepts enabled + custom delayHours', () => {
+  it('accepts enabled + custom delayHours and ignores legacy template', () => {
     const cfg = normalizeFollowUpConfig({
       enabled: true,
       delayHours: 48,
@@ -36,7 +34,7 @@ describe('normalizeFollowUpConfig', () => {
     });
     expect(cfg.enabled).toBe(true);
     expect(cfg.delayHours).toBe(48);
-    expect(cfg.template).toBe('Привіт знову');
+    expect(cfg).not.toHaveProperty('template');
   });
 
   it('ignores legacy delayMinutes and uses default hours', () => {

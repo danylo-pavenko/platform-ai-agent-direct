@@ -964,14 +964,15 @@
         </v-card-text>
       </v-card>
 
-      <!-- Smart-trigger: remarketing silence follow-up -->
+      <!-- Smart-trigger: agent remarketing after client silence -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="teal">mdi-bell-ring-outline</v-icon>
           Smart-trigger (ремаркетинг)
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Якщо бот написав, а клієнт не відповів — один раз надіслати нагадування після паузи (у годинах).
+          Якщо бот написав, а клієнт не відповів — після паузи (у годинах) агент один раз напише
+          контекстний ремаркетинг за системним промптом і історією діалогу.
           Після відповіді клієнта лічильник скидається.
         </v-card-subtitle>
         <v-card-text>
@@ -982,34 +983,19 @@
             hide-details
             class="mb-3"
           />
-          <v-row dense>
-            <v-col cols="12" sm="4">
-              <v-text-field
-                v-model.number="followUpConfig.delayHours"
-                type="number"
-                min="1"
-                max="168"
-                label="Затримка (годин)"
-                variant="outlined"
-                density="compact"
-                hint="За замовчуванням 72 (3 дні), максимум 168 (7 днів)"
-                persistent-hint
-                :disabled="!followUpConfig.enabled"
-              />
-            </v-col>
-            <v-col cols="12" sm="8">
-              <v-textarea
-                v-model="followUpConfig.template"
-                label="Текст нагадування"
-                variant="outlined"
-                density="compact"
-                rows="3"
-                auto-grow
-                hide-details
-                :disabled="!followUpConfig.enabled"
-              />
-            </v-col>
-          </v-row>
+          <v-text-field
+            v-model.number="followUpConfig.delayHours"
+            type="number"
+            min="1"
+            max="168"
+            label="Затримка (годин)"
+            variant="outlined"
+            density="compact"
+            hint="За замовчуванням 72 (3 дні), максимум 168 (7 днів). Текст пише агент, не шаблон."
+            persistent-hint
+            style="max-width: 280px"
+            :disabled="!followUpConfig.enabled"
+          />
         </v-card-text>
       </v-card>
 
@@ -3446,19 +3432,14 @@ const agentConfig = ref<AgentConfigShape>({
   responseDelayMaxSeconds: 0,
 });
 
-const DEFAULT_FOLLOW_UP_TEMPLATE =
-  'Вітаю! Чи ще актуальне Ваше питання? Можу допомогти з вибором або оформленням — напишіть, коли буде зручно.';
-
 interface FollowUpConfigShape {
   enabled: boolean;
   delayHours: number;
-  template: string;
 }
 
 const followUpConfig = ref<FollowUpConfigShape>({
   enabled: false,
   delayHours: 72,
-  template: DEFAULT_FOLLOW_UP_TEMPLATE,
 });
 
 const defaultCrmRouting = (): CrmRoutingShape => ({
@@ -3629,10 +3610,6 @@ async function fetchSettings() {
       followUpConfig.value = {
         enabled: raw.enabled === true,
         delayHours: delay,
-        template:
-          typeof raw.template === 'string' && raw.template.trim()
-            ? raw.template.trim()
-            : DEFAULT_FOLLOW_UP_TEMPLATE,
       };
     }
 
@@ -3742,8 +3719,6 @@ async function saveSettings() {
           1,
           Math.min(168, Math.floor(Number(followUpConfig.value.delayHours) || 72)),
         ),
-        template:
-          (followUpConfig.value.template || '').trim() || DEFAULT_FOLLOW_UP_TEMPLATE,
       },
       crm_routing: crmRouting.value,
       runtime_mode: {
