@@ -93,6 +93,8 @@ model Conversation {
   // free-form rationale the manager can leave alongside the rating.
   briefQuality    Int?                @map("brief_quality")
   briefQualityNote String?            @map("brief_quality_note")
+  // Smart-trigger: set when a silence follow-up was sent; cleared on client inbound.
+  followUpSentAt  DateTime?           @map("follow_up_sent_at")
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid
@@ -105,6 +107,7 @@ model Conversation {
   appointments    Appointment[]
   referencePhotos ClientReferencePhoto[]
 
+  @@index([state, followUpSentAt, lastMessageAt])
   @@map("conversations")
 }
 

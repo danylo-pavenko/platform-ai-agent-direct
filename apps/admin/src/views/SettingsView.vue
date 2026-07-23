@@ -930,6 +930,85 @@
                 Після стількох днів тиші розмова вважається закритою (для брифів / метрик).
               </div>
             </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.responseDelayMinSeconds"
+                type="number"
+                min="0"
+                max="60"
+                label="Затримка відповіді: від (сек)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                0 = відповідати одразу після coalesce. Typing показується під час паузи.
+              </div>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="agentConfig.responseDelayMaxSeconds"
+                type="number"
+                min="0"
+                max="60"
+                label="Затримка відповіді: до (сек)"
+                variant="outlined"
+                density="compact"
+                hide-details
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Випадкова пауза в діапазоні [від; до], макс. 60 с. Якщо рівні — фіксована затримка.
+              </div>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+
+      <!-- Smart-trigger: silence follow-up -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="teal">mdi-bell-ring-outline</v-icon>
+          Smart-trigger (follow-up при тиші)
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Якщо бот написав, а клієнт не відповів — один раз надіслати нагадування після паузи.
+          Після відповіді клієнта лічильник скидається.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-switch
+            v-model="followUpConfig.enabled"
+            label="Увімкнути Smart-trigger"
+            color="teal"
+            hide-details
+            class="mb-3"
+          />
+          <v-row dense>
+            <v-col cols="12" sm="4">
+              <v-text-field
+                v-model.number="followUpConfig.delayMinutes"
+                type="number"
+                min="1"
+                max="1440"
+                label="Затримка (хвилин)"
+                variant="outlined"
+                density="compact"
+                hint="За замовчуванням 30, максимум 1440 (24 год)"
+                persistent-hint
+                :disabled="!followUpConfig.enabled"
+              />
+            </v-col>
+            <v-col cols="12" sm="8">
+              <v-textarea
+                v-model="followUpConfig.template"
+                label="Текст нагадування"
+                variant="outlined"
+                density="compact"
+                rows="3"
+                auto-grow
+                hide-details
+                :disabled="!followUpConfig.enabled"
+              />
+            </v-col>
           </v-row>
         </v-card-text>
       </v-card>
@@ -3354,6 +3433,8 @@ interface AgentConfigShape {
   outOfHoursStrategy: OutOfHoursStrategyValue;
   managerSlaHoursBusiness: number;
   sessionFreshnessDays: number;
+  responseDelayMinSeconds: number;
+  responseDelayMaxSeconds: number;
 }
 
 const agentConfig = ref<AgentConfigShape>({
@@ -3361,6 +3442,23 @@ const agentConfig = ref<AgentConfigShape>({
   outOfHoursStrategy: 'warn_early',
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
+  responseDelayMinSeconds: 0,
+  responseDelayMaxSeconds: 0,
+});
+
+const DEFAULT_FOLLOW_UP_TEMPLATE =
+  'Вітаю! Чи ще актуальне Ваше питання? Можу допомогти з вибором або оформленням — напишіть, коли буде зручно.';
+
+interface FollowUpConfigShape {
+  enabled: boolean;
+  delayMinutes: number;
+  template: string;
+}
+
+const followUpConfig = ref<FollowUpConfigShape>({
+  enabled: false,
+  delayMinutes: 30,
+  template: DEFAULT_FOLLOW_UP_TEMPLATE,
 });
 
 const defaultCrmRouting = (): CrmRoutingShape => ({
@@ -3504,6 +3602,35 @@ async function fetchSettings() {
           typeof raw.sessionFreshnessDays === 'number' && raw.sessionFreshnessDays > 0
             ? raw.sessionFreshnessDays
             : 14,
+        responseDelayMinSeconds: (() => {
+          const n = Number(raw.responseDelayMinSeconds);
+          if (!Number.isFinite(n) || n < 0) return 0;
+          return Math.min(60, Math.floor(n));
+        })(),
+        responseDelayMaxSeconds: (() => {
+          const n = Number(raw.responseDelayMaxSeconds);
+          if (!Number.isFinite(n) || n < 0) return 0;
+          return Math.min(60, Math.floor(n));
+        })(),
+      };
+      if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {
+        agentConfig.value.responseDelayMaxSeconds = agentConfig.value.responseDelayMinSeconds;
+      }
+    }
+
+    if (data.follow_up_config && typeof data.follow_up_config === 'object') {
+      const raw = data.follow_up_config as Partial<FollowUpConfigShape>;
+      const delay =
+        typeof raw.delayMinutes === 'number' && Number.isFinite(raw.delayMinutes)
+          ? Math.max(1, Math.min(1440, Math.floor(raw.delayMinutes)))
+          : 30;
+      followUpConfig.value = {
+        enabled: raw.enabled === true,
+        delayMinutes: delay,
+        template:
+          typeof raw.template === 'string' && raw.template.trim()
+            ? raw.template.trim()
+            : DEFAULT_FOLLOW_UP_TEMPLATE,
       };
     }
 
@@ -3589,7 +3716,33 @@ async function saveSettings() {
         Math.min(10080, Math.floor(Number(handoffReturnToBotMinutes.value) || 0)),
       ),
       feature_flags: featureFlags.value,
-      agent_config: agentConfig.value,
+      agent_config: {
+        ...agentConfig.value,
+        responseDelayMinSeconds: (() => {
+          const n = Math.floor(Number(agentConfig.value.responseDelayMinSeconds) || 0);
+          return Math.max(0, Math.min(60, n));
+        })(),
+        responseDelayMaxSeconds: (() => {
+          const min = Math.max(
+            0,
+            Math.min(60, Math.floor(Number(agentConfig.value.responseDelayMinSeconds) || 0)),
+          );
+          const max = Math.max(
+            0,
+            Math.min(60, Math.floor(Number(agentConfig.value.responseDelayMaxSeconds) || 0)),
+          );
+          return Math.max(min, max);
+        })(),
+      },
+      follow_up_config: {
+        enabled: followUpConfig.value.enabled === true,
+        delayMinutes: Math.max(
+          1,
+          Math.min(1440, Math.floor(Number(followUpConfig.value.delayMinutes) || 30)),
+        ),
+        template:
+          (followUpConfig.value.template || '').trim() || DEFAULT_FOLLOW_UP_TEMPLATE,
+      },
       crm_routing: crmRouting.value,
       runtime_mode: {
         mode: runtimeMode.value,

@@ -93,8 +93,10 @@ app.get('/health', async () => {
 const shutdown = async (signal: string) => {
   app.log.info(`Received ${signal}, shutting down...`);
   const { stopConversationRetryMonitor } = await import('./services/conversation-retry.js');
+  const { stopFollowUpMonitor } = await import('./services/follow-up.js');
   const { stopClaudeAuthMonitor } = await import('./services/claude-auth-monitor.js');
   stopConversationRetryMonitor();
+  stopFollowUpMonitor();
   stopClaudeAuthMonitor();
   await app.close();
   await prisma.$disconnect();
@@ -119,6 +121,9 @@ try {
 
   const { startConversationRetryMonitor } = await import('./services/conversation-retry.js');
   startConversationRetryMonitor(app.log);
+
+  const { startFollowUpMonitor } = await import('./services/follow-up.js');
+  startFollowUpMonitor(app.log);
 } catch (err) {
   app.log.error(err);
   process.exit(1);

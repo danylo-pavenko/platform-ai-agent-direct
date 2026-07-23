@@ -140,6 +140,14 @@ const envSchema = z.object({
   /** Initial attempt + automatic retries (fallback-only replies count toward limit). */
   CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: envCoerceNumber({ default: 3, min: 1, max: 5 }),
 
+  // Smart-trigger: silence follow-up after bot message (tenant delay in Setting).
+  FOLLOW_UP_JOB_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  FOLLOW_UP_INTERVAL_MIN: envCoerceNumber({ default: 5, min: 1 }),
+  FOLLOW_UP_BATCH_SIZE: envCoerceNumber({ default: 25, min: 1, max: 100 }),
+
   // Coalesce rapid IG bubbles into one Claude turn (silence + max-wait).
   INBOUND_COALESCE_ENABLED: z
     .string()

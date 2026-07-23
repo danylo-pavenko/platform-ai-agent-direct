@@ -672,6 +672,7 @@ async function processMessageEvent(
     where: { id: conversation.id },
     data: {
       lastMessageAt: now,
+      followUpSentAt: null,
       ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
     },
   });

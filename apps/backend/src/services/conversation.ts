@@ -23,7 +23,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
-import { getAgentConfig } from '../lib/agent-config.js';
+import { getAgentConfig, resolveResponseDelayMs } from '../lib/agent-config.js';
 import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
 import { handleBookAppointment } from './appointment.js';
 import { saveClientReferencePhoto } from './reference-photos.js';
@@ -374,12 +374,23 @@ async function handleIncomingMessageImpl(
     return 'skipped';
   }
 
+  const agentCfg = await getAgentConfig();
+
   const igTyping = await beginIgTypingIndicator({
     channel: conversation.channel,
     recipientId: client.igUserId,
   });
 
   try {
+  // Human-like pause before Claude (typing indicator already on).
+  const responseDelayMs = resolveResponseDelayMs(agentCfg);
+  if (responseDelayMs > 0) {
+    log.debug({ conversationId, responseDelayMs }, 'Applying response delay before Claude');
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, responseDelayMs);
+    });
+  }
+
   // ── 4. Working hours check ────────────────────────────────────────
   const hours = await getWorkingHours();
   const now = new Date();
@@ -406,8 +417,6 @@ async function handleIncomingMessageImpl(
   const crmMappings = crmWritesEnabled
     ? await getActiveCrmFieldMappings()
     : null;
-
-  const agentCfg = await getAgentConfig();
 
   // B.3 — returning-lead context: surface a recap of the most recent
   // finalized brief so the agent doesn't re-ask qualification questions.

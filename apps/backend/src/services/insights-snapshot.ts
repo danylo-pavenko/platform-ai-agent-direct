@@ -234,6 +234,8 @@ export interface InsightsSnapshot {
       outOfHoursStrategy: string;
       managerSlaHoursBusiness: number;
       sessionFreshnessDays: number;
+      responseDelayMinSeconds: number;
+      responseDelayMaxSeconds: number;
     };
     runtime: {
       mode: string;
@@ -766,6 +768,8 @@ export async function buildInsightsSnapshot(
         outOfHoursStrategy: agentConfig.outOfHoursStrategy,
         managerSlaHoursBusiness: agentConfig.managerSlaHoursBusiness,
         sessionFreshnessDays: agentConfig.sessionFreshnessDays,
+        responseDelayMinSeconds: agentConfig.responseDelayMinSeconds,
+        responseDelayMaxSeconds: agentConfig.responseDelayMaxSeconds,
       },
       runtime: {
         mode: runtimeConfig.mode,

@@ -7,6 +7,7 @@ import {
   META_ENV_ONLY_FIELDS,
 } from '../lib/integration-config.js';
 import { invalidateAgentConfigCache } from '../lib/agent-config.js';
+import { invalidateFollowUpConfigCache } from '../lib/follow-up-config.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
@@ -89,6 +90,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
     if ('agent_config' in filtered) {
       invalidateAgentConfigCache();
+    }
+    if ('follow_up_config' in filtered) {
+      invalidateFollowUpConfigCache();
     }
     if ('crm_routing' in filtered) {
       invalidateCrmRoutingCache();
