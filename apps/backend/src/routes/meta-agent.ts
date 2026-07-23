@@ -2,11 +2,19 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { config } from '../config.js';
-import { loadCatalogSnippet } from '../services/prompt-builder.js';
-import { getClaudeAuthStatus, buildClaudeAuthPromptBlock, type ClaudeAuthStatus } from '../services/claude-auth.js';
-import { getIntegrationConfig } from '../lib/integration-config.js';
-import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
+import {
+  buildClaudeAuthPromptBlock,
+  type ClaudeAuthStatus,
+} from '../services/claude-auth.js';
 import { buildPlatformCapabilitiesBlock } from '../lib/platform-capabilities-prompt.js';
+import { getCachedMetaAgentExtras } from '../lib/meta-agent-extras-cache.js';
+import { buildMetaPromptContext } from '../services/prompt-sections.js';
+import {
+  applyDiffToContent,
+  applyDiffsSequentially,
+  parseMetaAgentResponse,
+  type SuggestedDiff,
+} from '../lib/meta-agent-diff.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,35 +23,28 @@ import { buildPlatformCapabilitiesBlock } from '../lib/platform-capabilities-pro
 interface ChatBody {
   message: string;
   history?: Array<{ role: 'user' | 'assistant'; content: string }>;
-  // Optional working copy the caller is editing (Sandbox override, PromptsView
-  // draft). When provided, the meta-agent reasons about THIS text instead of
-  // the DB-active prompt. Falls back to active when omitted/empty.
   currentPromptContent?: string;
-  // Optional: active sandbox conversation messages to give the meta-agent
-  // context about what the sales agent actually said during testing.
   conversationContext?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** When true, inject full prompt (skip section localization). */
+  useFullPrompt?: boolean;
 }
 
 interface ApplyBody {
   before: string;
   after: string;
   summary: string;
-  // When true, the new version becomes active immediately (deactivating all
-  // others). When false/omitted, it's created as a draft (isActive: false) —
-  // user must explicitly activate via /prompts/:id/activate. Safe default.
   activate?: boolean;
-  // Optimistic concurrency token: the id of the active prompt the user saw
-  // when the diff was generated. If someone else activated a new version in
-  // the meantime, we return 409 so the UI can refresh and the user can retry
-  // against the up-to-date prompt.
   basePromptId?: string;
 }
 
-interface SuggestedDiff {
-  before: string;
-  after: string;
-  summary: string;
+interface ApplyBatchBody {
+  diffs: Array<{ before: string; after: string; summary?: string }>;
+  summary?: string;
+  activate?: boolean;
+  basePromptId?: string;
 }
+
+export type { SuggestedDiff };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,14 +56,30 @@ export function buildMetaAgentSystemPrompt(
   catalogSnippet?: string,
   claudeAuth?: ClaudeAuthStatus,
   telegramBotsBlock?: string,
+  options?: {
+    userMessage?: string;
+    useFullPrompt?: boolean;
+    sessionSummary?: string;
+  },
 ): string {
+  const userMessage = options?.userMessage?.trim() ?? '';
+  const metaCtx =
+    options?.useFullPrompt || !userMessage
+      ? {
+          promptBlock: currentPromptContent,
+          usedFullPrompt: true,
+          selectedSectionIds: [] as string[],
+          sectionCount: 0,
+        }
+      : buildMetaPromptContext(currentPromptContent, userMessage);
+
   let contextBlock = '';
   if (conversationContext && conversationContext.length > 0) {
     const formatted = conversationContext
       .map((m) => `${m.role === 'user' ? 'Клієнт' : 'Агент'}: ${m.content}`)
       .join('\n\n');
     contextBlock = `\n\n<active_conversation>
-Поточний тестовий діалог (контекст для змін промпту):
+Поточний діалог (контекст для змін промпту):
 ${formatted}
 </active_conversation>
 
@@ -83,178 +100,130 @@ ${catalogSnippet.trim()}
     : '';
   const capabilitiesBlock = `\n\n${buildPlatformCapabilitiesBlock()}`;
 
+  const summaryBlock = options?.sessionSummary?.trim()
+    ? `\n\n<session_summary>
+Підсумок попередніх рішень у цій сесії навчання (не повторюй уже зробленого без потреби):
+${options.sessionSummary.trim()}
+</session_summary>`
+    : '';
+
+  const promptWrapper = metaCtx.usedFullPrompt
+    ? `<current_prompt>
+${metaCtx.promptBlock}
+</current_prompt>`
+    : metaCtx.promptBlock;
+
   return `Ти - редактор системних промптів для AI-агента Instagram DM магазину/салону ${config.BRAND_NAME}.
 
 Контекст:
-- Поточний активний (або чернетковий) системний промпт наведений у <current_prompt>.
+- Поточний активний (або чернетковий) системний промпт — у блоці нижче (повний або TOC + вибрані секції).
 - Адміністратор каже, як змінити поведінку бота.
 - Блок <platform_capabilities> — що платформа РЕАЛЬНО вміє (режими, tools, CRM). Орієнтуйся на нього: не пропонуй інструменти чи CRM-дії, яких немає.
 - Блок <telegram_bots> — маршрутизація сповіщень менеджерам (без токенів).
 
 Твоя задача:
-1. Зрозуми, що саме адмін хоче змінити.
+1. Зрозумій, що саме адмін хоче змінити.
 2. Знайди місце в промпті, куди це логічно вписується.
 3. Інтегруй зміну, зберігаючи структуру, tone of voice і обмеження безпеки.
 4. НЕ видаляй правила безпеки, ескалації, заборонені дії.
-5. НЕ додавай нічого, про що адмін не просив.
-6. Якщо адмін просить «підключити CRM / запис / каталог» — описуй поведінку через ІСНУЮЧІ tools з <platform_capabilities>, а не вигадані API-виклики.
+5. НЕ додавай нічого, про що адмін не просив (окрім режиму аудиту, якщо адмін його явно просить).
+6. Якщо адмін просить «підключити CRM / запис / каталог» — описуй поведінку через ІСНУЮЧІ tools з <platform_capabilities>.
 
-Відповідай ТІЛЬКИ у форматі нижче. Якщо потрібно кілька змін - повтори блок ПОЯСНЕННЯ + ЗМІНА для кожної окремо:
+ФОРМАТ ВІДПОВІДІ (обов'язково):
+Спочатку коротке пояснення українською (1–4 речення), потім JSON у fenced-блоці:
 
-ПОЯСНЕННЯ 1: <1-2 речення, що саме змінюється і чому>
+\`\`\`json
+{
+  "reply": "<те саме коротке пояснення>",
+  "diffs": [
+    {
+      "sectionId": "<id секції якщо відомий, або порожньо>",
+      "before": "<ТОЧНИЙ фрагмент з промпту — copy-paste>",
+      "after": "<повний новий варіант цього фрагменту>",
+      "summary": "<1 рядок>"
+    }
+  ]
+}
+\`\`\`
 
-ЗМІНА 1:
---- БУЛО ---
-<ТОЧНИЙ фрагмент з промпту - скопіюй дослівно>
---- СТАЛО ---
-<новий варіант цього фрагменту цілком>
+Правила diffs:
+- У "before" завжди ТОЧНИЙ текст з наданого промпту/секцій (copy-paste), навіть якщо змінюєш частину блоку.
+- У "after" — повний замінений варіант (не тільки нове речення).
+- Якщо додаєш нове правило без аналогу — "before": "".
+- НЕ виводь весь промпт — тільки змінені фрагменти.
+- Кілька незалежних змін — кілька елементів у diffs.
+- Якщо зміна не потрібна — diffs: [] і поясни в reply.
+- Якщо запит суперечить безпеці або вимагає неіснуючого tool — відмов, diffs: [].
 
-ПОЯСНЕННЯ 2: <якщо є друга зміна>
-
-ЗМІНА 2:
---- БУЛО ---
-<ТОЧНИЙ фрагмент>
---- СТАЛО ---
-<новий варіант>
-
-ВАЖЛИВО:
-- У "БУЛО" завжди копіюй ТОЧНИЙ текст з промпту (copy-paste), навіть якщо змінюєш частину блоку.
-- У "СТАЛО" - повний замінений варіант (не тільки нове, а весь блок цілком).
-- Якщо додаєш нове правило без аналогу - "БУЛО" залиш порожнім, "СТАЛО" - новий блок.
-- НЕ виводь весь промпт - тільки змінені фрагменти.
-- Кожен ЗМІНА-блок повинен бути незалежний: застосування одного не повинно ламати інший.
-
-Якщо зміна не потрібна (промпт вже покриває) - скажи це і поясни де.
-Якщо запит суперечить правилам безпеки або вимагає неіснуючого tool — відмов і поясни, що є в <platform_capabilities>.
-
-<current_prompt>
-${currentPromptContent}
-</current_prompt>${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
+${promptWrapper}${summaryBlock}${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
 }
 
-/**
- * Parse the meta-agent response to extract the LAST suggested diff.
- *
- * When the meta-agent returns multiple ЗМІНА blocks, we take the LAST one -
- * it corresponds to what the UI shows in the diff panel (the final change).
- *
- * Expected format (one or more blocks):
- *   ПОЯСНЕННЯ [N]: ...
- *   ЗМІНА [N]:
- *   --- БУЛО ---
- *   ...old text...
- *   --- СТАЛО ---
- *   ...new text...
- *
- * We are lenient with whitespace and optional numbering.
- */
-function parseDiff(text: string): SuggestedDiff | null {
-  // Find all occurrences of --- БУЛО --- to identify how many diff blocks exist
-  const buloMarker = '--- БУЛО ---';
-  const staloMarker = '--- СТАЛО ---';
-
-  // Collect all (buloIdx, staloIdx) pairs
-  const pairs: Array<{ buloIdx: number; staloIdx: number }> = [];
-  let searchFrom = 0;
-
-  while (true) {
-    const buloIdx = text.indexOf(buloMarker, searchFrom);
-    if (buloIdx === -1) break;
-    const staloIdx = text.indexOf(staloMarker, buloIdx);
-    if (staloIdx === -1) break;
-    pairs.push({ buloIdx, staloIdx });
-    searchFrom = staloIdx + staloMarker.length;
-  }
-
-  if (pairs.length === 0) return null;
-
-  // Use the LAST diff block (matches what is visible in the diff panel)
-  const { buloIdx, staloIdx } = pairs[pairs.length - 1];
-
-  // "before" = text between end of --- БУЛО --- and --- СТАЛО ---
-  const afterBuloMarker = buloIdx + buloMarker.length;
-  const before = text.slice(afterBuloMarker, staloIdx).trim();
-
-  // "after" = text from end of --- СТАЛО --- until the next --- БУЛО ---
-  // (stop before the next diff block to avoid polluting the content)
-  const afterStaloMarker = staloIdx + staloMarker.length;
-  const nextBuloIdx = text.indexOf(buloMarker, afterStaloMarker);
-  const after = (nextBuloIdx !== -1
-    ? text.slice(afterStaloMarker, nextBuloIdx)
-    : text.slice(afterStaloMarker)
-  ).trim();
-
-  if (!before && !after) return null;
-
-  // Extract the summary from the ПОЯСНЕННЯ line closest before this diff block.
-  // Handles both "ПОЯСНЕННЯ:" and "ПОЯСНЕННЯ 2:" / "ПОЯСНЕННЯ N:" variants.
-  const textBeforeDiff = text.slice(0, buloIdx);
-  const summaryMatch = textBeforeDiff.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+?)(?:\n|$)/gi);
-  let summary = '';
-  if (summaryMatch && summaryMatch.length > 0) {
-    // Take the last matching ПОЯСНЕННЯ (closest to this diff block)
-    const lastMatch = summaryMatch[summaryMatch.length - 1];
-    const m = lastMatch.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+)/i);
-    if (m) summary = m[1].trim();
-  }
-
-  return { before, after, summary };
-}
-
-/**
- * Parse ALL diff blocks from the meta-agent response.
- * Returns an array (may be empty if no blocks found).
- * Each block has its own before/after/summary.
- */
+/** @deprecated Use parseMetaAgentResponse — kept for callers expecting legacy array. */
 export function parseAllDiffs(text: string): SuggestedDiff[] {
-  const buloMarker = '--- БУЛО ---';
-  const staloMarker = '--- СТАЛО ---';
-  const results: SuggestedDiff[] = [];
+  return parseMetaAgentResponse(text).diffs;
+}
 
-  // Find all БУЛО indices
-  const buloPositions: number[] = [];
-  let pos = 0;
-  while (true) {
-    const idx = text.indexOf(buloMarker, pos);
-    if (idx === -1) break;
-    buloPositions.push(idx);
-    pos = idx + buloMarker.length;
+export { parseMetaAgentResponse };
+
+async function createPromptVersion(params: {
+  newContent: string;
+  activePrompt: { id: string; version: number; content: string };
+  summary: string;
+  shouldActivate: boolean;
+  actorUsername: string;
+  authorUserId: string;
+}) {
+  const { newContent, activePrompt, summary, shouldActivate, actorUsername, authorUserId } =
+    params;
+
+  if (newContent.trim() === activePrompt.content.trim()) {
+    return { identical: true as const };
   }
 
-  for (let i = 0; i < buloPositions.length; i++) {
-    const buloIdx = buloPositions[i];
-    const staloIdx = text.indexOf(staloMarker, buloIdx);
-    if (staloIdx === -1) break;
+  const maxVersion = await prisma.systemPrompt.aggregate({
+    _max: { version: true },
+  });
+  const nextVersion = (maxVersion._max.version ?? 0) + 1;
 
-    const afterBuloMarker = buloIdx + buloMarker.length;
-    const before = text.slice(afterBuloMarker, staloIdx).trim();
-
-    const afterStaloMarker = staloIdx + staloMarker.length;
-    // `after` ends at the next БУЛО block (or end of text)
-    const nextBuloIdx = buloPositions[i + 1] ?? -1;
-    // Also stop at the ПОЯСНЕННЯ marker before next block
-    const textAfterStalo = nextBuloIdx !== -1
-      ? text.slice(afterStaloMarker, nextBuloIdx)
-      : text.slice(afterStaloMarker);
-    // Strip trailing ЗМІНА headers
-    const after = textAfterStalo.replace(/\s*ЗМІНА\s*\d*\s*:?\s*$/, '').trim();
-
-    if (!before && !after) continue;
-
-    // Extract summary from the ПОЯСНЕННЯ line just before this diff block
-    const textBeforeBulo = text.slice(0, buloIdx);
-    const allPoyas = textBeforeBulo.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+?)(?:\n|$)/gi);
-    let summary = '';
-    if (allPoyas && allPoyas.length > 0) {
-      const lastPoyas = allPoyas[allPoyas.length - 1];
-      const m = lastPoyas.match(/ПОЯСНЕННЯ(?:\s*\d+)?:\s*(.+)/i);
-      if (m) summary = m[1].trim();
+  const newPrompt = await prisma.$transaction(async (tx) => {
+    if (shouldActivate) {
+      await tx.systemPrompt.updateMany({
+        data: { isActive: false },
+      });
     }
 
-    results.push({ before, after, summary });
-  }
+    const created = await tx.systemPrompt.create({
+      data: {
+        version: nextVersion,
+        content: newContent,
+        author: 'meta_agent',
+        authorUserId,
+        changeSummary: summary,
+        isActive: shouldActivate,
+      },
+    });
 
-  return results;
+    await tx.auditLog.create({
+      data: {
+        actor: actorUsername,
+        action: shouldActivate
+          ? 'prompt_activated_via_meta_agent'
+          : 'prompt_draft_via_meta_agent',
+        entityType: 'system_prompt',
+        entityId: created.id,
+        payload: {
+          summary,
+          version: created.version,
+          basedOn: activePrompt.id,
+          basedOnVersion: activePrompt.version,
+        },
+      },
+    });
+
+    return created;
+  });
+
+  return { identical: false as const, prompt: newPrompt };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,20 +231,17 @@ export function parseAllDiffs(text: string): SuggestedDiff[] {
 // ---------------------------------------------------------------------------
 
 export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
-  // POST /chat - Converse with the meta-agent about prompt changes
   app.post<{ Body: ChatBody }>(
     '/chat',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { message, history, currentPromptContent, conversationContext } = request.body ?? {};
+      const { message, history, currentPromptContent, conversationContext, useFullPrompt } =
+        request.body ?? {};
 
       if (!message || typeof message !== 'string' || message.trim().length === 0) {
         return reply.code(400).send({ error: 'Message is required' });
       }
 
-      // 1. Resolve which prompt the agent should reason about.
-      //    If the caller passed a working copy (Sandbox override / edit-dialog
-      //    draft), use it verbatim. Otherwise fall back to the DB-active one.
       let promptContent: string;
       if (typeof currentPromptContent === 'string' && currentPromptContent.trim()) {
         promptContent = currentPromptContent;
@@ -289,21 +255,16 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         promptContent = activePrompt.content;
       }
 
-      // 2. Build meta-agent system prompt (catalog + Claude auth snapshot)
-      const [catalogSnippet, claudeAuth, integrationCfg] = await Promise.all([
-        loadCatalogSnippet(),
-        getClaudeAuthStatus(),
-        getIntegrationConfig(),
-      ]);
+      const extras = await getCachedMetaAgentExtras();
       const metaAgentPrompt = buildMetaAgentSystemPrompt(
         promptContent,
         Array.isArray(conversationContext) ? conversationContext : undefined,
-        catalogSnippet,
-        claudeAuth,
-        formatTelegramBotsPromptBlock(integrationCfg.telegram),
+        extras.catalogSnippet,
+        extras.claudeAuth,
+        extras.telegramBotsBlock,
+        { userMessage: message.trim(), useFullPrompt: useFullPrompt === true },
       );
 
-      // 3. Call Claude
       const response = await askClaude(
         {
           systemPrompt: metaAgentPrompt,
@@ -314,26 +275,31 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       );
 
       app.log.info(
-        { responseLength: response.text.length },
+        { responseLength: response.text.length, fallback: response.fallback ?? null },
         'Meta-agent chat response received',
       );
 
-      // 4. Parse all diffs from response
-      const suggestedDiffs = parseAllDiffs(response.text);
+      const parsed = parseMetaAgentResponse(response.text);
+      const suggestedDiffs = parsed.diffs;
 
       if (suggestedDiffs.length > 0) {
         return {
-          reply: response.text,
-          suggestedDiff: suggestedDiffs[suggestedDiffs.length - 1], // backward compat: last diff
-          suggestedDiffs, // all diffs for multi-change UI
+          reply: parsed.reply || response.text,
+          suggestedDiff: suggestedDiffs[suggestedDiffs.length - 1],
+          suggestedDiffs,
+          fallback: response.fallback ?? null,
+          parseFormat: parsed.format,
         };
       }
 
-      return { reply: response.text };
+      return {
+        reply: parsed.reply || response.text,
+        fallback: response.fallback ?? null,
+        parseFormat: parsed.format,
+      };
     },
   );
 
-  // POST /apply - Apply a suggested prompt change
   app.post<{ Body: ApplyBody }>(
     '/apply',
     { onRequest: [app.authenticate] },
@@ -344,14 +310,13 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
       }
 
-      // summary is optional - fall back to a generic description if not provided
-      const effectiveSummary = (summary && typeof summary === 'string' && summary.trim())
-        ? summary.trim()
-        : 'Зміна через мета-агент (без опису)';
+      const effectiveSummary =
+        summary && typeof summary === 'string' && summary.trim()
+          ? summary.trim()
+          : 'Зміна через мета-агент (без опису)';
 
       const shouldActivate = activate === true;
 
-      // 1. Fetch current active prompt
       const activePrompt = await prisma.systemPrompt.findFirst({
         where: { isActive: true },
       });
@@ -360,121 +325,139 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'No active prompt found' });
       }
 
-      // 1a. Optimistic concurrency: if the caller remembers which prompt id
-      //     was active when they generated the diff, make sure nothing has
-      //     been activated since. Prevents two admins racing through
-      //     meta-agent and silently stepping on each other's changes.
       if (basePromptId && typeof basePromptId === 'string' && basePromptId !== activePrompt.id) {
-        app.log.warn(
-          { basePromptId, activeId: activePrompt.id, activeVersion: activePrompt.version },
-          'Meta-agent apply: basePromptId is stale — active prompt changed since diff was generated',
-        );
         return reply.code(409).send({
-          error: 'Активний промпт змінився з моменту генерації діфа. Оновіть сторінку та повторіть запит.',
+          error:
+            'Активний промпт змінився з моменту генерації діфа. Оновіть сторінку та повторіть запит.',
           currentActiveId: activePrompt.id,
           currentActiveVersion: activePrompt.version,
         });
       }
 
-      // 2. Apply the diff to the full prompt content.
-      //
-      // Three cases:
-      //   a) `before` is provided and found → targeted replacement (most common)
-      //   b) `before` is provided but NOT found → 422 error (fragment drifted)
-      //   c) `before` is empty → meta-agent is ADDING new content; append to existing
-      //
-      // We never save just `after` as the full prompt - that would lose existing content.
-      let newContent: string;
-      if (before && typeof before === 'string' && before.trim()) {
-        if (activePrompt.content.includes(before.trim())) {
-          // Case a: replace the exact fragment
-          newContent = activePrompt.content.replace(before.trim(), after.trim());
-        } else {
-          app.log.warn(
-            { beforeLength: before.length },
-            'Meta-agent apply: "before" fragment not found in active prompt - aborting to prevent data loss',
-          );
-          return reply.code(422).send({
-            error: 'Фрагмент "БУЛО" не знайдено в поточному промпті. Можливо промпт змінився. Спробуйте ще раз.',
-          });
-        }
-      } else {
-        // Case c: no "before" → append new content to the end of the existing prompt
-        app.log.info(
-          { afterLength: after.length },
-          'Meta-agent apply: no "before" fragment - appending new content to existing prompt',
-        );
-        newContent = activePrompt.content.trimEnd() + '\n\n' + after.trim();
+      const applied = applyDiffToContent(activePrompt.content, {
+        before: typeof before === 'string' ? before : '',
+        after,
+        summary: effectiveSummary,
+      });
+
+      if (!applied.ok) {
+        return reply.code(422).send({ error: applied.error });
       }
 
-      // 2a. No-op guard: if the apply didn't change anything (duplicate click,
-      //     LLM suggested the same text back), don't pollute history with an
-      //     identical version row.
-      if (newContent.trim() === activePrompt.content.trim()) {
-        app.log.warn(
-          { activeId: activePrompt.id },
-          'Meta-agent apply: resulting content identical to active — nothing to save',
-        );
+      const result = await createPromptVersion({
+        newContent: applied.content,
+        activePrompt,
+        summary: effectiveSummary,
+        shouldActivate,
+        actorUsername: request.user.username,
+        authorUserId: request.user.id,
+      });
+
+      if (result.identical) {
         return reply.code(400).send({
           error: 'Зміни відсутні — новий контент ідентичний до активного промпту.',
         });
       }
 
-      // 3. Get max version
-      const maxVersion = await prisma.systemPrompt.aggregate({
-        _max: { version: true },
-      });
-      const nextVersion = (maxVersion._max.version ?? 0) + 1;
-
-      // 4. Transaction: optionally deactivate, create new, audit log
-      const newPrompt = await prisma.$transaction(async (tx) => {
-        if (shouldActivate) {
-          // Only touch isActive when the user explicitly asked for activation.
-          // Drafts coexist with the current active version.
-          await tx.systemPrompt.updateMany({
-            data: { isActive: false },
-          });
-        }
-
-        const created = await tx.systemPrompt.create({
-          data: {
-            version: nextVersion,
-            content: newContent,
-            author: 'meta_agent',
-            authorUserId: request.user.id,
-            changeSummary: effectiveSummary,
-            isActive: shouldActivate,
-          },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            actor: request.user.username,
-            action: shouldActivate
-              ? 'prompt_activated_via_meta_agent'
-              : 'prompt_draft_via_meta_agent',
-            entityType: 'system_prompt',
-            entityId: created.id,
-            payload: {
-              summary: effectiveSummary,
-              version: created.version,
-              basedOn: activePrompt.id,
-              basedOnVersion: activePrompt.version,
-            },
-          },
-        });
-
-        return created;
-      });
-
       app.log.info(
-        { promptId: newPrompt.id, version: newPrompt.version, activated: shouldActivate },
+        {
+          promptId: result.prompt.id,
+          version: result.prompt.version,
+          activated: shouldActivate,
+        },
         shouldActivate
           ? 'Meta-agent applied prompt change (activated)'
           : 'Meta-agent created draft prompt',
       );
 
-      return reply.code(201).send(newPrompt);
+      return reply.code(201).send(result.prompt);
+    },
+  );
+
+  /** Apply multiple diffs atomically on one working copy → one new version. */
+  app.post<{ Body: ApplyBatchBody }>(
+    '/apply-batch',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const { diffs, summary, activate, basePromptId } = request.body ?? {};
+
+      if (!Array.isArray(diffs) || diffs.length === 0) {
+        return reply.code(400).send({ error: 'diffs array is required' });
+      }
+
+      const normalized = diffs.map((d, i) => ({
+        before: typeof d.before === 'string' ? d.before : '',
+        after: typeof d.after === 'string' ? d.after : '',
+        summary:
+          typeof d.summary === 'string' && d.summary.trim()
+            ? d.summary.trim()
+            : `Зміна ${i + 1}`,
+      }));
+
+      if (normalized.some((d) => !d.after.trim())) {
+        return reply.code(400).send({ error: 'Each diff requires non-empty after' });
+      }
+
+      const shouldActivate = activate === true;
+      const activePrompt = await prisma.systemPrompt.findFirst({
+        where: { isActive: true },
+      });
+
+      if (!activePrompt) {
+        return reply.code(400).send({ error: 'No active prompt found' });
+      }
+
+      if (basePromptId && typeof basePromptId === 'string' && basePromptId !== activePrompt.id) {
+        return reply.code(409).send({
+          error:
+            'Активний промпт змінився з моменту генерації діфа. Оновіть сторінку та повторіть запит.',
+          currentActiveId: activePrompt.id,
+          currentActiveVersion: activePrompt.version,
+        });
+      }
+
+      const batch = applyDiffsSequentially(activePrompt.content, normalized);
+      if (!batch.ok) {
+        return reply.code(422).send({
+          error: batch.error,
+          failedIndex: batch.failedIndex,
+        });
+      }
+
+      const effectiveSummary =
+        typeof summary === 'string' && summary.trim()
+          ? summary.trim()
+          : normalized.map((d) => d.summary).join('; ').slice(0, 500);
+
+      const result = await createPromptVersion({
+        newContent: batch.content,
+        activePrompt,
+        summary: effectiveSummary,
+        shouldActivate,
+        actorUsername: request.user.username,
+        authorUserId: request.user.id,
+      });
+
+      if (result.identical) {
+        return reply.code(400).send({
+          error: 'Зміни відсутні — новий контент ідентичний до активного промпту.',
+        });
+      }
+
+      app.log.info(
+        {
+          promptId: result.prompt.id,
+          version: result.prompt.version,
+          activated: shouldActivate,
+          diffCount: normalized.length,
+        },
+        'Meta-agent apply-batch completed',
+      );
+
+      return reply.code(201).send({
+        ...result.prompt,
+        appliedCount: normalized.length,
+      });
     },
   );
 }

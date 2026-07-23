@@ -3,15 +3,24 @@
     fluid
     class="agent-page-shell pa-2 pa-md-4"
   >
-    <!-- Header -->
     <div class="agent-page-header-compact d-flex align-center ga-2 mb-2 mb-md-3 px-1 flex-shrink-0">
       <div class="flex-grow-1 min-width-0">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
-        <div class="page-subtitle d-none d-sm-block">Опишіть зміни - мета-агент запропонує правки до промпту</div>
+        <div class="page-subtitle d-none d-sm-block">Опишіть зміни — мета-агент запропонує правки до промпту</div>
         <div v-if="mobile" class="page-subtitle-mobile d-sm-none">
           Опишіть зміни — агент запропонує правки
         </div>
       </div>
+      <v-btn
+        v-if="loading"
+        variant="tonal"
+        color="error"
+        size="small"
+        class="flex-shrink-0"
+        @click="cancelStream"
+      >
+        Скасувати
+      </v-btn>
       <v-btn
         variant="tonal"
         size="small"
@@ -31,7 +40,6 @@
       />
     </div>
 
-    <!-- Session info -->
     <div v-if="sessionLoaded" class="px-1 mb-2 flex-shrink-0">
       <div class="d-flex align-center ga-2 flex-wrap text-caption text-grey">
         <v-chip size="x-small" variant="tonal" color="primary">
@@ -39,37 +47,35 @@
         </v-chip>
         <span>{{ exchangeCount }}/{{ contextLimit }} запитів</span>
         <span v-if="messageCount > 0" class="text-grey-lighten-1">· {{ messageCount }} повід.</span>
+        <v-chip
+          v-if="linkedConversationId"
+          size="x-small"
+          variant="tonal"
+          color="info"
+          closable
+          @click:close="clearConversationLink"
+        >
+          Діалог {{ linkedConversationId.slice(0, 8) }}…
+        </v-chip>
       </div>
       <v-alert
-        v-if="contextNearFull && !contextFull"
+        v-if="contextNearFull"
         type="warning"
         variant="tonal"
         density="compact"
         class="mt-2 text-body-2"
       >
-        Контекст сесії майже заповнений. Рекомендуємо
+        Сесія довга — старі повідомлення стискаються в підсумок. Можна
         <a href="#" class="text-warning" @click.prevent="newSessionDialogOpen = true">почати нову сесію</a>.
-      </v-alert>
-      <v-alert
-        v-if="contextFull"
-        type="error"
-        variant="tonal"
-        density="compact"
-        class="mt-2 text-body-2"
-      >
-        Досягнуто ліміт {{ contextLimit }} запитів у сесії. Почніть нову сесію, щоб продовжити.
       </v-alert>
     </div>
 
-    <!-- Main content -->
     <div class="flex-grow-1 d-flex flex-column flex-md-row ga-2 ga-md-3" style="min-height: 0; overflow: hidden;">
-      <!-- Chat panel -->
       <v-card
         class="d-flex flex-column flex-grow-1"
         flat
         style="min-height: 0;"
       >
-        <!-- Messages -->
         <div
           ref="messagesContainer"
           class="flex-grow-1 overflow-y-auto pa-3 pa-md-4"
@@ -79,7 +85,6 @@
             <v-progress-circular indeterminate color="primary" size="32" />
           </div>
 
-          <!-- Empty state -->
           <div
             v-else-if="messages.length === 0 && !loading"
             class="d-flex flex-column align-center justify-center text-center"
@@ -87,21 +92,23 @@
           >
             <v-icon size="48" color="grey-lighten-1" class="mb-3">mdi-chat-outline</v-icon>
             <div class="text-body-1 text-grey-darken-1 mb-1">Почніть розмову</div>
-            <div class="text-body-2 text-grey px-4" style="max-width: 360px;">
-              Наприклад: «Додай правило про безкоштовну доставку від 2000 грн»
+            <div class="text-body-2 text-grey px-4 mb-3" style="max-width: 420px;">
+              Опишіть зміну або оберіть швидкий сценарій нижче
             </div>
-            <v-chip
-              v-if="mobile"
-              class="hint-chip-touch mt-3"
-              size="small"
-              variant="outlined"
-              @click="inputText = 'Додай правило про безкоштовну доставку від 2000 грн'"
-            >
-              Спробувати приклад
-            </v-chip>
+            <div class="d-flex flex-wrap justify-center ga-2 px-2" style="max-width: 480px;">
+              <v-chip
+                v-for="chip in suggestionChips"
+                :key="chip.label"
+                size="small"
+                variant="outlined"
+                class="hint-chip-touch"
+                @click="applyChip(chip)"
+              >
+                {{ chip.label }}
+              </v-chip>
+            </div>
           </div>
 
-          <!-- Messages -->
           <div
             v-for="(msg, idx) in messages"
             :key="idx"
@@ -130,22 +137,63 @@
             </div>
           </div>
 
-          <!-- Typing indicator -->
           <div v-if="loading" class="mb-3 d-flex justify-start">
             <div :style="{ maxWidth: mobile ? '92%' : '75%' }">
               <div class="text-caption text-grey mb-1">Мета-агент</div>
               <v-card color="grey-lighten-4" variant="flat" rounded="lg" class="pa-3">
-                <div class="typing-dots">
+                <div v-if="streamStageLabel" class="text-caption text-grey mb-2">
+                  {{ streamStageLabel }}
+                </div>
+                <div
+                  v-if="streamingText"
+                  class="meta-agent-md"
+                  v-html="formatMetaAgentMarkdown(streamingText)"
+                />
+                <div v-else class="typing-dots">
                   <span /><span /><span />
                 </div>
               </v-card>
             </div>
           </div>
+
+          <v-alert
+            v-if="lastError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mt-2"
+            closable
+            @click:close="lastError = null"
+          >
+            <div class="text-body-2">{{ lastError }}</div>
+            <v-btn
+              v-if="lastFailedMessage"
+              size="small"
+              variant="text"
+              class="mt-1 px-0"
+              @click="retryLast"
+            >
+              Повторити
+            </v-btn>
+          </v-alert>
         </div>
 
-        <!-- Input -->
         <v-divider />
         <div class="agent-chat-input pa-2 pa-md-3">
+          <div
+            v-if="messages.length > 0 && !loading"
+            class="d-flex flex-wrap ga-1 mb-2"
+          >
+            <v-chip
+              v-for="chip in suggestionChips"
+              :key="chip.label"
+              size="x-small"
+              variant="tonal"
+              @click="applyChip(chip)"
+            >
+              {{ chip.label }}
+            </v-chip>
+          </div>
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="inputText"
@@ -156,7 +204,7 @@
               max-rows="4"
               auto-grow
               hide-details
-              :disabled="loading || contextFull || sessionLoading"
+              :disabled="loading || sessionLoading"
               @keydown.enter.exact.prevent="sendMessage"
               @keydown.shift.enter.stop
             />
@@ -165,7 +213,7 @@
               icon="mdi-send"
               class="agent-send-btn"
               :loading="loading"
-              :disabled="!inputText.trim() || contextFull || sessionLoading"
+              :disabled="!inputText.trim() || sessionLoading"
               aria-label="Надіслати"
               @click="sendMessage"
             />
@@ -176,7 +224,6 @@
         </div>
       </v-card>
 
-      <!-- Desktop: inline diff panel -->
       <v-card
         v-if="currentDiffs.length > 0 && !mobile"
         class="diff-panel d-flex flex-column flex-grow-1"
@@ -190,16 +237,17 @@
           :activating-prompt-id="activatingPromptId"
           :active-base-version="activeBaseVersion"
           :unapplied-count="unappliedDiffs.length"
+          :batch-applying="batchApplying"
           show-title
           @apply="applyDiffAt"
           @activate-confirm="openActivateConfirm"
           @reject="rejectDiff"
           @apply-all="applyAllDiffs"
+          @save-and-sandbox="saveAndOpenSandbox"
         />
       </v-card>
     </div>
 
-    <!-- Mobile: reopen diff chip when sheet closed -->
     <v-chip
       v-if="mobile && currentDiffs.length > 0 && !diffSheetOpen"
       class="diff-open-chip"
@@ -211,7 +259,6 @@
       Зміни ({{ currentDiffs.length }})
     </v-chip>
 
-    <!-- Mobile: diff bottom sheet -->
     <v-bottom-sheet
       v-if="mobile"
       v-model="diffSheetOpen"
@@ -226,6 +273,7 @@
           :activating-prompt-id="activatingPromptId"
           :active-base-version="activeBaseVersion"
           :unapplied-count="unappliedDiffs.length"
+          :batch-applying="batchApplying"
           sheet
           stack-actions
           show-title
@@ -233,18 +281,17 @@
           @activate-confirm="openActivateConfirm"
           @reject="onMobileRejectDiff"
           @apply-all="applyAllDiffs"
+          @save-and-sandbox="saveAndOpenSandbox"
           @close="diffSheetOpen = false"
         />
       </v-card>
     </v-bottom-sheet>
 
-    <!-- New session confirmation -->
     <v-dialog v-model="newSessionDialogOpen" max-width="440" class="dialog-actions-stack">
       <v-card>
         <v-card-title class="text-subtitle-1">Почати нову сесію?</v-card-title>
         <v-card-text class="text-body-2">
-          Поточна сесія буде збережена в історії. Ви почнете з чистого контексту — це рекомендовано,
-          коли діалог стає довгим і мета-агенту важче враховувати всі попередні повідомлення.
+          Поточна сесія буде збережена. Нова сесія — чистий контекст без підсумку попередніх правок.
         </v-card-text>
         <v-card-actions class="dialog-actions-stack">
           <v-spacer class="d-none d-sm-flex" />
@@ -256,23 +303,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Context full — must start new session -->
-    <v-dialog v-model="contextFullDialogOpen" max-width="440" persistent class="dialog-actions-stack">
-      <v-card>
-        <v-card-title class="text-subtitle-1">Контекст сесії заповнений</v-card-title>
-        <v-card-text class="text-body-2">
-          У цій сесії вже {{ contextLimit }} запитів до мета-агента. Щоб продовжити навчання,
-          почніть нову сесію — попередня залишиться збереженою в базі.
-        </v-card-text>
-        <v-card-actions class="dialog-actions-stack">
-          <v-btn color="primary" variant="flat" :loading="startingNewSession" @click="confirmNewSession">
-            Почати нову сесію
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Activate confirmation -->
     <v-dialog v-model="activateDialogOpen" max-width="480" persistent class="dialog-actions-stack">
       <v-card>
         <v-card-title class="text-subtitle-1">
@@ -280,7 +310,6 @@
         </v-card-title>
         <v-card-text class="text-body-2">
           Активна версія промпту буде змінена миттєво — бот почне використовувати новий текст з наступного повідомлення клієнта.
-          Попередня активна версія залишиться в історії як неактивна, її можна буде повернути.
         </v-card-text>
         <v-card-actions class="dialog-actions-stack">
           <v-spacer class="d-none d-sm-flex" />
@@ -288,7 +317,7 @@
           <v-btn
             color="warning"
             variant="flat"
-            :loading="applyingIndex !== null || activatingPromptId !== null"
+            :loading="applyingIndex !== null || activatingPromptId !== null || batchApplying"
             @click="confirmActivateNow"
           >
             Так, активувати
@@ -310,13 +339,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, watch } from 'vue';
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 import MetaAgentDiffPanel from '@/components/MetaAgentDiffPanel.vue';
+import { streamTeachChat } from '@/composables/useMetaAgentTeachStream';
 
 const { mobile } = useDisplay();
+const route = useRoute();
+const router = useRouter();
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -347,36 +380,65 @@ interface AppliedResult {
   activated: boolean;
 }
 
+const suggestionChips = [
+  {
+    label: 'Доставка',
+    text: 'Онови правила доставки: уточни вартість, терміни та безкоштовну доставку, якщо це вже є в знаннях магазину.',
+  },
+  {
+    label: 'Тон',
+    text: 'Зроби тон спілкування теплішим і коротшим у Instagram DM, без агресивних продажних тригерів.',
+  },
+  {
+    label: 'Ескалація',
+    text: 'Покращ правила ескалації до менеджера: коли передавати, що писати клієнту, що не обіцяти.',
+  },
+  {
+    label: 'CRM',
+    text: 'Опиши поведінку агента через існуючі CRM/tools платформи (замовлення, бриф, запис) — без вигаданих API.',
+  },
+  {
+    label: 'Аудит',
+    text: 'Зроби аудит поточного промпту: знайди слабкі місця (суперечності, дірки, ризики) і запропонуй пріоритетний список правок з diffs.',
+  },
+];
+
 const messages = ref<ChatMessage[]>([]);
 const sessionId = ref<string | null>(null);
 const sessionTitle = ref<string | null>(null);
 const messageCount = ref(0);
 const exchangeCount = ref(0);
-const contextLimit = ref(15);
+const contextLimit = ref(40);
 const contextNearFull = ref(false);
-const contextFull = ref(false);
 const sessionLoaded = ref(false);
 const sessionLoading = ref(true);
 const startingNewSession = ref(false);
 const inputText = ref('');
 const loading = ref(false);
+const streamStageLabel = ref('');
+const streamingText = ref('');
+const lastError = ref<string | null>(null);
+const lastFailedMessage = ref<string | null>(null);
 const currentDiffs = ref<SuggestedDiff[]>([]);
 const appliedResults = ref<Map<number, AppliedResult>>(new Map());
 const applyingIndex = ref<number | null>(null);
+const batchApplying = ref(false);
 const activatingPromptId = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 const diffSheetOpen = ref(false);
+const linkedConversationId = ref<string | null>(null);
 
 const activeBasePromptId = ref<string | null>(null);
 const activeBaseVersion = ref<number | null>(null);
 
 const confirmActivate = ref<{ diffIdx: number } | null>(null);
 const newSessionDialogOpen = ref(false);
-const contextFullDialogOpen = ref(false);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
+
+let abortController: AbortController | null = null;
 
 const unappliedDiffs = computed(() =>
   currentDiffs.value.filter((_, i) => !appliedResults.value.has(i)),
@@ -417,11 +479,21 @@ function applySessionState(session: TeachSessionState) {
   exchangeCount.value = session.exchangeCount;
   contextLimit.value = session.contextLimit;
   contextNearFull.value = session.contextNearFull;
-  contextFull.value = session.contextFull;
   messages.value = session.messages.map((m) => ({
     role: m.role,
     content: m.content,
   }));
+}
+
+function applyChip(chip: { label: string; text: string }) {
+  inputText.value = chip.text;
+}
+
+function clearConversationLink() {
+  linkedConversationId.value = null;
+  const q = { ...route.query };
+  delete q.conversationId;
+  router.replace({ query: q });
 }
 
 async function loadSession() {
@@ -446,9 +518,9 @@ async function confirmNewSession() {
     currentDiffs.value = [];
     appliedResults.value = new Map();
     inputText.value = '';
+    lastError.value = null;
     diffSheetOpen.value = false;
     newSessionDialogOpen.value = false;
-    contextFullDialogOpen.value = false;
     showSnackbar('Нову сесію розпочато');
     await scrollToBottom();
   } catch (e: any) {
@@ -476,64 +548,107 @@ async function loadActiveBase() {
   }
 }
 
+function cancelStream() {
+  abortController?.abort();
+  abortController = null;
+  loading.value = false;
+  streamStageLabel.value = '';
+  streamingText.value = '';
+  showSnackbar('Запит скасовано', 'warning');
+}
+
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || loading.value || sessionLoading.value) return;
 
-  if (contextFull.value) {
-    contextFullDialogOpen.value = true;
-    return;
-  }
-
+  lastError.value = null;
+  lastFailedMessage.value = null;
   const optimisticUser: ChatMessage = { role: 'user', content: text };
   messages.value.push(optimisticUser);
   inputText.value = '';
   loading.value = true;
+  streamStageLabel.value = 'Готую контекст…';
+  streamingText.value = '';
   currentDiffs.value = [];
   appliedResults.value = new Map();
   diffSheetOpen.value = false;
   await scrollToBottom();
-
   await loadActiveBase();
 
+  abortController?.abort();
+  abortController = new AbortController();
+  const signal = abortController.signal;
+
   try {
-    const { data } = await api.post('/meta-agent/teach/chat', {
-      message: text,
-    });
-
-    if (data.session) {
-      applySessionState(data.session);
-    } else {
-      messages.value.push({ role: 'assistant', content: data.reply });
-    }
-
-    if (data.suggestedDiffs && data.suggestedDiffs.length > 0) {
-      currentDiffs.value = data.suggestedDiffs;
-    } else if (data.suggestedDiff) {
-      currentDiffs.value = [data.suggestedDiff];
-    }
+    await streamTeachChat(
+      {
+        message: text,
+        ...(linkedConversationId.value
+          ? { conversationId: linkedConversationId.value }
+          : {}),
+      },
+      {
+        onStage: (s) => {
+          streamStageLabel.value = s.label || s.stage;
+        },
+        onDelta: (delta) => {
+          streamingText.value += delta;
+          void scrollToBottom();
+        },
+        onDone: (payload) => {
+          if (payload.session) {
+            applySessionState(payload.session as TeachSessionState);
+          } else {
+            messages.value.push({ role: 'assistant', content: payload.reply });
+          }
+          if (payload.suggestedDiffs && payload.suggestedDiffs.length > 0) {
+            currentDiffs.value = payload.suggestedDiffs;
+          } else if (payload.suggestedDiff) {
+            currentDiffs.value = [payload.suggestedDiff];
+          } else {
+            currentDiffs.value = [];
+          }
+          streamingText.value = '';
+          streamStageLabel.value = '';
+        },
+        onError: (err) => {
+          messages.value = messages.value.filter((m) => m !== optimisticUser);
+          lastFailedMessage.value = text;
+          lastError.value = err.error || 'Помилка зв\'язку з мета-агентом';
+          showSnackbar(lastError.value, 'error');
+        },
+      },
+      signal,
+    );
   } catch (e: any) {
-    const status = e.response?.status;
-    const code = e.response?.data?.code;
-    if (status === 409 && code === 'CONTEXT_FULL') {
+    if (e?.name === 'AbortError') {
       messages.value = messages.value.filter((m) => m !== optimisticUser);
-      contextFull.value = true;
-      contextFullDialogOpen.value = true;
-      showSnackbar('Контекст сесії заповнений — почніть нову сесію', 'warning');
     } else {
+      messages.value = messages.value.filter((m) => m !== optimisticUser);
+      lastFailedMessage.value = text;
+      lastError.value = e?.message || 'Помилка стріму';
       await loadSession();
-      const errorMsg = e.response?.data?.error || 'Помилка зв\'язку з мета-агентом';
-      showSnackbar(errorMsg, 'error');
+      showSnackbar(lastError.value!, 'error');
     }
   } finally {
     loading.value = false;
+    streamStageLabel.value = '';
+    streamingText.value = '';
+    abortController = null;
     await scrollToBottom();
   }
 }
 
+function retryLast() {
+  if (!lastFailedMessage.value) return;
+  inputText.value = lastFailedMessage.value;
+  lastError.value = null;
+  void sendMessage();
+}
+
 async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
   const diff = currentDiffs.value[idx];
-  if (!diff || applyingIndex.value !== null) return;
+  if (!diff || applyingIndex.value !== null || batchApplying.value) return;
 
   const activate = opts.activate === true;
   applyingIndex.value = idx;
@@ -587,14 +702,62 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
   }
 }
 
-async function applyAllDiffs() {
-  for (let i = 0; i < currentDiffs.value.length; i++) {
-    if (!appliedResults.value.has(i)) {
-      if (currentDiffs.value.length === 0) return;
-      await applyDiffAt(i, { activate: false });
+async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean } = {}) {
+  const pending = currentDiffs.value
+    .map((d, i) => ({ d, i }))
+    .filter(({ i }) => !appliedResults.value.has(i));
+  if (pending.length === 0 || batchApplying.value) return;
+
+  batchApplying.value = true;
+  try {
+    const { data } = await api.post('/meta-agent/apply-batch', {
+      diffs: pending.map(({ d }) => ({
+        before: d.before,
+        after: d.after,
+        summary: d.summary,
+      })),
+      activate: opts.activate === true,
+      basePromptId: activeBasePromptId.value,
+    });
+
+    const next = new Map(appliedResults.value);
+    for (const { i } of pending) {
+      next.set(i, {
+        promptId: data.id,
+        version: data.version,
+        activated: data.isActive === true,
+      });
     }
+    appliedResults.value = next;
+
+    if (data.isActive) {
+      activeBasePromptId.value = data.id;
+      activeBaseVersion.value = data.version;
+    }
+
+    showSnackbar(
+      opts.activate
+        ? `v${data.version} активовано (${pending.length} змін)`
+        : `Чернетку v${data.version} створено (${pending.length} змін)`,
+    );
+
+    if (opts.openSandbox) {
+      await router.push({ name: 'sandbox', query: { promptVersion: String(data.version) } });
+    }
+  } catch (e: any) {
+    const status = e.response?.status;
+    const errorMsg = e.response?.data?.error || 'Не вдалося зберегти batch';
+    if (status === 409) {
+      await loadActiveBase();
+    }
+    showSnackbar(errorMsg, 'error');
+  } finally {
+    batchApplying.value = false;
   }
-  showSnackbar('Всі зміни збережено як чернетки');
+}
+
+async function saveAndOpenSandbox() {
+  await applyAllDiffs({ activate: false, openSandbox: true });
 }
 
 function openActivateConfirm(idx: number) {
@@ -609,6 +772,12 @@ async function confirmActivateNow() {
   const existing = appliedResults.value.get(idx);
   if (existing && !existing.activated) {
     await activateExistingDraft(existing.promptId);
+    return;
+  }
+
+  // Prefer batch if multiple unapplied
+  if (unappliedDiffs.value.length > 1) {
+    await applyAllDiffs({ activate: true });
     return;
   }
 
@@ -649,7 +818,15 @@ function onMobileRejectDiff() {
 }
 
 onMounted(async () => {
+  const qId = route.query.conversationId;
+  if (typeof qId === 'string' && qId.trim()) {
+    linkedConversationId.value = qId.trim();
+  }
   await Promise.all([loadSession(), loadActiveBase()]);
+});
+
+onBeforeUnmount(() => {
+  abortController?.abort();
 });
 </script>
 

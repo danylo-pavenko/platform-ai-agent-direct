@@ -67,6 +67,12 @@ export interface ClaudeCallContext {
 const log = pino({ name: 'claude' });
 
 const semaphore = new Semaphore(config.CLAUDE_MAX_CONCURRENCY);
+/** Dedicated pool for meta-agent so teach turns do not queue behind IG/TG. */
+const metaSemaphore = new Semaphore(config.CLAUDE_META_MAX_CONCURRENCY);
+
+function semaphoreFor(context?: ClaudeCallContext): Semaphore {
+  return context?.channel === 'meta_agent' ? metaSemaphore : semaphore;
+}
 
 // Admin channels talk to a human operator inside the admin UI, not to a
 // customer in IG/TG. A "менеджер відпише" reply there is misleading — the
@@ -246,13 +252,56 @@ export function getClaudeBinaryPath(): string {
   return resolvePath(homedir(), '.local', 'bin', 'claude');
 }
 
+export type ClaudeStreamDeltaHandler = (delta: string) => void;
+
+interface SpawnClaudeOptions {
+  timeoutMs: number;
+  context?: ClaudeCallContext;
+  /** Fired when assistant text grows (incremental stream-json). */
+  onDelta?: ClaudeStreamDeltaHandler;
+  /** Abort in-flight CLI (e.g. client disconnected). */
+  signal?: AbortSignal;
+}
+
+function extractAssistantTextFromStreamLine(line: string): string | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>;
+    if (obj.type === 'assistant' && Array.isArray(obj.content)) {
+      const parts: string[] = [];
+      for (const block of obj.content as Array<Record<string, unknown>>) {
+        if (block.type === 'text' && typeof block.text === 'string') {
+          parts.push(block.text);
+        }
+      }
+      if (parts.length > 0) return parts.join('\n');
+    }
+    if (obj.type === 'content_block_delta' && obj.delta && typeof obj.delta === 'object') {
+      const delta = obj.delta as Record<string, unknown>;
+      if (typeof delta.text === 'string') return delta.text;
+    }
+    if (obj.type === 'result' && typeof obj.result === 'string') {
+      return obj.result;
+    }
+  } catch {
+    /* ignore partial JSON */
+  }
+  return null;
+}
+
 /** Spawn the Claude CLI and return a promise with collected output. */
 function spawnClaude(
   prompt: string,
   args: string[],
-  timeoutMs: number,
+  timeoutMsOrOpts: number | SpawnClaudeOptions,
   context?: ClaudeCallContext,
 ): Promise<ClaudeResponse> {
+  const opts: SpawnClaudeOptions =
+    typeof timeoutMsOrOpts === 'number'
+      ? { timeoutMs: timeoutMsOrOpts, context }
+      : timeoutMsOrOpts;
+  const timeoutMs = opts.timeoutMs;
+  const callContext = opts.context ?? context;
+
   return new Promise<ClaudeResponse>((resolve) => {
     let child: ChildProcess;
 
@@ -264,13 +313,15 @@ function spawnClaude(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Failed to spawn claude CLI');
-      resolve(fallbackFor('timeout', context, `spawn failed: ${message}`));
+      resolve(fallbackFor('timeout', callContext, `spawn failed: ${message}`));
       return;
     }
 
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let lineBuf = '';
+    let emittedText = '';
 
     const settle = (response: ClaudeResponse) => {
       if (settled) return;
@@ -278,17 +329,76 @@ function spawnClaude(
       resolve(response);
     };
 
+    const onAbort = () => {
+      if (settled) return;
+      log.info({ channel: callContext?.channel ?? null }, 'Claude CLI aborted by signal');
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+      settle(fallbackFor('timeout', callContext, 'aborted by client'));
+    };
+
+    if (opts.signal) {
+      if (opts.signal.aborted) {
+        onAbort();
+        return;
+      }
+      opts.signal.addEventListener('abort', onAbort, { once: true });
+    }
+
     // Timeout handling
     const timer = setTimeout(() => {
       if (!settled) {
-        log.warn({ timeoutMs, channel: context?.channel ?? null }, 'Claude CLI timed out - killing process');
+        log.warn({ timeoutMs, channel: callContext?.channel ?? null }, 'Claude CLI timed out - killing process');
         child.kill('SIGKILL');
-        settle(fallbackFor('timeout', context, `timed out after ${timeoutMs}ms`));
+        settle(fallbackFor('timeout', callContext, `timed out after ${timeoutMs}ms`));
       }
     }, timeoutMs);
 
+    const handleStreamLine = (line: string) => {
+      if (!opts.onDelta || !line.trim()) return;
+      const text = extractAssistantTextFromStreamLine(line);
+      if (text == null) return;
+
+      // content_block_delta: append; assistant/result: treat as cumulative snapshot
+      let nextFull = text;
+      if (line.includes('"content_block_delta"')) {
+        nextFull = emittedText + text;
+      } else if (text.startsWith(emittedText)) {
+        nextFull = text;
+      } else if (emittedText && text.length > emittedText.length) {
+        nextFull = text;
+      } else if (!emittedText) {
+        nextFull = text;
+      } else {
+        // Non-monotonic — emit as fresh append only if clearly new
+        if (text.length > 0 && !emittedText.includes(text)) {
+          nextFull = emittedText + text;
+        } else {
+          return;
+        }
+      }
+
+      if (nextFull.length > emittedText.length) {
+        const delta = nextFull.slice(emittedText.length);
+        emittedText = nextFull;
+        opts.onDelta(delta);
+      }
+    };
+
     child.stdout?.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString();
+      const str = chunk.toString();
+      stdout += str;
+      if (!opts.onDelta) return;
+      lineBuf += str;
+      let nl: number;
+      while ((nl = lineBuf.indexOf('\n')) !== -1) {
+        const line = lineBuf.slice(0, nl);
+        lineBuf = lineBuf.slice(nl + 1);
+        handleStreamLine(line);
+      }
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
@@ -297,13 +407,20 @@ function spawnClaude(
 
     child.on('error', (err) => {
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
       const message = err instanceof Error ? err.message : String(err);
       log.error({ err }, 'Claude CLI process error');
-      settle(fallbackFor('timeout', context, `process error: ${message}`));
+      settle(fallbackFor('timeout', callContext, `process error: ${message}`));
     });
 
     child.on('close', (code) => {
       clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
+
+      if (lineBuf.trim() && opts.onDelta) {
+        handleStreamLine(lineBuf);
+        lineBuf = '';
+      }
 
       if (code !== 0 && !settled) {
         const stderrPreview = stderr.slice(0, 500);
@@ -311,7 +428,7 @@ function spawnClaude(
         settle(
           fallbackFor(
             'timeout',
-            context,
+            callContext,
             `exit ${code}${stderrPreview ? `: ${stderrPreview}` : ''}`,
           ),
         );
@@ -439,16 +556,18 @@ export async function askClaude(
     });
   };
 
+  const gate = semaphoreFor(context);
+
   // Back-pressure: reject early if too many requests are already queued
-  if (semaphore.pending > MAX_PENDING) {
+  if (gate.pending > MAX_PENDING) {
     log.warn(
-      { pending: semaphore.pending, active: semaphore.active, channel: context?.channel ?? null },
+      { pending: gate.pending, active: gate.active, channel: context?.channel ?? null },
       'Claude queue overloaded - returning fallback',
     );
     const busy = fallbackFor(
       'busy',
       context,
-      `queue overloaded (pending=${semaphore.pending}, active=${semaphore.active})`,
+      `queue overloaded (pending=${gate.pending}, active=${gate.active})`,
     );
     logFallback(busy, Date.now() - startMs);
     record(busy);
@@ -458,7 +577,7 @@ export async function askClaude(
   let release: (() => void) | undefined;
 
   try {
-    release = await semaphore.acquire();
+    release = await gate.acquire();
 
     const response = await spawnClaude(vision.stdin, args, timeoutFor(context), context);
 
@@ -486,6 +605,98 @@ export async function askClaude(
     const fallback = fallbackFor('timeout', context, `askClaude unexpected error: ${message}`);
     logFallback(fallback, Date.now() - startMs);
     record(fallback, message);
+    return fallback;
+  } finally {
+    release?.();
+  }
+}
+
+export type ClaudeStreamEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'done'; response: ClaudeResponse }
+  | { type: 'error'; response: ClaudeResponse };
+
+/**
+ * Like askClaude, but emits incremental text deltas from CLI stream-json.
+ * Used by meta-agent teach SSE. AbortSignal kills the child process.
+ */
+export async function askClaudeStream(
+  req: ClaudeRequest,
+  onEvent: (event: ClaudeStreamEvent) => void,
+  context?: ClaudeCallContext,
+  signal?: AbortSignal,
+): Promise<ClaudeResponse> {
+  const prompt = buildPrompt(req);
+  const vision = await buildClaudeVisionStdin(prompt, req.images);
+  const args = buildArgs(vision.useStreamJsonInput);
+  const startMs = Date.now();
+  const gate = semaphoreFor(context);
+
+  const emitDone = (response: ClaudeResponse) => {
+    onEvent({ type: response.fallback ? 'error' : 'done', response });
+  };
+
+  if (gate.pending > MAX_PENDING) {
+    const busy = fallbackFor(
+      'busy',
+      context,
+      `queue overloaded (pending=${gate.pending}, active=${gate.active})`,
+    );
+    emitDone(busy);
+    return busy;
+  }
+
+  let release: (() => void) | undefined;
+  try {
+    release = await gate.acquire();
+    if (signal?.aborted) {
+      const aborted = fallbackFor('timeout', context, 'aborted by client');
+      emitDone(aborted);
+      return aborted;
+    }
+
+    const response = await spawnClaude(vision.stdin, args, {
+      timeoutMs: timeoutFor(context),
+      context,
+      signal,
+      onDelta: (text) => {
+        if (text) onEvent({ type: 'delta', text });
+      },
+    });
+
+    const durationMs = Date.now() - startMs;
+    log.info(
+      {
+        durationMs,
+        inputChars: prompt.length,
+        outputChars: response.text.length,
+        fallback: response.fallback ?? null,
+        channel: context?.channel ?? null,
+        streamed: true,
+      },
+      'Claude stream invocation complete',
+    );
+
+    if (context) {
+      recordInvocation({
+        channel: context.channel,
+        conversationId: context.conversationId,
+        clientId: context.clientId,
+        durationMs,
+        success: !response.fallback,
+        fallbackReason: response.fallback ?? null,
+        errorMessage: response.errorDetail ?? null,
+        inputChars: prompt.length,
+        outputChars: response.text.length,
+      });
+    }
+
+    emitDone(response);
+    return response;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const fallback = fallbackFor('timeout', context, `askClaudeStream unexpected error: ${message}`);
+    emitDone(fallback);
     return fallback;
   } finally {
     release?.();

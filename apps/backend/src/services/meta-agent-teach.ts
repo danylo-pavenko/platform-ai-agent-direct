@@ -1,13 +1,22 @@
 import { prisma } from '../lib/prisma.js';
 
-/** Max user turns per session before starting a new one (~15 exchanges). */
-export const TEACH_SESSION_EXCHANGE_LIMIT = 15;
+/**
+ * Soft exchange budget: after this many user turns we compact older messages
+ * into sessionSummary instead of hard-blocking with CONTEXT_FULL.
+ */
+export const TEACH_SESSION_EXCHANGE_LIMIT = 40;
 
 /** Warn in the UI when this many user turns are reached. */
-export const TEACH_SESSION_WARN_EXCHANGES = 12;
+export const TEACH_SESSION_WARN_EXCHANGES = 30;
+
+/** Compact when exchange count reaches this (keep last N messages). */
+export const TEACH_COMPACT_AT_EXCHANGES = 28;
+
+/** After compact, keep this many newest messages in the session transcript. */
+export const TEACH_KEEP_MESSAGES_AFTER_COMPACT = 16;
 
 /** Max prior messages passed to Claude as conversation history. */
-export const TEACH_CLAUDE_HISTORY_LIMIT = 30;
+export const TEACH_CLAUDE_HISTORY_LIMIT = 24;
 
 export interface TeachChatMessage {
   role: 'user' | 'assistant';
@@ -19,6 +28,7 @@ export interface TeachChatMessage {
 export interface TeachSessionPayload {
   id: string;
   title: string | null;
+  sessionSummary: string | null;
   isActive: boolean;
   createdAt: string;
   lastMessageAt: string | null;
@@ -26,6 +36,7 @@ export interface TeachSessionPayload {
   exchangeCount: number;
   contextLimit: number;
   contextWarnAt: number;
+  /** Always false with soft compact — kept for UI compat. */
   contextFull: boolean;
   contextNearFull: boolean;
   messages: TeachChatMessage[];
@@ -63,6 +74,7 @@ function buildSessionPayload(
   session: {
     id: string;
     title: string | null;
+    sessionSummary?: string | null;
     isActive: boolean;
     createdAt: Date;
     lastMessageAt: Date | null;
@@ -79,6 +91,7 @@ function buildSessionPayload(
   return {
     id: session.id,
     title: session.title,
+    sessionSummary: session.sessionSummary ?? null,
     isActive: session.isActive,
     createdAt: session.createdAt.toISOString(),
     lastMessageAt: session.lastMessageAt?.toISOString() ?? null,
@@ -86,10 +99,8 @@ function buildSessionPayload(
     exchangeCount,
     contextLimit: TEACH_SESSION_EXCHANGE_LIMIT,
     contextWarnAt: TEACH_SESSION_WARN_EXCHANGES,
-    contextFull: exchangeCount >= TEACH_SESSION_EXCHANGE_LIMIT,
-    contextNearFull:
-      exchangeCount >= TEACH_SESSION_WARN_EXCHANGES
-      && exchangeCount < TEACH_SESSION_EXCHANGE_LIMIT,
+    contextFull: false,
+    contextNearFull: exchangeCount >= TEACH_SESSION_WARN_EXCHANGES,
     messages: mapMessages(session.messages),
   };
 }
@@ -97,6 +108,68 @@ function buildSessionPayload(
 const sessionInclude = {
   messages: { orderBy: { createdAt: 'asc' as const } },
 } as const;
+
+function buildCompactSummary(
+  previousSummary: string | null | undefined,
+  dropped: TeachChatMessage[],
+): string {
+  const lines: string[] = [];
+  if (previousSummary?.trim()) {
+    lines.push(previousSummary.trim());
+  }
+  for (const m of dropped) {
+    if (m.role === 'user') {
+      lines.push(`Адмін: ${m.content.replace(/\s+/g, ' ').trim().slice(0, 200)}`);
+    } else if (m.suggestedDiffs && m.suggestedDiffs.length > 0) {
+      for (const d of m.suggestedDiffs) {
+        lines.push(`Рішення: ${d.summary || d.after.slice(0, 120)}`);
+      }
+    } else {
+      lines.push(`Мета-агент: ${m.content.replace(/\s+/g, ' ').trim().slice(0, 160)}`);
+    }
+  }
+  const joined = lines.join('\n').trim();
+  return joined.length > 4000 ? `${joined.slice(0, 3997)}...` : joined;
+}
+
+/**
+ * When the session grows long, fold older messages into sessionSummary and
+ * delete them so Claude context stays lean.
+ */
+export async function maybeCompactTeachSession(sessionId: string): Promise<void> {
+  const session = await prisma.metaAgentTeachSession.findUnique({
+    where: { id: sessionId },
+    include: sessionInclude,
+  });
+  if (!session) return;
+
+  const exchangeCount = countUserExchanges(session.messages);
+  if (
+    exchangeCount < TEACH_COMPACT_AT_EXCHANGES
+    || session.messages.length <= TEACH_KEEP_MESSAGES_AFTER_COMPACT
+  ) {
+    return;
+  }
+
+  const keep = session.messages.slice(-TEACH_KEEP_MESSAGES_AFTER_COMPACT);
+  const drop = session.messages.slice(0, session.messages.length - keep.length);
+  if (drop.length === 0) return;
+
+  const summary = buildCompactSummary(
+    session.sessionSummary,
+    mapMessages(drop),
+  );
+
+  await prisma.$transaction(async (tx) => {
+    await tx.metaAgentTeachMessage.deleteMany({
+      where: { id: { in: drop.map((m) => m.id) } },
+    });
+    await tx.metaAgentTeachSession.update({
+      where: { id: sessionId },
+      data: { sessionSummary: summary },
+    });
+  });
+}
 
 export async function getOrCreateActiveTeachSession(adminUserId: string): Promise<TeachSessionPayload> {
   let session = await prisma.metaAgentTeachSession.findFirst({
@@ -142,8 +215,17 @@ export async function getTeachSessionById(
 
 export function buildClaudeHistoryFromMessages(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  sessionSummary?: string | null,
 ): Array<{ role: 'user' | 'assistant'; content: string }> {
-  return messages.slice(-TEACH_CLAUDE_HISTORY_LIMIT);
+  const tail = messages.slice(-TEACH_CLAUDE_HISTORY_LIMIT);
+  if (!sessionSummary?.trim()) return tail;
+  return [
+    {
+      role: 'assistant',
+      content: `[Підсумок попередніх рішень сесії]\n${sessionSummary.trim()}`,
+    },
+    ...tail,
+  ];
 }
 
 export async function appendTeachUserMessage(
@@ -160,24 +242,27 @@ export async function appendTeachUserMessage(
     throw new Error('SESSION_NOT_FOUND');
   }
 
-  if (countUserExchanges(session.messages) >= TEACH_SESSION_EXCHANGE_LIMIT) {
-    throw new Error('CONTEXT_FULL');
-  }
+  await maybeCompactTeachSession(session.id);
 
-  const priorMessages = mapMessages(session.messages);
+  const refreshed = await prisma.metaAgentTeachSession.findUniqueOrThrow({
+    where: { id: session.id },
+    include: sessionInclude,
+  });
+
+  const priorMessages = mapMessages(refreshed.messages);
 
   const userRow = await prisma.metaAgentTeachMessage.create({
     data: {
-      sessionId: session.id,
+      sessionId: refreshed.id,
       role: 'user',
       content,
     },
   });
 
-  const title = session.title ?? sessionTitleFromMessage(content);
+  const title = refreshed.title ?? sessionTitleFromMessage(content);
 
   await prisma.metaAgentTeachSession.update({
-    where: { id: session.id },
+    where: { id: refreshed.id },
     data: {
       title,
       lastMessageAt: new Date(),
@@ -185,7 +270,7 @@ export async function appendTeachUserMessage(
   });
 
   const updated = await prisma.metaAgentTeachSession.findUniqueOrThrow({
-    where: { id: session.id },
+    where: { id: refreshed.id },
     include: sessionInclude,
   });
 

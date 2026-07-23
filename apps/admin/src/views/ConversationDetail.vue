@@ -24,6 +24,15 @@
           <v-btn icon variant="text" size="small" @click="showProfile = !showProfile">
         <v-icon>mdi-account-details</v-icon>
       </v-btn>
+      <v-btn
+        icon
+        variant="text"
+        size="small"
+        title="Навчити агента на цьому діалозі"
+        @click="router.push({ name: 'teach', query: { conversationId: conversation?.id } })"
+      >
+        <v-icon>mdi-brain</v-icon>
+      </v-btn>
     </div>
 
     <div class="detail-layout" :class="{ 'with-profile': showProfile && !mobile }">
@@ -59,6 +68,13 @@
             size="small"
             title="Профіль клієнта"
             @click="showProfile = !showProfile"
+          />
+          <v-btn
+            icon="mdi-brain"
+            variant="text"
+            size="small"
+            title="Навчити агента на цьому діалозі"
+            @click="router.push({ name: 'teach', query: { conversationId: conversation?.id } })"
           />
         </div>
 

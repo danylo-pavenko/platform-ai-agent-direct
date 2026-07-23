@@ -293,14 +293,16 @@ model AdminUser {
 // only the tail of the session (see TEACH_CONTEXT_LIMIT in meta-agent-teach.ts).
 
 model MetaAgentTeachSession {
-  id            String    @id @default(uuid()) @db.Uuid
-  adminUserId   String    @map("admin_user_id") @db.Uuid
-  title         String?
-  isActive      Boolean   @default(true) @map("is_active")
-  closedAt      DateTime? @map("closed_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  lastMessageAt DateTime? @map("last_message_at")
+  id             String    @id @default(uuid()) @db.Uuid
+  adminUserId    String    @map("admin_user_id") @db.Uuid
+  title          String?
+  /// Compact summary of earlier teach decisions when history is trimmed.
+  sessionSummary String?   @map("session_summary") @db.Text
+  isActive       Boolean   @default(true) @map("is_active")
+  closedAt       DateTime? @map("closed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  lastMessageAt  DateTime? @map("last_message_at")
 
   adminUser     AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
   messages      MetaAgentTeachMessage[]

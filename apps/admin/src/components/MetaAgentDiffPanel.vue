@@ -131,11 +131,25 @@
           size="small"
           variant="tonal"
           :block="stackActions"
-          :loading="applyingIndex !== null"
+          :loading="applyingIndex !== null || batchApplying"
+          :disabled="batchApplying"
           @click="$emit('apply-all')"
         >
           <v-icon start size="16">mdi-check-all</v-icon>
           Зберегти всі як чернетки ({{ unappliedCount }})
+        </v-btn>
+        <v-btn
+          v-if="unappliedCount > 0"
+          color="info"
+          size="small"
+          variant="outlined"
+          :block="stackActions"
+          :loading="batchApplying"
+          :disabled="applyingIndex !== null"
+          @click="$emit('save-and-sandbox')"
+        >
+          <v-icon start size="16">mdi-flask-outline</v-icon>
+          Зберегти і відкрити пісочницю
         </v-btn>
       </div>
     </div>
@@ -155,7 +169,7 @@ interface AppliedResult {
   activated: boolean;
 }
 
-defineProps<{
+withDefaults(defineProps<{
   diffs: SuggestedDiff[];
   appliedResults: Map<number, AppliedResult>;
   applyingIndex: number | null;
@@ -165,13 +179,17 @@ defineProps<{
   sheet?: boolean;
   showTitle?: boolean;
   stackActions?: boolean;
-}>();
+  batchApplying?: boolean;
+}>(), {
+  batchApplying: false,
+});
 
 defineEmits<{
   apply: [idx: number, opts: { activate: boolean }];
   'activate-confirm': [idx: number];
   reject: [];
   'apply-all': [];
+  'save-and-sandbox': [];
   close: [];
 }>();
 </script>
