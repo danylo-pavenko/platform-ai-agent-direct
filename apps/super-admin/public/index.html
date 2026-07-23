@@ -1361,7 +1361,7 @@
   </div>
 
   <!-- Deploy log modal — can close while running; job continues on server -->
-  <div class="modal-overlay" v-if="deployLog.open" @click.self="deployLog.open=false">
+  <div class="modal-overlay" v-if="deployLog.open" @click.self="closeDeployLog()">
     <div class="modal" style="width:660px;max-width:96vw">
       <h2>
         <span v-if="deployLog.running" class="deploy-running"></span>
@@ -1381,7 +1381,7 @@
         <div class="deploy-log" ref="deployLogEl" v-html="deployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
       </div>
       <div class="modal-actions">
-        <button class="btn btn-ghost" @click="deployLog.open=false">
+        <button class="btn btn-ghost" @click="closeDeployLog()">
           {{ deployLog.running ? 'Hide (keeps running)' : 'Close' }}
         </button>
       </div>
@@ -1433,6 +1433,30 @@ createApp({
     const tenantModalOverlay = ref(null);
     const slugInputEl = ref(null);
     let deployLogTickTimer = null;
+    /** Bumps on every Log/Deploy open — stale SSE writers must not append. */
+    let deployLogSession = 0;
+    /** Aborts the in-flight fetch when Hide / re-open Log. */
+    let deployLogAbort = null;
+
+    function abortDeployLogStream() {
+      if (deployLogAbort) {
+        try { deployLogAbort.abort(); } catch { /* ignore */ }
+        deployLogAbort = null;
+      }
+    }
+
+    function beginDeployLogSession() {
+      abortDeployLogStream();
+      deployLogSession += 1;
+      deployLogAbort = new AbortController();
+      return { session: deployLogSession, signal: deployLogAbort.signal };
+    }
+
+    function closeDeployLog() {
+      deployLog.open = false;
+      abortDeployLogStream();
+      stopDeployLogTicker();
+    }
 
     const deployLogElapsed = computed(() => {
       void deployLog.tick;
@@ -2265,9 +2289,19 @@ createApp({
       return line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
-    function appendDeployLine(line) {
+    function appendDeployLine(line, session) {
+      // Drop lines from an aborted / superseded Log session (re-open / Hide).
+      if (session != null && session !== deployLogSession) return;
       // Quiet stream pings — keep the socket alive, don't spam the log view.
       if (line === '[stream] keepalive') return;
+      // Server always re-sends job header on attach; skip duplicates in one view.
+      if (
+        (line.startsWith('[job] ') && line.includes(' status=')) ||
+        (line.startsWith('[job] log='))
+      ) {
+        const already = deployLog.html && deployLog.html.includes(escapeLine(line));
+        if (already) return;
+      }
       const isErr = line.startsWith('[err]') || line.startsWith('[error]') || line.startsWith('[✗');
       const isStderr = line.startsWith('[stderr]');
       const isStream = line.startsWith('[stream]');
@@ -2291,14 +2325,21 @@ createApp({
       return new Promise((r) => setTimeout(r, ms));
     }
 
+    function isAbortError(e) {
+      return e && (e.name === 'AbortError' || e.code === 20);
+    }
+
     /** One SSE attach. Returns true if the job finished cleanly in this session. */
-    async function streamDeployLogOnce(tenantId, jobId, fromEnd = false) {
+    async function streamDeployLogOnce(tenantId, jobId, fromEnd, session, signal) {
       const params = new URLSearchParams();
       if (jobId) params.set('jobId', jobId);
       if (fromEnd) params.set('fromEnd', '1');
       const qs = params.toString();
       const url = `${BASE}/tenants/${tenantId}/deploy/stream${qs ? `?${qs}` : ''}`;
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${auth.token}` } });
+      const r = await fetch(url, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+        signal,
+      });
       if (!r.ok) {
         throw new Error(`HTTP ${r.status} ${r.statusText}`);
       }
@@ -2308,26 +2349,34 @@ createApp({
       let buf = '';
       let sawFinished = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const parts = buf.split('\n\n');
-        buf = parts.pop() ?? '';
-        for (const part of parts) {
-          if (!part.startsWith('data: ')) continue;
-          const line = part.slice(6);
+      try {
+        while (true) {
+          if (signal.aborted || session !== deployLogSession) {
+            try { await reader.cancel(); } catch { /* ignore */ }
+            break;
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const parts = buf.split('\n\n');
+          buf = parts.pop() ?? '';
+          for (const part of parts) {
+            if (!part.startsWith('data: ')) continue;
+            const line = part.slice(6);
+            if (line.startsWith('[job] finished')) sawFinished = true;
+            appendDeployLine(line, session);
+          }
+          if (deployJobs[tenantId]?.job) {
+            syncDeployLogFromJob(deployJobs[tenantId].job, !!deployJobs[tenantId].running);
+          }
+        }
+        if (buf.startsWith('data: ')) {
+          const line = buf.slice(6);
           if (line.startsWith('[job] finished')) sawFinished = true;
-          appendDeployLine(line);
+          appendDeployLine(line, session);
         }
-        if (deployJobs[tenantId]?.job) {
-          syncDeployLogFromJob(deployJobs[tenantId].job, !!deployJobs[tenantId].running);
-        }
-      }
-      if (buf.startsWith('data: ')) {
-        const line = buf.slice(6);
-        if (line.startsWith('[job] finished')) sawFinished = true;
-        appendDeployLine(line);
+      } finally {
+        try { reader.releaseLock(); } catch { /* ignore */ }
       }
       return sawFinished;
     }
@@ -2335,41 +2384,55 @@ createApp({
     /**
      * Follow deploy log until the job finishes. Auto-reconnects when the
      * proxy/browser drops the SSE socket (common during long npm ci).
+     * Re-open / Hide aborts this loop via session + AbortController.
      */
-    async function streamDeployLog(tenantId, jobId) {
+    async function streamDeployLog(tenantId, jobId, session, signal) {
       let attempt = 0;
-      const maxAttempts = 90; // ~10–15 min of reconnect backoff
+      const maxAttempts = 90;
 
-      while (deployLog.open && attempt < maxAttempts) {
+      while (deployLog.open && session === deployLogSession && attempt < maxAttempts) {
+        if (signal.aborted) return;
         try {
-          const finished = await streamDeployLogOnce(tenantId, jobId, attempt > 0);
+          const finished = await streamDeployLogOnce(
+            tenantId,
+            jobId,
+            attempt > 0,
+            session,
+            signal,
+          );
+          if (session !== deployLogSession || signal.aborted) return;
           await refreshDeployStatus(tenantId);
           if (finished || !deployJobs[tenantId]?.running) return;
 
           attempt += 1;
-          appendDeployLine(`[stream] connection closed — reconnecting… (${attempt})`);
+          appendDeployLine(`[stream] connection closed — reconnecting… (${attempt})`, session);
           await sleepMs(Math.min(1000 + attempt * 500, 5000));
         } catch (e) {
+          if (isAbortError(e) || session !== deployLogSession || signal.aborted) return;
           await refreshDeployStatus(tenantId);
           if (!deployJobs[tenantId]?.running) return;
 
           attempt += 1;
           const msg = (e && e.message) ? e.message : String(e);
-          // Don't paint as fatal [error] — deploy is still running server-side.
-          appendDeployLine(`[stream] ${msg} — reconnecting… (${attempt})`);
+          appendDeployLine(`[stream] ${msg} — reconnecting… (${attempt})`, session);
           await sleepMs(Math.min(1000 + attempt * 500, 5000));
         }
       }
 
+      if (session !== deployLogSession || signal.aborted) return;
       await refreshDeployStatus(tenantId);
-      if (deployJobs[tenantId]?.running) {
-        appendDeployLine('[stream] live tail paused — open «Log» again to continue watching (deploy still running)');
+      if (deployJobs[tenantId]?.running && deployLog.open) {
+        appendDeployLine(
+          '[stream] live tail paused — open «Log» again to continue watching (deploy still running)',
+          session,
+        );
       }
     }
 
     async function openDeployLog(t) {
       await refreshDeployStatus(t.id);
       const job = deployJobs[t.id]?.job;
+      const { session, signal } = beginDeployLogSession();
       deployLog.open = true;
       deployLog.name = t.name;
       deployLog.tenantId = t.id;
@@ -2379,16 +2442,20 @@ createApp({
       startDeployLogTicker();
 
       if (!job?.id) {
-        appendDeployLine('[error] No deploy job found');
+        appendDeployLine('[error] No deploy job found', session);
         stopDeployLogTicker();
         return;
       }
 
       try {
-        await streamDeployLog(t.id, job.id);
+        // Fresh open always replays full log once (html was cleared).
+        await streamDeployLog(t.id, job.id, session, signal);
       } catch (e) {
-        appendDeployLine(`[error] ${e.message}`);
+        if (!isAbortError(e) && session === deployLogSession) {
+          appendDeployLine(`[error] ${e.message}`, session);
+        }
       } finally {
+        if (session !== deployLogSession) return;
         await refreshDeployStatus(t.id);
         syncDeployLogFromJob(deployJobs[t.id]?.job, !!deployJobs[t.id]?.running);
         if (!deployLog.running) stopDeployLogTicker();
@@ -2403,6 +2470,7 @@ createApp({
       }
 
       deploying.value = t.id;
+      const { session, signal } = beginDeployLogSession();
       deployLog.open = true;
       deployLog.name = t.name;
       deployLog.tenantId = t.id;
@@ -2419,10 +2487,11 @@ createApp({
         const startRes = await fetch(`${BASE}/tenants/${t.id}/deploy`, {
           method: 'POST',
           headers: authHeaders(),
+          signal,
         });
         const startData = await startRes.json().catch(() => ({}));
         if (!startRes.ok) {
-          appendDeployLine(`[error] ${startData.error || `HTTP ${startRes.status}`}`);
+          appendDeployLine(`[error] ${startData.error || `HTTP ${startRes.status}`}`, session);
           return;
         }
 
@@ -2430,13 +2499,19 @@ createApp({
         deployJobs[t.id] = { running: true, job: startData.job || null };
         syncDeployLogFromJob(startData.job, true);
         if (!startData.started) {
-          appendDeployLine('[job] Attach to already-running deploy');
+          appendDeployLine('[job] Attach to already-running deploy', session);
         }
 
-        await streamDeployLog(t.id, jobId);
+        await streamDeployLog(t.id, jobId, session, signal);
       } catch (e) {
-        appendDeployLine(`[error] ${e.message}`);
+        if (!isAbortError(e) && session === deployLogSession) {
+          appendDeployLine(`[error] ${e.message}`, session);
+        }
       } finally {
+        if (session !== deployLogSession) {
+          deploying.value = null;
+          return;
+        }
         deploying.value = null;
         await refreshDeployStatus(t.id);
         syncDeployLogFromJob(deployJobs[t.id]?.job, !!deployJobs[t.id]?.running);
@@ -2612,7 +2687,7 @@ createApp({
       links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
       totalHumanClicks, totalFormSubmissions,
       doLogin, logout, goPage, openAddModal, openEditModal, saveTenant, deleteTenant,
-      triggerDeploy, openDeployLog, isDeployRunning, isDeployBusy,
+      triggerDeploy, openDeployLog, closeDeployLog, isDeployRunning, isDeployBusy,
       openChat, sendChat, checkClaudeHealth, accessLabel, accessClass,
       openAccessModal, applyAccessExtend, applyAccessAction, applyAccessSetDate,
       onSlugInput, onCustomInstanceIdInput, onDomainModeChange, refreshPortDefaults,

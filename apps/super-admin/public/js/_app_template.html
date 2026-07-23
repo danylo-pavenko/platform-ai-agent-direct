@@ -1,0 +1,970 @@
+<div id="app" v-cloak>
+
+  <!-- ── Login ── -->
+  <div class="login-wrap" v-if="!auth.token">
+    <div class="login-box">
+      <h1>Direct<span style="color:var(--accent)">AI</span> Admin</h1>
+      <p>Super Admin Dashboard</p>
+      <div class="field">
+        <label>Username</label>
+        <input v-model="login.username" type="text" placeholder="superadmin" @keyup.enter="doLogin" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input v-model="login.password" type="password" placeholder="••••••••" @keyup.enter="doLogin" />
+      </div>
+      <button class="btn btn-primary" style="width:100%" @click="doLogin" :disabled="login.loading">
+        {{ login.loading ? 'Входимо...' : 'Увійти' }}
+      </button>
+      <div class="login-err" v-if="login.error">{{ login.error }}</div>
+    </div>
+  </div>
+
+  <!-- ── App ── -->
+  <div class="layout" v-else>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" :class="{'open': sidebarOpen}">
+      <div class="sidebar-logo">
+        <span>Direct<em>AI</em> Agents</span>
+        <small>Super Admin</small>
+      </div>
+      <nav class="nav">
+        <div class="nav-item" :class="{'active': page==='dashboard'}" @click="goPage('dashboard')">
+          <span class="icon">⬡</span> Dashboard
+        </div>
+        <div class="nav-item" :class="{'active': page==='tenants'}" @click="goPage('tenants')">
+          <span class="icon">◈</span> Clients
+        </div>
+        <div class="nav-item" :class="{'active': page==='links'}" @click="goPage('links')">
+          <span class="icon">🔗</span> Посилання
+        </div>
+        <div class="nav-item" :class="{'active': page==='leads'}" @click="goPage('leads')">
+          <span class="icon">📩</span> Заявки
+        </div>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="logout-btn" @click="logout">
+          <span class="icon">→</span> Logout
+        </button>
+        <div v-if="saVersionLabel" class="sa-version">{{ saVersionLabel }}</div>
+      </div>
+    </aside>
+    <div class="sidebar-backdrop" :class="{'show': sidebarOpen}" @click="sidebarOpen=false"></div>
+
+    <!-- Main -->
+    <div class="main">
+
+      <!-- Dashboard -->
+      <template v-if="page==='dashboard'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Dashboard</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openAddModal"><span>+</span><span class="btn-text"> Add Client</span></button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Total clients</div>
+              <div class="stat-value accent">{{ tenants.length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Active</div>
+              <div class="stat-value green">{{ tenants.filter(t=>t.status==='active').length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Provisioned</div>
+              <div class="stat-value" style="color:var(--warn)">{{ tenants.filter(t=>t.status==='provisioned').length }}</div>
+            </div>
+          </div>
+
+          <div class="section-title">Clients</div>
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th>
+                  <th>API Domain</th>
+                  <th>Ports</th>
+                  <th>Status</th>
+                  <th>Access</th>
+                  <th>Health</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="tenants.length===0" class="empty-row">
+                  <td colspan="7">No clients yet. Add your first client.</td>
+                </tr>
+                <tr v-for="t in tenants" :key="t.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ t.name }}</div>
+                    <div style="font-size:11px;color:var(--muted)">{{ t.instanceId.toUpperCase() }}</div>
+                  </td>
+                  <td data-label="API Domain" style="color:var(--muted);font-size:12px;word-break:break-all">{{ t.apiDomain }}</td>
+                  <td data-label="Ports">
+                    <span class="port-chips">
+                      <span class="port-chip port-chip-api" title="Fastify API">API :{{ t.apiPort }}</span>
+                      <span class="port-chip port-chip-admin" title="Vue admin">Admin :{{ t.adminPort }}</span>
+                      <span class="port-chip port-chip-whisper" title="Whisper STT">STT :{{ tenantWhisperPort(t.apiPort) }}</span>
+                    </span>
+                  </td>
+                  <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="Access">
+                    <button type="button" class="badge badge-btn" :class="accessClass(t)" @click="openAccessModal(t)" title="Регулювання доступу">
+                      {{ accessLabel(t) }}
+                    </button>
+                  </td>
+                  <td data-label="Health">
+                    <span v-if="tenantNeedsProvision(t)" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-else>
+                      <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
+                      {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
+                      <div v-if="tenantVersionLabel(t.id)" class="tenant-version" :title="'Platform version on this tenant'">
+                        {{ tenantVersionLabel(t.id) }}
+                      </div>
+                    </span>
+                  </td>
+                  <td data-label="Actions">
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
+                        {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
+                      </button>
+                      <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
+                      <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
+                      <button
+                        v-if="isDeployRunning(t.id)"
+                        class="btn btn-ghost btn-sm"
+                        @click="openDeployLog(t)"
+                        title="Відкрити лог поточного деплою"
+                      >📋 Log</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
+                        :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Tenants page -->
+      <template v-if="page==='tenants'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Clients</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openAddModal"><span>+</span><span class="btn-text"> Add Client</span></button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Client</th><th>API Domain</th><th>Admin Domain</th>
+                  <th>Ports</th><th>Status</th><th>Access</th><th>Health</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="tenants.length===0" class="empty-row">
+                  <td colspan="8">No clients yet.</td>
+                </tr>
+                <tr v-for="t in tenants" :key="t.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ t.name }}</div>
+                    <div style="font-size:11px;color:var(--accent2);font-family:monospace">{{ t.instanceId.toUpperCase() }}</div>
+                  </td>
+                  <td data-label="API Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.apiDomain }}</td>
+                  <td data-label="Admin Domain" style="font-size:12px;color:var(--muted);word-break:break-all">{{ t.adminDomain }}</td>
+                  <td data-label="Ports">
+                    <span class="port-chips">
+                      <span class="port-chip port-chip-api" title="Fastify API">API :{{ t.apiPort }}</span>
+                      <span class="port-chip port-chip-admin" title="Vue admin">Admin :{{ t.adminPort }}</span>
+                      <span class="port-chip port-chip-whisper" title="Whisper STT">STT :{{ tenantWhisperPort(t.apiPort) }}</span>
+                    </span>
+                  </td>
+                  <td data-label="Status"><span class="badge" :class="'badge-'+t.status">{{ t.status }}</span></td>
+                  <td data-label="Access">
+                    <button type="button" class="badge badge-btn" :class="accessClass(t)" @click="openAccessModal(t)" title="Регулювання доступу">
+                      {{ accessLabel(t) }}
+                    </button>
+                  </td>
+                  <td data-label="Health">
+                    <span v-if="tenantNeedsProvision(t)" style="color:var(--muted);font-size:12px" title="Проєкт ще не розгорнуто на сервері">⊘ Not deployed</span>
+                    <span v-else>
+                      <span class="online-dot" :class="{'online': isTenantOnline(t.id)}"></span>
+                      {{ isTenantOnline(t.id) ? 'Online' : 'Offline' }}
+                      <div v-if="tenantVersionLabel(t.id)" class="tenant-version" :title="'Platform version on this tenant'">
+                        {{ tenantVersionLabel(t.id) }}
+                      </div>
+                    </span>
+                  </td>
+                  <td data-label="Actions">
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
+                        {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
+                      </button>
+                      <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
+                      <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
+                      <button
+                        v-if="isDeployRunning(t.id)"
+                        class="btn btn-ghost btn-sm"
+                        @click="openDeployLog(t)"
+                        title="Відкрити лог поточного деплою"
+                      >📋 Log</button>
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
+                        :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
+                        {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
+                      </button>
+                      <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Marketing links -->
+      <template v-if="page==='links'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Маркетингові посилання</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openLinkModal"><span>+</span><span class="btn-text"> Нове посилання</span></button>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Посилання</div>
+              <div class="stat-value accent">{{ links.length }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Кліки (люди)</div>
+              <div class="stat-value green">{{ totalHumanClicks }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Заявки з форми</div>
+              <div class="stat-value" style="color:var(--warn)">{{ totalFormSubmissions }}</div>
+            </div>
+          </div>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Назва</th>
+                  <th>Посилання</th>
+                  <th>Кліки</th>
+                  <th>Заявки</th>
+                  <th>Країни</th>
+                  <th>Статус</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="links.length===0" class="empty-row">
+                  <td colspan="7">Ще немає посилань. Створіть перше для кампанії.</td>
+                </tr>
+                <tr v-for="l in links" :key="l.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ l.name }}</div>
+                    <div style="font-size:11px;color:var(--muted)">/{{ l.slug }}</div>
+                  </td>
+                  <td data-label="Посилання">
+                    <div class="copy-row">
+                      <code>{{ l.trackingUrl }}</code>
+                      <button class="btn btn-ghost btn-sm" @click="copyText(l.trackingUrl)">📋</button>
+                    </div>
+                  </td>
+                  <td data-label="Кліки">
+                    <div style="font-size:13px"><strong style="color:var(--success)">{{ linkHumanClicks(l) }}</strong> людей</div>
+                    <div style="font-size:11px;color:var(--muted)">{{ linkRawClicks(l) }} всього (вкл. превʼю)</div>
+                  </td>
+                  <td data-label="Заявки">{{ linkFormSubmissions(l) }}</td>
+                  <td data-label="Країни">
+                    <span v-if="!linkCountryCount(l)" style="color:var(--muted);font-size:12px">—</span>
+                    <span v-for="entry in linkCountryEntries(l)" :key="entry.country" class="chip chip-country">{{ entry.country }} · {{ entry.count }}</span>
+                  </td>
+                  <td data-label="Статус">
+                    <span class="badge" :class="linkActiveClass(l)">{{ linkActiveLabel(l) }}</span>
+                  </td>
+                  <td data-label="Actions">
+                    <div class="actions-cell">
+                      <button class="btn btn-ghost btn-sm" @click="openLinkStats(l)" title="Графік кліків">📈</button>
+                      <button class="btn btn-ghost btn-sm" @click="openLinkModal(l)">✏️</button>
+                      <button class="btn btn-ghost btn-sm" @click="toggleLink(l)">{{ l.isActive ? '⏸' : '▶' }}</button>
+                      <button class="btn btn-danger btn-sm" @click="deleteLink(l)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Leads -->
+      <template v-if="page==='leads'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Заявки з лендингу</h1>
+          <div class="topbar-actions">
+            <select v-model="leadsFilter.status" @change="loadLeads" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px">
+              <option value="">Всі статуси</option>
+              <option value="new">new</option>
+              <option value="contacted">contacted</option>
+              <option value="closed">closed</option>
+              <option value="spam">spam</option>
+            </select>
+          </div>
+        </div>
+        <div class="content">
+          <div class="stats">
+            <div class="stat-card">
+              <div class="stat-label">Всього заявок</div>
+              <div class="stat-value accent">{{ leadsSummary.total || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Нові</div>
+              <div class="stat-value green">{{ leadsSummary.byStatus.new || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Email надіслано</div>
+              <div class="stat-value">{{ leads.filter(l=>l.emailSent).length }}</div>
+            </div>
+          </div>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Контакт</th>
+                  <th>Джерело</th>
+                  <th>Гео</th>
+                  <th>Тариф</th>
+                  <th>Email</th>
+                  <th>Статус</th>
+                  <th>Дата</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="leads.length===0" class="empty-row">
+                  <td colspan="7">Заявок поки немає.</td>
+                </tr>
+                <tr v-for="l in leads" :key="l.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ l.name || l.instagram || l.email || '—' }}</div>
+                    <div class="lead-detail">
+                      <span v-if="l.email">{{ l.email }}</span>
+                      <span v-if="l.instagram"> · {{ formatInstagram(l.instagram) }}</span>
+                      <span v-if="l.messenger"> · {{ l.messenger }}</span>
+                    </div>
+                    <div v-if="l.message" class="lead-detail" style="margin-top:4px">{{ l.message }}</div>
+                  </td>
+                  <td data-label="Джерело">
+                    <span v-if="l.link" style="font-size:12px">{{ l.link.name }}</span>
+                    <span v-else-if="l.refSlug" style="font-size:12px;color:var(--muted)">ref: {{ l.refSlug }}</span>
+                    <span v-else style="color:var(--muted);font-size:12px">прямий вхід</span>
+                  </td>
+                  <td data-label="Гео" style="font-size:12px;color:var(--muted)">
+                    {{ l.country || l.countryCode || '—' }}<span v-if="l.region"> · {{ l.region }}</span>
+                  </td>
+                  <td data-label="Тариф">{{ l.plan || '—' }}</td>
+                  <td data-label="Email">
+                    <span class="badge" :class="leadEmailClass(l)">{{ l.emailSent ? 'sent' : 'failed' }}</span>
+                  </td>
+                  <td data-label="Статус">
+                    <select :value="l.status" @change="updateLeadStatus(l, $event.target.value)" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:12px">
+                      <option value="new">new</option>
+                      <option value="contacted">contacted</option>
+                      <option value="closed">closed</option>
+                      <option value="spam">spam</option>
+                    </select>
+                  </td>
+                  <td data-label="Дата" style="font-size:12px;color:var(--muted)">{{ formatDate(l.createdAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+    </div><!-- /main -->
+  </div><!-- /layout -->
+
+  <!-- ── Compact Chat Panel ── -->
+  <div class="chat-panel" :class="{'open': chat.open}">
+    <div class="chat-header">
+      <div class="chat-header-info">
+        <div class="chat-header-name">{{ chatTenantName() }}</div>
+        <div class="chat-header-domain">{{ chatTenantDomain() }}</div>
+      </div>
+      <button class="chat-close" @click="chat.open=false">✕</button>
+    </div>
+    <div class="chat-messages" ref="chatMessages">
+      <div class="chat-empty" v-if="chat.messages.length===0">
+        <span>🩺</span>
+        <div style="text-align:center;max-width:280px">
+          <div style="font-weight:600;color:var(--text);margin-bottom:6px">Supervisor-бот цього клієнта</div>
+          <div style="font-size:12px;margin-bottom:10px">Клод бачить DB-зведення по інстансу. Запитай, наприклад:</div>
+          <div style="font-size:11px;text-align:left;line-height:1.5">
+            • Чи користується клієнт агентом?<br>
+            • Яка активність у діалогах за тиждень?<br>
+            • Скільки разів менеджер втручався?<br>
+            • Чи є застарілі діалоги в стані bot?
+          </div>
+        </div>
+      </div>
+      <div v-for="(m,i) in chat.messages" :key="i" class="msg" :class="m.role">
+        <div class="msg-bubble">{{ m.content }}</div>
+        <div class="msg-time">{{ m.time }}</div>
+      </div>
+      <div class="msg bot" v-if="chat.typing">
+        <div class="msg-bubble">
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-wrap">
+      <textarea
+        class="chat-input"
+        v-model="chat.input"
+        placeholder="Запитати про інстанс..."
+        @keydown.enter.exact.prevent="sendChat"
+        rows="1"
+      ></textarea>
+      <button class="chat-send" @click="sendChat" :disabled="!chat.input.trim() || chat.typing">➤</button>
+    </div>
+  </div>
+
+  <!-- ── Add/Edit Modal ── -->
+  <div class="modal-overlay modal-overlay--tenant" v-if="modal.open" ref="tenantModalOverlay" @click.self="modal.open=false">
+    <div class="modal modal-tenant" @click.stop>
+      <div class="modal-tenant-header">
+        <h2>{{ modal.editing ? '✏️ Edit Client' : '+ Add Client' }}</h2>
+        <p v-if="!modal.editing" class="form-required-note"><span class="req">*</span> — обовʼязкове поле. Наведіть на <span class="info-btn" style="cursor:default;vertical-align:middle">i</span> для підказки.</p>
+      </div>
+
+      <div class="modal-tenant-body">
+      <!-- Platform: slug first (primary field) -->
+      <template v-if="modal.form.domainMode==='platform' && !modal.editing">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Slug <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
+            </div>
+            <input
+              ref="slugInputEl"
+              :value="modal.form.instanceId"
+              placeholder="cultura"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="off"
+              @input="onSlugInput"
+            />
+            <p class="field-hint-inline">2–24 символи: a-z, 0-9, дефіс.</p>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
+          </div>
+        </div>
+        <div
+          class="platform-url-preview"
+          :class="{ 'is-empty': !platformPreview.slug, 'is-invalid': platformPreview.slug && !platformPreview.valid }"
+        >
+          <div class="platform-url-preview-title">Публічні URL (превʼю)</div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">API</span>
+            <code>{{ platformPreview.apiUrl }}</code>
+          </div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">Admin</span>
+            <code>{{ platformPreview.adminUrl }}</code>
+          </div>
+          <p v-if="platformPreview.slug && !platformPreview.valid" class="port-conflict-warn" style="margin-top:8px;margin-bottom:0">
+            Slug має бути 2–24 символи (a-z, 0-9, дефіс), без пробілів.
+          </p>
+        </div>
+      </template>
+
+      <!-- Domain mode -->
+      <div class="field" style="margin-bottom:10px">
+        <div class="field-label">
+          <span class="field-label-text">Domain mode</span>
+          <button type="button" class="info-btn" :title="fieldHints.domainMode" aria-label="Підказка">i</button>
+        </div>
+        <select v-model="modal.form.domainMode" @change="onDomainModeChange">
+          <option value="platform">Platform — api-{slug}.direct-ai-agents.com</option>
+          <option value="custom">Custom — власні домени (legacy)</option>
+        </select>
+      </div>
+
+      <!-- Platform edit: slug read-only + preview -->
+      <template v-if="modal.form.domainMode==='platform' && modal.editing">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Slug</span>
+            </div>
+            <input :value="modal.form.instanceId" disabled />
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Cultura Barbershop" />
+          </div>
+        </div>
+        <div class="platform-url-preview">
+          <div class="platform-url-preview-title">Публічні URL</div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">API</span>
+            <code>{{ platformPreview.apiUrl }}</code>
+          </div>
+          <div class="platform-url-line">
+            <span class="platform-url-kind">Admin</span>
+            <code>{{ platformPreview.adminUrl }}</code>
+          </div>
+        </div>
+      </template>
+
+      <!-- Custom: instance id + manual domains -->
+      <template v-else-if="modal.form.domainMode==='custom'">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Instance ID <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.instanceId" aria-label="Підказка">i</button>
+            </div>
+            <input
+              :value="modal.form.instanceId"
+              placeholder="blessed"
+              :disabled="!!modal.editing"
+              autocomplete="off"
+              spellcheck="false"
+              @input="onCustomInstanceIdInput"
+            />
+            <p class="field-hint-inline">2–24 символи: a-z, 0-9, дефіс.</p>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Name <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.name" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.name" placeholder="Status Blessed" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">API Domain <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.apiDomain" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.apiDomain" placeholder="api.status-blessed.com" />
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Admin Domain <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.adminDomain" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.adminDomain" placeholder="agent.status-blessed.com" />
+          </div>
+        </div>
+      </template>
+
+      <!-- Ports -->
+      <div v-if="!modal.editing" class="port-panel">
+        <div class="port-panel-head">
+          <strong>Розподіл портів на VPS</strong>
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="portDefaults.loading" @click="refreshPortDefaults">
+            {{ portDefaults.loading ? '…' : '↻ Оновити' }}
+          </button>
+        </div>
+        <p class="port-panel-hint">
+          Наступна вільна пара: реєстр клієнтів у super-admin
+          <strong>+</strong> реальні слухачі на сервері (<code>ss -tln</code>).
+          Крок {{ portDefaults.portPolicy?.step || 100 }}: API {{ portDefaults.portPolicy?.base || 3100 }},
+          Admin = API+1, Whisper STT = API+5000.
+        </p>
+        <div v-if="portDefaults.error" class="port-conflict-warn">{{ portDefaults.error }}</div>
+        <div v-else class="port-pairs">
+          <div
+            v-for="row in portRegistryRows"
+            :key="row.key"
+            class="port-pair-row"
+            :class="{ 'is-suggested': row.suggested }"
+          >
+            <span>
+              <template v-if="row.suggested">→ Рекомендовано для нового клієнта</template>
+              <template v-else><strong>{{ row.instanceId }}</strong> · {{ row.name }}</template>
+            </span>
+            <span class="port-chips">
+              <span class="port-chip port-chip-api" title="Fastify API">API :{{ row.apiPort }}</span>
+              <span class="port-chip port-chip-admin" title="Vue admin (serve)">Admin :{{ row.adminPort }}</span>
+              <span class="port-chip port-chip-whisper" title="Whisper STT (API+5000)">STT :{{ row.whisperPort }}</span>
+            </span>
+          </div>
+          <div v-if="portRegistryRows.length===0" style="font-size:11px;color:var(--muted)">Ще немає зареєстрованих пар — буде {{ portDefaults.portPolicy?.base || 3100 }}/{{ (portDefaults.portPolicy?.base || 3100) + 1 }}</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">API Port <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.apiPort" aria-label="Підказка">i</button>
+          </div>
+          <input v-model.number="modal.form.apiPort" type="number" placeholder="3200" />
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">Admin Port <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.adminPort" aria-label="Підказка">i</button>
+          </div>
+          <input v-model.number="modal.form.adminPort" type="number" placeholder="3201" />
+        </div>
+      </div>
+      <p v-if="portConflictWarning" class="port-conflict-warn">{{ portConflictWarning }}</p>
+      <div class="field">
+        <div class="field-label">
+          <span class="field-label-text">Status</span>
+          <button type="button" class="info-btn" :title="fieldHints.status" aria-label="Підказка">i</button>
+        </div>
+        <select v-model="modal.form.status">
+          <option value="provisioned">Provisioned</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended (заблоковано)</option>
+        </select>
+      </div>
+
+      <!-- Admin panel access (subscription) -->
+      <div class="form-row">
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">Доступ до адмінки</span>
+            <button type="button" class="info-btn" :title="fieldHints.accessMode" aria-label="Підказка">i</button>
+          </div>
+          <select v-model="modal.form.accessMode">
+            <option value="unlimited">∞ Вічний (без обмежень)</option>
+            <option value="until">До дати (підписка)</option>
+          </select>
+        </div>
+        <div class="field" v-if="modal.form.accessMode==='until'">
+          <div class="field-label">
+            <span class="field-label-text">Доступ діє до <span class="req">*</span></span>
+            <button type="button" class="info-btn" :title="fieldHints.accessExpiresAt" aria-label="Підказка">i</button>
+          </div>
+          <input v-model="modal.form.accessExpiresAt" type="datetime-local" />
+        </div>
+      </div>
+      <div v-if="modal.form.accessMode==='until'" style="font-size:11px;color:var(--muted);margin:-8px 0 14px">
+        Після цієї дати тенант не зможе увійти в свою адмін-панель, доки дату не продовжать (вручну або через оплату).
+      </div>
+
+      <!-- Env vars -->
+      <div class="field" style="margin-top:4px">
+        <div class="field-label">
+          <span class="field-label-text">Extra .env vars</span>
+          <button type="button" class="info-btn" :title="fieldHints.envExtra" aria-label="Підказка">i</button>
+        </div>
+        <textarea
+          v-model="modal.form.envExtra"
+          placeholder="DATABASE_URL=postgresql://user:pass@localhost:5432/db&#10;JWT_SECRET=...&#10;IG_PAGE_ID=...&#10;IG_PAGE_ACCESS_TOKEN=...&#10;META_APP_ID=...&#10;META_APP_SECRET=...&#10;IG_WEBHOOK_VERIFY_TOKEN=...&#10;KEYCRM_API_KEY=...&#10;DEFAULT_ADMIN_PASSWORD=change-me"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);padding:10px 12px;font-size:12px;font-family:monospace;resize:vertical;min-height:130px;outline:none;line-height:1.6"
+          @focus="$event.target.style.borderColor='var(--accent)'"
+          @blur="$event.target.style.borderColor='var(--border)'"
+        ></textarea>
+      </div>
+
+      <!-- Instagram / Meta webhook routing -->
+      <hr class="modal-sep" />
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px">Instagram / Meta Webhook</div>
+      <div class="field-hint" style="font-size:12px;line-height:1.45;color:var(--muted);margin:-4px 0 12px;padding:10px 12px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06)">
+        <strong style="color:var(--text)">Як маршрутизуються DM webhook</strong><br />
+        Hub шукає tenant за ID з payload Meta. У повідомленнях це часто <code>recipient.id</code> у логах SA-api
+        (<code>candidateIds</code>), а не обовʼязково той самий ID, що показує OAuth (<code>178414…</code>).<br /><br />
+        <strong>Основний ID</strong> — Graph API / OAuth з адмінки тенанта (зазвичай <code>178414…</code>).<br />
+        <strong>Додаткові routing ID</strong> — якщо в логах hub інший <code>recipient.id</code> (напр. <code>1971149…</code>),
+        додайте його нижче через кому. Не замінюйте основний ID, якщо він уже зайнятий іншим клієнтом.<br />
+        Після OAuth або «Перевірити підключення» в tenant admin додаткові ID синхронізуються автоматично.
+      </div>
+      <div class="form-row">
+        <div class="field">
+          <label>Instagram Business Account ID <span style="color:var(--muted);font-weight:400">(Graph API / OAuth)</span></label>
+          <input v-model="modal.form.instagramUserId" placeholder="17841437228550639" style="font-family:monospace;font-size:12px" />
+        </div>
+        <div class="field">
+          <label>Facebook App Secret <span style="color:var(--muted);font-weight:400">(HMAC верифікація)</span></label>
+          <input v-model="modal.form.facebookAppSecret" placeholder="залиште порожнім, щоб не змінювати" type="password" style="font-family:monospace;font-size:12px" />
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label>Додаткові routing ID для webhook <span style="color:var(--muted);font-weight:400">(через кому, recipient.id з логів)</span></label>
+        <input v-model="modal.form.instagramRoutingIdsText" placeholder="1971149383793917" style="font-family:monospace;font-size:12px" />
+      </div>
+
+      <!-- Advanced (one-time server setup) -->
+      <hr class="modal-sep" />
+      <div class="modal-section-toggle" :class="{'open': modal.advancedOpen}" @click="modal.advancedOpen=!modal.advancedOpen">
+        <span>⚙️ Server setup <span style="color:var(--muted);font-weight:400;font-size:11px;text-transform:none;letter-spacing:0">(Linux user, path, repo — one time)</span></span>
+        <span class="toggle-arrow">▼</span>
+      </div>
+      <div v-show="modal.advancedOpen" class="field-group">
+        <div class="form-row">
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">Linux User <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.linuxUser" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.linuxUser" placeholder="cultura" />
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span class="field-label-text">App Dir <span class="req">*</span></span>
+              <button type="button" class="info-btn" :title="fieldHints.appDir" aria-label="Підказка">i</button>
+            </div>
+            <input v-model="modal.form.appDir" placeholder="/home/cultura/platform-ai-agent-direct" />
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">Git Repo URL</span>
+            <button type="button" class="info-btn" :title="fieldHints.gitRepo" aria-label="Підказка">i</button>
+          </div>
+          <input v-model="modal.form.gitRepo" :placeholder="DEFAULT_GIT_REPO" />
+        </div>
+      </div>
+
+      </div><!-- /.modal-tenant-body -->
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="modal.open=false">Cancel</button>
+        <button class="btn btn-primary" @click="saveTenant" :disabled="modal.saving">
+          {{ modal.saving ? 'Saving...' : (modal.editing ? 'Save changes' : 'Add Client') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Link Modal ── -->
+  <div class="modal-overlay" v-if="linkModal.open" @click.self="linkModal.open=false">
+    <div class="modal" style="width:520px">
+      <h2>{{ linkModal.editing ? '✏️ Редагувати посилання' : '+ Нове посилання' }}</h2>
+      <div class="field">
+        <label>Назва кампанії *</label>
+        <input v-model="linkModal.form.name" placeholder="Instagram Stories — червень" />
+      </div>
+      <div class="field">
+        <label>Slug <span style="color:var(--muted);font-weight:400">— латиниця, цифри, дефіс</span></label>
+        <input v-model="linkModal.form.slug" placeholder="auto з назви" :disabled="!!linkModal.editing" />
+      </div>
+      <div class="field">
+        <label>Куди редіректити</label>
+        <input v-model="linkModal.form.destinationUrl" placeholder="https://direct-ai-agents.com/?ref=..." />
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin:-6px 0 14px;line-height:1.5">
+        Користувач отримає посилання виду <code style="color:var(--accent2)">direct-ai-agents.com/go/slug</code>.
+        Клік рахується лише після JS-підтвердження (не превʼю мессенджерів). Заявки з форми привʼязуються через <code>?ref=slug</code>.
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="linkModal.open=false">Скасувати</button>
+        <button class="btn btn-primary" @click="saveLink" :disabled="linkModal.saving">
+          {{ linkModal.saving ? 'Зберігаємо...' : (linkModal.editing ? 'Зберегти' : 'Створити') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Link stats chart modal ── -->
+  <div class="modal-overlay" v-if="linkStats.open" @click.self="closeLinkStats">
+    <div class="modal" style="width:760px;max-width:96vw">
+      <h2>📈 Кліки — {{ linkStats.link ? linkStats.link.name : '' }}</h2>
+      <div class="chart-toolbar">
+        <div>
+          <label>Групування</label>
+          <select v-model="linkStats.bucket" @change="loadLinkTimeline">
+            <option value="hour">По годинах</option>
+            <option value="day">По днях</option>
+          </select>
+        </div>
+        <div>
+          <label>Період</label>
+          <select v-model="linkStats.days" @change="loadLinkTimeline">
+            <option :value="7">7 днів</option>
+            <option :value="14">14 днів</option>
+            <option :value="30">30 днів</option>
+            <option :value="90">90 днів</option>
+          </select>
+        </div>
+        <div>
+          <label>Лінії</label>
+          <select v-model="linkStats.metric" @change="renderLinkChart">
+            <option value="both">Люди + всі</option>
+            <option value="human">Лише люди</option>
+            <option value="all">Всі (вкл. превʼю)</option>
+          </select>
+        </div>
+      </div>
+      <div v-if="linkStats.loading" style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">Завантаження…</div>
+      <div v-else-if="linkStats.error" style="color:var(--danger);font-size:13px;padding:20px 0">{{ linkStats.error }}</div>
+      <div v-else-if="!linkStats.points.length" style="color:var(--muted);font-size:13px;padding:40px 0;text-align:center">
+        Немає кліків за обраний період
+      </div>
+      <template v-else>
+        <div class="chart-wrap">
+          <canvas ref="linkChartCanvas"></canvas>
+        </div>
+        <div class="chart-peak" v-if="linkStats.summary">
+          <div v-if="linkStats.summary.peakHuman">
+            <strong>Пік (люди):</strong> {{ linkStats.summary.peakHuman }} кліків —
+            {{ formatChartTime(linkStats.summary.peakHumanAt) }}
+          </div>
+          <div v-if="linkStats.summary.peakTotal && linkStats.metric !== 'human'">
+            <strong>Пік (всі):</strong> {{ linkStats.summary.peakTotal }} кліків —
+            {{ formatChartTime(linkStats.summary.peakTotalAt) }}
+          </div>
+          <div style="margin-top:6px">
+            За період: <strong style="color:var(--success)">{{ linkStats.summary.humanClicks }}</strong> людей,
+            <strong>{{ linkStats.summary.totalClicks }}</strong> всього (час Europe/Kyiv)
+          </div>
+        </div>
+      </template>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeLinkStats">Закрити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Claude health modal -->
+  <div class="modal-overlay" v-if="claudeHealth.open" @click.self="claudeHealth.open=false">
+    <div class="modal">
+      <h2>🤖 Claude CLI — {{ claudeHealth.tenantName }}</h2>
+      <div v-if="claudeHealth.result">
+        <div class="field">
+          <label>Status</label>
+          <div class="d-flex ga-2" style="display:flex;gap:8px;flex-wrap:wrap">
+            <span v-if="claudeHealth.result.binaryOk !== false" class="badge badge-active">CLI OK</span>
+            <span v-else class="badge badge-suspended">CLI FAIL</span>
+            <span v-if="claudeHealth.result.loggedIn" class="badge badge-active">Auth OK</span>
+            <span v-else-if="claudeHealth.result.sessionExpired" class="badge badge-suspended">Token expired</span>
+            <span v-else-if="claudeHealth.result.binaryOk !== false" class="badge badge-suspended">Not logged in</span>
+          </div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.email">
+          <label>Account</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.email }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.subscriptionType">
+          <label>Plan</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.subscriptionType }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.path">
+          <label>Binary path</label>
+          <div style="font-family:monospace;font-size:12px;word-break:break-all">{{ claudeHealth.result.path }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.version">
+          <label>Version</label>
+          <div style="font-family:monospace;font-size:12px">{{ claudeHealth.result.version }}</div>
+        </div>
+        <div class="field" v-if="claudeHealth.result.error">
+          <label>Error</label>
+          <div style="font-family:monospace;font-size:12px;color:var(--danger);white-space:pre-wrap;word-break:break-all">{{ claudeHealth.result.error }}</div>
+        </div>
+      </div>
+      <div v-else style="color:var(--muted);font-size:13px">Loading...</div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="claudeHealth.open=false">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Access regulation modal -->
+  <div class="modal-overlay" v-if="accessModal.open" @click.self="!accessModal.saving && (accessModal.open=false)">
+    <div class="modal" style="width:480px">
+      <h2>🗓 Доступ — {{ accessModal.tenant ? accessModal.tenant.name : '' }}</h2>
+      <p style="font-size:13px;color:var(--muted);margin:-4px 0 12px">
+        Зараз:
+        <span class="badge" :class="accessModal.tenant ? accessClass(accessModal.tenant) : ''">{{ accessModal.tenant ? accessLabel(accessModal.tenant) : '—' }}</span>
+        <span v-if="accessModal.tenant && accessModal.tenant.status==='suspended'" style="margin-left:8px;color:var(--danger)">(заблоковано)</span>
+      </p>
+
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px">Продовжити</div>
+      <div class="access-presets">
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(1)">+1 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(3)">+3 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(6)">+6 міс.</button>
+        <button class="btn btn-ghost btn-sm" :disabled="accessModal.saving" @click="applyAccessExtend(12)">+12 міс.</button>
+      </div>
+
+      <div class="access-presets">
+        <button class="btn btn-primary btn-sm" :disabled="accessModal.saving" @click="applyAccessAction('unlimited')">∞ Безліміт</button>
+        <button
+          v-if="accessModal.tenant && accessModal.tenant.status==='suspended'"
+          class="btn btn-ghost btn-sm"
+          :disabled="accessModal.saving"
+          @click="applyAccessAction('reactivate')"
+        >✓ Розблокувати</button>
+        <button class="btn btn-danger btn-sm" :disabled="accessModal.saving" @click="applyAccessAction('suspend')">⛔ Заблокувати</button>
+      </div>
+
+      <hr class="modal-sep" />
+      <div class="field">
+        <label>Дата вручну</label>
+        <input v-model="accessModal.customDate" type="datetime-local" :disabled="accessModal.saving" />
+      </div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" :disabled="accessModal.saving || !accessModal.customDate" @click="applyAccessSetDate">
+        Зберегти дату
+      </button>
+
+      <p v-if="accessModal.message" style="font-size:12px;margin-top:14px;color:var(--success)">{{ accessModal.message }}</p>
+      <p v-if="accessModal.error" style="font-size:12px;margin-top:14px;color:var(--danger)">{{ accessModal.error }}</p>
+
+      <div class="modal-actions" style="margin-top:20px">
+        <button class="btn btn-ghost" :disabled="accessModal.saving" @click="accessModal.open=false">Закрити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy log modal — can close while running; job continues on server -->
+  <div class="modal-overlay" v-if="deployLog.open" @click.self="closeDeployLog()">
+    <div class="modal" style="width:660px;max-width:96vw">
+      <h2>
+        <span v-if="deployLog.running" class="deploy-running"></span>
+        🚀 Deploy: {{ deployLog.name }}
+      </h2>
+      <p style="font-size:11px;color:var(--muted);margin:-8px 0 12px;line-height:1.45">
+        <template v-if="deployLog.running">
+          Деплой триває у фоні — можна закрити вікно і відкрити лог знову кнопкою «Log».
+        </template>
+        <template v-else-if="deployLog.status">
+          Status: <strong>{{ deployLog.status }}</strong>
+          <span v-if="deployLog.exitCode != null"> (exit {{ deployLog.exitCode }})</span>
+        </template>
+        <span v-if="deployLogElapsed" style="margin-left:8px">· {{ deployLogElapsed }}</span>
+      </p>
+      <div class="deploy-log-wrap">
+        <div class="deploy-log" ref="deployLogEl" v-html="deployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeDeployLog()">
+          {{ deployLog.running ? 'Hide (keeps running)' : 'Close' }}
+        </button>
+      </div>
+    </div>
+  </div>
