@@ -44,26 +44,73 @@ echo "[3/6] Generating Prisma client..."
 cd "${APP_DIR}"
 DATABASE_URL="${DATABASE_URL}" npx prisma generate
 
-# ── 3b. Sync DB schema (prefer migrate; fallback to db push) ──
+# ── 3b. Sync DB schema (migrate deploy; baseline on P3005; else db push) ──
 echo "[3b/6] Syncing database schema..."
-if ! DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy; then
-  echo "  migrate deploy failed — falling back to prisma db push..."
-  DATABASE_URL="${DATABASE_URL}" npx prisma db push --accept-data-loss || {
-    echo ""
-    echo "  ✗ prisma schema sync failed."
-    echo "  Likely cause: DB user lacks privileges on the schema."
-    echo ""
-    DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
-    DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
-    echo "    sudo -u postgres psql ${DB_NAME} -c \\"
-    echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
-    echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
-    echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
-    echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
-    echo ""
-    echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
-    exit 1
-  }
+baseline_super_admin_migrations() {
+  # DB already has tables (often from earlier db push) but no _prisma_migrations
+  # history. Mark every committed migration as applied so deploy can proceed.
+  echo "  P3005: existing DB without migration history — baselining..."
+  local mig_dir name
+  shopt -s nullglob
+  for mig_dir in "${APP_DIR}/prisma/migrations/"*/; do
+    name="$(basename "${mig_dir}")"
+    [[ "${name}" == "migration_lock.toml" ]] && continue
+    [[ -f "${mig_dir}/migration.sql" ]] || continue
+    echo "    resolve --applied ${name}"
+    DATABASE_URL="${DATABASE_URL}" npx prisma migrate resolve --applied "${name}" || true
+  done
+  shopt -u nullglob
+}
+
+MIGRATE_LOG="$(mktemp)"
+if DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy >"${MIGRATE_LOG}" 2>&1; then
+  cat "${MIGRATE_LOG}"
+  rm -f "${MIGRATE_LOG}"
+else
+  cat "${MIGRATE_LOG}"
+  if grep -q 'P3005' "${MIGRATE_LOG}"; then
+    rm -f "${MIGRATE_LOG}"
+    baseline_super_admin_migrations
+    echo "  Re-running migrate deploy after baseline..."
+    if ! DATABASE_URL="${DATABASE_URL}" npx prisma migrate deploy; then
+      echo "  migrate deploy still failed after baseline — falling back to prisma db push..."
+      DATABASE_URL="${DATABASE_URL}" npx prisma db push --accept-data-loss || {
+        echo ""
+        echo "  ✗ prisma schema sync failed."
+        echo "  Likely cause: DB user lacks privileges on the schema."
+        echo ""
+        DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
+        DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
+        echo "    sudo -u postgres psql ${DB_NAME} -c \\"
+        echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
+        echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
+        echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
+        echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
+        echo ""
+        echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
+        exit 1
+      }
+    fi
+  else
+    rm -f "${MIGRATE_LOG}"
+    echo "  migrate deploy failed — falling back to prisma db push..."
+    DATABASE_URL="${DATABASE_URL}" npx prisma db push --accept-data-loss || {
+      echo ""
+      echo "  ✗ prisma schema sync failed."
+      echo "  Likely cause: DB user lacks privileges on the schema."
+      echo ""
+      DB_USER=$(echo "${DATABASE_URL}" | sed -E 's|postgresql://([^:@]+).*|\1|')
+      DB_NAME=$(echo "${DATABASE_URL}" | sed -E 's|.*/([^?]+).*|\1|')
+      echo "    sudo -u postgres psql ${DB_NAME} -c \\"
+      echo "      \"GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${DB_USER};"
+      echo "       GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${DB_USER};"
+      echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO ${DB_USER};"
+      echo "       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO ${DB_USER};\""
+      echo ""
+      echo "  Then re-run: bash infra/scripts/deploy-super-admin.sh"
+      exit 1
+    }
+  fi
 fi
 
 cd "${PROJECT_ROOT}"
