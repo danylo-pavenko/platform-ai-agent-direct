@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
 import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
+import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -147,6 +148,9 @@ function buildPrompt(req: ClaudeRequest): string {
 function buildArgs(useStreamJsonInput = false): string[] {
   const args: string[] = [
     '-p',
+    // Skip CLAUDE.md / hooks / plugins / auto-memory so the coding persona
+    // does not leak English “not a coding task” reasoning into IG replies.
+    '--bare',
     '--output-format', 'stream-json',
     '--verbose',
     '--model', config.CLAUDE_MODEL,
@@ -164,7 +168,7 @@ function buildArgs(useStreamJsonInput = false): string[] {
 /** Merge native stream-json tool_use blocks with `<tool_call>` text protocol. */
 function finalizeResponse(response: ClaudeResponse): ClaudeResponse {
   const fromText = parseToolCallsFromText(response.text);
-  const text = stripToolCallBlocks(response.text);
+  const text = stripAssistantMetaReasoning(stripToolCallBlocks(response.text));
   const merged = [...(response.toolCalls ?? []), ...fromText];
 
   return {
