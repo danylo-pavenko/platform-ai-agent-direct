@@ -177,19 +177,41 @@ async function bootstrapTyping(conversationId: string): Promise<void> {
 async function flushConversation(conversationId: string): Promise<void> {
   const state = getState(conversationId);
   clearTimers(state);
+  const waitedMs =
+    state.burstStartedAt != null ? Date.now() - state.burstStartedAt : null;
   state.burstStartedAt = null;
   state.flushing = true;
   state.dirty = false;
+
+  log.info(
+    {
+      conversationId,
+      waitedMs,
+      coalesceEnabled: config.INBOUND_COALESCE_ENABLED,
+    },
+    'Inbound coalesce flush starting',
+  );
 
   try {
     const { drainPendingInboundTurns } = await import('../services/conversation.js');
     await runConversationTurnSerialized(conversationId, () =>
       drainPendingInboundTurns(conversationId),
     );
+    log.info({ conversationId }, 'Inbound coalesce flush finished');
+  } catch (err) {
+    log.error({ err, conversationId }, 'Inbound coalesce flush threw');
+    throw err;
   } finally {
     state.flushing = false;
     if (state.dirty) {
       state.dirty = false;
+      log.info(
+        {
+          conversationId,
+          coalesceEnabled: config.INBOUND_COALESCE_ENABLED,
+        },
+        'Inbound arrived during flush — re-arming coalesce',
+      );
       if (config.INBOUND_COALESCE_ENABLED) {
         armTimers(conversationId);
       } else {
@@ -204,7 +226,8 @@ async function flushConversation(conversationId: string): Promise<void> {
 function armTimers(conversationId: string): void {
   const state = getState(conversationId);
   const now = Date.now();
-  if (state.burstStartedAt == null) {
+  const isNewBurst = state.burstStartedAt == null;
+  if (isNewBurst) {
     state.burstStartedAt = now;
     void bootstrapTyping(conversationId);
   }
@@ -213,9 +236,28 @@ function armTimers(conversationId: string): void {
 
   const delay = computeCoalesceDelayMs(
     now,
-    state.burstStartedAt,
+    state.burstStartedAt!,
     config.INBOUND_COALESCE_SILENCE_MS,
     config.INBOUND_COALESCE_MAX_WAIT_MS,
+  );
+  const burstAgeMs = now - state.burstStartedAt!;
+  const maxRemaining = Math.max(
+    0,
+    state.burstStartedAt! + config.INBOUND_COALESCE_MAX_WAIT_MS - now,
+  );
+
+  log.info(
+    {
+      conversationId,
+      isNewBurst,
+      delayMs: delay,
+      burstAgeMs,
+      silenceMs: config.INBOUND_COALESCE_SILENCE_MS,
+      maxWaitMs: config.INBOUND_COALESCE_MAX_WAIT_MS,
+      maxRemainingMs: maxRemaining,
+      armMaxWaitTimer: maxRemaining < delay,
+    },
+    'Inbound coalesce timer armed',
   );
 
   const fire = () => {
@@ -227,10 +269,6 @@ function armTimers(conversationId: string): void {
   };
 
   state.silenceTimer = setTimeout(fire, delay);
-  const maxRemaining = Math.max(
-    0,
-    state.burstStartedAt + config.INBOUND_COALESCE_MAX_WAIT_MS - now,
-  );
   if (maxRemaining < delay) {
     state.maxWaitTimer = setTimeout(fire, maxRemaining);
   }
@@ -245,10 +283,15 @@ export function scheduleInboundBotTurn(conversationId: string): void {
 
   if (state.flushing) {
     state.dirty = true;
+    log.info(
+      { conversationId },
+      'Inbound during active flush — marked dirty for re-arm',
+    );
     return;
   }
 
   if (!config.INBOUND_COALESCE_ENABLED) {
+    log.info({ conversationId }, 'Inbound coalesce disabled — flushing immediately');
     void flushConversation(conversationId).catch((err) => {
       log.error({ err, conversationId }, 'Immediate inbound flush failed');
     });

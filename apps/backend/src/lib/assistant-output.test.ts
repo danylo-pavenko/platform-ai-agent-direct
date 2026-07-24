@@ -28,6 +28,11 @@ describe('stripAssistantMetaReasoning', () => {
     const raw = 'Так, модель Oversized Hoodie є в наявності у розмірі M.';
     expect(stripAssistantMetaReasoning(raw)).toBe(raw);
   });
+  it('strips “The user is asking…” style preamble', () => {
+    const raw =
+      'The user is asking what is available. I should respond in character. Привіт! Що шукаєте?';
+    expect(stripAssistantMetaReasoning(raw)).toBe('Привіт! Що шукаєте?');
+  });
 });
 
 describe('looksLikeAssistantMetaReasoning', () => {

@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
@@ -8,6 +9,7 @@ import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
 import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
+import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -17,6 +19,37 @@ import {
 import type { AgentChannel } from '../generated/prisma/enums.js';
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Isolated spawn cwd so Claude Code does NOT walk into the git repo
+ * CLAUDE.md (coding guide → English “not a coding task” leaks).
+ * Do NOT use `--bare`: it disables OAuth/keychain (Max subscription auth).
+ * Soft prevention + stripAssistantMetaReasoning in finalizeResponse.
+ */
+const SPAWN_CLAUDE_MD = `# Instagram DM runtime agent
+
+You answer customers in Instagram Direct only.
+Output ONLY the client-facing reply (customer language).
+Never write English meta-reasoning, coding commentary, or lines like
+"not a coding task" / "I should respond in character".
+`;
+
+function resolveClaudeSpawnCwd(): string {
+  const base = existsSync(getTenantKnowledgeDir())
+    ? resolvePath(getTenantKnowledgeDir(), '.claude-spawn')
+    : resolvePath(homedir(), '.cache', 'platform-ai-agent', 'claude-spawn');
+
+  try {
+    mkdirSync(base, { recursive: true });
+    const mdPath = resolvePath(base, 'CLAUDE.md');
+    if (!existsSync(mdPath)) {
+      writeFileSync(mdPath, SPAWN_CLAUDE_MD, 'utf8');
+    }
+  } catch {
+    // Logged after `log` is declared below if prepare fails at spawn time.
+  }
+  return base;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,9 +181,6 @@ function buildPrompt(req: ClaudeRequest): string {
 function buildArgs(useStreamJsonInput = false): string[] {
   const args: string[] = [
     '-p',
-    // Skip CLAUDE.md / hooks / plugins / auto-memory so the coding persona
-    // does not leak English “not a coding task” reasoning into IG replies.
-    '--bare',
     '--output-format', 'stream-json',
     '--verbose',
     '--model', config.CLAUDE_MODEL,
@@ -168,7 +198,17 @@ function buildArgs(useStreamJsonInput = false): string[] {
 /** Merge native stream-json tool_use blocks with `<tool_call>` text protocol. */
 function finalizeResponse(response: ClaudeResponse): ClaudeResponse {
   const fromText = parseToolCallsFromText(response.text);
-  const text = stripAssistantMetaReasoning(stripToolCallBlocks(response.text));
+  const strippedTools = stripToolCallBlocks(response.text);
+  const text = stripAssistantMetaReasoning(strippedTools);
+  if (text !== strippedTools) {
+    log.info(
+      {
+        beforeChars: strippedTools.length,
+        afterChars: text.length,
+      },
+      'Stripped assistant meta-reasoning from Claude reply',
+    );
+  }
   const merged = [...(response.toolCalls ?? []), ...fromText];
 
   return {
@@ -310,9 +350,19 @@ function spawnClaude(
     let child: ChildProcess;
 
     try {
+      const cwd = resolveClaudeSpawnCwd();
+      log.info(
+        {
+          cwd,
+          channel: callContext?.channel ?? null,
+          argsPreview: args.filter((a) => a !== '-p').slice(0, 8),
+        },
+        'Spawning Claude CLI',
+      );
       child = spawn(getClaudeBinaryPath(), args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env },
+        cwd,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -428,7 +478,16 @@ function spawnClaude(
 
       if (code !== 0 && !settled) {
         const stderrPreview = stderr.slice(0, 500);
-        log.error({ code, stderr: stderrPreview }, 'Claude CLI exited with non-zero code');
+        log.error(
+          {
+            code,
+            stderr: stderrPreview,
+            cwd: resolveClaudeSpawnCwd(),
+            channel: callContext?.channel ?? null,
+            stdoutChars: stdout.length,
+          },
+          'Claude CLI exited with non-zero code',
+        );
         settle(
           fallbackFor(
             'timeout',

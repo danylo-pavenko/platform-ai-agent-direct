@@ -2,6 +2,7 @@ import type { StoredMediaAttachment } from './media-attachments.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 import {
   type IgInboundContext,
+  type IgInboundKind,
   parseIgInboundContext,
 } from './ig-inbound-context.js';
 
@@ -25,6 +26,14 @@ export interface JoinedInboundBatch {
   igMessageIds: string[];
   messageIds: string[];
 }
+
+/** Prefer story/inline over a lone reaction when several mids coalesce. */
+const IG_CONTEXT_PRIORITY: Record<IgInboundKind, number> = {
+  story_reply: 4,
+  story_mention: 3,
+  inline_reply: 2,
+  reaction: 1,
+};
 
 /**
  * Delay until the next coalesce flush.
@@ -57,6 +66,22 @@ function parseSharedPost(value: unknown): SharedPostData | undefined {
   return value as SharedPostData;
 }
 
+function pickIgContext(messages: PendingInboundMessage[]): IgInboundContext | undefined {
+  let best: IgInboundContext | undefined;
+  let bestScore = -1;
+  for (const m of messages) {
+    const ctx = parseIgInboundContext(m.igContext);
+    if (!ctx) continue;
+    const score = IG_CONTEXT_PRIORITY[ctx.kind] ?? 0;
+    // Later message wins ties so a follow-up story reply beats an earlier one.
+    if (score >= bestScore) {
+      best = ctx;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 /** Join one or more pending inbound rows into a single Claude user turn. */
 export function joinInboundBatch(messages: PendingInboundMessage[]): JoinedInboundBatch {
   const messageIds = messages.map((m) => m.id);
@@ -87,21 +112,12 @@ export function joinInboundBatch(messages: PendingInboundMessage[]): JoinedInbou
     }
   }
 
-  let igContext: IgInboundContext | undefined;
-  for (const m of messages) {
-    const ctx = parseIgInboundContext(m.igContext);
-    if (ctx) {
-      igContext = ctx;
-      break;
-    }
-  }
-
   return {
     text,
     mediaUrls: mediaUrls.length > 0 ? mediaUrls : undefined,
     mediaAttachments: mediaAttachments.length > 0 ? mediaAttachments : undefined,
     sharedPost,
-    igContext,
+    igContext: pickIgContext(messages),
     igMessageIds,
     messageIds,
   };

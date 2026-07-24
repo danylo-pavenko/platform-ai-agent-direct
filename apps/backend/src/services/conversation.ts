@@ -51,6 +51,7 @@ import {
   type IgInboundContext,
 } from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -201,7 +202,12 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
         turnId,
         batchSize: pending.length,
         igMessageIds: batch.igMessageIds,
+        textChars: batch.text.length,
+        hasMedia: (batch.mediaUrls?.length ?? 0) > 0,
+        hasSharedPost: !!batch.sharedPost,
+        igContextKind: batch.igContext?.kind ?? null,
         drainIteration: i,
+        onlyAfter: onlyAfter?.toISOString() ?? null,
       },
       'Starting coalesced inbound bot turn',
     );
@@ -219,6 +225,10 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
       );
     } catch (err) {
       await releaseInboundClaim(turnId);
+      log.error(
+        { err, conversationId, turnId, drainIteration: i },
+        'Coalesced inbound bot turn threw — claim released',
+      );
       throw err;
     }
 
@@ -227,6 +237,22 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
     } else if (outcome === 'released') {
       await releaseInboundClaim(turnId);
     }
+
+    log.info(
+      {
+        conversationId,
+        turnId,
+        outcome,
+        claimDisposition:
+          outcome === 'skipped'
+            ? 'skipped'
+            : outcome === 'released'
+              ? 'released'
+              : 'kept',
+        drainIteration: i,
+      },
+      'Finished coalesced inbound bot turn',
+    );
 
     // Follow-up iterations only pick up mids that arrived during this turn.
     onlyAfter = turnGateAt;
@@ -996,7 +1022,11 @@ async function handleIncomingMessageImpl(
     outputValidationFailure = true;
   }
 
-  const clientFacingText = stripMarkdownForInstagram(responseText);
+  // Belt-and-suspenders: finalizeResponse already scrubbed, but never ship
+  // English coding-persona preamble to Instagram.
+  const clientFacingText = stripMarkdownForInstagram(
+    stripAssistantMetaReasoning(responseText),
+  );
 
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');

@@ -20,6 +20,7 @@ import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { isAgentFallbackReply } from '../lib/agent-fallback.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
 import { sendText } from './instagram.js';
 import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
@@ -313,7 +314,9 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
         return false;
       }
 
-      const clientFacingText = stripMarkdownForInstagram(responseText).trim();
+      const clientFacingText = stripMarkdownForInstagram(
+        stripAssistantMetaReasoning(responseText),
+      ).trim();
       if (!clientFacingText) {
         await releaseFollowUpClaim(conversationId);
         return false;

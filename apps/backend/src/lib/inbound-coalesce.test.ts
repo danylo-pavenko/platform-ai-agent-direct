@@ -77,4 +77,24 @@ describe('joinInboundBatch', () => {
     expect(batch.sharedPost?.postUrl).toBe('https://ig/p/1');
     expect(batch.text).toBe('look');
   });
+
+  it('prefers story_reply igContext over an earlier reaction in the batch', () => {
+    const batch = joinInboundBatch([
+      base({
+        id: 'a',
+        text: 'Реакція ❤️',
+        igContext: {
+          kind: 'reaction',
+          reaction: { targetMid: 'm0', action: 'react', reaction: 'love' },
+        },
+      }),
+      base({
+        id: 'b',
+        text: 'Хочу записатись',
+        igContext: { kind: 'story_reply', story: { id: 's1' } },
+      }),
+    ]);
+    expect(batch.igContext?.kind).toBe('story_reply');
+    expect(batch.text).toContain('кілька повідомлень');
+  });
 });
