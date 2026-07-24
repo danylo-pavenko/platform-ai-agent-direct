@@ -10,12 +10,13 @@ function serializeOrder(
     id: string;
     conversationId: string;
     clientId: string;
+    kind?: string;
     items: unknown;
     customerName: string;
     phone: string;
-    city: string;
-    npBranch: string;
-    paymentMethod: string;
+    city: string | null;
+    npBranch: string | null;
+    paymentMethod: string | null;
     note: string | null;
     status: string;
     submittedToManagerAt: Date | null;
@@ -33,6 +34,7 @@ function serializeOrder(
 ) {
   return {
     ...order,
+    kind: order.kind ?? 'product',
     total: computeOrderTotal(order.items),
     keycrmOrderUrl: order.keycrmOrderId
       ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)

@@ -11,27 +11,25 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 | Mode | Призначення | Фінальна дія |
 |------|-------------|--------------|
-| sales | E-commerce продаж | collect_order → локальне Замовлення в адмінці (+ CRM якщо увімкнено) |
-| leadgen | Кваліфікація / бриф | submit_brief → локально + Telegram (+ KeyCRM lead якщо write увімкнено) |
-| booking | Запис у салон | book_appointment → CRM запису (CleverBOX/BeautyPro) за routing |
+| sales | E-commerce продаж | collect_order → локальне Замовлення (+ CRM якщо увімкнено); create_local_order при м'якій згоді |
+| leadgen | Кваліфікація / бриф | submit_brief → локально + Telegram (+ KeyCRM lead якщо write увімкнено); create_local_order при згоді |
+| booking | Запис у салон | book_appointment → CRM запису; create_local_order якщо погодили послугу/дзвінок без слоту |
 
 ## Tools за режимом (бекенд виконує; у промпті лише інструкції КОЛИ їх викликати)
 
-Спільні: update_client_info, tag_client, request_handoff; set_conversation_branch (якщо є філії).
+Спільні: update_client_info, tag_client, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
 
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment
 
-Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / brief / booking / handoff).
+Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff).
 
-## Замовлення (sales / collect_order) — джерело правди
+## Замовлення (sales / collect_order / create_local_order) — джерело правди
 
-1. collect_order ЗАВЖДИ створює рядок у локальній БД (адмінка → Замовлення). Без цього замовлення «не існує» для платформи.
-2. Паралельно (не блокує клієнта): картка в Telegram менеджерам.
-3. Якщо CRM write увімкнено І provider для action=order вміє createOrder (типово KeyCRM) — async mirror у CRM; статус crmSyncStatus: pending|synced|failed|skipped.
-4. Якщо CRM вимкнено / не KeyCRM для orders — замовлення лишається лише локально (skipped); адмінка все одно показує його.
-5. Не пиши в промпті «створи замовлення в KeyCRM» — пиши «викликай collect_order коли клієнт підтвердив усі дані».
+1. create_local_order — коли клієнт погодився на товар/послугу/дзвінок («оформляйте»). Завжди локальна БД + Telegram; CRM sync = skipped.
+2. collect_order — повне e-com (товар + ПІБ + телефон + місто/НП + оплата). ЗАВЖДИ локальна БД; + CRM mirror якщо write і KeyCRM createOrder.
+3. Не пиши в промпті «створи замовлення в KeyCRM» — пиши «викликай create_local_order при згоді» / «collect_order коли підтвердив усі дані доставки».
 
 ## CRM (через CrmAdapter + crm_routing, не хардкод у промпті)
 
@@ -62,7 +60,7 @@ catalog.txt (KeyCRM sync), services-live.txt (salon sync).
 ## Правила редагування промпту
 
 - Не вигадуй tools, яких немає в таблиці вище.
-- Не пиши «викликай CRM API» — лише назви tools (collect_order, book_appointment, …).
+- Не пиши «викликай CRM API» — лише назви tools (collect_order, create_local_order, book_appointment, …).
 - Не хардкодь CleverBOX/BeautyPro/KeyCRM у промпті, якщо tenant може міняти routing — пиши «CRM запису» / «каталог» / «локальні замовлення».
 - Зберігай безпеки: handoff, не змішувати клієнтів, не світити internal ids клієнту.
 </platform_capabilities>`;

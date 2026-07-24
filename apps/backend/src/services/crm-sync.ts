@@ -225,10 +225,10 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
     },
     items,
     note: order.note ?? undefined,
-    paymentMethod: order.paymentMethod as 'card' | 'transfer' | 'cod',
+    paymentMethod: (order.paymentMethod ?? 'cod') as 'card' | 'transfer' | 'cod',
     shipping: {
-      city: order.city,
-      npBranch: order.npBranch,
+      city: order.city ?? '',
+      npBranch: order.npBranch ?? '',
     },
   };
 

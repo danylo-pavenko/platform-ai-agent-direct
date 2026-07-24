@@ -232,9 +232,11 @@ export async function notifyOrder(params: {
   items: Array<{ name: string; variant?: string; price: number; qty: number }>;
   customerName: string;
   phone: string;
-  city: string;
-  npBranch: string;
-  paymentMethod: string;
+  city?: string | null;
+  npBranch?: string | null;
+  paymentMethod?: string | null;
+  kind?: string | null;
+  summary?: string | null;
 }): Promise<void> {
   const {
     orderId,
@@ -246,6 +248,8 @@ export async function notifyOrder(params: {
     city,
     npBranch,
     paymentMethod,
+    kind,
+    summary,
   } = params;
   const shortId = orderId.slice(0, 8);
   const shortConv = conversationId.slice(0, 8);
@@ -266,23 +270,44 @@ export async function notifyOrder(params: {
     })
     .join('\n');
 
+  const kindLabel =
+    kind === 'service'
+      ? 'послуга'
+      : kind === 'callback'
+        ? 'дзвінок'
+        : kind === 'other'
+          ? 'інше'
+          : kind === 'product'
+            ? 'товар'
+            : null;
+
+  const title =
+    kind && kind !== 'product'
+      ? `Нова заявка (${kindLabel}) #${escapeHtml(shortId)}`
+      : `Нове замовлення #${escapeHtml(shortId)}`;
+
   const text = [
-    `📦 <b>Нове замовлення #${escapeHtml(shortId)}</b>`,
+    `📦 <b>${title}</b>`,
     ``,
+    summary ? `Суть: ${escapeHtml(summary)}` : '',
     `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
     `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
     `Ім'я: ${escapeHtml(customerName)}`,
     `Телефон: ${escapeHtml(phone)}`,
-    `Місто: ${escapeHtml(city)}`,
-    `НП: ${escapeHtml(npBranch)}`,
-    `Оплата: ${escapeHtml(formatPaymentMethodLabel(paymentMethod))}`,
+    `Місто: ${escapeHtml(city?.trim() || '—')}`,
+    `НП: ${escapeHtml(npBranch?.trim() || '—')}`,
+    `Оплата: ${escapeHtml(
+      paymentMethod ? formatPaymentMethodLabel(paymentMethod) : '—',
+    )}`,
     ``,
-    `<b>Товари:</b>`,
+    `<b>Позиції:</b>`,
     itemsBlock || '<i>(немає позицій)</i>',
-    `<b>Разом: ${total} ₴</b>`,
+    total > 0 ? `<b>Разом: ${total} ₴</b>` : '',
     ``,
     `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
-  ].join('\n');
+  ]
+    .filter((line) => line !== '')
+    .join('\n');
 
   const keyboard = new InlineKeyboard()
     .text('✅ Підтвердити', `approve:${orderId}`)

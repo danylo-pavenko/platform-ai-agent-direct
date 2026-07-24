@@ -31,7 +31,7 @@ import {
   getAvailableSlotsForContext,
   searchServicesForContext,
 } from './service-search.js';
-import { handleCollectOrder } from './order.js';
+import { handleCollectOrder, handleCreateLocalOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
 import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
@@ -676,6 +676,7 @@ async function handleIncomingMessageImpl(
 
     const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
+    const createLocalOrder = response.toolCalls.find((tc) => tc.name === 'create_local_order');
     const bookAppointment = response.toolCalls.find((tc) => tc.name === 'book_appointment');
     const submitBrief = response.toolCalls.find((tc) => tc.name === 'submit_brief');
 
@@ -696,7 +697,13 @@ async function handleIncomingMessageImpl(
     const searchCatalogCall = response.toolCalls.find((tc) => tc.name === 'search_catalog');
     const deliveryCostCall = response.toolCalls.find((tc) => tc.name === 'get_delivery_cost');
 
-    if (searchCatalogCall && !handoff && !collectOrder && !deliveryCostCall) {
+    if (
+      searchCatalogCall &&
+      !handoff &&
+      !collectOrder &&
+      !createLocalOrder &&
+      !deliveryCostCall
+    ) {
       const query =
         typeof searchCatalogCall.args.query === 'string'
           ? searchCatalogCall.args.query.trim()
@@ -769,7 +776,7 @@ async function handleIncomingMessageImpl(
     }
 
     // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
-    if (deliveryCostCall && !handoff && !collectOrder && !searchCatalogCall) {
+    if (deliveryCostCall && !handoff && !collectOrder && !createLocalOrder && !searchCatalogCall) {
       const city = typeof deliveryCostCall.args.city === 'string' ? deliveryCostCall.args.city : '';
       const weightKg = typeof deliveryCostCall.args.weight_kg === 'number'
         ? deliveryCostCall.args.weight_kg
@@ -840,7 +847,7 @@ async function handleIncomingMessageImpl(
     const slotsCall = response.toolCalls.find((tc) => tc.name === 'get_available_slots');
     const crmHistoryCall = response.toolCalls.find((tc) => tc.name === 'get_client_crm_history');
 
-    if (crmHistoryCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall) {
+    if (crmHistoryCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall) {
       let toolResultContent: string;
       try {
         const history = await fetchClientCrmHistory(client.id, { limit: 10 });
@@ -885,7 +892,7 @@ async function handleIncomingMessageImpl(
       }
     }
 
-    if (searchServicesCall && !handoff && !collectOrder && !bookAppointment) {
+    if (searchServicesCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment) {
       const query =
         typeof searchServicesCall.args.query === 'string'
           ? searchServicesCall.args.query.trim()
@@ -938,7 +945,7 @@ async function handleIncomingMessageImpl(
       }
     }
 
-    if (slotsCall && !handoff && !collectOrder && !bookAppointment && !searchServicesCall && !crmHistoryCall) {
+    if (slotsCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall && !crmHistoryCall) {
       const date = typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
       const rawServices = Array.isArray(slotsCall.args.services) ? slotsCall.args.services : [];
       const services = rawServices.flatMap((raw) => {
@@ -1297,7 +1304,13 @@ async function persistVisionDebugNote(params: {
 
 type TerminalToolContext = {
   conversationId: string;
-  client: { id: string; igUserId: string | null };
+  client: {
+    id: string;
+    igUserId: string | null;
+    displayName?: string | null;
+    phone?: string | null;
+    igUsername?: string | null;
+  };
   agentMode: AgentMode;
   /** Bot reply shown to the client — used as the order confirmation when collect_order fires. */
   clientMessage?: string;
@@ -1358,7 +1371,7 @@ async function runSideEffectToolCalls(
   }
 }
 
-/** Handoff / collect_order — ends the turn when handled. */
+/** Handoff / collect_order / create_local_order / book_appointment — ends the turn when handled. */
 async function tryTerminalToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   ctx: TerminalToolContext,
@@ -1384,6 +1397,23 @@ async function tryTerminalToolCalls(
       turnStartedAt,
     });
     return true;
+  }
+
+  const createLocal = toolCalls.find((tc) => tc.name === 'create_local_order');
+  if (createLocal && client.igUserId) {
+    const orderId = await handleCreateLocalOrder(
+      conversationId,
+      client.id,
+      client.igUserId,
+      createLocal.args,
+      {
+        clientMessage: ctx.clientMessage,
+        clientDisplayName: client.displayName,
+        clientPhone: client.phone,
+        clientIgUsername: client.igUsername,
+      },
+    );
+    if (orderId) return true;
   }
 
   const collectOrder = toolCalls.find((tc) => tc.name === 'collect_order');

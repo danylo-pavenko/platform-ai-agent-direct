@@ -7,11 +7,13 @@ Tools виконує **бекенд** (формат `<tool_call>` у відпо�
 
 | Mode | Tools (окрім спільних) | Фінал |
 |------|------------------------|-------|
-| **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | замовлення → KeyCRM |
+| **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write) |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
 | **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment` | запис → CleverBOX / BeautyPro |
 
-Спільні: `update_client_info`, `tag_client`, `request_handoff`; `set_conversation_branch` якщо є філії.
+Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
+
+`create_local_order` — коли клієнт погодився на товар/послугу/дзвінок (локальна заявка в адмінці, без CRM mirror).
 
 Telegram менеджерам — не окремий tool (йде з order/brief/booking/handoff).
 

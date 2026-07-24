@@ -300,7 +300,7 @@ const GET_DELIVERY_COST: ToolDefinition = {
 const COLLECT_ORDER: ToolDefinition = {
   name: 'collect_order',
   description:
-    'Зібрано замовлення. Викликай ОБОВ\'ЯЗКОВО коли клієнт підтвердив («так», «все вірно», «дякую») і є: товар, ПІБ, телефон, місто+НП, оплата. Без цього виклику замовлення НЕ створюється в системі.',
+    'Повне e-commerce замовлення з доставкою. Викликай ОБОВ\'ЯЗКОВО коли клієнт підтвердив і є: товар, ПІБ, телефон, місто+НП, оплата. Без цього виклику повне замовлення НЕ створюється. Для м\'якої згоди (послуга/дзвінок/«оформляйте» без НП) — create_local_order.',
   parameters: {
     type: 'object',
     properties: {
@@ -334,6 +334,55 @@ const COLLECT_ORDER: ToolDefinition = {
       },
     },
     required: ['items', 'customer_name', 'phone', 'city', 'np_branch', 'payment_method'],
+  },
+};
+
+/** Soft local agreement — always creates Admin → Orders; no CRM mirror. */
+const CREATE_LOCAL_ORDER: ToolDefinition = {
+  name: 'create_local_order',
+  description:
+    'Локальна заявка/замовлення в адмінці, коли клієнт явно погодився на товар, послугу, дзвінок або сказав «оформляйте». Мінімум: kind + summary. Контакти — якщо є. НЕ замінює collect_order (повна доставка) і book_appointment (слот у CRM). CRM не дзеркалить — лише локально + Telegram менеджерам.',
+  parameters: {
+    type: 'object',
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['product', 'service', 'callback', 'other'],
+        description: 'Тип угоди: товар / послуга / передзвін / інше',
+      },
+      summary: {
+        type: 'string',
+        description: 'Коротко що клієнт погодив (1–2 речення)',
+      },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            variant: { type: 'string' },
+            price: { type: 'number' },
+            qty: { type: 'number', default: 1 },
+          },
+          required: ['name'],
+        },
+        description: 'Позиції, якщо відомі (інакше summary стане однією позицією)',
+      },
+      customer_name: { type: 'string' },
+      phone: { type: 'string' },
+      city: { type: 'string' },
+      np_branch: { type: 'string' },
+      payment_method: {
+        type: 'string',
+        enum: ['card', 'transfer', 'cod'],
+      },
+      note: { type: 'string' },
+      preferred_time: {
+        type: 'string',
+        description: 'Зручний час для дзвінка (якщо kind=callback)',
+      },
+    },
+    required: ['kind', 'summary'],
   },
 };
 
@@ -509,7 +558,7 @@ export function buildAgentTools(
 
   const sharedBase: ToolDefinition[] = [updateClientInfo];
   if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
-  sharedBase.push(TAG_CLIENT, REQUEST_HANDOFF);
+  sharedBase.push(TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
 
   if (mode === 'leadgen') {
     const submitBrief = injectCustomFields(

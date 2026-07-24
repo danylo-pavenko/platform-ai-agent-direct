@@ -67,6 +67,17 @@
             </v-chip>
           </template>
 
+          <template #item.kind="{ item }">
+            <v-chip
+              :color="kindColor(item.kind)"
+              size="small"
+              variant="tonal"
+              label
+            >
+              {{ kindLabel(item.kind) }}
+            </v-chip>
+          </template>
+
           <template #item.crmSyncStatus="{ item }">
             <v-chip
               :color="crmStatusColor(item)"
@@ -257,11 +268,12 @@ interface Order {
   client?: string;
   conversationId?: string;
   status: string;
+  kind?: string;
   customerName: string;
   phone: string;
-  city: string;
-  npBranch: string;
-  paymentMethod: string;
+  city?: string | null;
+  npBranch?: string | null;
+  paymentMethod?: string | null;
   note?: string | null;
   total?: number;
   items?: OrderItem[];
@@ -298,6 +310,7 @@ const statusOptions = [
 const headers = [
   { title: 'ID', key: 'id', sortable: false, width: '100px' },
   { title: 'Клієнт', key: 'client', sortable: false },
+  { title: 'Тип', key: 'kind', sortable: false, width: '110px' },
   { title: 'Статус', key: 'status', sortable: false, width: '120px' },
   { title: 'CRM', key: 'crmSyncStatus', sortable: false, width: '120px' },
   { title: "Ім'я", key: 'customerName', sortable: false },
@@ -327,13 +340,34 @@ function statusLabel(status: string): string {
   return labels[status] || status;
 }
 
-function paymentLabel(method: string): string {
+function paymentLabel(method: string | null | undefined): string {
+  if (!method) return '—';
   const labels: Record<string, string> = {
     card: 'Картка',
     transfer: 'Переказ',
     cod: 'Накладений платіж',
   };
   return labels[method] || method;
+}
+
+function kindLabel(kind: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    product: 'Товар',
+    service: 'Послуга',
+    callback: 'Дзвінок',
+    other: 'Інше',
+  };
+  return labels[kind ?? 'product'] ?? kind ?? 'Товар';
+}
+
+function kindColor(kind: string | null | undefined): string {
+  const colors: Record<string, string> = {
+    product: 'primary',
+    service: 'teal',
+    callback: 'orange',
+    other: 'grey',
+  };
+  return colors[kind ?? 'product'] ?? 'grey';
 }
 
 function crmStatusLabel(item: Order): string {

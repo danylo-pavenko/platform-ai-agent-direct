@@ -173,6 +173,16 @@ enum PaymentMethod {
   @@map("payment_method")
 }
 
+/// Why the local order row was created (soft agreement vs full e-com).
+enum OrderKind {
+  product
+  service
+  callback
+  other
+
+  @@map("order_kind")
+}
+
 enum CrmSyncStatus {
   pending
   synced
@@ -183,28 +193,29 @@ enum CrmSyncStatus {
 }
 
 model Order {
-  id                    String        @id @default(uuid()) @db.Uuid
-  conversationId        String        @map("conversation_id") @db.Uuid
-  clientId              String        @map("client_id") @db.Uuid
-  items                 Json          @db.JsonB
-  customerName          String        @map("customer_name")
+  id                    String         @id @default(uuid()) @db.Uuid
+  conversationId        String         @map("conversation_id") @db.Uuid
+  clientId              String         @map("client_id") @db.Uuid
+  kind                  OrderKind      @default(product)
+  items                 Json           @db.JsonB
+  customerName          String         @map("customer_name")
   phone                 String
-  city                  String
-  npBranch              String        @map("np_branch")
-  paymentMethod         PaymentMethod @map("payment_method")
+  city                  String?
+  npBranch              String?        @map("np_branch")
+  paymentMethod         PaymentMethod? @map("payment_method")
   note                  String?
-  status                OrderStatus   @default(draft)
-  submittedToManagerAt  DateTime?     @map("submitted_to_manager_at")
-  keycrmOrderId         String?       @map("keycrm_order_id")
-  crmSyncStatus         CrmSyncStatus @default(pending) @map("crm_sync_status")
-  crmSyncError          String?       @map("crm_sync_error")
-  crmSyncedAt           DateTime?     @map("crm_synced_at")
-  isArchived            Boolean       @default(false) @map("is_archived")
-  archivedAt            DateTime?     @map("archived_at")
-  createdAt             DateTime      @default(now()) @map("created_at")
+  status                OrderStatus    @default(draft)
+  submittedToManagerAt  DateTime?      @map("submitted_to_manager_at")
+  keycrmOrderId         String?        @map("keycrm_order_id")
+  crmSyncStatus         CrmSyncStatus  @default(pending) @map("crm_sync_status")
+  crmSyncError          String?        @map("crm_sync_error")
+  crmSyncedAt           DateTime?      @map("crm_synced_at")
+  isArchived            Boolean        @default(false) @map("is_archived")
+  archivedAt            DateTime?      @map("archived_at")
+  createdAt             DateTime       @default(now()) @map("created_at")
 
-  conversation          Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  client                Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  conversation          Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  client                Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@map("orders")
 }
