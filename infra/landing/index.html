@@ -200,6 +200,18 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     box-shadow: 0 4px 14px rgba(79,70,229,.35);
   }
   .btn.primary:hover, .btn.red:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .btn.ig {
+    background: linear-gradient(135deg, #F58529 0%, #DD2A7B 45%, #8134AF 75%, #515BD4 100%);
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 18px rgba(221, 42, 123, .4);
+  }
+  .btn.ig:hover {
+    filter: brightness(1.06); border-color: transparent;
+    box-shadow: 0 6px 22px rgba(221, 42, 123, .5);
+    transform: translateY(-1px);
+  }
+  .btn.ig .ig-icon { width: 18px; height: 18px; flex-shrink: 0; }
+  .btn.ig.lg .ig-icon { width: 20px; height: 20px; }
 
   /* ---------- HERO ---------- */
   .hero {
@@ -611,6 +623,12 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     background: var(--ink); color: #fff; border-color: var(--ink);
     box-shadow: 0 4px 20px rgba(0,0,0,.2);
   }
+  .cta-section .btn.ig {
+    background: linear-gradient(135deg, #F58529 0%, #DD2A7B 45%, #8134AF 75%, #515BD4 100%);
+    color: #fff; border-color: transparent;
+    box-shadow: 0 4px 18px rgba(221, 42, 123, .45);
+  }
+  .cta-section .btn.ig:hover { filter: brightness(1.08); }
   .cta-row .micro { font-size: 14px; color: rgba(255,255,255,.75); width: 100%; margin-top: 8px; }
 
   .marquee {
@@ -799,6 +817,7 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     .nav-links { display: none; }
     .nav-right > .lang { display: none; }
     .nav-right > .contact-cta { display: none; }
+    .nav-right > .btn.ig { display: none; }
     .nav-burger { display: inline-flex; }
     .hero-grid { grid-template-columns: 1fr; gap: 40px; }
     .hero-device { order: -1; }
@@ -853,6 +872,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         <button data-lang="en">EN</button>
       </div>
       <a class="btn red contact-cta" href="#contact" data-i="nav_demo">Замовити демо</a>
+      <a class="btn ig" href="https://www.instagram.com/deia.agent/" target="_blank" rel="noopener noreferrer" data-ig-cta="nav" aria-label="@deia.agent">
+        <svg class="ig-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+        <span data-i="nav_try_ig">Спробувати</span>
+      </a>
       <button class="nav-burger" aria-label="Menu" aria-expanded="false" aria-controls="navPanel">
         <span></span><span></span><span></span>
       </button>
@@ -865,6 +888,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <a href="#contact" data-i="nav_contact">Контакт</a>
     <a href="#faq" data-i="nav_faq">Питання</a>
     <a class="btn red contact-cta nav-panel-cta" href="#contact" data-i="nav_demo">Замовити демо</a>
+    <a class="btn ig nav-panel-cta" href="https://www.instagram.com/deia.agent/" target="_blank" rel="noopener noreferrer" data-ig-cta="nav_mobile">
+      <svg class="ig-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+      <span data-i="nav_try_ig">Спробувати</span>
+    </a>
     <div class="lang">
       <button class="active" data-lang="uk">UA</button>
       <button data-lang="en">EN</button>
@@ -889,9 +916,13 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         </h1>
         <p class="hero-sub" data-i="hero_sub">AI-продавець для Instagram DM: відповідає кожному клієнту за 4 секунди, 24/7, і доводить діалог до замовлення. Ви отримуєте більше продажів з тієї ж реклами — без додаткових менеджерів.</p>
         <div class="hero-cta">
+          <a class="btn ig lg" href="https://www.instagram.com/deia.agent/" target="_blank" rel="noopener noreferrer" data-ig-cta="hero">
+            <svg class="ig-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+            <span data-i="hero_try_ig">Спробувати агента в Instagram</span>
+          </a>
           <a class="btn red lg contact-cta" href="#contact" data-i="hero_cta1">Запустити за 48 год ↗</a>
           <a class="btn lg" href="#how" data-i="hero_cta2">Подивитись, як працює</a>
-          <span class="micro" data-i="hero_micro">1 місяць безкоштовно · без банківської картки</span>
+          <span class="micro" data-i="hero_micro">Напишіть @deia.agent — поспілкуйтесь, протестуйте і оформіть замовлення</span>
         </div>
         <div class="hero-checks">
           <span data-i="hero_c1">Відповідь за 4 секунди</span>
@@ -1312,6 +1343,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
           <li data-i="contact_p2">Підключення Instagram + CRM</li>
           <li data-i="contact_p3">Окремий інстанс у ЄС</li>
         </ul>
+        <a class="btn ig" style="width:100%;margin-top:20px" href="https://www.instagram.com/deia.agent/" target="_blank" rel="noopener noreferrer" data-ig-cta="contact">
+          <svg class="ig-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+          <span data-i="contact_try_ig">Спробувати @deia.agent</span>
+        </a>
       </aside>
 
       <form id="contactForm" class="contact-form" novalidate>
@@ -1396,6 +1431,10 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     </h2>
     <p class="cta-sub" data-i="cta_sub">Запустимо AI-агента за 48 годин. 1 місяць безкоштовно. Не зайде — не платите.</p>
     <div class="cta-row">
+      <a class="btn ig lg" href="https://www.instagram.com/deia.agent/" target="_blank" rel="noopener noreferrer" data-ig-cta="footer_cta">
+        <svg class="ig-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+        <span data-i="cta_try_ig">Спробувати @deia.agent</span>
+      </a>
       <a class="btn red lg contact-cta" href="#contact" data-i="cta_btn1">Замовити демо ↗</a>
       <a class="btn lg" href="#pricing" data-i="cta_btn2">Подивитися тарифи</a>
       <span class="micro" data-i="cta_micro">help@depsoftware.com · ceo@depsoftware.com</span>
@@ -1473,11 +1512,14 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     uk: {
       nav_how: "Як", nav_features: "Можливості", nav_pricing: "Тарифи", nav_contact: "Контакт", nav_faq: "Питання",
       nav_demo: "Замовити демо ↗",
+      nav_try_ig: "Спробувати",
 
       hero_eyebrow: "AI-продавець для Instagram Direct · 24/7",
       hero_t1: "Instagram Direct,", hero_t2: "який", hero_t3: "продає", hero_t4: "сам",
       hero_sub: "AI-продавець відповідає кожному клієнту за 4 секунди, знає ваш каталог і доводить діалог до замовлення. Більше продажів з тієї ж реклами — без нових менеджерів.",
-      hero_cta1: "Запустити за 48 год ↗", hero_cta2: "Подивитись, як працює", hero_micro: "1 місяць безкоштовно · без банківської картки",
+      hero_try_ig: "Спробувати агента в Instagram",
+      hero_cta1: "Запустити за 48 год ↗", hero_cta2: "Подивитись, як працює",
+      hero_micro: "Напишіть @deia.agent — поспілкуйтесь, протестуйте і оформіть замовлення",
       hero_c1: "Відповідь за 4 секунди", hero_c2: "Замовлення в Telegram + CRM", hero_c3: "Окремий інстанс для вашого бренду",
       trust1: "Запуск за <b>48 годин</b>", trust2: "<b>1 місяць</b> безкоштовно", trust3: "Хостинг у <b>ЄС</b>",
       trust4: "Інтеграції: <b>KeyCRM · Нова Пошта · Telegram</b>", trust5: "Підтримка <b>UA + EN</b>",
@@ -1590,6 +1632,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
       cta_t1: "Готові продавати в Direct", cta_t2: "навіть", cta_t3: "коли команди", cta_t4: "немає онлайн?",
       cta_sub: "Підключимо AI-агента за 48 годин. 1 місяць безкоштовно — без карти. Не підійде — не платите.",
+      cta_try_ig: "Спробувати @deia.agent",
       cta_btn1: "Замовити демо ↗", cta_btn2: "Подивитися тарифи",
       cta_micro: "help@depsoftware.com · CEO: ceo@depsoftware.com",
 
@@ -1607,6 +1650,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       contact_p1: "1 місяць безкоштовно, без карти",
       contact_p2: "Підключення Instagram + CRM",
       contact_p3: "Окремий інстанс у ЄС",
+      contact_try_ig: "Спробувати @deia.agent",
       contact_hint: "Вкажіть хоча б один спосіб звʼязку — email, Instagram або мессенджер.",
       cf_name: "Імʼя / бренд", cf_opt: "(необовʼязково)", cf_opt2: "(або Instagram нижче)",
       cf_plan: "Цікавить", cf_plan_demo: "Демо / консультація",
@@ -1627,10 +1671,13 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     en: {
       nav_how: "How", nav_features: "Features", nav_pricing: "Pricing", nav_contact: "Contact", nav_faq: "FAQ",
       nav_demo: "Book demo ↗",
+      nav_try_ig: "Try it",
       hero_eyebrow: "AI salesperson for Instagram Direct · 24/7",
       hero_t1: "Instagram DM", hero_t2: "that", hero_t3: "sells", hero_t4: "on its own",
       hero_sub: "Your AI agent replies in 4 seconds, knows your catalog, and walks every chat to a placed order. More revenue from the same ad spend — without hiring more staff.",
-      hero_cta1: "Launch in 48h ↗", hero_cta2: "See how it works", hero_micro: "1 month free · no credit card",
+      hero_try_ig: "Try the agent on Instagram",
+      hero_cta1: "Launch in 48h ↗", hero_cta2: "See how it works",
+      hero_micro: "Message @deia.agent — chat, test, and place an order",
       hero_c1: "4-second response time", hero_c2: "Orders to Telegram + CRM", hero_c3: "Dedicated instance per brand",
       trust1: "Live in <b>48 hours</b>", trust2: "<b>1 month</b> free", trust3: "Hosted in the <b>EU</b>",
       trust4: "Integrations: <b>KeyCRM · Nova Poshta · Telegram</b>", trust5: "Support in <b>UA + EN</b>",
@@ -1732,6 +1779,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       faq6_a: "Instagram Direct only for now. WhatsApp Business and Telegram channels on the 2026 roadmap.",
       cta_t1: "Ready to sell in DM", cta_t2: "even when", cta_t3: "your team", cta_t4: "is offline?",
       cta_sub: "We launch your AI agent in 48 hours. 1 month free — no card required. If it doesn't fit, you don't pay.",
+      cta_try_ig: "Try @deia.agent",
       cta_btn1: "Book a demo ↗", cta_btn2: "See pricing",
       cta_micro: "help@depsoftware.com · CEO: ceo@depsoftware.com",
       foot_about: "The platform that turns Instagram Direct into a sales channel. DEP Software, Kyiv, 2024.",
@@ -1748,6 +1796,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
       contact_p1: "1 month free, no card",
       contact_p2: "Instagram + CRM setup",
       contact_p3: "Dedicated EU instance",
+      contact_try_ig: "Try @deia.agent",
       contact_hint: "Provide at least one contact method — email, Instagram or messenger.",
       cf_name: "Name / brand", cf_opt: "(optional)", cf_opt2: "(or Instagram below)",
       cf_plan: "Interested in", cf_plan_demo: "Demo / consultation",
@@ -1806,6 +1855,13 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     panel.querySelectorAll("a").forEach(a => a.addEventListener("click", close));
     window.addEventListener("resize", () => { if (window.innerWidth > 960) close(); });
   })();
+
+  // Instagram demo CTAs
+  document.querySelectorAll("[data-ig-cta]").forEach((el) => {
+    el.addEventListener("click", () => {
+      window.dalAnalytics?.ctaClick("instagram_demo", el.getAttribute("data-ig-cta") || "ig");
+    });
+  });
 
   // Contact form + confirmation modal
   (function () {
