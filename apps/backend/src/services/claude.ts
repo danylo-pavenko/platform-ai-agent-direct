@@ -9,6 +9,7 @@ import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
 import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
+import { isUnusableClaudeResultText } from '../lib/claude-result-usable.js';
 import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
@@ -238,6 +239,10 @@ function parseResponse(raw: string): ClaudeResponse {
 
       // result-type line (Claude CLI >= 2024)
       if (obj.type === 'result' && typeof obj.result === 'string') {
+        // Auth / API failures still produce a result string — reject them.
+        if (obj.is_error === true || isUnusableClaudeResultText(obj.result)) {
+          continue;
+        }
         return { text: obj.result };
       }
 
@@ -258,9 +263,14 @@ function parseResponse(raw: string): ClaudeResponse {
           }
         }
 
+        const joined = textParts.join('\n');
+        if (isUnusableClaudeResultText(joined) && toolCalls.length === 0) {
+          continue;
+        }
+
         if (textParts.length > 0 || toolCalls.length > 0) {
           return {
-            text: textParts.join('\n'),
+            text: joined,
             ...(toolCalls.length > 0 ? { toolCalls } : {}),
           };
         }
@@ -476,7 +486,16 @@ function spawnClaude(
         lineBuf = '';
       }
 
-      if (code !== 0 && !settled) {
+      if (settled) return;
+
+      const parsed = finalizeResponse(parseResponse(stdout));
+      const usable =
+        (parsed.text.trim().length > 0 && !isUnusableClaudeResultText(parsed.text)) ||
+        (parsed.toolCalls?.length ?? 0) > 0;
+
+      // Claude Code sometimes exits 1 even after a valid stream-json result.
+      // Prefer the reply over a canned fallback when stdout is usable.
+      if (code !== 0 && !usable) {
         const stderrPreview = stderr.slice(0, 500);
         log.error(
           {
@@ -498,8 +517,20 @@ function spawnClaude(
         return;
       }
 
-      const response = finalizeResponse(parseResponse(stdout));
-      settle(response);
+      if (code !== 0 && usable) {
+        log.warn(
+          {
+            code,
+            channel: callContext?.channel ?? null,
+            stdoutChars: stdout.length,
+            textChars: parsed.text.length,
+            toolCalls: parsed.toolCalls?.length ?? 0,
+          },
+          'Claude CLI non-zero exit but usable reply — accepting',
+        );
+      }
+
+      settle(parsed);
     });
 
     // Write prompt to stdin and close
@@ -912,7 +943,7 @@ const AGENT_LATENCY_PROBE_USER = 'ping';
 
 /**
  * Minimal Claude invocation to measure real end-to-end agent latency.
- * Uses the customer-facing timeout (CLAUDE_TIMEOUT_MS, default 30s).
+ * Uses the customer-facing timeout (CLAUDE_TIMEOUT_MS, default 120s).
  */
 export async function probeAgentLatency(
   maxLatencyMs = config.CLAUDE_TIMEOUT_MS,

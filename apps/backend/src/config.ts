@@ -99,8 +99,8 @@ const envSchema = z.object({
   // Dedicated slot(s) for meta-agent teach so customer IG/TG traffic is not
   // starved (and vice versa) by long prompt-editing turns.
   CLAUDE_META_MAX_CONCURRENCY: z.coerce.number().default(1),
-  // IG/TG customer turns — catalog tool calls on a VPS often exceed 30s.
-  CLAUDE_TIMEOUT_MS: z.coerce.number().default(60000),
+  // IG/TG customer turns — catalog/tool loops on a VPS often exceed 60s.
+  CLAUDE_TIMEOUT_MS: z.coerce.number().default(120000),
   // Voice notes: STT already consumed wall time; allow a longer Claude window.
   CLAUDE_VOICE_TIMEOUT_MS: z.coerce.number().default(90000),
   // Admin-facing channels (meta_agent, sandbox, supervisor) work with much

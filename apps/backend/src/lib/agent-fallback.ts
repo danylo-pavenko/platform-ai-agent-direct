@@ -10,7 +10,7 @@ export const CUSTOMER_FALLBACK_TIMEOUT =
 const FALLBACK_TEXTS = new Set([CUSTOMER_FALLBACK_BUSY, CUSTOMER_FALLBACK_TIMEOUT]);
 
 /** How many fallback replies we send before auto-handoff on the next failure. */
-export const AGENT_FALLBACK_MAX_BEFORE_HANDOFF = 2;
+export const AGENT_FALLBACK_MAX_BEFORE_HANDOFF = 5;
 
 export function isAgentFallbackReply(text: string): boolean {
   return FALLBACK_TEXTS.has(text.trim());

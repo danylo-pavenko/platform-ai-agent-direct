@@ -1040,7 +1040,7 @@ async function handleIncomingMessageImpl(
     return 'skipped';
   }
 
-  // After two consecutive agent fallbacks, escalate to a live manager.
+  // After several consecutive agent fallbacks, escalate to a live manager.
   if (
     agentFallback &&
     CUSTOMER_CHANNELS.has(conversation.channel)

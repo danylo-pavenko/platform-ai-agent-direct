@@ -129,18 +129,17 @@
             Зберегти
           </v-btn>
         </div>
-        <v-alert
+        <div
           v-if="conversation?.state === 'handoff' && conversation?.handoffReason"
-          type="info"
-          variant="tonal"
-          density="compact"
-          class="mx-3 mt-2 text-caption"
-          :text="conversation.handoffReason"
+          class="handoff-reason-banner mx-3 mt-2 mb-1 pa-3"
         >
-          <template #title>
-            <span class="text-caption font-weight-bold">Причина передачі менеджеру</span>
-          </template>
-        </v-alert>
+          <div class="handoff-reason-title text-caption font-weight-bold mb-1">
+            Причина передачі менеджеру
+          </div>
+          <div class="handoff-reason-body text-body-2">
+            {{ conversation.handoffReason }}
+          </div>
+        </div>
 
         <!-- Bot response control -->
         <div v-if="conversation" class="bot-control-bar d-flex flex-column ga-2 px-3 py-2">
@@ -1504,6 +1503,26 @@ const ClientProfilePanel = defineComponent({
   background: #fafafa;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   flex-shrink: 0;
+}
+
+.handoff-reason-banner {
+  flex-shrink: 0;
+  background: rgba(var(--v-theme-info), 0.1);
+  border: 1px solid rgba(var(--v-theme-info), 0.28);
+  border-radius: 10px;
+  overflow: visible;
+}
+
+.handoff-reason-title {
+  color: rgb(var(--v-theme-info));
+  line-height: 1.35;
+}
+
+.handoff-reason-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.45;
+  color: rgb(var(--v-theme-on-surface));
 }
 
 .message-bubble-card.bubble-incoming {
