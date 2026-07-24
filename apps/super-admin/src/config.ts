@@ -41,6 +41,11 @@ const schema = z.object({
   PLATFORM_PORT_BASE: z.coerce.number().int().default(3100),
   PLATFORM_PORT_STEP: z.coerce.number().int().default(100),
   PLATFORM_PORT_MAX: z.coerce.number().int().default(9900),
+  // Public URL tenants use to reach Super Admin (webhook hub sync, access checks).
+  // Remote workers must not use 127.0.0.1 — set e.g. https://api.direct-ai-agents.com
+  SA_PUBLIC_URL: z.string().url().optional().or(z.literal('')).transform((v) => v || ''),
+  // Fallback public IP shown for the seeded local worker (DNS hints).
+  SA_LOCAL_PUBLIC_IP: z.string().default('127.0.0.1'),
 });
 
 const parsed = schema.safeParse(process.env);

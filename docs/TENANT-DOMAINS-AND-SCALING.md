@@ -15,7 +15,7 @@
 5. [Підготовка сервера (разово)](#5-підготовка-сервера-разово)
 6. [Provisioning нового клієнта](#6-provisioning-нового-клієнта)
 7. [Існуючі клієнти (legacy)](#7-існуючі-клієнти-legacy)
-8. [Multi-server (наступний етап)](#8-multi-server-наступний-етап)
+8. [Multi-server (Workers companion)](#8-multi-server-workers-companion)
 9. [Port allocation](#9-port-allocation)
 10. [Чеклист ops](#10-чеклист-ops)
 11. [Довідник команд](#11-довідник-команд)
@@ -288,9 +288,9 @@ Legacy custom API host: `https://{API_DOMAIN}/settings/meta/oauth-callback`
 
 ---
 
-## 8. Multi-server (наступний етап)
+## 8. Multi-server (Workers companion)
 
-Поточна архітектура вже готує ґрунт; для другого VPS потрібні **окремі зміни в коді** (не блокують platform subdomains).
+Один Super Admin (control plane) + багато worker VPS. На worker крутиться lightweight companion `apps/platform-worker` (не другий SA).
 
 ### 8.1 Модель
 
@@ -301,39 +301,61 @@ flowchart LR
         PGSA[(platform_admin)]
     end
 
-    subgraph Worker1[VPS worker-eu-1]
-        W1T[tenants × N]
+    subgraph Local[Local worker in-process]
+        LT[tenants on same host]
     end
 
-    subgraph Worker2[VPS worker-eu-2]
-        W2T[tenants × M]
+    subgraph Remote[Remote worker VPS]
+        PW[platform-worker]
+        RT[tenants]
     end
 
     SA --> PGSA
     Meta --> SA
-    SA -->|HTTPS apiDomain| W1T
-    SA -->|HTTPS apiDomain| W2T
+    SA -->|WorkerClient local| LT
+    SA -->|HTTPS Bearer| PW
+    PW --> RT
+    SA -->|HTTPS apiDomain| RT
+    SA -->|localhost apiPort| LT
 ```
 
-### 8.2 Що додати (Phase 2)
+### 8.2 Реалізовано
 
-| Компонент | Зміна |
-|-----------|-------|
-| `platform_admin.servers` | `id`, `public_ip`, `max_tenants`, `status` |
-| `tenants.server_id` | який worker тримає інстанс |
-| DNS | Per-tenant A: `api-{slug}` → IP **конкретного** worker (не один wildcard на всі сервери) |
-| Webhook hub | Forward на `https://{tenant.apiDomain}/webhooks/instagram` замість `localhost:{port}` |
-| Provision | SSH на обраний worker або ansible |
+| Компонент | Деталі |
+|-----------|--------|
+| `servers` + `tenants.server_id` | Prisma SA; seed `local` worker; backfill |
+| SA UI **Workers** | CRUD remote workers, Test, bootstrap hint + one-time secret |
+| `WorkerClient` | `local` = in-process sudo scripts; `remote` = HTTP companion |
+| `apps/platform-worker` | `/v1/jobs/pipeline`, SSE logs, `/v1/ports`, auth Bearer |
+| Hub / OAuth / health | Local: `http://127.0.0.1:{apiPort}`; remote: `https://{apiDomain}` |
+| DNS | Manual: UI показує A-records → `worker.publicIp` після create tenant |
+| Bootstrap | `infra/scripts/provision-platform-worker.sh` |
 
-### 8.3 Ємність worker
+### 8.3 Додати новий worker (ops)
+
+1. На новому VPS: `provision-server.sh`
+2. `WORKER_SHARED_SECRET=$(openssl rand -hex 32) PUBLIC_IP=… bash infra/scripts/provision-platform-worker.sh`
+3. SA → **Workers → Add**: name, baseUrl (`http://IP:4100` або HTTPS), publicIp, той самий secret
+4. **Test** у UI
+5. У SA `.env`: `SA_PUBLIC_URL=https://…` (публічний URL control plane для `SA_INTERNAL_URL` у tenant `.env` на remote)
+6. Create Client → обрати Worker → виставити DNS A на `publicIp` → Provision/Deploy
+
+### 8.4 Ємність worker
 
 Орієнтир для 8 vCPU / 16 GB RAM:
 
 | Метрика | Значення |
 |---------|----------|
 | Комфортно | 8–12 tenants |
-| `max_tenants` політика | 12, alert при 80% |
+| `max_tenants` політика | 12 (поле в Workers) |
 | Bottleneck | Claude CLI RAM/CPU bursts |
+
+### 8.5 Поза скоупом (наступні ітерації)
+
+- Cloudflare auto-DNS
+- Міграція tenant між workers
+- Шифрування secrets at rest
+- WireGuard mesh
 
 ---
 
@@ -369,12 +391,14 @@ Whisper sidecar: `API_PORT + 5000` (як у `.env` template).
 - [ ] Meta OAuth + webhook routing ids у super-admin
 - [ ] Smoke test: admin login, sandbox chat, IG DM
 
-### Перед другим сервером
+### Перед другим сервером / новим worker
 
-- [ ] Таблиця `servers` + `tenant.server_id`
-- [ ] Patch webhook hub → `https://apiDomain`
-- [ ] Cloudflare API для per-tenant A records
+- [x] Таблиця `servers` + `tenant.serverId`
+- [x] Patch webhook hub → `https://apiDomain` (remote) / localhost (local)
+- [ ] Cloudflare API для per-tenant A records (зараз вручну)
 - [ ] WireGuard (опційно) замість public forward
+- [ ] `SA_PUBLIC_URL` у SA env для remote tenant env merge
+- [ ] `provision-platform-worker.sh` на worker + Add Worker у UI
 
 ---
 

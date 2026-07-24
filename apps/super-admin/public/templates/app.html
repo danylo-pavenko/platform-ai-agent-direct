@@ -34,6 +34,9 @@
         <div class="nav-item" :class="{'active': page==='tenants'}" @click="goPage('tenants')">
           <span class="icon">◈</span> Clients
         </div>
+        <div class="nav-item" :class="{'active': page==='workers'}" @click="goPage('workers')">
+          <span class="icon">▦</span> Workers
+        </div>
         <div class="nav-item" :class="{'active': page==='links'}" @click="goPage('links')">
           <span class="icon">🔗</span> Посилання
         </div>
@@ -223,6 +226,59 @@
                         {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
                       <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Workers -->
+      <template v-if="page==='workers'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Workers</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-primary" @click="openAddWorkerModal"><span>+</span><span class="btn-text"> Add Worker</span></button>
+          </div>
+        </div>
+        <div class="content">
+          <p style="color:var(--muted);margin-bottom:16px;max-width:720px">
+            Control plane (цей SA) оркеструє клієнтів. Remote worker — companion
+            <code>platform-worker</code> на іншому VPS (provision/deploy/логи).
+            Local — in-process на цій машині.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Kind</th>
+                  <th>IP</th>
+                  <th>Base URL</th>
+                  <th>Tenants</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="w in workers" :key="w.id">
+                  <td><strong>{{ w.name }}</strong></td>
+                  <td><span class="badge" :class="w.kind==='local' ? 'badge-active' : 'badge-provisioned'">{{ w.kind }}</span></td>
+                  <td><code>{{ w.publicIp }}</code></td>
+                  <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    <code v-if="w.baseUrl">{{ w.baseUrl }}</code>
+                    <span v-else style="color:var(--muted)">in-process</span>
+                  </td>
+                  <td>{{ w.tenantCount ?? '—' }} / {{ w.maxTenants }}</td>
+                  <td><span class="badge" :class="w.status==='active' ? 'badge-active' : 'badge-suspended'">{{ w.status }}</span></td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="btn btn-ghost btn-sm" @click="testWorker(w)">Test</button>
+                      <button class="btn btn-ghost btn-sm" @click="openEditWorkerModal(w)" :disabled="w.kind==='local' && false">Edit</button>
+                      <button class="btn btn-danger btn-sm" @click="deleteWorker(w)" :disabled="w.kind==='local'">🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -455,6 +511,27 @@
       </div>
 
       <div class="modal-tenant-body">
+      <!-- Worker select (create only — placement is fixed after provision) -->
+      <div class="field" style="margin-bottom:10px" v-if="!modal.editing">
+        <div class="field-label">
+          <span class="field-label-text">Worker <span class="req">*</span></span>
+          <button type="button" class="info-btn" :title="fieldHints.serverId" aria-label="Підказка">i</button>
+        </div>
+        <select v-model="modal.form.serverId" @change="onWorkerChange">
+          <option disabled value="">— оберіть worker —</option>
+          <option v-for="w in workers.filter(x => x.status==='active')" :key="w.id" :value="w.id">
+            {{ w.name }} ({{ w.kind }}) · {{ w.publicIp }} · {{ w.tenantCount ?? 0 }}/{{ w.maxTenants }}
+          </option>
+        </select>
+        <p v-if="portDefaults.serverPublicIp" class="field-hint-inline">
+          DNS A-records для цього клієнта → <code>{{ portDefaults.serverPublicIp }}</code>
+        </p>
+      </div>
+      <div class="field" style="margin-bottom:10px" v-else-if="modal.form.serverId">
+        <div class="field-label"><span class="field-label-text">Worker</span></div>
+        <input :value="(workers.find(w => w.id===modal.form.serverId) || {}).name || modal.form.serverId" disabled />
+      </div>
+
       <!-- Platform: slug first (primary field) -->
       <template v-if="modal.form.domainMode==='platform' && !modal.editing">
         <div class="form-row">
@@ -963,6 +1040,71 @@
         <button class="btn btn-ghost" @click="closeDeployLog()">
           {{ deployLog.running ? 'Hide (keeps running)' : 'Close' }}
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Worker modal -->
+  <div class="modal-overlay" v-if="workerModal.open" @click.self="workerModal.open=false">
+    <div class="modal" style="width:520px;max-width:96vw">
+      <h2>{{ workerModal.editing ? 'Edit Worker' : '+ Add Worker' }}</h2>
+      <div class="field" v-if="!workerModal.editing">
+        <label>Name (slug)</label>
+        <input v-model="workerModal.form.name" placeholder="eu-2" />
+      </div>
+      <div class="field">
+        <label>Public IP</label>
+        <input v-model="workerModal.form.publicIp" placeholder="203.0.113.10" />
+      </div>
+      <div class="field" v-if="!workerModal.editing || workerModal.form.baseUrl !== undefined">
+        <label>Base URL (companion API)</label>
+        <input v-model="workerModal.form.baseUrl" placeholder="https://worker-eu-2.example.com" />
+      </div>
+      <div class="field">
+        <label>Max tenants</label>
+        <input type="number" v-model.number="workerModal.form.maxTenants" min="1" max="100" />
+      </div>
+      <div class="field" v-if="workerModal.editing">
+        <label>Status</label>
+        <select v-model="workerModal.form.status">
+          <option value="active">active</option>
+          <option value="draining">draining</option>
+          <option value="disabled">disabled</option>
+        </select>
+      </div>
+      <div class="field" v-if="workerModal.editing">
+        <label>Rotate shared secret (optional)</label>
+        <input v-model="workerModal.form.rotateSecret" type="password" placeholder="leave empty to keep" />
+      </div>
+      <div v-if="workerModal.error" class="login-err">{{ workerModal.error }}</div>
+      <div v-if="workerModal.createdSecret" style="margin:12px 0;padding:12px;background:var(--surface2);border-radius:8px">
+        <div style="font-size:12px;color:var(--warn);margin-bottom:6px">Збережіть secret зараз — більше не покажеться:</div>
+        <code style="word-break:break-all;font-size:12px">{{ workerModal.createdSecret }}</code>
+        <button class="btn btn-ghost btn-sm" style="margin-top:8px" @click="copyText(workerModal.createdSecret)">Copy secret</button>
+        <pre v-if="workerModal.bootstrapHint" style="margin-top:10px;font-size:11px;white-space:pre-wrap;color:var(--muted)">{{ workerModal.bootstrapHint }}</pre>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="workerModal.open=false">Close</button>
+        <button class="btn btn-primary" @click="saveWorker" :disabled="workerModal.saving">
+          {{ workerModal.saving ? 'Saving…' : (workerModal.editing ? 'Save' : 'Create') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DNS hints after create tenant -->
+  <div class="modal-overlay" v-if="dnsHintsModal.open" @click.self="dnsHintsModal.open=false">
+    <div class="modal" style="width:480px">
+      <h2>DNS для нового клієнта</h2>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">
+        Worker <strong>{{ dnsHintsModal.hints?.workerName }}</strong> ·
+        IP <code>{{ dnsHintsModal.hints?.publicIp }}</code>
+      </p>
+      <div v-for="rec in (dnsHintsModal.hints?.records || [])" :key="rec.host" style="margin-bottom:8px;font-family:monospace;font-size:12px">
+        A &nbsp; {{ rec.host }} &nbsp;→&nbsp; {{ rec.value }}
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" @click="dnsHintsModal.open=false">OK</button>
       </div>
     </div>
   </div>

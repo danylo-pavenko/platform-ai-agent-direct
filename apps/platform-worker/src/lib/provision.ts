@@ -3,21 +3,32 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { Tenant } from '../generated/prisma/client.js';
-import {
-  DEFAULT_FACEBOOK_APP_ID,
-  DEFAULT_FACEBOOK_APP_SECRET,
-  DEFAULT_TENANT_GIT_REPO,
-} from './constants.js';
-import { isPlatformTenantDomains } from './tenant-domains.js';
+import { config } from '../config.js';
 
 const execFileAsync = promisify(execFile);
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/** Resolve monorepo root (contains infra/scripts/provision-client.sh). */
+const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
+const DEFAULT_FACEBOOK_APP_ID = '26228249720190273';
+const DEFAULT_FACEBOOK_APP_SECRET = 'a503e1a11abd8422ca0be546a5be9645';
+
+export type TenantPayload = {
+  id: string;
+  instanceId: string;
+  name: string;
+  apiDomain: string;
+  adminDomain: string;
+  apiPort: number;
+  adminPort: number;
+  linuxUser: string;
+  appDir: string;
+  status: string;
+  gitRepo?: string | null;
+  envExtra?: string | null;
+};
+
 export async function resolvePlatformRepoRoot(): Promise<string> {
-  const fromEnv = process.env.PLATFORM_REPO_ROOT?.trim();
+  const fromEnv = config.PLATFORM_REPO_ROOT?.trim() || process.env.PLATFORM_REPO_ROOT?.trim();
   const candidates = [
     fromEnv,
     resolve(process.cwd(), '../..'),
@@ -30,30 +41,22 @@ export async function resolvePlatformRepoRoot(): Promise<string> {
       await access(resolve(root, 'infra/scripts/provision-client.sh'));
       return root;
     } catch {
-      // try next
+      // next
     }
   }
+  throw new Error('provision-client.sh not found — set PLATFORM_REPO_ROOT');
+}
 
-  throw new Error(
-    'provision-client.sh not found. Set PLATFORM_REPO_ROOT to the platform-ai-agent-direct repo root.',
+export function isPlatformDomains(instanceId: string, apiDomain: string, adminDomain: string): boolean {
+  const base = process.env.PLATFORM_BASE_DOMAIN || 'direct-ai-agents.com';
+  return (
+    apiDomain === `api-${instanceId}.${base}` &&
+    adminDomain === `agent-${instanceId}.${base}`
   );
 }
 
-export async function resolveMergeEnvScriptPath(): Promise<string> {
-  const root = await resolvePlatformRepoRoot();
-  return resolve(root, 'infra/scripts/merge-tenant-env.mjs');
-}
-
-export async function resolveProvisionScriptPath(): Promise<string> {
-  const root = await resolvePlatformRepoRoot();
-  return resolve(root, 'infra/scripts/provision-client.sh');
-}
-
-export function buildProvisionClientArgs(tenant: Pick<
-  Tenant,
-  'instanceId' | 'name' | 'apiDomain' | 'adminDomain' | 'apiPort' | 'adminPort'
->): string[] {
-  if (isPlatformTenantDomains(tenant.instanceId, tenant.apiDomain, tenant.adminDomain)) {
+export function buildProvisionArgs(tenant: TenantPayload): string[] {
+  if (isPlatformDomains(tenant.instanceId, tenant.apiDomain, tenant.adminDomain)) {
     return [
       tenant.instanceId,
       tenant.name,
@@ -62,7 +65,6 @@ export function buildProvisionClientArgs(tenant: Pick<
       String(tenant.adminPort),
     ];
   }
-
   return [
     tenant.instanceId,
     tenant.name,
@@ -73,11 +75,9 @@ export function buildProvisionClientArgs(tenant: Pick<
   ];
 }
 
-/** Parse KEY=VALUE lines from super-admin envExtra textarea. */
 export function parseEnvExtra(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw?.trim()) return out;
-
   for (const line of raw.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -91,17 +91,14 @@ export function parseEnvExtra(raw: string | null | undefined): Record<string, st
 }
 
 export function buildEnvMergePatch(
-  tenant: Pick<Tenant, 'envExtra'>,
+  tenant: Pick<TenantPayload, 'envExtra'>,
   supervisorSecret: string,
   includeEnvExtra: boolean,
-  sa: { saPublicUrl?: string; saApiPort?: number } | number = 4000,
+  sa: { saPublicUrl?: string; saApiPort?: number },
 ): Record<string, string> {
-  const saApiPort = typeof sa === 'number' ? sa : (sa.saApiPort ?? 4000);
-  const saPublicUrl = typeof sa === 'number' ? '' : (sa.saPublicUrl?.trim() ?? '');
-  const saInternalUrl = saPublicUrl
-    ? saPublicUrl.replace(/\/$/, '')
-    : `http://127.0.0.1:${saApiPort}`;
-
+  const saInternalUrl = sa.saPublicUrl?.trim()
+    ? sa.saPublicUrl.replace(/\/$/, '')
+    : `http://127.0.0.1:${sa.saApiPort ?? 4000}`;
   const patch: Record<string, string> = {
     FACEBOOK_APP_ID: DEFAULT_FACEBOOK_APP_ID,
     FACEBOOK_APP_SECRET: DEFAULT_FACEBOOK_APP_SECRET,
@@ -112,19 +109,16 @@ export function buildEnvMergePatch(
   return patch;
 }
 
-/** Bash script: upsert JSON patch keys into tenant .env (run as root). */
 export function buildEnvMergeScript(
-  tenant: Pick<Tenant, 'appDir' | 'linuxUser'>,
+  tenant: Pick<TenantPayload, 'appDir' | 'linuxUser'>,
   patch: Record<string, string>,
   mergeScriptPath: string,
 ): string {
   if (Object.keys(patch).length === 0) return '';
-
   const patchB64 = Buffer.from(JSON.stringify(patch)).toString('base64');
   const appDir = tenant.appDir.replace(/'/g, `'\\''`);
   const linuxUser = tenant.linuxUser.replace(/'/g, `'\\''`);
   const mergeScript = mergeScriptPath.replace(/'/g, `'\\''`);
-
   return `
 set -euo pipefail
 ENV_FILE='${appDir}/.env'
@@ -139,7 +133,7 @@ echo "[env] merged keys: ${Object.keys(patch).join(', ')}"
 `.trim();
 }
 
-export async function listLiveApiPorts(): Promise<number[]> {
+export async function listLivePorts(): Promise<number[]> {
   try {
     const { stdout } = await execFileAsync('ss', ['-tlnH'], { timeout: 5000 });
     const ports: number[] = [];
@@ -153,10 +147,10 @@ export async function listLiveApiPorts(): Promise<number[]> {
   }
 }
 
-export function provisionClientEnv(tenant: Pick<Tenant, 'gitRepo'>): NodeJS.ProcessEnv {
+export function provisionEnv(tenant: Pick<TenantPayload, 'gitRepo'>): NodeJS.ProcessEnv {
   return {
     ...process.env,
-    PLATFORM_REPO: tenant.gitRepo || DEFAULT_TENANT_GIT_REPO,
+    PLATFORM_REPO: tenant.gitRepo || DEFAULT_GIT_REPO,
     PROVISION_SOURCE_USER: process.env.PROVISION_SOURCE_USER || 'agentsadmin',
   };
 }

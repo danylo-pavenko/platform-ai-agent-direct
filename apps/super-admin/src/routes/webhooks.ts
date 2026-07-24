@@ -176,8 +176,11 @@ export async function webhookRoutes(app: FastifyInstance) {
         app.log.debug({ matchedId }, 'Webhook hub: PLATFORM_FACEBOOK_APP_SECRET not set, skipping HMAC check');
       }
 
-      // Forward raw payload to tenant backend via internal localhost routing.
-      const targetUrl = `http://localhost:${tenant.apiPort}/webhooks/instagram`;
+      // Local workers: loopback. Remote workers: https://{apiDomain}.
+      const { getServerForTenant } = await import('../lib/servers.js');
+      const { resolveTenantWebhookUrl } = await import('../lib/worker/tenant-url.js');
+      const server = await getServerForTenant(tenant.serverId);
+      const targetUrl = resolveTenantWebhookUrl(tenant, server);
 
       try {
         const res = await fetch(targetUrl, {

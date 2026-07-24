@@ -17,6 +17,7 @@ import { createLinks } from './composables/links.js';
 import { createLeads } from './composables/leads.js';
 import { createAccess } from './composables/access.js';
 import { createChat } from './composables/chat.js';
+import { createWorkers } from './composables/workers.js';
 
 /** Vue setup() — wires shared state + domain composables. */
 export function setup() {
@@ -25,6 +26,7 @@ export function setup() {
   const page = ref(readSavedPage());
   const sidebarOpen = ref(false);
   const tenants = ref([]);
+  const workers = ref([]);
   const health = reactive({});
   const saVersionLabel = ref('');
   const deploying = ref(null);
@@ -60,11 +62,28 @@ export function setup() {
     portPolicy: null,
     registeredPortPairs: [],
     liveListeningPorts: [],
+    serverPublicIp: '',
   });
 
   const modal = reactive({
     open: false, editing: null, saving: false, advancedOpen: false,
     form: emptyForm(),
+  });
+
+  const workerModal = reactive({
+    open: false,
+    editing: null,
+    saving: false,
+    form: { name: '', baseUrl: '', publicIp: '', maxTenants: 12, status: 'active', rotateSecret: '' },
+    createdSecret: '',
+    bootstrapHint: '',
+    testResult: null,
+    error: '',
+  });
+
+  const dnsHintsModal = reactive({
+    open: false,
+    hints: null,
   });
 
   const accessModal = reactive({
@@ -131,6 +150,16 @@ export function setup() {
     logout,
     nextTick,
     refreshDeployStatus: (id) => bridge.refreshDeployStatus(id),
+    workers,
+    dnsHintsModal,
+  });
+
+  const workersApi = createWorkers({
+    workers,
+    workerModal,
+    authHeaders,
+    headers,
+    logout,
   });
 
   const deployApi = createDeployLog({
@@ -184,11 +213,13 @@ export function setup() {
     sidebarOpen.value = false;
     if (p === 'links') linksApi.loadLinks();
     if (p === 'leads') leadsApi.loadLeads();
+    if (p === 'workers') workersApi.loadWorkers();
   }
 
   async function refreshCurrentPageData() {
     if (page.value === 'links') await linksApi.loadLinks();
     if (page.value === 'leads') await leadsApi.loadLeads();
+    if (page.value === 'workers') await workersApi.loadWorkers();
   }
 
   async function doLogin() {
@@ -204,6 +235,7 @@ export function setup() {
       auth.token = d.token;
       localStorage.setItem('sa_token', d.token);
       await tenantsApi.loadSaVersion();
+      await workersApi.loadWorkers();
       await tenantsApi.loadTenants();
       await refreshCurrentPageData();
     } catch { login.error = 'Network error'; }
@@ -213,6 +245,7 @@ export function setup() {
   onMounted(async () => {
     await tenantsApi.loadSaVersion();
     if (auth.token) {
+      await workersApi.loadWorkers();
       await tenantsApi.loadTenants();
       await refreshCurrentPageData();
     }
@@ -223,9 +256,9 @@ export function setup() {
   });
 
   return {
-    auth, login, page, sidebarOpen, tenants, health, deploying, deployJobs, deployLog, deployLogEl,
+    auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
     deployLogElapsed: deployApi.deployLogElapsed,
-    chat, chatMessages, modal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
+    chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
     tenantModalOverlay, slugInputEl,
     fieldHints, portDefaults,
     portRegistryRows: tenantsApi.portRegistryRows,
@@ -257,7 +290,14 @@ export function setup() {
     onSlugInput: tenantsApi.onSlugInput,
     onCustomInstanceIdInput: tenantsApi.onCustomInstanceIdInput,
     onDomainModeChange: tenantsApi.onDomainModeChange,
+    onWorkerChange: tenantsApi.onWorkerChange,
     refreshPortDefaults: tenantsApi.refreshPortDefaults,
+    loadWorkers: workersApi.loadWorkers,
+    openAddWorkerModal: workersApi.openAddWorkerModal,
+    openEditWorkerModal: workersApi.openEditWorkerModal,
+    saveWorker: workersApi.saveWorker,
+    testWorker: workersApi.testWorker,
+    deleteWorker: workersApi.deleteWorker,
     loadLinks: linksApi.loadLinks,
     openLinkModal: linksApi.openLinkModal,
     saveLink: linksApi.saveLink,

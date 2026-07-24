@@ -1,7 +1,7 @@
 /** Shared Super Admin constants */
 export const BASE = '/api';
 export const SA_PAGE_KEY = 'sa_page';
-export const VALID_PAGES = ['dashboard', 'tenants', 'links', 'leads'];
+export const VALID_PAGES = ['dashboard', 'tenants', 'workers', 'links', 'leads'];
 export const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
 export const PLATFORM_BASE_DOMAIN = 'direct-ai-agents.com';
 export const SLUG_RE = /^[a-z0-9-]{2,24}$/;
@@ -22,6 +22,7 @@ export const fieldHints = {
   linuxUser: 'Unix-користувач на VPS. Створюється provision-client.sh при першому Provision.',
   appDir: 'Шлях до клону репозиторію на сервері (/home/{slug}/platform-ai-agent-direct).',
   gitRepo: 'SSH/HTTPS URL для першого git clone при Provision.',
+  serverId: 'Worker VPS, на якому буде provision/deploy цього клієнта.',
 };
 
 export function readSavedPage() {
@@ -35,6 +36,7 @@ export function emptyForm() {
     apiPort: 3100, adminPort: 3101, linuxUser: '', appDir: '', status: 'provisioned',
     gitRepo: DEFAULT_GIT_REPO, envExtra: '', instagramUserId: '', instagramRoutingIdsText: '',
     facebookAppSecret: '', accessMode: 'unlimited', accessExpiresAt: '',
+    serverId: '',
   };
 }
 

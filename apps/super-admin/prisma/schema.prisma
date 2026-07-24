@@ -7,6 +7,23 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Compute / worker host that runs tenant provision+deploy (local in-process or remote companion).
+model Server {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String   @unique
+  kind         String   @default("remote") // local | remote
+  baseUrl      String?  @map("base_url") // null for in-process local
+  publicIp     String   @map("public_ip")
+  sharedSecret String?  @map("shared_secret")
+  maxTenants   Int      @default(12) @map("max_tenants")
+  status       String   @default("active") // active | draining | disabled
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  tenants      Tenant[]
+
+  @@map("servers")
+}
+
 model Tenant {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   instanceId        String   @unique @map("instance_id")
@@ -35,10 +52,14 @@ model Tenant {
   // admin panel rejects logins/requests with a "payment required" message.
   // Manual blocking is done via status = 'suspended' (wins over any date).
   accessExpiresAt   DateTime? @map("access_expires_at")
+  /// Worker that hosts this tenant (null until backfill / create assigns local).
+  serverId          String?   @map("server_id") @db.Uuid
+  server            Server?   @relation(fields: [serverId], references: [id], onDelete: SetNull)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   deployJobs        DeployJob[]
 
+  @@index([serverId])
   @@map("tenants")
 }
 

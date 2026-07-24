@@ -24,6 +24,8 @@ export function createTenants(deps) {
     logout,
     nextTick,
     refreshDeployStatus,
+    workers,
+    dnsHintsModal,
   } = deps;
 
   let platformDefaultsTimer = null;
@@ -90,7 +92,11 @@ export function createTenants(deps) {
     portDefaults.loading = true;
     portDefaults.error = '';
     try {
-      const url = `${BASE}/tenants/platform-defaults${slug ? `?instanceId=${encodeURIComponent(slug)}` : ''}`;
+      const params = new URLSearchParams();
+      if (slug) params.set('instanceId', slug);
+      if (modal.form.serverId) params.set('serverId', modal.form.serverId);
+      const qs = params.toString();
+      const url = `${BASE}/tenants/platform-defaults${qs ? `?${qs}` : ''}`;
       const r = await fetch(url, { headers: authHeaders() });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -102,6 +108,8 @@ export function createTenants(deps) {
       portDefaults.portPolicy = d.portPolicy;
       portDefaults.registeredPortPairs = d.registeredPortPairs || [];
       portDefaults.liveListeningPorts = d.liveListeningPorts || [];
+      portDefaults.serverPublicIp = d.serverPublicIp || '';
+      if (d.serverId && !modal.form.serverId) modal.form.serverId = d.serverId;
       if (d.nextPorts && !modal.editing) {
         modal.form.apiPort = d.nextPorts.apiPort;
         modal.form.adminPort = d.nextPorts.adminPort;
@@ -118,6 +126,12 @@ export function createTenants(deps) {
     } finally {
       portDefaults.loading = false;
     }
+  }
+
+  async function onWorkerChange() {
+    await loadPlatformDefaults(
+      modal.form.domainMode === 'platform' ? modal.form.instanceId : '',
+    );
   }
 
   async function refreshPortDefaults() {
@@ -263,6 +277,9 @@ export function createTenants(deps) {
   function openAddModal() {
     modal.editing = null;
     modal.form = emptyForm();
+    const local = (workers?.value || []).find((w) => w.kind === 'local')
+      || (workers?.value || [])[0];
+    if (local) modal.form.serverId = local.id;
     modal.advancedOpen = false;
     modal.open = true;
     portDefaults.nextPorts = null;
@@ -295,6 +312,7 @@ export function createTenants(deps) {
       facebookAppSecret: t.facebookAppSecret || '',
       accessMode: t.accessExpiresAt ? 'until' : 'unlimited',
       accessExpiresAt: t.accessExpiresAt ? isoToLocalInput(t.accessExpiresAt) : '',
+      serverId: t.serverId || t.server?.id || '',
     };
     modal.advancedOpen = false;
     modal.open = true;
@@ -306,6 +324,10 @@ export function createTenants(deps) {
       alert(modal.form.domainMode === 'platform'
         ? 'Slug: 2–24 символи, a-z, 0-9, дефіс.'
         : 'Instance ID: латиниця a-z, цифри, дефіс; 2–24 символи.');
+      return;
+    }
+    if (!modal.editing && !modal.form.serverId) {
+      alert('Оберіть Worker для цього клієнта.');
       return;
     }
     if (modal.form.domainMode === 'platform') applyPlatformFieldsFromSlug();
@@ -329,6 +351,7 @@ export function createTenants(deps) {
         accessExpiresAt: accessMode === 'until' ? new Date(accessExpiresAt).toISOString() : null,
         ...(routingExtra.length > 0 ? { instagramRoutingIds: routingExtra } : { instagramRoutingIds: [] }),
       };
+      if (modal.editing) delete payload.serverId;
       const r = await fetch(url, { method, headers: headers(), body: JSON.stringify(payload) });
       if (!r.ok) {
         const err = await r.json().catch(() => ({}));
@@ -336,7 +359,12 @@ export function createTenants(deps) {
         alert(msg || 'Error saving');
         return;
       }
+      const saved = await r.json();
       modal.open = false;
+      if (saved.dnsHints && dnsHintsModal) {
+        dnsHintsModal.hints = saved.dnsHints;
+        dnsHintsModal.open = true;
+      }
       await loadTenants();
     } finally { modal.saving = false; }
   }
@@ -365,6 +393,7 @@ export function createTenants(deps) {
     onSlugInput,
     onCustomInstanceIdInput,
     onDomainModeChange,
+    onWorkerChange,
     refreshPortDefaults,
   };
 }

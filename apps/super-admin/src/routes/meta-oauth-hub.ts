@@ -67,7 +67,11 @@ export async function metaOAuthHubRoutes(app: FastifyInstance): Promise<void> {
     const qs = new URLSearchParams();
     qs.set('code', code);
     qs.set('state', state);
-    const target = `http://127.0.0.1:${tenant.apiPort}/settings/meta/oauth-callback?${qs.toString()}`;
+
+    const { getServerForTenant } = await import('../lib/servers.js');
+    const { resolveTenantOAuthCallbackUrl } = await import('../lib/worker/tenant-url.js');
+    const server = await getServerForTenant(tenant.serverId);
+    const target = resolveTenantOAuthCallbackUrl(tenant, server, qs.toString());
 
     try {
       const res = await fetch(target, { signal: AbortSignal.timeout(120_000) });
@@ -78,7 +82,7 @@ export async function metaOAuthHubRoutes(app: FastifyInstance): Promise<void> {
       }
       return reply.send(html);
     } catch (err: any) {
-      app.log.error({ err, instanceId: payload.i, apiPort: tenant.apiPort }, 'OAuth hub proxy error');
+      app.log.error({ err, instanceId: payload.i, apiPort: tenant.apiPort, target }, 'OAuth hub proxy error');
       return reply.send(buildErrorHtml(err?.message ?? 'Tenant API unreachable'));
     }
   });

@@ -1,18 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, appendFileSync } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
-import type { Tenant } from '../generated/prisma/client.js';
 import { prisma } from './prisma.js';
-import { config } from '../config.js';
-import {
-  buildEnvMergePatch,
-  buildEnvMergeScript,
-  buildProvisionClientArgs,
-  provisionClientEnv,
-  resolveMergeEnvScriptPath,
-  resolveProvisionScriptPath,
-} from './tenant-provision.js';
+import { getServerForTenant } from './servers.js';
+import { getWorkerClient } from './worker/client.js';
 
 const log = {
   warn: (obj: unknown, msg?: string) => console.warn('[deploy-job]', msg ?? '', obj),
@@ -48,78 +39,6 @@ function appendLine(logPath: string, line: string): void {
   } catch (err) {
     log.warn({ err, logPath }, 'Failed to append deploy log line');
   }
-}
-
-function shellSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/** True when a line already carries an explicit failure/diagnostic tag. */
-function lineHasExplicitTag(line: string): boolean {
-  return (
-    line.startsWith('[err]') ||
-    line.startsWith('[error]') ||
-    line.startsWith('[✗') ||
-    line.startsWith('ERROR:') ||
-    line.startsWith('FATAL')
-  );
-}
-
-/**
- * Run a command; stream stdout/stderr to log file. Never tied to HTTP.
- * stderr is labeled `[stderr]` (not `[err]`) — git/npm progress often uses stderr.
- * On non-zero exit, a final `[err]` summary line is appended.
- */
-function runLogged(
-  args: string[],
-  logPath: string,
-  opts?: { stdin?: string; env?: NodeJS.ProcessEnv },
-): Promise<number> {
-  return new Promise((resolve) => {
-    const child = spawn(args[0], args.slice(1), {
-      stdio: opts?.stdin !== undefined ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
-      env: opts?.env ?? process.env,
-    });
-
-    const writeChunk = (kind: 'out' | 'err', chunk: Buffer) => {
-      const text = chunk.toString();
-      for (const raw of text.split('\n')) {
-        const line = raw.replace(/\r$/, '');
-        if (!line.trim()) continue;
-        if (kind === 'out') {
-          appendLine(logPath, line);
-          continue;
-        }
-        // Preserve script-authored failure tags; otherwise mark as stderr only.
-        if (lineHasExplicitTag(line)) {
-          appendLine(logPath, line);
-        } else {
-          appendLine(logPath, `[stderr] ${line}`);
-        }
-      }
-    };
-
-    if (opts?.stdin !== undefined) {
-      child.stdin?.write(opts.stdin);
-      child.stdin?.end();
-    }
-    child.stdout?.on('data', (c: Buffer) => writeChunk('out', c));
-    child.stderr?.on('data', (c: Buffer) => writeChunk('err', c));
-    child.on('close', (code) => {
-      const exitCode = code ?? 1;
-      if (exitCode !== 0) {
-        appendLine(
-          logPath,
-          `[err] command exited ${exitCode}: ${args.slice(0, 4).join(' ')}${args.length > 4 ? ' …' : ''}`,
-        );
-      }
-      resolve(exitCode);
-    });
-    child.on('error', (err) => {
-      appendLine(logPath, `[error] ${err.message}`);
-      resolve(1);
-    });
-  });
 }
 
 export function toDeployJobPublic(job: {
@@ -200,7 +119,6 @@ export function startStaleDeployJobSweeper(logger?: {
   };
   run();
   staleSweepTimer = setInterval(run, STALE_SWEEP_INTERVAL_MS);
-  // Don't keep the event loop alive solely for the sweeper.
   if (typeof staleSweepTimer === 'object' && 'unref' in staleSweepTimer) {
     staleSweepTimer.unref();
   }
@@ -232,143 +150,6 @@ async function finishJob(
       error: error ?? null,
     },
   });
-}
-
-async function executeDeployPipeline(tenant: Tenant, logPath: string): Promise<number> {
-  const linuxUserQ = shellSingleQuote(tenant.linuxUser);
-  const appDirQ = shellSingleQuote(tenant.appDir);
-  const deployScript = `${tenant.appDir}/infra/scripts/deploy-client.sh`;
-  const deployScriptQ = shellSingleQuote(deployScript);
-
-  appendLine(logPath, `[deploy started] ${tenant.name} (${tenant.instanceId})`);
-
-  const checkCode = await runLogged(
-    ['bash', '-c', `sudo -u ${linuxUserQ} test -f ${deployScriptQ}`],
-    logPath,
-  );
-
-  if (checkCode !== 0) {
-    const dirNonEmptyCode = await runLogged(
-      [
-        'bash',
-        '-c',
-        `sudo -u ${linuxUserQ} bash -c '[ -d ${appDirQ} ] && [ -n "$(ls -A ${appDirQ} 2>/dev/null)" ]'`,
-      ],
-      logPath,
-    );
-    if (dirNonEmptyCode === 0) {
-      appendLine(
-        logPath,
-        `[error] ${tenant.appDir} already exists and is not empty, but deploy-client.sh was not found.`,
-      );
-      appendLine(
-        logPath,
-        '[error] Re-provision aborted to protect existing data. Check App Dir / Linux User / sudo permissions, or clean the directory manually.',
-      );
-      appendLine(logPath, '[✗ provision aborted]');
-      return 1;
-    }
-
-    appendLine(
-      logPath,
-      '[provision] Project not found — running provision-client.sh (user, DB, nginx, TLS, clone)...',
-    );
-
-    let provisionScript: string;
-    try {
-      provisionScript = await resolveProvisionScriptPath();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendLine(logPath, `[error] ${message}`);
-      appendLine(logPath, '[✗ provision failed]');
-      return 1;
-    }
-
-    const provisionArgs = buildProvisionClientArgs(tenant);
-    appendLine(logPath, `[provision] bash ${provisionScript} ${provisionArgs.join(' ')}`);
-
-    const provisionCode = await runLogged(
-      ['sudo', 'bash', provisionScript, ...provisionArgs],
-      logPath,
-      { env: provisionClientEnv(tenant) },
-    );
-    if (provisionCode !== 0) {
-      appendLine(logPath, '[✗ provision failed — check errors above]');
-      return provisionCode;
-    }
-
-    const envPatch = buildEnvMergePatch(
-      tenant,
-      config.SUPERVISOR_SHARED_SECRET,
-      true,
-      config.SA_API_PORT,
-    );
-    try {
-      const mergeScriptPath = await resolveMergeEnvScriptPath();
-      const mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
-      if (mergeScript) {
-        appendLine(logPath, '[provision] Merging super-admin env overrides into .env...');
-        const mergeCode = await runLogged(['sudo', 'bash', '-s'], logPath, { stdin: mergeScript });
-        if (mergeCode !== 0) {
-          appendLine(logPath, '[✗ env merge failed]');
-          return mergeCode;
-        }
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendLine(logPath, `[warn] env merge script not found: ${message}`);
-    }
-
-    appendLine(logPath, '[provision] ✓ Server setup complete');
-    appendLine(logPath, '[provision] Starting deploy...');
-  } else {
-    appendLine(
-      logPath,
-      '[check] Existing installation found — running safe update deploy (re-provision skipped, .env untouched)',
-    );
-
-    const envPatch = buildEnvMergePatch(
-      tenant,
-      config.SUPERVISOR_SHARED_SECRET,
-      false,
-      config.SA_API_PORT,
-    );
-    try {
-      const mergeScriptPath = await resolveMergeEnvScriptPath();
-      const mergeScript = buildEnvMergeScript(tenant, envPatch, mergeScriptPath);
-      if (mergeScript) {
-        await runLogged(['sudo', 'bash', '-s'], logPath, { stdin: mergeScript });
-      }
-    } catch {
-      // optional on redeploy
-    }
-  }
-
-  appendLine(logPath, `[deploy] Running ${deployScript}`);
-  const deployCode = await runLogged(
-    ['bash', '-c', `sudo -u ${linuxUserQ} bash ${deployScriptQ}`],
-    logPath,
-  );
-
-  if (deployCode === 0) {
-    appendLine(logPath, '[✓ deploy finished successfully]');
-    if (tenant.status === 'provisioned') {
-      try {
-        await prisma.tenant.update({
-          where: { id: tenant.id },
-          data: { status: 'active' },
-        });
-        appendLine(logPath, '[status] Registry updated: provisioned → active');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        appendLine(logPath, `[warn] Deploy OK but failed to set status=active: ${message}`);
-      }
-    }
-  } else {
-    appendLine(logPath, `[✗ deploy failed with exit code ${deployCode}]`);
-  }
-
-  return deployCode;
 }
 
 /**
@@ -416,7 +197,25 @@ export async function startDeployJob(tenantId: string): Promise<{
 
     void (async () => {
       try {
-        const code = await executeDeployPipeline(tenant, logPath);
+        const server = await getServerForTenant(tenant.serverId);
+        const client = getWorkerClient(server);
+        appendLine(logPath, `[worker] ${server.name} (${server.kind})`);
+
+        const code = await client.runDeployPipeline(tenant, (line) => appendLine(logPath, line));
+
+        if (code === 0 && tenant.status === 'provisioned') {
+          try {
+            await prisma.tenant.update({
+              where: { id: tenant.id },
+              data: { status: 'active' },
+            });
+            appendLine(logPath, '[status] Registry updated: provisioned → active');
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            appendLine(logPath, `[warn] Deploy OK but failed to set status=active: ${message}`);
+          }
+        }
+
         await finishJob(created.id, code === 0 ? 'succeeded' : 'failed', code);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -439,10 +238,6 @@ export async function startDeployJob(tenantId: string): Promise<{
 /**
  * Tail a deploy log file over SSE-style callbacks until the job finishes.
  * Safe to disconnect — does not kill the job.
- *
- * @param sendKeepalive  Optional raw SSE comment writer (`: ping`) for proxies;
- *                       also emits a quiet `[stream] keepalive` data line.
- * @param opts.fromEnd   Start at current EOF (reconnect without replaying history).
  */
 export async function followDeployLog(
   jobId: string,
@@ -471,7 +266,6 @@ export async function followDeployLog(
   }
 
   const pollMs = 400;
-  /** Proxies (nginx) often idle-close SSE around 30–60s without bytes. */
   const keepaliveMs = 10_000;
   let lastByteAt = Date.now();
 
@@ -504,7 +298,6 @@ export async function followDeployLog(
 
     const fresh = await prisma.deployJob.findUnique({ where: { id: jobId } });
     if (!fresh || fresh.status !== 'running') {
-      // Final flush
       try {
         const st = await stat(job.logPath);
         if (st.size > offset) {
@@ -545,7 +338,6 @@ export async function followDeployLog(
       } catch {
         // ignore
       }
-      // Data frame so browsers/fetch see activity even when comments are stripped.
       emit('[stream] keepalive');
     }
 

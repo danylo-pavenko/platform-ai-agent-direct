@@ -12,6 +12,7 @@ import { landingContactRoutes } from './routes/landing-contact.js';
 import { trackedLinksRoutes } from './routes/tracked-links.js';
 import { leadsRoutes } from './routes/leads.js';
 import { metaOAuthHubRoutes } from './routes/meta-oauth-hub.js';
+import { workersRoutes } from './routes/workers.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -56,6 +57,7 @@ await app.register(metaOAuthHubRoutes);
 await app.register(trackedLinksRoutes);
 await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
+await app.register(workersRoutes);
 
 // Health check
 app.get('/api/health', async () => {
@@ -86,7 +88,10 @@ app.setNotFoundHandler(async (req, reply) => {
 // ── Start ──
 try {
   const { startStaleDeployJobSweeper } = await import('./lib/deploy-job.js');
+  const { ensureLocalServer } = await import('./lib/servers.js');
   startStaleDeployJobSweeper(app.log);
+  await ensureLocalServer();
+  app.log.info('Local worker registry ensured');
 
   await app.listen({ port: config.SA_API_PORT, host: '127.0.0.1' });
   app.log.info(`Super Admin API running on port ${config.SA_API_PORT}`);

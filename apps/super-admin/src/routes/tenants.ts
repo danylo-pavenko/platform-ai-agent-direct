@@ -16,7 +16,6 @@ import {
   platformDefaultsForSlug,
   suggestNextPortPair,
 } from '../lib/tenant-domains.js';
-import { listLiveApiPorts } from '../lib/tenant-provision.js';
 import { DEFAULT_TENANT_GIT_REPO } from '../lib/constants.js';
 import { computeExtendedExpiry } from '../lib/tenant-access.js';
 import {
@@ -26,6 +25,9 @@ import {
   getLatestDeployJob,
   startDeployJob,
 } from '../lib/deploy-job.js';
+import { ensureLocalServer, getServerForTenant, isLocalServer } from '../lib/servers.js';
+import { getWorkerClient } from '../lib/worker/client.js';
+import { dnsHintsForTenant, resolveTenantApiUrl } from '../lib/worker/tenant-url.js';
 
 const execAsync = promisify(exec);
 
@@ -53,6 +55,7 @@ const tenantSchema = z.object({
   accessExpiresAt: z
     .union([z.null(), z.coerce.date()])
     .optional(),
+  serverId: z.union([z.null(), z.string().uuid()]).optional(),
 });
 
 const accessPatchSchema = z.discriminatedUnion('action', [
@@ -140,7 +143,11 @@ export async function tenantsRoutes(app: FastifyInstance) {
   // List all tenants
   app.get('/api/tenants', auth, async (req, reply) => {
     try {
-      return await prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } });
+      await ensureLocalServer();
+      return await prisma.tenant.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: { server: { select: { id: true, name: true, kind: true, publicIp: true } } },
+      });
     } catch (err: any) {
       app.log.error({ err }, 'Failed to fetch tenants');
       return reply.status(500).send({ error: 'DB error', detail: err.message });
@@ -148,11 +155,20 @@ export async function tenantsRoutes(app: FastifyInstance) {
   });
 
   // Suggested platform hostnames + next free ports for the Add Client form.
-  app.get<{ Querystring: { instanceId?: string } }>('/api/tenants/platform-defaults', auth, async (req, reply) => {
+  app.get<{ Querystring: { instanceId?: string; serverId?: string } }>(
+    '/api/tenants/platform-defaults',
+    auth,
+    async (req, reply) => {
     const rawSlug = req.query.instanceId?.trim().toLowerCase() ?? '';
     const slugOk = rawSlug && INSTANCE_ID_RE.test(rawSlug);
 
+    const server = req.query.serverId
+      ? await prisma.server.findUnique({ where: { id: req.query.serverId } })
+      : await ensureLocalServer();
+    if (!server) return reply.status(404).send({ error: 'Worker not found' });
+
     const rows = await prisma.tenant.findMany({
+      where: { serverId: server.id },
       select: { instanceId: true, name: true, apiPort: true, adminPort: true },
       orderBy: { apiPort: 'asc' },
     });
@@ -160,7 +176,8 @@ export async function tenantsRoutes(app: FastifyInstance) {
     let nextPorts: { apiPort: number; adminPort: number };
     let liveListeningPorts: number[] = [];
     try {
-      const live = await listLiveApiPorts();
+      const client = getWorkerClient(server);
+      const live = await client.listListeningPorts();
       const { PLATFORM_PORT_BASE, PLATFORM_PORT_MAX } = config;
       liveListeningPorts = live.filter((p) => p >= PLATFORM_PORT_BASE && p <= PLATFORM_PORT_MAX);
       nextPorts = suggestNextPortPair(usedApiPorts, live);
@@ -170,6 +187,9 @@ export async function tenantsRoutes(app: FastifyInstance) {
 
     return {
       platformBaseDomain: config.PLATFORM_BASE_DOMAIN,
+      serverId: server.id,
+      serverName: server.name,
+      serverPublicIp: server.publicIp,
       nextPorts,
       portPolicy: {
         base: config.PLATFORM_PORT_BASE,
@@ -202,10 +222,28 @@ export async function tenantsRoutes(app: FastifyInstance) {
       const prepared = prepareTenantWriteData(body.data) as Record<string, unknown>;
       if (!prepared.gitRepo) prepared.gitRepo = DEFAULT_TENANT_GIT_REPO;
 
+      const local = await ensureLocalServer();
+      if (!prepared.serverId) prepared.serverId = local.id;
+
+      const server = await prisma.server.findUnique({ where: { id: prepared.serverId as string } });
+      if (!server || server.status === 'disabled') {
+        return reply.status(400).send({ error: 'Invalid or disabled worker' });
+      }
+      const tenantCount = await prisma.tenant.count({ where: { serverId: server.id } });
+      if (tenantCount >= server.maxTenants) {
+        return reply.status(409).send({
+          error: `Worker «${server.name}» is full (${tenantCount}/${server.maxTenants})`,
+        });
+      }
+
       const tenant = await prisma.tenant.create({
         data: prepared as Parameters<typeof prisma.tenant.create>[0]['data'],
+        include: { server: { select: { id: true, name: true, kind: true, publicIp: true } } },
       });
-      return reply.status(201).send(tenant);
+      return reply.status(201).send({
+        ...tenant,
+        dnsHints: tenant.server ? dnsHintsForTenant(tenant, tenant.server) : null,
+      });
     } catch (err) {
       app.log.error({ err }, 'Failed to create tenant');
       const { status, error } = formatPrismaError(err);
@@ -302,35 +340,51 @@ export async function tenantsRoutes(app: FastifyInstance) {
     const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
     if (!tenant) return reply.status(404).send({ error: 'Not found' });
 
+    const server = await getServerForTenant(tenant.serverId);
+    const client = getWorkerClient(server);
+    const apiBase = resolveTenantApiUrl(tenant, server);
+
     let deployed: boolean | null = null;
-    try {
-      await execAsync(`getent passwd '${tenant.linuxUser.replace(/'/g, `'\\''`)}'`, { timeout: 5_000 });
-    } catch {
-      return { online: false, deployed: false, status: null };
+
+    if (isLocalServer(server)) {
+      try {
+        await execAsync(`getent passwd '${tenant.linuxUser.replace(/'/g, `'\\''`)}'`, { timeout: 5_000 });
+      } catch {
+        return { online: false, deployed: false, status: null, serverId: server.id, apiBase };
+      }
+
+      try {
+        await execAsync(
+          `sudo -u ${tenant.linuxUser} test -f '${tenant.appDir}/infra/scripts/deploy-client.sh'`,
+          { timeout: 10_000 },
+        );
+        deployed = true;
+      } catch (err: any) {
+        const stderr = String(err?.stderr ?? '').trim();
+        deployed = err?.code === 1 && !stderr ? false : null;
+      }
+    } else {
+      try {
+        deployed = await client.isDeployed(tenant);
+      } catch {
+        deployed = null;
+      }
     }
 
     try {
-      await execAsync(
-        `sudo -u ${tenant.linuxUser} test -f '${tenant.appDir}/infra/scripts/deploy-client.sh'`,
-        { timeout: 10_000 },
-      );
-      deployed = true;
-    } catch (err: any) {
-      // `test -f` exits 1 with empty stderr when the file is genuinely
-      // missing; sudo/permission problems and timeouts produce stderr or
-      // other exit codes = unknown — don't mislabel a live instance.
-      const stderr = String(err?.stderr ?? '').trim();
-      deployed = err?.code === 1 && !stderr ? false : null;
-    }
-
-    try {
-      const res = await fetch(`http://localhost:${tenant.apiPort}/health`, {
+      const res = await fetch(`${apiBase}/health`, {
         signal: AbortSignal.timeout(5000),
       });
       const data = await res.json();
-      return { online: res.ok, deployed: deployed ?? res.ok, status: data };
+      return {
+        online: res.ok,
+        deployed: deployed ?? res.ok,
+        status: data,
+        serverId: server.id,
+        apiBase,
+      };
     } catch {
-      return { online: false, deployed, status: null };
+      return { online: false, deployed, status: null, serverId: server.id, apiBase };
     }
   });
 
@@ -477,7 +531,9 @@ export async function tenantsRoutes(app: FastifyInstance) {
     ];
 
     try {
-      const res = await fetch(`http://localhost:${tenant.apiPort}/supervisor/chat`, {
+      const server = await getServerForTenant(tenant.serverId);
+      const apiBase = resolveTenantApiUrl(tenant, server);
+      const res = await fetch(`${apiBase}/supervisor/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -631,8 +687,10 @@ export async function tenantsRoutes(app: FastifyInstance) {
       }
 
       try {
+        const server = await getServerForTenant(tenant.serverId);
+        const apiBase = resolveTenantApiUrl(tenant, server);
         const res = await fetch(
-          `http://localhost:${tenant.apiPort}/supervisor/claude-health`,
+          `${apiBase}/supervisor/claude-health`,
           {
             headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
             signal: AbortSignal.timeout(10_000),

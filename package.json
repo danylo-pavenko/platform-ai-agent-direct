@@ -5,7 +5,8 @@
   "workspaces": [
     "apps/backend",
     "apps/admin",
-    "apps/super-admin"
+    "apps/super-admin",
+    "apps/platform-worker"
   ],
   "scripts": {
     "dev": "bash infra/scripts/dev.sh",
