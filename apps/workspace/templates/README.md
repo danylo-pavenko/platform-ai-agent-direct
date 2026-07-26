@@ -1,6 +1,6 @@
 # Tenant knowledge templates
 
-Platform behaviour (Instagram webhooks, admin live chat, deploy) is documented in the **[repository root `README.md`](../../../README.md)**.
+Platform behaviour (Instagram webhooks, Smart-trigger, Insights, admin live chat, deploy) is documented in the **[repository root `README.md`](../../../README.md)**.
 
 This folder is the **seed set** that every new tenant starts with. It is
 checked into the repo and shared across all tenants. Individual tenants
@@ -27,24 +27,29 @@ For a tenant running as Linux user `blessed` with the default path:
 /home/blessed/tenant_knowledge/
 ├── CLAUDE.md                    # орієнтир режимів/tools (seed)
 ├── prompts/
-│   ├── sales-agent.txt
-│   ├── leadgen-agent.txt
-│   └── booking-agent.txt
+│   ├── sales-agent.txt          # mode: sales
+│   ├── leadgen-agent.txt        # mode: leadgen
+│   └── booking-agent.txt        # mode: booking
 └── knowledge/
     ├── brand.txt, contacts.txt, delivery.txt, faq.txt, categories.txt, services.txt
-    ├── catalog.txt              # KeyCRM sync
-    └── services-live.txt        # CleverBOX / BeautyPro sync
+    ├── catalog.txt              # KeyCRM sync (not seeded)
+    └── services-live.txt        # CleverBOX / BeautyPro sync (not seeded)
 ```
 
-`catalog.txt` is never seeded — it is produced by the KeyCRM sync and
-lives next to the other knowledge files so the prompt builder can
-inject it.
+`catalog.txt` / `services-live.txt` are never seeded — they are produced by
+CRM sync and live next to the other knowledge files so the prompt builder
+can inject them.
+
+Tone of voice and sales rules in these prompts also shape **Smart-trigger**
+remarketing: the follow-up job reuses the same system prompt + conversation
+history (no separate reminder template).
 
 ## Customising per tenant
 
 Just edit `/home/<user>/tenant_knowledge/knowledge/*.txt` or
-`prompts/sales-agent.txt` directly. The next deploy will preserve the
-edits. To re-seed a file from template, delete the tenant copy and run:
+`prompts/{sales|leadgen|booking}-agent.txt` directly. The next deploy will
+preserve the edits. To re-seed a file from template, delete the tenant copy
+and run:
 
 ```bash
 npm run bootstrap:knowledge

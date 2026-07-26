@@ -33,9 +33,10 @@ server
 │              Client Instance (e.g. SB)              │
 │                                                     │
 │  IG Webhook ─┐                                      │
-│  TG Bot ─────┼──→ Conversation Router ──→ Claude    │
+│  TG Bot(s) ──┼──→ Conversation Router ──→ Claude    │
 │  Admin API ──┘           │               CLI        │
-│  Sync Worker ────→ Catalog ──→ PostgreSQL (own DB)  │
+│  Follow-up job ─→ remarketing (1× after silence)   │
+│  Sync Worker ────→ Catalog / services ──→ PostgreSQL│
 │                                                     │
 │  Admin Panel (Vue 3 + Vuetify 3)                    │
 │  Nginx vhost → client's own domain                  │
@@ -61,12 +62,12 @@ server
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Node.js 20+, TypeScript, Fastify, Prisma 6 (PostgreSQL) |
+| Backend | Node.js 20+, TypeScript, Fastify, Prisma 7 (PostgreSQL) |
 | Frontend (admin) | Vue 3, Vuetify 3, Vite, Pinia, Vue Router 4 |
-| Super Admin | Fastify + TypeScript (tenant DB, webhook hub, deploy APIs) |
-| Telegram | grammY framework, long polling |
+| Super Admin | Fastify + TypeScript (tenant DB, webhook hub, deploy APIs, workers) |
+| Telegram | grammY framework, long polling (multi-bot roles) |
 | AI inference | Claude Code headless CLI (`claude -p`), NOT Anthropic API |
-| CRM | KeyCRM (pluggable, can be `none`) |
+| CRM | Multi-CRM: KeyCRM, CleverBOX, BeautyPro (routing by action / single / prompt) |
 | Delivery | Nova Poshta API v2 |
 | Process manager | PM2 |
 | Reverse proxy | Nginx + Let's Encrypt |
@@ -76,31 +77,41 @@ server
 ## Features
 
 ### Core (per-client)
-- **Instagram DM automation** — webhook receiver, Claude-powered responses, message splitting for >1000 chars; outbound text is stripped of Markdown (`**`, links, etc.) because Instagram does not render it
+- **Agent modes** — `sales` / `leadgen` / `booking` (admin: Settings → agent mode); shared runtime, different tools and prompts
+- **Instagram DM automation** — webhook receiver, Claude-powered replies, message splitting for >1000 chars; outbound text is stripped of Markdown (`**`, links, etc.) because Instagram does not render it
+- **Typing indicator** — IG `typing_on` while the bot generates a reply
+- **Inbound coalesce** — rapid client messages are merged into one Claude turn (fewer fragmented replies)
+- **Instagram Stories & reactions** — Story replies (with vision when CDN media is available) and emoji reactions become inbound context for the agent
 - **Instagram `standby` webhooks** — when another messaging surface (e.g. Meta Business Suite) holds primary control, new customer messages may arrive under `entry[].standby[]`; the backend merges `standby` with `messaging` and OAuth subscribes the Page to the `standby` field alongside `messages`
-- **Smart conversation routing** — bot / handoff / paused states, working hours awareness
-- **Shared post handling** — agent identifies garment type, color, print from IG post; matches CRM catalog; shows size chart
-- **Catalog sync** — periodic KeyCRM fetch, smart filtering, `catalog.txt` snapshot for Claude
-- **Order collection** — Claude collects order details via structured tool calls, sends to TG for manager approval
-- **Delivery cost** — Nova Poshta API v2 integration, `get_delivery_cost` tool for Claude
-- **Handoff to humans** — keyword + AI-based escalation, TG notifications with inline actions
+- **Smart conversation routing** — bot / handoff / paused states, working hours awareness, optional auto-return from handoff
+- **Reply delay** — optional human-like pause (`responseDelayMin/MaxSeconds`, 0–60 s) before Claude after typing starts
+- **Smart-trigger (remarketing)** — if the bot wrote and the client stays silent for N hours (default **72**, max **168**), the platform runs **one** agent turn with full system prompt + history and sends a contextual soft nudge (not a fixed template). Counter resets when the client replies. Job env: `FOLLOW_UP_*`
+- **Shared post handling** — agent identifies product / garment from IG post; catalog match; size guidance where configured
+- **Catalog & services sync** — KeyCRM → `catalog.txt`; CleverBOX / BeautyPro → live services; branches for booking
+- **Orders** — local-first collection (`collect_order` / `create_local_order`); CRM mirror optional (`CRM_WRITE_ENABLED`)
+- **Delivery cost** — Nova Poshta API v2, `get_delivery_cost` tool
+- **Handoff to humans** — keyword + AI escalation, Telegram notifications (multi-bot routing by role)
+- **Voice (optional)** — STT pipeline for voice notes when enabled for the tenant
 
 ### Admin Panel (per-client)
-- **Conversations** — list with IG-aware columns, search (name / @username / IGSID), filters; **conversation detail** loads full history, manual reply, lead-quality rating, client profile (phone, email, Nova Poshta branch, tags)
-- **Live view** — while a conversation is open, the admin polls `GET /conversations/:id/live` (~2.5s) so new client/bot messages and tool-updated client fields appear without refresh; tab background pauses polling; profile form edit mode pauses overwriting the client object until save/cancel
-- **System Prompts** — versioned prompt management, activate/rollback
-- **Meta-Agent (Teach Chat)** — describe changes in natural language, AI proposes prompt edits
-- **Sandbox** — Instagram DM-style test chat, save up to 15 test cases, step-by-step replay
-- **Settings** — working hours, handoff keywords, integrations (KeyCRM, Nova Poshta), feature flags, runtime mode (Public / Debug)
-- **Orders** — list with status filters, manager actions
-- **Sync** — manual trigger, run history, status monitoring
+- **Conversations** — IG-aware list, search (name / @username / IGSID), filters; detail with full history, manual reply, lead-quality rating, client profile (phone, email, NP branch, CRM link, tags)
+- **Live view** — poll `GET /conversations/:id/live` (~2.5s) for new messages and tool-updated client fields without refresh
+- **Insights** — tenant AI assistant for business / CRM guidance over conversation analytics
+- **System Prompts** — versioned prompts, activate / rollback; modes: sales / leadgen / booking
+- **Meta-Agent (Teach Chat)** — natural-language prompt edits with streaming, lean context, and batch apply
+- **Sandbox** — Instagram DM-style test chat, saved cases, step-by-step replay
+- **Settings** — sectioned nav: agent mode & SLA (working hours, reply delay, Smart-trigger), handoff keywords, Meta OAuth, multi-CRM routing, Telegram bots, Nova Poshta, runtime mode (Public / Debug), bot ignore list
+- **Orders** — status filters, manager actions, optional CRM deep links
+- **Sync** — manual trigger, run history, CRM sync status
+- **Branches / CRM fields** — multi-location booking and custom field mappings where CRM supports them
 
 ### Super Admin (platform-level)
-- **Instagram webhook hub** — optional single HTTPS callback (e.g. `admin.direct-ai-agents.com/webhooks/instagram`) verifies `X-Hub-Signature-256`, resolves the tenant by IG/Page ids in the payload (including `standby` and `changes`), and POSTs the raw body to `http://localhost:{tenant.apiPort}/webhooks/instagram`
-- **Tenant management** — list/add/edit/delete clients, status, domains, ports
-- **Deploy control** — trigger deploy per client
-- **Health overview** — PM2 status across all instances
-- **Test chat** — built-in chat panel to test any client's agent
+- **Instagram webhook hub** — optional single HTTPS callback (e.g. `admin.direct-ai-agents.com/webhooks/instagram`) verifies `X-Hub-Signature-256`, resolves the tenant by IG/Page ids (including `standby` and `changes`), and POSTs the raw body to `http://localhost:{tenant.apiPort}/webhooks/instagram`
+- **Tenant management** — list/add/edit/delete clients, status, domains, ports, platform version label
+- **Deploy control** — async deploy jobs with flock, log SSE (abort on hide/reopen), per-tenant restart
+- **Workers** — register `platform-worker` companions on other VPS for multi-server tenants (provision / deploy / logs remotely)
+- **Health overview** — PM2 status across instances; Claude auth / usage checks
+- **Test chat** — built-in panel to test any client's agent
 
 ---
 
@@ -155,31 +166,41 @@ platform-ai-agent-direct/
 │   │   │   │   ├── webhooks.ts         # IG webhook + deauthorize + data-deletion
 │   │   │   │   ├── conversations.ts    # incl. GET /:id/live (admin live poll)
 │   │   │   │   ├── prompts.ts
-│   │   │   │   ├── settings.ts         # incl. /nova-poshta/resolve-city
+│   │   │   │   ├── settings.ts         # integrations, agent SLA, Meta, Telegram bots
 │   │   │   │   ├── orders.ts
 │   │   │   │   ├── sync.ts
 │   │   │   │   ├── sandbox.ts
+│   │   │   │   ├── insights.ts         # tenant AI Insights assistant
 │   │   │   │   ├── meta-agent.ts       # Teach Chat
 │   │   │   │   ├── meta-oauth.ts       # Facebook OAuth flow
 │   │   │   │   ├── dashboard.ts
+│   │   │   │   ├── branches.ts
+│   │   │   │   ├── crm-fields.ts
 │   │   │   │   └── admin-auth.ts
 │   │   │   ├── services/
 │   │   │   │   ├── claude.ts           # headless CLI wrapper
-│   │   │   │   ├── conversation.ts     # main message handler
+│   │   │   │   ├── conversation.ts     # main message handler (+ coalesce drain)
+│   │   │   │   ├── follow-up.ts        # Smart-trigger remarketing job
 │   │   │   │   ├── prompt-builder.ts   # runtime prompt assembly
 │   │   │   │   ├── instagram.ts        # IG Graph send + chunking
+│   │   │   │   ├── ig-typing-indicator.ts
 │   │   │   │   ├── ig-profile.ts       # profile fetch + cache
 │   │   │   │   ├── ig-history.ts       # IG conversation history
-│   │   │   │   ├── keycrm.ts           # KeyCRM API client
+│   │   │   │   ├── insights-snapshot.ts
+│   │   │   │   ├── crm/ + crm-sync.ts  # KeyCRM / CleverBOX / BeautyPro
 │   │   │   │   ├── nova-poshta.ts      # NP API v2 delivery cost
-│   │   │   │   ├── order.ts            # order builder
+│   │   │   │   ├── order.ts            # order builder (local-first)
+│   │   │   │   ├── appointment.ts      # booking mode
 │   │   │   │   ├── product-search.ts   # catalog search
 │   │   │   │   ├── media.ts            # image download helper
-│   │   │   │   └── telegram-notify.ts  # TG notifications
+│   │   │   │   └── telegram-notify.ts  # TG notifications (multi-bot)
 │   │   │   ├── lib/
 │   │   │   │   ├── prisma.ts
 │   │   │   │   ├── auth.ts
 │   │   │   │   ├── queue.ts            # in-memory concurrency queue
+│   │   │   │   ├── inbound-coalesce.ts # merge rapid IG messages
+│   │   │   │   ├── follow-up-config.ts # Smart-trigger tenant setting
+│   │   │   │   ├── agent-config.ts     # mode, SLA, reply delay
 │   │   │   │   ├── instagram-text.ts   # strip Markdown before IG DM send
 │   │   │   │   ├── ig-signature.ts     # HMAC webhook verification
 │   │   │   │   ├── sanitize.ts         # input sanitization
@@ -204,17 +225,19 @@ platform-ai-agent-direct/
 │   │           ├── PromptsView.vue
 │   │           ├── TeachChat.vue
 │   │           ├── SandboxView.vue
+│   │           ├── InsightsView.vue
 │   │           ├── SettingsView.vue
 │   │           ├── OrdersView.vue
 │   │           ├── SyncView.vue
 │   │           └── DashboardView.vue
 │   │
 │   ├── super-admin/                    # Super Admin dashboard
-│   │   ├── public/index.html           # Single-page app (Fastify serves it)
+│   │   ├── public/                     # SPA modules (templates / css / js)
 │   │   ├── src/
 │   │   │   ├── server.ts
 │   │   │   ├── routes/tenants.ts
 │   │   │   ├── routes/webhooks.ts      # central IG POST hub → tenant localhost
+│   │   │   ├── routes/workers.ts       # multi-VPS platform-worker registry
 │   │   │   ├── routes/auth.ts
 │   │   │   └── config.ts
 │   │   └── prisma/schema.prisma        # tenants table
@@ -226,13 +249,23 @@ platform-ai-agent-direct/
 │           │   ├── contacts.txt
 │           │   ├── delivery.txt
 │           │   ├── categories.txt
+│           │   ├── services.txt
 │           │   └── faq.txt
 │           └── prompts/
-│               └── sales-agent.txt
+│               ├── sales-agent.txt
+│               ├── leadgen-agent.txt
+│               └── booking-agent.txt
 │
 # Per-tenant runtime (OUTSIDE repo, e.g. /home/blessed/tenant_knowledge/):
-#   knowledge/{brand,contacts,delivery,faq,categories,catalog}.txt
-#   prompts/sales-agent.txt
+#   knowledge/{brand,contacts,delivery,faq,categories,catalog,services,services-live}.txt
+#   prompts/{sales|leadgen|booking}-agent.txt
+│
+├── docs/
+│   ├── TENANT-DOMAINS-AND-SCALING.md   # platform subdomains + multi-VPS notes
+│   ├── MULTI_CRM_INTEGRATION_GUIDE.md
+│   ├── BEAUTYPRO_CRM_INTEGRATION.md
+│   ├── STT-ROLLOUT.md
+│   └── PRODUCT-BRIEF.md
 │
 ├── infra/
 │   ├── landing/
@@ -246,6 +279,7 @@ platform-ai-agent-direct/
 │       ├── provision-super-admin.sh    # [ROOT] Set up super admin
 │       ├── provision-client.sh         # [ROOT] Onboard new client
 │       ├── provision-platform.sh       # [ROOT] Full platform provision
+│       ├── provision-platform-worker.sh # [ROOT] Companion worker on another VPS
 │       ├── deploy-super-admin.sh       # [agentsadmin] Build + restart super admin
 │       ├── deploy-client.sh            # [CLIENT USER] Pull + build + restart
 │       ├── deploy-landing.sh           # Deploy landing page
@@ -410,13 +444,26 @@ See `.env.example` for the full list. Key groups:
 | Network | `API_PORT`, `ADMIN_PORT`, `ADMIN_DOMAIN`, `API_DOMAIN` |
 | Database | `DATABASE_URL` (separate DB per client) |
 | Instagram / Meta | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN` (+ tokens in DB after OAuth) |
-| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MANAGER_GROUP_ID`, `TELEGRAM_ADMIN_PASSWORD` |
+| Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MANAGER_GROUP_ID`, `TELEGRAM_ADMIN_PASSWORD` (more bots via Admin → Settings) |
 | Claude | `CLAUDE_MAX_CONCURRENCY`, `CLAUDE_TIMEOUT_MS`, `CLAUDE_MODEL` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRES_IN` |
-| CRM | `CRM_PROVIDER`, `KEYCRM_API_KEY` |
+| CRM | `CRM_PROVIDER`, `CRM_WRITE_ENABLED`, `KEYCRM_*`, `CLEVERBOX_*`, `BEAUTYPRO_*` |
 | Delivery | `NOVA_POSHTA_API_KEY` (or set via Admin → Settings) |
+| Smart-trigger | `FOLLOW_UP_JOB_ENABLED`, `FOLLOW_UP_INTERVAL_MIN`, `FOLLOW_UP_BATCH_SIZE` (delay hours live in Setting `follow_up_config`) |
 
 Super Admin uses a separate `.env.super-admin` file.
+
+---
+
+## Agent SLA settings (admin)
+
+Stored in DB settings (not only `.env`):
+
+| Setting | Key / fields | Purpose |
+|---------|--------------|---------|
+| Agent config | `agent_config` | Mode, out-of-hours strategy, manager SLA, **reply delay** (`responseDelayMinSeconds` / `responseDelayMaxSeconds`, 0–60) |
+| Smart-trigger | `follow_up_config` | `{ enabled, delayHours }` — agent-written remarketing after client silence (default 72 h, max 168 h) |
+| Working hours | `working_hours` | Weekly schedule injected into the bot runtime prompt |
 
 ---
 
@@ -497,18 +544,18 @@ Ensure the **Facebook Page** is linked to an **Instagram Business** profile in B
 
 ### Permissions requested in code (App Review)
 
-These scopes are requested in [`apps/backend/src/routes/meta-oauth.ts`](./apps/backend/src/routes/meta-oauth.ts) — keep the dashboard **App Review** list in sync:
+These scopes are requested in [`apps/backend/src/routes/meta-oauth.ts`](./apps/backend/src/routes/meta-oauth.ts) (`FB_SCOPES`) — keep the dashboard **App Review** list in sync. **Trust the code** if this table drifts.
 
 | Permission | Purpose |
 |------------|---------|
 | `business_management` | Access business assets / accounts for Page–IG linking |
 | `pages_show_list` | List Pages the user manages (pick Page with IG) |
-| `pages_read_engagement` | Read Page content / engagement where needed |
-| `pages_messaging` | Page messaging (used with IG DM / subscribed webhook fields) |
-| `instagram_basic` | Basic Instagram profile metadata |
-| `instagram_manage_messages` | Send/receive Instagram Direct as the connected account |
-| `instagram_business_basic` | Business account basics |
-| `instagram_business_manage_messages` | Business IG message management |
+| `pages_read_engagement` | Read Page engagement where needed for Page–IG resolution |
+| `instagram_manage_messages` | Send/receive Instagram Direct via Page token → `POST /me/messages` |
+
+**Do not** add `instagram_business_basic`, `pages_messaging`, or `instagram_basic` for this IG DM path. They are not required by our OAuth/messaging flow (see `.cursor/rules/meta-oauth-scopes.mdc`).
+
+Granular OAuth often returns Page and IG as separate `target_ids` in `debug_token.granular_scopes`. The callback pairs those IDs with the Page `access_token` from `/me/accounts` (`resolvePageFromGranularTargetIds`) rather than relying on `connected_facebook_page`.
 
 Your App Review submission should describe **one concrete use case** (e.g. customer support / sales automation in Instagram DM), with screen recordings from **Admin → Settings → Meta** and a live test user if Meta asks.
 
