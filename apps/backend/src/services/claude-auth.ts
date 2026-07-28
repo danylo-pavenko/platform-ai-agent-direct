@@ -138,22 +138,92 @@ async function readAuthStatusJson(): Promise<AuthStatusJson | null> {
   }
 }
 
+async function runClaudeAuthLogoutCli(timeoutMs = 15_000): Promise<void> {
+  const path = getClaudeBinaryPath();
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  await execFileAsync(path, ['auth', 'logout'], {
+    timeout: timeoutMs,
+    env: { ...process.env },
+    maxBuffer: 64 * 1024,
+  });
+  clearClaudeAuthLiveCache();
+}
+
+function cancelAllActiveLoginSessions(): void {
+  for (const [id, session] of sessions) {
+    if (session.status === 'starting' || session.status === 'waiting') {
+      cancelLoginSession(id);
+    }
+  }
+}
+
+export interface LogoutClaudeAuthResult {
+  ok: true;
+  alreadyLoggedOut: boolean;
+  auth: ClaudeAuthStatus;
+}
+
+export interface LogoutClaudeAuthFailure {
+  ok: false;
+  error: string;
+  code: 'BINARY_UNAVAILABLE' | 'LOGOUT_FAILED';
+  auth: ClaudeAuthStatus | null;
+}
+
+/**
+ * Explicit Claude CLI logout for switching accounts from tenant Settings.
+ * Idempotent when already logged out. Cancels any in-progress OAuth login.
+ */
+export async function logoutClaudeAuth(): Promise<
+  LogoutClaudeAuthResult | LogoutClaudeAuthFailure
+> {
+  cancelAllActiveLoginSessions();
+
+  const binary = await claudeHealthCheck();
+  if (!binary.ok) {
+    return {
+      ok: false,
+      error: binary.error ?? 'Claude CLI недоступний',
+      code: 'BINARY_UNAVAILABLE',
+      auth: null,
+    };
+  }
+
+  const json = await readAuthStatusJson();
+  if (json?.loggedIn !== true) {
+    clearClaudeAuthLiveCache();
+    const auth = await getClaudeAuthStatus({ skipLiveCache: true });
+    return { ok: true, alreadyLoggedOut: true, auth };
+  }
+
+  try {
+    await runClaudeAuthLogoutCli(15_000);
+    log.info('Claude credentials cleared via auth logout');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error({ err }, 'claude auth logout failed');
+    const auth = await getClaudeAuthStatus({ skipLiveCache: true });
+    return {
+      ok: false,
+      error: message || 'Не вдалося виконати claude auth logout',
+      code: 'LOGOUT_FAILED',
+      auth,
+    };
+  }
+
+  const auth = await getClaudeAuthStatus({ skipLiveCache: true });
+  return { ok: true, alreadyLoggedOut: false, auth };
+}
+
 /** Drop stale local credentials so OAuth re-login is not short-circuited by `auth status`. */
 async function clearStaleClaudeAuthBeforeLogin(): Promise<void> {
   const json = await readAuthStatusJson();
   if (json?.loggedIn !== true) return;
 
-  const path = getClaudeBinaryPath();
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const execFileAsync = promisify(execFile);
   try {
-    await execFileAsync(path, ['auth', 'logout'], {
-      timeout: 10_000,
-      env: { ...process.env },
-      maxBuffer: 64 * 1024,
-    });
-    clearClaudeAuthLiveCache();
+    await runClaudeAuthLogoutCli(10_000);
     log.info('Cleared stale Claude credentials before OAuth login');
   } catch (err) {
     log.warn({ err }, 'claude auth logout before login failed (continuing)');

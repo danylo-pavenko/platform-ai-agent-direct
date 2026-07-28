@@ -1,4 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('./claude.js', () => ({
+  claudeAuthCheck: vi.fn(),
+  claudeHealthCheck: vi.fn(),
+  getClaudeBinaryPath: vi.fn(() => '/usr/bin/claude'),
+  verifyClaudeAuthLive: vi.fn(),
+  isClaudeAuthFailure: (text: string) => {
+    const lower = text.toLowerCase();
+    return (
+      lower.includes('401') ||
+      lower.includes('invalid authentication') ||
+      lower.includes('authentication credentials') ||
+      lower.includes('not logged in') ||
+      lower.includes('not authenticated') ||
+      lower.includes('login required') ||
+      lower.includes('run `claude auth login`') ||
+      lower.includes('run "claude auth login"') ||
+      lower.includes('run /login') ||
+      lower.includes('please run /login')
+    );
+  },
+}));
+
 import { extractClaudeAuthUrl } from './claude-auth.js';
 import { isClaudeAuthFailure } from './claude.js';
 

@@ -184,14 +184,16 @@ ensure_pm2_startup() {
   fi
 
   if [[ -x "${helper}" ]] && sudo -n "${helper}" "${USER}" "${HOME}" >>"${DEPLOY_LOG}" 2>&1; then
-    echo "  PM2 startup: configured (${unit})"
-    return 0
+    if systemctl is-enabled "${unit}" >/dev/null 2>&1; then
+      echo "  PM2 startup: configured (${unit})"
+      return 0
+    fi
   fi
 
-  echo "  WARN: PM2 startup not enabled for ${USER} (processes will not auto-start after reboot)." >&2
+  echo "  ERROR: PM2 startup not enabled for ${USER} (processes will not auto-start after reboot)." >&2
   echo "        As root: ${helper} ${USER} ${HOME}" >&2
   echo "        Or re-run provision-client.sh (sets Linux password + pm2 startup + sudoers)." >&2
-  return 0
+  return 1
 }
 
 echo "══════════════════════════════════════════════"
@@ -407,11 +409,11 @@ fi
 
 if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ] && [ "${WHISPER_OK}" = "1" ]; then
   pm2 save
-  ensure_pm2_startup
+  ensure_pm2_startup || echo "  WARN: PM2 boot resurrect not verified (apps are up)" >&2
   HEALTH_STATE="OK"
 elif [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ]; then
   pm2 save
-  ensure_pm2_startup
+  ensure_pm2_startup || echo "  WARN: PM2 boot resurrect not verified (apps are up)" >&2
   HEALTH_STATE="OK (Whisper STT degraded)"
 else
   HEALTH_STATE="FAILED"

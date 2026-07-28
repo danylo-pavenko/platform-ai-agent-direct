@@ -525,12 +525,15 @@ echo "  Helper:  /usr/local/sbin/platform-pm2-startup"
 
 # ── 9. PM2 startup (systemd resurrect on reboot) ──
 echo "[9/9] Configuring PM2 startup for '${LINUX_USER}'..."
-if command -v pm2 >/dev/null 2>&1; then
-  /usr/local/sbin/platform-pm2-startup "${LINUX_USER}" "${USER_HOME}" || \
-    echo "  WARN: pm2 startup failed — re-run after pm2 is installed, or from deploy"
-else
-  echo "  WARN: pm2 not installed yet — deploy-client.sh will configure startup via sudo"
+# Hard requirement: tenant processes must come back after reboot.
+# Helper installs pm2 if missing, writes systemd unit, enables it, seeds dump.
+if ! /usr/local/sbin/platform-pm2-startup "${LINUX_USER}" "${USER_HOME}"; then
+  echo "ERROR: PM2 startup configuration failed for ${LINUX_USER}" >&2
+  echo "       Fix Node/pm2 on the host, then re-run provision or:" >&2
+  echo "       sudo /usr/local/sbin/platform-pm2-startup ${LINUX_USER} ${USER_HOME}" >&2
+  exit 1
 fi
+echo "  Verified: systemctl is-enabled pm2-${LINUX_USER}.service"
 
 # ── Summary ──
 echo ""
@@ -550,7 +553,7 @@ echo "  │ TG admin pass:  ${TG_ADMIN_PASS}"
 echo "  │ Linux password: ${LINUX_PASS}"
 echo "  │                (also: ${CREDS_DIR}/${LINUX_USER})"
 echo "  │ Linux login:    password + SSH keys from ${PROVISION_SOURCE_USER}"
-echo "  │ PM2 on boot:    platform-pm2-startup → pm2-${LINUX_USER}.service"
+echo "  │ PM2 on boot:    ENABLED pm2-${LINUX_USER}.service (verified)"
 echo "  └──────────────────────────────────────────────────────────┘"
 echo ""
 echo "  REQUIRED MANUAL STEPS:"

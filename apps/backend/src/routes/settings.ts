@@ -31,6 +31,7 @@ import {
   cancelClaudeAuthLogin,
   getClaudeAuthStatus,
   getClaudeLoginStatus,
+  logoutClaudeAuth,
   startClaudeAuthLogin,
   submitClaudeAuthCode,
 } from '../services/claude-auth.js';
@@ -321,6 +322,24 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return getClaudeAuthStatus({ skipLiveCache: request.query.fresh === 'true' });
     },
   );
+
+  /** POST /settings/claude-auth/logout — unlink Claude so another account can log in. */
+  app.post('/claude-auth/logout', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
+    const result = await logoutClaudeAuth();
+    if (!result.ok) {
+      const status = result.code === 'BINARY_UNAVAILABLE' ? 503 : 500;
+      return reply.code(status).send({
+        error: result.error,
+        code: result.code,
+        auth: result.auth,
+      });
+    }
+    return {
+      ok: true,
+      alreadyLoggedOut: result.alreadyLoggedOut,
+      auth: result.auth,
+    };
+  });
 
   /** POST /settings/claude-auth/login/start — spawn claude auth login, return OAuth URL. */
   app.post('/claude-auth/login/start', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {

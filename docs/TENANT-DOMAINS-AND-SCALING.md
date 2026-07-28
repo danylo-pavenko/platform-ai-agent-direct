@@ -240,7 +240,7 @@ Per-domain certbot, як раніше.
 | `authorized_keys` | Provision | Копія з `agentsadmin` → `~tenant/.ssh/authorized_keys` |
 | Git clone (deploy key) | Provision | Копія `id_ed25519` з `agentsadmin` (outbound), якщо у tenant ще немає ключа |
 | Prisma migrate + seed | **Deploy** (super-admin або вручну) | — |
-| PM2 + `pm2 startup` (systemd) | Provision + Deploy | Unit `pm2-<user>.service`; helper `/usr/local/sbin/platform-pm2-startup` |
+| PM2 + `pm2 startup` (systemd) | **Provision** (обовʼязково) + Deploy (перевірка) | Unit `pm2-<user>.service` enabled; helper `/usr/local/sbin/platform-pm2-startup` ставить pm2 за потреби, seeds dump |
 | nginx vhost | Provision / Deploy | — |
 | `claude auth login` | **Вручну** (tenant admin Settings або SSH) | CLI ставиться автоматично (`setup-claude-cli.sh`); OAuth — інтерактивно |
 

@@ -153,22 +153,45 @@
               variant="flat"
               prepend-icon="mdi-login"
               :loading="claudeLoginLoading"
-              :disabled="claudeLoginLoading || claudeAuthLoading"
+              :disabled="claudeLoginLoading || claudeAuthLoading || claudeLogoutLoading"
               @click="startClaudeLogin"
             >
               {{ claudeAuthorizeButtonLabel }}
+            </v-btn>
+            <v-btn
+              v-if="showClaudeLogoutButton"
+              color="error"
+              variant="tonal"
+              prepend-icon="mdi-logout"
+              :loading="claudeLogoutLoading"
+              :disabled="claudeLogoutLoading || claudeAuthLoading || claudeLoginLoading"
+              @click="claudeLogoutDialog = true"
+            >
+              Відвʼязати акаунт
             </v-btn>
             <v-btn
               color="indigo"
               variant="tonal"
               prepend-icon="mdi-refresh"
               :loading="claudeAuthLoading"
-              :disabled="claudeAuthLoading"
+              :disabled="claudeAuthLoading || claudeLogoutLoading"
               @click="loadClaudeAuth(true)"
             >
               Перевірити статус
             </v-btn>
           </div>
+
+          <v-alert
+            v-if="claudeLogoutError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            closable
+            @click:close="claudeLogoutError = ''"
+          >
+            {{ claudeLogoutError }}
+          </v-alert>
 
           <v-alert
             v-if="claudeAuthLoading && !claudeAuth"
@@ -1973,12 +1996,51 @@
       <v-snackbar v-model="displayNameSuccess" color="success" :timeout="4000">
         Імʼя збережено
       </v-snackbar>
+      <v-snackbar v-model="claudeLogoutSuccess" color="success" :timeout="4000">
+        Claude відвʼязано. Тепер можна авторизувати інший акаунт.
+      </v-snackbar>
       <v-snackbar v-model="success" color="success" :timeout="3000">
         Налаштування збережено
       </v-snackbar>
       <v-snackbar v-model="oauthSnackbar" :color="oauthSnackbarColor" :timeout="4000">
         {{ oauthSnackbarText }}
       </v-snackbar>
+
+      <v-dialog v-model="claudeLogoutDialog" max-width="480" persistent>
+        <v-card>
+          <v-card-title class="text-error">Відвʼязати Claude?</v-card-title>
+          <v-card-text>
+            <p class="text-body-2 mb-2">
+              AI-агент <strong>перестане відповідати</strong> клієнтам, доки не увійдете
+              іншим акаунтом Claude (Pro або Max).
+            </p>
+            <p v-if="claudeAuth?.email" class="text-caption text-medium-emphasis mb-0">
+              Поточний акаунт: <strong>{{ claudeAuth.email }}</strong>
+              <span v-if="claudeAuth.subscriptionType"> · {{ claudeAuth.subscriptionType }}</span>
+            </p>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn
+              variant="text"
+              :disabled="claudeLogoutLoading"
+              @click="claudeLogoutDialog = false"
+            >
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="flat"
+              prepend-icon="mdi-logout"
+              :loading="claudeLogoutLoading"
+              :disabled="claudeLogoutLoading"
+              @click="confirmClaudeLogout"
+            >
+              Відвʼязати
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <v-dialog v-model="telegramTestDialog" max-width="440">
         <v-card>
@@ -2580,6 +2642,42 @@ const showClaudeAuthorizeButton = computed(() => {
   if (!claudeAuth.value) return false;
   return claudeAuth.value.binaryOk && !claudeAuth.value.loggedIn;
 });
+
+const showClaudeLogoutButton = computed(() => {
+  if (claudeLoginActive.value) return false;
+  return !!claudeAuth.value?.loggedIn;
+});
+
+const claudeLogoutDialog = ref(false);
+const claudeLogoutLoading = ref(false);
+const claudeLogoutError = ref('');
+const claudeLogoutSuccess = ref(false);
+
+async function confirmClaudeLogout() {
+  if (claudeLogoutLoading.value) return;
+  claudeLogoutLoading.value = true;
+  claudeLogoutError.value = '';
+  try {
+    const { data } = await api.post<{
+      ok: boolean;
+      alreadyLoggedOut?: boolean;
+      auth: ClaudeAuthStatus;
+    }>('/settings/claude-auth/logout');
+    claudeAuth.value = data.auth;
+    claudeUsageSnapshot.value = null;
+    resetClaudeLoginUi();
+    claudeLogoutDialog.value = false;
+    claudeLogoutSuccess.value = true;
+  } catch (e: any) {
+    claudeLogoutError.value =
+      e.response?.data?.error ?? 'Не вдалося відвʼязати Claude';
+    if (e.response?.data?.auth) {
+      claudeAuth.value = e.response.data.auth;
+    }
+  } finally {
+    claudeLogoutLoading.value = false;
+  }
+}
 
 function stopClaudeLoginPoll() {
   if (claudeLoginPollTimer) {
