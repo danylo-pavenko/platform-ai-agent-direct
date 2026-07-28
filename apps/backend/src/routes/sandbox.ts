@@ -8,6 +8,7 @@ import {
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
+  loadKnowledgePack,
 } from '../services/prompt-builder.js';
 
 // ---------------------------------------------------------------------------
@@ -66,11 +67,13 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
       const now = new Date();
       const workingHours = await getWorkingHours();
       const catalogSnippet = await loadCatalogSnippet();
+      const knowledgePack = await loadKnowledgePack();
       const isOutOfHours = !isWithinWorkingHours(now, workingHours);
 
       const systemPrompt = buildRuntimePrompt({
         activePromptContent: promptContent,
         catalogSnippet,
+        knowledgePack,
         currentTime: now,
         workingHours,
         conversationState: 'bot',

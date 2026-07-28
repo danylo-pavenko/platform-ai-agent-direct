@@ -80,7 +80,7 @@ async function main() {
           version: 1,
           content,
           author: 'human',
-          changeSummary: 'Initial system prompt (Version 3)',
+          changeSummary: 'Initial system prompt (generic sales agent template)',
           isActive: true,
         },
       });

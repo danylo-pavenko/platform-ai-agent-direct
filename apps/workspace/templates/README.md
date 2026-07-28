@@ -40,6 +40,19 @@ For a tenant running as Linux user `blessed` with the default path:
 CRM sync and live next to the other knowledge files so the prompt builder
 can inject them.
 
+### Runtime injection (sales / follow-up / sandbox)
+
+On each Claude turn the prompt builder loads:
+
+1. **Active system prompt** from DB (seeded once from `prompts/sales-agent.txt`).
+2. **KNOWLEDGE PACK** — `knowledge/{brand,contacts,delivery,faq,categories}.txt`
+   concatenated into the session block (per-file / pack size caps).
+3. **Catalog snapshot** — live `catalog.txt` (or empty until CRM sync).
+
+Fill the TODO stubs in knowledge files during onboarding. Empty or TODO
+lines mean the agent must escalate — not invent facts. Existing tenants
+keep their copies: bootstrap never overwrites `$TENANT_KNOWLEDGE_DIR`.
+
 Tone of voice and sales rules in these prompts also shape **Smart-trigger**
 remarketing: the follow-up job reuses the same system prompt + conversation
 history (no separate reminder template).

@@ -40,8 +40,8 @@ function envCoerceNumber(opts: {
 const envSchema = z.object({
   // Identity
   INSTANCE_ID: z.string().default('sb'),
-  INSTANCE_NAME: z.string().default('StatusBlessed'),
-  BRAND_NAME: z.string().default('Status Blessed'),
+  INSTANCE_NAME: z.string().default('MyShop'),
+  BRAND_NAME: z.string().default('My Shop'),
 
   // Domains
   ADMIN_DOMAIN: z.string(),

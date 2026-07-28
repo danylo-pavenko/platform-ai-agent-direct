@@ -30,6 +30,7 @@ import {
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
+  loadKnowledgePack,
   type ClientProfile,
 } from './prompt-builder.js';
 import { formatBranchesForPrompt } from './branches.js';
@@ -228,6 +229,7 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
 
       const activePrompt = await getActivePrompt();
       const catalog = await loadCatalogSnippet();
+      const knowledgePack = await loadKnowledgePack();
       const crmWritesEnabled = await isCrmWriteEnabled();
       const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
       const branchesList = await formatBranchesForPrompt();
@@ -237,6 +239,7 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
       const prompt = buildRuntimePrompt({
         activePromptContent: activePrompt,
         catalogSnippet: catalog,
+        knowledgePack,
         currentTime: now,
         workingHours: hours,
         conversationState: 'bot',
