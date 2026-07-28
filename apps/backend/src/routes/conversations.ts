@@ -359,6 +359,74 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return updated;
   });
 
+  const CLEAR_CHAT_CONFIRM = 'ОЧИСТИТИ ЧАТ';
+
+  /**
+   * POST /:id/clear-messages — owner-only wipe of local message history.
+   * Does not touch Instagram / Meta. Keeps client, orders, briefs, conversation row.
+   * Leaves one system note so the admin UI shows the chat was cleared.
+   */
+  app.post<{
+    Params: { id: string };
+    Body: { confirm?: string };
+  }>('/:id/clear-messages', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    if (request.body?.confirm !== CLEAR_CHAT_CONFIRM) {
+      return reply.code(400).send({
+        error: `Для підтвердження надішліть confirm: "${CLEAR_CHAT_CONFIRM}"`,
+        code: 'CONFIRM_REQUIRED',
+      });
+    }
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: request.params.id },
+      select: { id: true },
+    });
+    if (!conversation) {
+      return reply.code(404).send({ error: 'Conversation not found' });
+    }
+
+    const deletedMessages = await prisma.message.count({
+      where: { conversationId: conversation.id },
+    });
+
+    const now = new Date();
+    const systemNote =
+      '🧹 Локальну переписку очищено\n\nАдмін видалив історію з бази платформи. Instagram не змінювався — контекст для агента скинуто.';
+
+    const note = await prisma.$transaction(async (tx) => {
+      await tx.message.deleteMany({
+        where: { conversationId: conversation.id },
+      });
+      await tx.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          lastMessageAt: now,
+          followUpSentAt: null,
+        },
+      });
+      return tx.message.create({
+        data: {
+          conversationId: conversation.id,
+          direction: 'system',
+          sender: 'system',
+          text: systemNote,
+          createdAt: now,
+        },
+      });
+    });
+
+    request.log.warn(
+      { conversationId: conversation.id, deletedMessages },
+      'Conversation message history cleared by owner',
+    );
+
+    return {
+      ok: true,
+      deletedMessages,
+      message: note,
+    };
+  });
+
   // PUT /clients/:clientId - Manually update client profile from admin
   app.put<{
     Params: { clientId: string };

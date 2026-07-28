@@ -185,6 +185,18 @@
             >
               Бот вимкнено для цієї розмови
             </v-chip>
+            <v-spacer />
+            <v-btn
+              v-if="authStore.isOwner"
+              size="small"
+              color="error"
+              variant="tonal"
+              prepend-icon="mdi-message-text-remove-outline"
+              :disabled="clearChatLoading"
+              @click="clearChatDialog = true"
+            >
+              Очистити переписку
+            </v-btn>
           </div>
           <div class="text-caption text-medium-emphasis">
             <template v-if="isGloballyIgnored">
@@ -443,6 +455,59 @@
       </div>
     </div>
 
+    <v-dialog v-model="clearChatDialog" max-width="520" persistent>
+      <v-card>
+        <v-card-title class="text-error d-flex align-center ga-2">
+          <v-icon color="error">mdi-message-text-remove-outline</v-icon>
+          Очистити переписку?
+        </v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-2">
+            Видалить <strong>усі повідомлення</strong> цієї розмови з бази платформи.
+            Instagram у Meta <strong>не змінюється</strong> — лише локальна історія для агента й адмінки.
+          </p>
+          <p class="text-caption text-medium-emphasis mb-3">
+            Клієнт, замовлення та оцінка ліда залишаться. Контекст для Claude буде порожнім,
+            доки не зʼявляться нові повідомлення.
+          </p>
+          <v-alert type="warning" variant="tonal" density="compact" class="mb-3">
+            Щоб підтвердити, введіть
+            <code class="text-error">{{ clearChatConfirmPhrase }}</code>
+          </v-alert>
+          <v-text-field
+            v-model="clearChatConfirmInput"
+            label="Підтвердження"
+            variant="outlined"
+            density="compact"
+            hide-details
+            autocomplete="off"
+            :disabled="clearChatLoading"
+            @keyup.enter="confirmClearChat"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn
+            variant="text"
+            :disabled="clearChatLoading"
+            @click="closeClearChatDialog"
+          >
+            Скасувати
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            prepend-icon="mdi-delete-outline"
+            :loading="clearChatLoading"
+            :disabled="!clearChatConfirmReady || clearChatLoading"
+            @click="confirmClearChat"
+          >
+            Очистити
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000">
       {{ snackbarText }}
     </v-snackbar>
@@ -455,6 +520,7 @@ import type { PropType } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
+import { useAuthStore } from '@/stores/auth';
 import { formatChatPlain } from '@/lib/chatDisplay';
 import {
   getMessageMediaItems,
@@ -464,6 +530,7 @@ import {
 
 const { mobile } = useDisplay();
 const router = useRouter();
+const authStore = useAuthStore();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -553,6 +620,51 @@ const sending = ref(false);
 const sendError = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const showProfile = ref(true);
+
+const CLEAR_CHAT_CONFIRM = 'ОЧИСТИТИ ЧАТ';
+const clearChatDialog = ref(false);
+const clearChatConfirmInput = ref('');
+const clearChatLoading = ref(false);
+const clearChatConfirmPhrase = CLEAR_CHAT_CONFIRM;
+const clearChatConfirmReady = computed(
+  () => clearChatConfirmInput.value.trim() === CLEAR_CHAT_CONFIRM,
+);
+
+function closeClearChatDialog() {
+  clearChatDialog.value = false;
+  clearChatConfirmInput.value = '';
+}
+
+async function confirmClearChat() {
+  if (!clearChatConfirmReady.value || clearChatLoading.value || !conversation.value) return;
+  clearChatLoading.value = true;
+  try {
+    const { data } = await api.post<{
+      ok: boolean;
+      deletedMessages: number;
+      message: Message;
+    }>(`/conversations/${conversation.value.id}/clear-messages`, {
+      confirm: CLEAR_CHAT_CONFIRM,
+    });
+    messages.value = data.message ? [data.message] : [];
+    if (conversation.value) {
+      conversation.value.lastMessageAt = data.message?.createdAt ?? conversation.value.lastMessageAt;
+    }
+    closeClearChatDialog();
+    showSnack(
+      data.deletedMessages > 0
+        ? `Переписку очищено (${data.deletedMessages} повід.)`
+        : 'Переписка вже була порожня',
+    );
+    await nextTick();
+    scrollToBottom();
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    showSnack(err.response?.data?.error ?? 'Не вдалося очистити переписку', 'error');
+  } finally {
+    clearChatLoading.value = false;
+  }
+}
 
 /** While true, live poll must not overwrite `conversation.client` (admin is editing the form). */
 const profileEditing = ref(false);
