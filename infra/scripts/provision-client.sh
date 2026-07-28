@@ -12,7 +12,10 @@
 # Examples:
 #   bash provision-client.sh blessed Blessed api.status-blessed.com agent.status-blessed.com 3100 3101
 #   bash provision-client.sh cultura "Cultura Barbershop" --platform 3200 3201
-#   bash provision-client.sh acme "Acme Store" --platform-auto
+#   LINUX_PASSWORD='MyPass!' bash provision-client.sh acme "Acme Store" --platform-auto
+#
+# Sets a Linux login password (generated or LINUX_PASSWORD) and configures
+# pm2 startup (systemd) so tenant processes resurrect after reboot.
 #
 # See docs/TENANT-DOMAINS-AND-SCALING.md for DNS, wildcard TLS, and multi-server roadmap.
 #
@@ -112,9 +115,9 @@ if [ "${INSTANCE_EXISTS}" = false ]; then
   done
 fi
 
-# ── 1. Linux user ──
+# ── 1. Linux user (+ password for sudo / interactive login) ──
 echo ""
-echo "[1/8] Creating Linux user '${LINUX_USER}'..."
+echo "[1/9] Creating Linux user '${LINUX_USER}'..."
 if ! id "${LINUX_USER}" &>/dev/null; then
   useradd -m -s /bin/bash "${LINUX_USER}"
   echo "  Created: ${LINUX_USER} (home: /home/${LINUX_USER})"
@@ -125,6 +128,30 @@ fi
 # Re-resolve APP_DIR now that user definitely exists
 USER_HOME=$(getent passwd "${LINUX_USER}" | cut -d: -f6)
 APP_DIR="${USER_HOME}/platform-ai-agent-direct"
+
+# Password: LINUX_PASSWORD env override, else generate. Always (re)set so
+# existing tenants get a usable password on re-provision (needed for sudo /
+# interactive pm2 ops). Printed once in summary + root credentials file.
+if [[ -n "${LINUX_PASSWORD:-}" ]]; then
+  LINUX_PASS="${LINUX_PASSWORD}"
+  echo "  Using LINUX_PASSWORD from environment"
+else
+  LINUX_PASS="${INSTANCE_ID_UPPER}-linux-$(openssl rand -hex 4)!"
+fi
+echo "${LINUX_USER}:${LINUX_PASS}" | chpasswd
+echo "  Linux password set for '${LINUX_USER}'"
+
+CREDS_DIR="/root/platform-tenant-credentials"
+mkdir -p "${CREDS_DIR}"
+chmod 700 "${CREDS_DIR}"
+cat > "${CREDS_DIR}/${LINUX_USER}" <<CREDS
+linux_user=${LINUX_USER}
+linux_password=${LINUX_PASS}
+home=${USER_HOME}
+set_at=$(date -Iseconds)
+CREDS
+chmod 600 "${CREDS_DIR}/${LINUX_USER}"
+echo "  Credentials saved: ${CREDS_DIR}/${LINUX_USER} (root only)"
 
 # ── 1b. SSH for git clone + admin login (from PROVISION_SOURCE_USER) ──
 PROVISION_SOURCE_USER="${PROVISION_SOURCE_USER:-agentsadmin}"
@@ -168,7 +195,7 @@ if getent passwd "${PROVISION_SOURCE_USER}" &>/dev/null; then
 fi
 
 # ── 2. PostgreSQL ──
-echo "[2/8] Creating PostgreSQL database '${PG_DB}'..."
+echo "[2/9] Creating PostgreSQL database '${PG_DB}'..."
 systemctl start postgresql
 
 # Reuse existing password if re-provisioning
@@ -189,7 +216,7 @@ DB_URL="postgresql://${PG_USER}:${PG_PASS}@localhost:5432/${PG_DB}"
 echo "  Database: ${PG_DB}, User: ${PG_USER}"
 
 # ── 3. Clone platform repo ──
-echo "[3/8] Cloning platform repo to ${APP_DIR}..."
+echo "[3/9] Cloning platform repo to ${APP_DIR}..."
 if [ -d "${APP_DIR}/.git" ]; then
   echo "  Repo already exists — pulling latest..."
   sudo -u "${LINUX_USER}" git -C "${APP_DIR}" pull --ff-only
@@ -219,7 +246,7 @@ else
 fi
 
 # ── 4. Generate .env ──
-echo "[4/8] Generating .env for ${INSTANCE_ID_UPPER}..."
+echo "[4/9] Generating .env for ${INSTANCE_ID_UPPER}..."
 ENV_FILE="${APP_DIR}/.env"
 JWT_SECRET=$(openssl rand -hex 32)
 ADMIN_PASS="${INSTANCE_ID_UPPER}-change-me-$(date +%Y)!"
@@ -322,7 +349,7 @@ else
 fi
 
 # ── 5. NGINX vhost ──
-echo "[5/8] Creating NGINX vhost for ${API_DOMAIN} + ${ADMIN_DOMAIN}..."
+echo "[5/9] Creating NGINX vhost for ${API_DOMAIN} + ${ADMIN_DOMAIN}..."
 NGINX_CONF="/etc/nginx/sites-available/${INSTANCE_ID}-agent.conf"
 
 # Temporary HTTP config for certbot
@@ -348,7 +375,7 @@ mkdir -p /var/www/certbot
 nginx -t && systemctl reload nginx
 
 # ── 6. TLS certificates ──
-echo "[6/8] Obtaining TLS certificates..."
+echo "[6/9] Obtaining TLS certificates..."
 WILDCARD_SSL_DIR="$(tenant_domains_resolve_ssl_cert_dir "${API_DOMAIN}" "${ADMIN_DOMAIN}")"
 if [[ -n "${WILDCARD_SSL_DIR}" ]]; then
   ADMIN_SSL_DIR="${WILDCARD_SSL_DIR}"
@@ -455,7 +482,7 @@ NGINX
 nginx -t && systemctl reload nginx
 
 # ── 7. Register tenant in super-admin DB ──
-echo "[7/8] Registering tenant in platform_admin DB..."
+echo "[7/9] Registering tenant in platform_admin DB..."
 SA_DB_EXISTS=$(sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='platform_admin'" | tr -d ' \n')
 if [ "${SA_DB_EXISTS}" = "1" ]; then
   sudo -u postgres psql -d platform_admin -c "
@@ -478,14 +505,32 @@ else
   echo "  platform_admin DB not found — skipping registration"
 fi
 
-# ── 8. Sudoers for deploy ──
-echo "[8/8] Configuring deploy permissions..."
+# ── 8. Sudoers for deploy + install PM2 startup helper ──
+echo "[8/9] Configuring deploy permissions..."
+install -m 755 "${SCRIPT_DIR}/platform-pm2-startup.sh" /usr/local/sbin/platform-pm2-startup
+
 SUDOERS_FILE="/etc/sudoers.d/${LINUX_USER}-deploy"
 cat > "${SUDOERS_FILE}" <<SUDOERS
-# Allow ${LINUX_USER} to reload nginx
+# Allow ${LINUX_USER} to reload nginx and ensure PM2 boot resurrect
 ${LINUX_USER} ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx
+${LINUX_USER} ALL=(ALL) NOPASSWD: /usr/local/sbin/platform-pm2-startup ${LINUX_USER} ${USER_HOME}
 SUDOERS
 chmod 440 "${SUDOERS_FILE}"
+if ! visudo -cf "${SUDOERS_FILE}" >/dev/null 2>&1; then
+  echo "ERROR: invalid sudoers at ${SUDOERS_FILE}" >&2
+  exit 1
+fi
+echo "  Sudoers: ${SUDOERS_FILE}"
+echo "  Helper:  /usr/local/sbin/platform-pm2-startup"
+
+# ── 9. PM2 startup (systemd resurrect on reboot) ──
+echo "[9/9] Configuring PM2 startup for '${LINUX_USER}'..."
+if command -v pm2 >/dev/null 2>&1; then
+  /usr/local/sbin/platform-pm2-startup "${LINUX_USER}" "${USER_HOME}" || \
+    echo "  WARN: pm2 startup failed — re-run after pm2 is installed, or from deploy"
+else
+  echo "  WARN: pm2 not installed yet — deploy-client.sh will configure startup via sudo"
+fi
 
 # ── Summary ──
 echo ""
@@ -502,8 +547,10 @@ echo "  ┌───────────────────────
 echo "  │ DATABASE_URL written to ${ENV_FILE} (chmod 600)"
 echo "  │ Admin password: ${ADMIN_PASS}  (also in .env DEFAULT_ADMIN_PASSWORD)"
 echo "  │ TG admin pass:  ${TG_ADMIN_PASS}"
-echo "  │ Linux login:    SSH key only (authorized_keys from ${PROVISION_SOURCE_USER})"
-echo "  │                no Linux password is set or stored"
+echo "  │ Linux password: ${LINUX_PASS}"
+echo "  │                (also: ${CREDS_DIR}/${LINUX_USER})"
+echo "  │ Linux login:    password + SSH keys from ${PROVISION_SOURCE_USER}"
+echo "  │ PM2 on boot:    platform-pm2-startup → pm2-${LINUX_USER}.service"
 echo "  └──────────────────────────────────────────────────────────┘"
 echo ""
 echo "  REQUIRED MANUAL STEPS:"

@@ -6,6 +6,7 @@ import { prisma } from './lib/prisma.js';
 import { authPlugin } from './lib/auth.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { authRoutes } from './routes/admin-auth.js';
+import { adminUsersRoutes } from './routes/admin-users.js';
 import { syncRoutes } from './routes/sync.js';
 import { conversationRoutes } from './routes/conversations.js';
 import { promptRoutes } from './routes/prompts.js';
@@ -56,6 +57,7 @@ await app.register(authPlugin);
 // Routes
 await app.register(webhookRoutes);
 await app.register(authRoutes, { prefix: '/auth' });
+await app.register(adminUsersRoutes, { prefix: '/admin/users' });
 await app.register(syncRoutes, { prefix: '/sync' });
 await app.register(conversationRoutes, { prefix: '/conversations' });
 await app.register(promptRoutes, { prefix: '/prompts' });

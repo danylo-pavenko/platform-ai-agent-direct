@@ -172,6 +172,28 @@ pm2_deploy_apps() {
   done
 }
 
+# Ensure systemd resurrects this user's PM2 dump after reboot.
+# Prefer passwordless helper installed by provision-client.sh.
+ensure_pm2_startup() {
+  local unit="pm2-${USER}.service"
+  local helper="/usr/local/sbin/platform-pm2-startup"
+
+  if systemctl is-enabled "${unit}" >/dev/null 2>&1; then
+    echo "  PM2 startup: ${unit} already enabled"
+    return 0
+  fi
+
+  if [[ -x "${helper}" ]] && sudo -n "${helper}" "${USER}" "${HOME}" >>"${DEPLOY_LOG}" 2>&1; then
+    echo "  PM2 startup: configured (${unit})"
+    return 0
+  fi
+
+  echo "  WARN: PM2 startup not enabled for ${USER} (processes will not auto-start after reboot)." >&2
+  echo "        As root: ${helper} ${USER} ${HOME}" >&2
+  echo "        Or re-run provision-client.sh (sets Linux password + pm2 startup + sudoers)." >&2
+  return 0
+}
+
 echo "══════════════════════════════════════════════"
 echo "  Deploy: ${INSTANCE_NAME:-${INSTANCE_ID_UPPER}}"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
@@ -385,9 +407,11 @@ fi
 
 if [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ] && [ "${WHISPER_OK}" = "1" ]; then
   pm2 save
+  ensure_pm2_startup
   HEALTH_STATE="OK"
 elif [ "${API_OK}" = "1" ] && [ "${ADMIN_OK}" = "1" ]; then
   pm2 save
+  ensure_pm2_startup
   HEALTH_STATE="OK (Whisper STT degraded)"
 else
   HEALTH_STATE="FAILED"

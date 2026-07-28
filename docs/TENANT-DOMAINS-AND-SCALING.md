@@ -234,24 +234,37 @@ Per-domain certbot, як раніше.
 
 | Крок | Коли | Де зберігається |
 |------|------|-----------------|
-| Linux user (`useradd`) | Provision | Без пароля — лише SSH по ключу |
+| Linux user (`useradd` + password) | Provision | Пароль → summary + `/root/platform-tenant-credentials/<user>` (root only). Override: `LINUX_PASSWORD=...` |
 | PostgreSQL user + DB | Provision | Пароль БД → `~/platform-ai-agent-direct/.env` (`DATABASE_URL`, `chmod 600`) |
 | JWT, admin/TG паролі | Provision (новий `.env`) | Той самий `.env` |
 | `authorized_keys` | Provision | Копія з `agentsadmin` → `~tenant/.ssh/authorized_keys` |
 | Git clone (deploy key) | Provision | Копія `id_ed25519` з `agentsadmin` (outbound), якщо у tenant ще немає ключа |
 | Prisma migrate + seed | **Deploy** (super-admin або вручну) | — |
-| PM2, nginx vhost | Deploy | — |
+| PM2 + `pm2 startup` (systemd) | Provision + Deploy | Unit `pm2-<user>.service`; helper `/usr/local/sbin/platform-pm2-startup` |
+| nginx vhost | Provision / Deploy | — |
 | `claude auth login` | **Вручну** (tenant admin Settings або SSH) | CLI ставиться автоматично (`setup-claude-cli.sh`); OAuth — інтерактивно |
 
-**Пароль Linux user не генерується і ніде не зберігається** — це навмисно. Доступ оператора:
+**Linux password** генерується при кожному provision (або береться з `LINUX_PASSWORD`). SSH-ключі лишаються основним способом входу. Для вже створених юзерів без пароля — повторний idempotent `provision-client.sh` або вручну:
+
+```bash
+# As root — one-shot for an existing tenant user:
+LINUX_PASSWORD='MySecurePass!' bash infra/scripts/provision-client.sh …   # resets password + pm2 startup
+# or minimal:
+echo 'cultura:MySecurePass!' | chpasswd
+install -m 755 infra/scripts/platform-pm2-startup.sh /usr/local/sbin/platform-pm2-startup
+/usr/local/sbin/platform-pm2-startup cultura /home/cultura
+# then as tenant: pm2 save
+```
+
+Доступ оператора:
 
 1. SSH як `agentsadmin` (ваш ключ у `~agentsadmin/.ssh/authorized_keys`).
-2. `sudo -u cultura -i` або `ssh cultura@host` (той самий ключ скопійовано в tenant `authorized_keys` при provision).
+2. `sudo -u cultura -i` або `ssh cultura@host` (ключ +/або Linux password з provision).
 3. Для super-admin deploy з UI: один раз на VPS встановити sudoers — `infra/sudoers/agentsadmin-platform.conf` → `/etc/sudoers.d/agentsadmin-platform`.
 
-Tenant user має **обмежений** sudo лише на `systemctl reload nginx` (`/etc/sudoers.d/{user}-deploy`). Повні операції — через `agentsadmin` + `sudo -u tenant`.
+Tenant user має **обмежений** sudo: `systemctl reload nginx` + `/usr/local/sbin/platform-pm2-startup <user> <home>` (`/etc/sudoers.d/{user}-deploy`). Повні операції — через `agentsadmin` + `sudo -u tenant`.
 
-Креденшали БД/admin **не** потрапляють у super-admin DB — лише в tenant `.env` на диску. У логах provision пароль БД не друкується повним `DATABASE_URL` (лише шлях до файлу).
+Креденшали БД/admin **не** потрапляють у super-admin DB — лише в tenant `.env` на диску. Linux password — лише в root credentials file + provision summary (не в tenant `.env`). У логах provision пароль БД не друкується повним `DATABASE_URL` (лише шлях до файлу).
 
 ### Після provision (обидва режими)
 

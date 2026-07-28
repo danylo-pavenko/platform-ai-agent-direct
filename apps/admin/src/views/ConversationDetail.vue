@@ -173,7 +173,9 @@
               color="orange"
               variant="tonal"
             >
-              Зараз відповідає менеджер
+              {{ conversation.assigneeLabel
+                ? `Взяв: ${conversation.assigneeLabel}`
+                : 'Зараз відповідає менеджер' }}
             </v-chip>
             <v-chip
               v-else-if="conversation.state === 'paused'"
@@ -519,6 +521,7 @@ interface ConversationData {
   orders?: Array<{ id: string; status: string; items: unknown[] }>;
   briefQuality?: number | null;
   briefQualityNote?: string | null;
+  assigneeLabel?: string | null;
 }
 
 interface LeadSummary {
@@ -705,6 +708,10 @@ function applyLiveUpdate(data: LivePollPayload) {
     conv.briefQuality !== undefined ? conv.briefQuality : conversation.value.briefQuality;
   conversation.value.briefQualityNote =
     conv.briefQualityNote !== undefined ? conv.briefQualityNote : conversation.value.briefQualityNote;
+  if ('assigneeLabel' in conv) {
+    conversation.value.assigneeLabel =
+      (conv as { assigneeLabel?: string | null }).assigneeLabel ?? null;
+  }
 
   if (!profileEditing.value) {
     conversation.value.client = { ...conversation.value.client, ...client };

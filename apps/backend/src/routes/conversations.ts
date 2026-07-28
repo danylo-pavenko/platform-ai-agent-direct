@@ -6,6 +6,11 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { fetchClientCrmHistory, linkClientToCrm } from '../services/client-crm-link.js';
+import {
+  resolveConversationAssignee,
+  resolveConversationAssignees,
+} from '../lib/conversation-assignee.js';
+import { formatAdminLabel } from '../lib/admin-user.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
   // GET / - List conversations
@@ -67,9 +72,17 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       prisma.conversation.count({ where }),
     ]);
 
+    const assignees = await resolveConversationAssignees(rows.map((c) => c.handedOffTo));
+
     const data = rows.map((c) => {
       const { messages, ...rest } = c;
-      return { ...rest, hasManagerReply: messages.length > 0 };
+      const assignee = c.handedOffTo ? assignees.get(c.handedOffTo) ?? null : null;
+      return {
+        ...rest,
+        hasManagerReply: messages.length > 0,
+        assignee,
+        assigneeLabel: assignee ? formatAdminLabel(assignee) : null,
+      };
     });
 
     return { data, total, page, limit };
@@ -106,6 +119,8 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       : [];
     const newMessages = dedupeConversationMessages(newMessagesRaw);
 
+    const assignee = await resolveConversationAssignee(row.handedOffTo);
+
     return {
       conversation: {
         id: row.id,
@@ -113,11 +128,15 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
         state: row.state,
         intent: row.intent,
         handoffReason: row.handoffReason,
+        handedOffTo: row.handedOffTo,
+        handedOffAt: row.handedOffAt,
         lastMessageAt: row.lastMessageAt,
         firstInboundAt: row.firstInboundAt,
         createdAt: row.createdAt,
         briefQuality: row.briefQuality,
         briefQualityNote: row.briefQualityNote,
+        assignee,
+        assigneeLabel: assignee ? formatAdminLabel(assignee) : null,
       },
       client: row.client,
       newMessages,
@@ -141,9 +160,13 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Conversation not found' });
     }
 
+    const assignee = await resolveConversationAssignee(conversation.handedOffTo);
+
     return {
       ...conversation,
       messages: dedupeConversationMessages(conversation.messages),
+      assignee,
+      assigneeLabel: assignee ? formatAdminLabel(assignee) : null,
     };
   });
 
@@ -190,13 +213,20 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       where: { id: conversation.id },
       data: {
         lastMessageAt: now,
+        handedOffTo: request.user.id,
         ...(conversation.state === 'bot'
           ? {
               state: 'handoff',
               handoffReason: 'Менеджер відповів з адмінки',
               handedOffAt: now,
             }
-          : {}),
+          : conversation.state !== 'handoff'
+            ? {
+                state: 'handoff',
+                handoffReason: conversation.handoffReason ?? 'Менеджер відповів з адмінки',
+                handedOffAt: conversation.handedOffAt ?? now,
+              }
+            : {}),
         ...(conversation.firstOutboundAt ? {} : { firstOutboundAt: now }),
       },
     });

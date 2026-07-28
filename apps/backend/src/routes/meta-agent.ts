@@ -233,7 +233,7 @@ async function createPromptVersion(params: {
 export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: ChatBody }>(
     '/chat',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { message, history, currentPromptContent, conversationContext, useFullPrompt } =
         request.body ?? {};
@@ -302,7 +302,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Body: ApplyBody }>(
     '/apply',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { before, after, summary, activate, basePromptId } = request.body ?? {};
 
@@ -377,7 +377,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
   /** Apply multiple diffs atomically on one working copy → one new version. */
   app.post<{ Body: ApplyBatchBody }>(
     '/apply-batch',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { diffs, summary, activate, basePromptId } = request.body ?? {};
 

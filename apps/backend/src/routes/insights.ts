@@ -90,7 +90,7 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
 export async function insightsRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { period?: string } }>(
     '/snapshot',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request) => {
       const period = parseInsightsPeriod(request.query.period);
       return buildInsightsSnapshot(period);
@@ -99,7 +99,7 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/chat',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const parsed = chatBodySchema.safeParse(request.body);
       if (!parsed.success) {

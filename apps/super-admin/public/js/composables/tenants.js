@@ -5,8 +5,11 @@ import {
   PLATFORM_BASE_DOMAIN,
   SLUG_RE,
   emptyForm,
+  extractLinuxPassword,
   platformDomainsForSlug,
   sanitizeSlug,
+  stripLinuxPasswordFromEnvExtra,
+  withLinuxPasswordInEnvExtra,
 } from '../constants.js';
 import { isoToLocalInput, tenantWhisperPort } from '../utils.js';
 
@@ -280,7 +283,7 @@ export function createTenants(deps) {
     const local = (workers?.value || []).find((w) => w.kind === 'local')
       || (workers?.value || [])[0];
     if (local) modal.form.serverId = local.id;
-    modal.advancedOpen = false;
+    modal.advancedOpen = true;
     modal.open = true;
     portDefaults.nextPorts = null;
     portDefaults.registeredPortPairs = [];
@@ -304,7 +307,8 @@ export function createTenants(deps) {
       appDir: t.appDir,
       status: t.status,
       gitRepo: t.gitRepo || DEFAULT_GIT_REPO,
-      envExtra: t.envExtra || '',
+      envExtra: stripLinuxPasswordFromEnvExtra(t.envExtra || ''),
+      linuxPassword: extractLinuxPassword(t.envExtra || ''),
       instagramUserId: t.instagramUserId || '',
       instagramRoutingIdsText: Array.isArray(t.instagramRoutingIds)
         ? t.instagramRoutingIds.filter((id) => id && id !== t.instagramUserId).join(', ')
@@ -341,13 +345,14 @@ export function createTenants(deps) {
     try {
       const url = modal.editing ? `${BASE}/tenants/${modal.editing}` : `${BASE}/tenants`;
       const method = modal.editing ? 'PUT' : 'POST';
-      const { accessMode, accessExpiresAt, instagramRoutingIdsText, domainMode, ...rest } = modal.form;
+      const { accessMode, accessExpiresAt, instagramRoutingIdsText, domainMode, linuxPassword, ...rest } = modal.form;
       const routingExtra = (instagramRoutingIdsText || '')
         .split(',')
         .map((s) => s.trim())
         .filter((s) => /^\d+$/.test(s));
       const payload = {
         ...rest,
+        envExtra: withLinuxPasswordInEnvExtra(rest.envExtra, linuxPassword),
         accessExpiresAt: accessMode === 'until' ? new Date(accessExpiresAt).toISOString() : null,
         ...(routingExtra.length > 0 ? { instagramRoutingIds: routingExtra } : { instagramRoutingIds: [] }),
       };

@@ -93,14 +93,22 @@
           </template>
 
           <template #item.state="{ item }">
-            <v-chip
-              :color="stateColor(item.state)"
-              size="small"
-              label
-              class="state-chip font-weight-medium"
-            >
-              {{ stateLabel(item.state) }}
-            </v-chip>
+            <div class="d-flex flex-column ga-1">
+              <v-chip
+                :color="stateColor(item.state)"
+                size="small"
+                label
+                class="state-chip font-weight-medium"
+              >
+                {{ stateLabel(item.state) }}
+              </v-chip>
+              <div
+                v-if="item.state === 'handoff' && item.assigneeLabel"
+                class="text-caption text-medium-emphasis"
+              >
+                {{ item.assigneeLabel }}
+              </div>
+            </div>
           </template>
 
           <template #item.lastMessageAt="{ item }">
@@ -136,6 +144,7 @@ interface Conversation {
   state: string;
   lastMessageAt: string;
   hasManagerReply?: boolean;
+  assigneeLabel?: string | null;
 }
 
 const router = useRouter();

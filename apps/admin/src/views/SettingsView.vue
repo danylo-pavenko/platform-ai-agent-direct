@@ -27,7 +27,7 @@
           />
           <v-card variant="outlined" class="settings-nav-card mb-4 d-none d-lg-block">
             <v-list density="compact" nav>
-              <template v-for="(group, gi) in settingsNavGroups" :key="group.label">
+              <template v-for="(group, gi) in visibleSettingsNavGroups" :key="group.label">
                 <v-divider v-if="gi > 0" class="my-2" />
                 <v-list-subheader>{{ group.label }}</v-list-subheader>
                 <v-list-item
@@ -41,14 +41,16 @@
                   @click="selectSection(item.id)"
                 />
               </template>
-              <v-divider class="my-2" />
-              <v-list-item
-                prepend-icon="mdi-sync"
-                title="Синхронізація"
-                subtitle="Каталог / CRM"
-                rounded
-                :to="{ name: 'sync' }"
-              />
+              <template v-if="authStore.isOwner">
+                <v-divider class="my-2" />
+                <v-list-item
+                  prepend-icon="mdi-sync"
+                  title="Синхронізація"
+                  subtitle="Каталог / CRM"
+                  rounded
+                  :to="{ name: 'sync' }"
+                />
+              </template>
             </v-list>
           </v-card>
         </v-col>
@@ -1846,11 +1848,32 @@
           Обліковий запис
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Зміна пароля для входу в цю панель. Логін:
+          Логін:
           <strong>{{ accountUsername }}</strong>
-          (зазвичай <code>admin</code>).
+          <span v-if="authStore.user?.role === 'manager'"> · роль менеджера</span>
         </v-card-subtitle>
         <v-card-text>
+          <v-text-field
+            v-model="displayNameForm"
+            label="Відображуване імʼя"
+            variant="outlined"
+            density="compact"
+            hint="Показується в діалогах, коли ви берете чат"
+            persistent-hint
+            class="mb-2"
+          />
+          <v-btn
+            class="mb-6"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-content-save"
+            :loading="displayNameSaving"
+            :disabled="displayNameSaving"
+            @click="submitDisplayName"
+          >
+            Зберегти імʼя
+          </v-btn>
+
           <v-alert
             v-if="passwordChangeError"
             type="error"
@@ -1914,7 +1937,7 @@
       </v-card>
 
       <!-- Danger zone -->
-      <v-card class="mb-4 danger-zone-card" variant="outlined">
+      <v-card v-if="authStore.isOwner" class="mb-4 danger-zone-card" variant="outlined">
         <v-card-title class="d-flex align-center text-error">
           <v-icon start color="error">mdi-alert-octagon-outline</v-icon>
           Небезпечна зона
@@ -1946,6 +1969,9 @@
       </v-alert>
       <v-snackbar v-model="passwordChangeSuccess" color="success" :timeout="4000">
         Пароль змінено. Сесію оновлено.
+      </v-snackbar>
+      <v-snackbar v-model="displayNameSuccess" color="success" :timeout="4000">
+        Імʼя збережено
       </v-snackbar>
       <v-snackbar v-model="success" color="success" :timeout="3000">
         Налаштування збережено
@@ -2150,6 +2176,7 @@ import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
 const settingsNavGroups = [
   {
     label: 'Система',
+    ownerOnly: true,
     items: [
       { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
       { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
@@ -2159,6 +2186,7 @@ const settingsNavGroups = [
   },
   {
     label: 'CRM і філії',
+    ownerOnly: true,
     items: [
       { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
       { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
@@ -2166,6 +2194,7 @@ const settingsNavGroups = [
   },
   {
     label: 'Інтеграції',
+    ownerOnly: true,
     items: [
       { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
       { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
@@ -2177,6 +2206,7 @@ const settingsNavGroups = [
   },
   {
     label: 'Акаунт',
+    ownerOnly: false,
     items: [
       { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
     ],
@@ -2185,7 +2215,15 @@ const settingsNavGroups = [
 
 type SettingsSectionId = (typeof settingsNavGroups)[number]['items'][number]['id'];
 
-const settingsNavFlat = settingsNavGroups.flatMap((g) => [...g.items]);
+const authStore = useAuthStore();
+
+const visibleSettingsNavGroups = computed(() =>
+  settingsNavGroups.filter((g) => !g.ownerOnly || authStore.isOwner),
+);
+
+const settingsNavFlat = computed(() =>
+  visibleSettingsNavGroups.value.flatMap((g) => [...g.items]),
+);
 
 const activeSection = ref<SettingsSectionId>('settings-health');
 const integrationsLoaded = ref(false);
@@ -2210,7 +2248,7 @@ function selectSection(id: SettingsSectionId) {
 
 function onMobileSectionSelect(id: unknown) {
   if (typeof id !== 'string') return;
-  if (!settingsNavFlat.some((item) => item.id === id)) return;
+  if (!settingsNavFlat.value.some((item) => item.id === id)) return;
   selectSection(id as SettingsSectionId);
 }
 
@@ -2227,7 +2265,6 @@ async function ensureSectionData(id: SettingsSectionId) {
   }
 }
 
-const authStore = useAuthStore();
 const accountUsername = computed(() => authStore.user?.username ?? 'admin');
 
 interface DaySchedule {
@@ -2290,6 +2327,23 @@ const showAccountSecrets = ref({
 const passwordChangeLoading = ref(false);
 const passwordChangeError = ref('');
 const passwordChangeSuccess = ref(false);
+const displayNameForm = ref(authStore.user?.displayName ?? '');
+const displayNameSaving = ref(false);
+const displayNameSuccess = ref(false);
+
+async function submitDisplayName() {
+  displayNameSaving.value = true;
+  try {
+    const name = displayNameForm.value.trim() || null;
+    await authStore.updateProfile(name);
+    displayNameForm.value = authStore.user?.displayName ?? '';
+    displayNameSuccess.value = true;
+  } catch {
+    error.value = 'Не вдалося зберегти імʼя';
+  } finally {
+    displayNameSaving.value = false;
+  }
+}
 
 async function submitPasswordChange() {
   passwordChangeError.value = '';
@@ -4031,11 +4085,24 @@ async function saveTelegramBots() {
 }
 
 onMounted(async () => {
-  await fetchSettings();
+  if (!authStore.user) {
+    await authStore.fetchUser();
+  }
+  displayNameForm.value = authStore.user?.displayName ?? '';
+
+  if (authStore.isOwner) {
+    await fetchSettings();
+  } else {
+    loading.value = false;
+    activeSection.value = 'settings-account';
+  }
+
   const hash = (typeof location !== 'undefined' ? location.hash : '').replace(/^#/, '');
-  const allIds = settingsNavGroups.flatMap((g) => g.items.map((i) => i.id));
-  if (allIds.includes(hash as SettingsSectionId)) {
+  const visibleIds = settingsNavFlat.value.map((i) => i.id);
+  if (visibleIds.includes(hash as SettingsSectionId)) {
     activeSection.value = hash as SettingsSectionId;
+  } else if (!authStore.isOwner) {
+    activeSection.value = 'settings-account';
   }
   await ensureSectionData(activeSection.value);
 });

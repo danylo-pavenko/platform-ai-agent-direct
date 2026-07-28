@@ -18,8 +18,9 @@ export const fieldHints = {
   status: 'Provisioned — запис у реєстрі, сервер ще не налаштовано. Active — розгорнуто на VPS. Suspended — блокує вхід у tenant admin.',
   accessMode: 'Обмеження підписки для tenant admin. Suspended має пріоритет над датою.',
   accessExpiresAt: 'Після цієї дати login у tenant admin буде заблоковано, доки не продовжать.',
-  envExtra: 'Додаткові змінні в .env при provision/deploy. Формат: KEY=VALUE, одна на рядок.',
-  linuxUser: 'Unix-користувач на VPS. Створюється provision-client.sh при першому Provision.',
+  envExtra: 'Додаткові змінні в .env при provision/deploy. Формат: KEY=VALUE, одна на рядок. Не пишіть сюди LINUX_PASSWORD — для нього є окреме поле в Server setup.',
+  linuxUser: 'Unix-користувач на VPS. Створюється provision-client.sh (з паролем + pm2 startup) при першому Provision.',
+  linuxPassword: 'Пароль Linux-юзера на VPS (для sudo / інтерактивного входу). Якщо порожньо — згенерується при Provision. Зберігається в Extra env як LINUX_PASSWORD (не потрапляє в tenant .env).',
   appDir: 'Шлях до клону репозиторію на сервері (/home/{slug}/platform-ai-agent-direct).',
   gitRepo: 'SSH/HTTPS URL для першого git clone при Provision.',
   serverId: 'Worker VPS, на якому буде provision/deploy цього клієнта.',
@@ -34,10 +35,41 @@ export function emptyForm() {
   return {
     instanceId: '', name: '', domainMode: 'platform', apiDomain: '', adminDomain: '',
     apiPort: 3100, adminPort: 3101, linuxUser: '', appDir: '', status: 'provisioned',
-    gitRepo: DEFAULT_GIT_REPO, envExtra: '', instagramUserId: '', instagramRoutingIdsText: '',
+    gitRepo: DEFAULT_GIT_REPO, envExtra: '', linuxPassword: '',
+    instagramUserId: '', instagramRoutingIdsText: '',
     facebookAppSecret: '', accessMode: 'unlimited', accessExpiresAt: '',
     serverId: '',
   };
+}
+
+/** Read LINUX_PASSWORD from envExtra (provision-only). */
+export function extractLinuxPassword(envExtra) {
+  const parsed = String(envExtra || '').split('\n');
+  for (const line of parsed) {
+    const t = line.trim();
+    if (t.startsWith('LINUX_PASSWORD=')) return t.slice('LINUX_PASSWORD='.length).trim();
+  }
+  return '';
+}
+
+/** Remove LINUX_PASSWORD lines from envExtra textarea display. */
+export function stripLinuxPasswordFromEnvExtra(envExtra) {
+  return String(envExtra || '')
+    .split('\n')
+    .filter((line) => {
+      const t = line.trim();
+      return !t.startsWith('LINUX_PASSWORD=');
+    })
+    .join('\n')
+    .replace(/\n+$/, '');
+}
+
+/** Upsert LINUX_PASSWORD into envExtra before API save. */
+export function withLinuxPasswordInEnvExtra(envExtra, linuxPassword) {
+  const base = stripLinuxPasswordFromEnvExtra(envExtra);
+  const pass = String(linuxPassword || '').trim();
+  if (!pass) return base;
+  return base ? `${base}\nLINUX_PASSWORD=${pass}` : `LINUX_PASSWORD=${pass}`;
 }
 
 export function emptyLinkForm() {

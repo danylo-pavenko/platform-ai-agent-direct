@@ -20,10 +20,21 @@ export function platformAccessError(access: PlatformAccess) {
       };
 }
 
+export const FORBIDDEN_ROLE = {
+  error: 'Недостатньо прав для цієї дії.',
+  code: 'FORBIDDEN_ROLE' as const,
+};
+
 declare module '@fastify/jwt' {
   interface FastifyJWT {
     payload: { sub: string; username: string; role: string };
-    user: { id: string; username: string; role: string };
+    user: {
+      id: string;
+      username: string;
+      role: string;
+      displayName: string | null;
+      isActive: boolean;
+    };
   }
 }
 
@@ -39,10 +50,18 @@ async function auth(app: FastifyInstance) {
         if (!user) {
           return reply.code(401).send({ error: 'User not found' });
         }
+        if (!user.isActive) {
+          return reply.code(401).send({
+            error: 'Обліковий запис вимкнено.',
+            code: 'ACCOUNT_DISABLED',
+          });
+        }
         request.user = {
           id: user.id,
           username: user.username,
           role: user.role,
+          displayName: user.displayName,
+          isActive: user.isActive,
         };
       } catch {
         return reply.code(401).send({ error: 'Unauthorized' });
@@ -56,6 +75,15 @@ async function auth(app: FastifyInstance) {
       }
     },
   );
+
+  app.decorate(
+    'requireOwner',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (request.user?.role !== 'owner') {
+        return reply.code(403).send(FORBIDDEN_ROLE);
+      }
+    },
+  );
 }
 
 export const authPlugin = fp(auth);
@@ -63,6 +91,10 @@ export const authPlugin = fp(auth);
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => Promise<void>;
+    requireOwner: (
       request: FastifyRequest,
       reply: FastifyReply,
     ) => Promise<void>;

@@ -73,6 +73,9 @@ export function buildProvisionClientArgs(tenant: Pick<
   ];
 }
 
+/** Keys that must NOT be merged into tenant `.env` (process-env for provision only). */
+const PROVISION_ONLY_ENV_KEYS = new Set(['LINUX_PASSWORD']);
+
 /** Parse KEY=VALUE lines from super-admin envExtra textarea. */
 export function parseEnvExtra(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -108,7 +111,12 @@ export function buildEnvMergePatch(
     SA_INTERNAL_URL: saInternalUrl,
   };
   if (supervisorSecret) patch.SUPERVISOR_SHARED_SECRET = supervisorSecret;
-  if (includeEnvExtra) Object.assign(patch, parseEnvExtra(tenant.envExtra));
+  if (includeEnvExtra) {
+    for (const [key, value] of Object.entries(parseEnvExtra(tenant.envExtra))) {
+      if (PROVISION_ONLY_ENV_KEYS.has(key)) continue;
+      patch[key] = value;
+    }
+  }
   return patch;
 }
 
@@ -153,10 +161,17 @@ export async function listLiveApiPorts(): Promise<number[]> {
   }
 }
 
-export function provisionClientEnv(tenant: Pick<Tenant, 'gitRepo'>): NodeJS.ProcessEnv {
-  return {
+export function provisionClientEnv(
+  tenant: Pick<Tenant, 'gitRepo' | 'envExtra'>,
+): NodeJS.ProcessEnv {
+  const extra = parseEnvExtra(tenant.envExtra);
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PLATFORM_REPO: tenant.gitRepo || DEFAULT_TENANT_GIT_REPO,
     PROVISION_SOURCE_USER: process.env.PROVISION_SOURCE_USER || 'agentsadmin',
   };
+  if (extra.LINUX_PASSWORD) {
+    env.LINUX_PASSWORD = extra.LINUX_PASSWORD;
+  }
+  return env;
 }

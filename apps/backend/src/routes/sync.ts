@@ -9,7 +9,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
   // so a racing click or cron tick will see that and throw SyncInProgressError.
   // We peek at the same state here to give the admin a useful 409 instead of
   // swallowing the second trigger silently.
-  app.post('/trigger', { onRequest: [app.authenticate] }, async (_request, reply) => {
+  app.post('/trigger', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
     const inFlight = await prisma.crmSyncRun.findFirst({
       where: { status: 'running', finishedAt: null },
       orderBy: { startedAt: 'desc' },
@@ -41,7 +41,7 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // GET /sync/status — return last 20 sync runs (newest first)
-  app.get('/status', { onRequest: [app.authenticate] }, async () => {
+  app.get('/status', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const runs = await prisma.crmSyncRun.findMany({
       orderBy: { startedAt: 'desc' },
       take: 20,

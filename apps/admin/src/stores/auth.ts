@@ -3,17 +3,23 @@ import { ref, computed } from 'vue';
 import api from '@/api';
 import router from '@/router';
 
-interface User {
+export interface AuthUser {
   id: string;
   username: string;
   role: string;
+  displayName?: string | null;
+  tgUserId?: string | null;
+  tgUsername?: string | null;
+  isActive?: boolean;
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(localStorage.getItem('token'));
-  const user = ref<User | null>(null);
+  const user = ref<AuthUser | null>(null);
 
   const isAuthenticated = computed(() => !!token.value);
+  const isOwner = computed(() => user.value?.role === 'owner');
+  const isManager = computed(() => user.value?.role === 'manager');
 
   async function login(username: string, password: string) {
     const { data } = await api.post('/auth/login', { username, password });
@@ -21,7 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
     router.push({ name: 'dashboard' });
   }
 
-  function setSession(newToken: string, newUser: User) {
+  function setSession(newToken: string, newUser: AuthUser) {
     token.value = newToken;
     user.value = newUser;
     localStorage.setItem('token', newToken);
@@ -41,6 +47,12 @@ export const useAuthStore = defineStore('auth', () => {
     return data;
   }
 
+  async function updateProfile(displayName: string | null) {
+    const { data } = await api.patch('/auth/me', { displayName });
+    user.value = data.user;
+    return data.user;
+  }
+
   async function fetchUser() {
     if (!token.value) return;
     try {
@@ -58,5 +70,16 @@ export const useAuthStore = defineStore('auth', () => {
     router.push({ name: 'login' });
   }
 
-  return { token, user, isAuthenticated, login, changePassword, fetchUser, logout };
+  return {
+    token,
+    user,
+    isAuthenticated,
+    isOwner,
+    isManager,
+    login,
+    changePassword,
+    updateProfile,
+    fetchUser,
+    logout,
+  };
 });

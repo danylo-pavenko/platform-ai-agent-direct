@@ -44,6 +44,7 @@
           @click="onNavClick"
         />
         <v-list-item
+          v-if="authStore.isOwner"
           prepend-icon="mdi-chart-timeline-variant-shimmer"
           title="AI-помічник"
           :to="{ name: 'insights' }"
@@ -67,12 +68,14 @@
       <div class="nav-section-label">AI агент</div>
       <v-list density="compact" nav class="px-2">
         <v-list-item
+          v-if="authStore.isOwner"
           prepend-icon="mdi-text-box-edit-outline"
           title="Промпти"
           :to="{ name: 'prompts' }"
           @click="onNavClick"
         />
         <v-list-item
+          v-if="authStore.isOwner"
           prepend-icon="mdi-brain"
           title="Навчання агента"
           :to="{ name: 'teach' }"
@@ -90,12 +93,21 @@
       <div class="nav-section-label">Система</div>
       <v-list density="compact" nav class="px-2">
         <v-list-item
+          v-if="authStore.isOwner"
+          prepend-icon="mdi-account-group-outline"
+          title="Користувачі"
+          :to="{ name: 'users' }"
+          @click="onNavClick"
+        />
+        <v-list-item
+          v-if="authStore.isOwner"
           prepend-icon="mdi-sync"
           title="Синхронізація"
           :to="{ name: 'sync' }"
           @click="onNavClick"
         />
         <v-list-item
+          v-if="authStore.isOwner"
           prepend-icon="mdi-format-list-bulleted-type"
           title="CRM-поля клієнта"
           :to="{ name: 'crm-fields' }"
@@ -145,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -161,6 +173,12 @@ const versionLabel = formatPlatformVersion();
 function onNavClick() {
   if (mobile.value) drawer.value = false;
 }
+
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    void authStore.fetchUser();
+  }
+});
 </script>
 
 <style scoped>

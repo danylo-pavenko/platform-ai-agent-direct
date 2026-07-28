@@ -16,6 +16,13 @@ import {
 import { Bot } from 'grammy';
 import { prisma } from './lib/prisma.js';
 import { sendText } from './services/instagram.js';
+import {
+  findActiveManagerByTgId,
+  managerLabelFromUser,
+  redeemTelegramLinkCode,
+  unlinkTelegramFromManager,
+} from './lib/telegram-link.js';
+import { formatAdminLabel } from './lib/admin-user.js';
 
 const log = pino({
   name: `${config.INSTANCE_ID.toUpperCase()}-bot`,
@@ -143,7 +150,9 @@ async function runBotSession(token: string): Promise<void> {
 // Set bot commands menu (visible in Telegram UI)
 bot.api.setMyCommands([
   { command: 'start', description: 'Привітання та інформація' },
-  { command: 'login', description: 'Авторизація менеджера' },
+  { command: 'link', description: 'Привʼязати Telegram (код з адмінки)' },
+  { command: 'unlink', description: 'Відвʼязати Telegram' },
+  { command: 'whoami', description: 'Хто я в системі' },
   { command: 'conversations', description: 'Активні розмови' },
   { command: 'takeover', description: 'Взяти розмову (ID)' },
   { command: 'return', description: 'Повернути розмову боту (ID)' },
@@ -153,10 +162,13 @@ bot.api.setMyCommands([
 
 // ── Helpers ──
 
-function isManagerAuthorized(tgUserId: number): Promise<boolean> {
-  return prisma.adminUser.findFirst({
-    where: { tgUserId: String(tgUserId) },
-  }).then((u) => !!u);
+async function isManagerAuthorized(tgUserId: number): Promise<boolean> {
+  const user = await findActiveManagerByTgId(tgUserId);
+  return !!user;
+}
+
+async function getAuthorizedManager(tgUserId: number) {
+  return findActiveManagerByTgId(tgUserId);
 }
 
 async function ensureManagerAuth(ctx: {
@@ -166,7 +178,7 @@ async function ensureManagerAuth(ctx: {
   if (!ctx.from) return false;
   if (await isManagerAuthorized(ctx.from.id)) return true;
   await ctx.reply(
-    'Спочатку авторизуйтесь у особистих повідомленнях з ботом:\n/login <ваш пароль>',
+    'Спочатку привʼяжіть Telegram у особистих повідомленнях з ботом:\n/link <код з адмінки>',
   );
   return false;
 }
@@ -190,14 +202,16 @@ function buildMenuKeyboard() {
 const HELP_TEXT = `Доступні команди:
 
 /start - Привітання
-/login <пароль> - Авторизація менеджера
+/link <код> - Привʼязати Telegram (код видає адмін у розділі «Користувачі»)
+/unlink - Відвʼязати Telegram
+/whoami - Хто я в системі
 /conversations - Список активних розмов
 /takeover <ID> - Взяти розмову собі
 /return <ID> - Повернути розмову боту
 /close <ID> - Закрити розмову
 /help - Ця довідка
 
-Після авторизації ви будете отримувати:
+Після привʼязки ви будете отримувати:
 • Сповіщення про ескалації та замовлення (у цей чат або в групу менеджерів)
 • Картки замовлень з кнопками Підтвердити / Відхилити
 • Повідомлення від клієнтів у режимі хендофу`;
@@ -205,16 +219,17 @@ const HELP_TEXT = `Доступні команди:
 // /start - Welcome message
 bot.command('start', async (ctx) => {
   try {
-    const authorized = await isManagerAuthorized(ctx.from!.id);
+    const manager = await getAuthorizedManager(ctx.from!.id);
 
-    if (authorized) {
+    if (manager) {
+      const label = managerLabelFromUser(manager);
       await ctx.reply(
-        `Вітаю! 👋\n\nВи авторизовані як менеджер ${config.BRAND_NAME}.\nОберіть дію:`,
+        `Вітаю! 👋\n\nВи авторизовані як ${label} (${config.BRAND_NAME}).\nОберіть дію:`,
         buildMenuKeyboard(),
       );
     } else {
       await ctx.reply(
-        `Вітаю! 👋\n\nЦе бот менеджера магазину ${config.BRAND_NAME}.\n\nДля початку роботи авторизуйтесь у цьому чаті:\n/login <ваш пароль>\n\nПісля авторизації ви зможете:\n• Отримувати сповіщення в особисті повідомлення (група не обовʼязкова)\n• Керувати розмовами з клієнтами\n• Підтверджувати замовлення`,
+        `Вітаю! 👋\n\nЦе бот менеджера магазину ${config.BRAND_NAME}.\n\nДля початку роботи попросіть адміна створити вам доступ у панелі («Користувачі») і надішліть сюди:\n/link <код>\n\nПісля привʼязки ви зможете:\n• Отримувати сповіщення в особисті повідомлення (група не обовʼязкова)\n• Керувати розмовами з клієнтами\n• Підтверджувати замовлення`,
       );
     }
   } catch (err) {
@@ -291,51 +306,83 @@ bot.on('callback_query:data', async (ctx, next) => {
   }
 });
 
-// /login PASSWORD - Manager authentication
-bot.command('login', async (ctx) => {
+// /link CODE - Bind Telegram to AdminUser via one-time code from admin panel
+bot.command('link', async (ctx) => {
   try {
-    // Try to delete the message containing the password
     ctx.deleteMessage().catch(() => {});
 
-    const password = ctx.match?.trim();
-
-    if (!password) {
-      await ctx.reply('Використання: /login <пароль>');
+    const code = ctx.match?.trim();
+    if (!code) {
+      await ctx.reply('Використання: /link <код з адмінки>');
       return;
     }
 
-    const { telegram: tgCfg } = await getIntegrationConfig();
-    if (password !== tgCfg.adminPassword) {
-      await ctx.reply('Невірний пароль.');
-      return;
-    }
-
-    const tgUserId = String(ctx.from!.id);
-
-    // Find first admin user (prefer owner, then any) and link tgUserId
-    const adminUser = await prisma.adminUser.findFirst({
-      where: { role: 'owner' },
+    const result = await redeemTelegramLinkCode({
+      code,
+      tgUserId: String(ctx.from!.id),
+      tgUsername: ctx.from?.username ?? null,
     });
 
-    const targetUser = adminUser ?? await prisma.adminUser.findFirst();
-
-    if (!targetUser) {
-      await ctx.reply('Не знайдено адмін-користувача в базі.');
+    if (!result.ok) {
+      await ctx.reply(result.error);
       return;
     }
 
-    await prisma.adminUser.update({
-      where: { id: targetUser.id },
-      data: { tgUserId },
-    });
-
-    log.info({ tgUserId, adminUserId: targetUser.id }, 'Manager authenticated via Telegram');
+    const label = formatAdminLabel(result.user);
+    log.info(
+      { tgUserId: ctx.from!.id, adminUserId: result.user.id },
+      'Manager linked Telegram via /link',
+    );
     await ctx.reply(
-      `Авторизовано! ✅\n\nСповіщення надходитимуть у цей чат. Група менеджерів не обовʼязкова.\n\nОберіть дію:`,
+      `Привʼязано! ✅\n\nВи: ${label}\nСповіщення надходитимуть у цей чат.\n\nОберіть дію:`,
       buildMenuKeyboard(),
     );
   } catch (err) {
+    log.error(err, 'Error in /link command');
+    await ctx.reply('Сталася помилка. Спробуйте пізніше.');
+  }
+});
+
+// Deprecated alias — point users to /link
+bot.command('login', async (ctx) => {
+  try {
+    ctx.deleteMessage().catch(() => {});
+    await ctx.reply(
+      'Команда /login більше не використовується.\n\nПопросіть адміна згенерувати код у розділі «Користувачі» і надішліть:\n/link <код>',
+    );
+  } catch (err) {
     log.error(err, 'Error in /login command');
+  }
+});
+
+bot.command('unlink', async (ctx) => {
+  try {
+    const updated = await unlinkTelegramFromManager(ctx.from!.id);
+    if (!updated) {
+      await ctx.reply('Цей Telegram не привʼязаний до жодного користувача.');
+      return;
+    }
+    await ctx.reply('Telegram відвʼязано. Щоб знову підключитись — /link <новий код>.');
+  } catch (err) {
+    log.error(err, 'Error in /unlink command');
+    await ctx.reply('Сталася помилка. Спробуйте пізніше.');
+  }
+});
+
+bot.command('whoami', async (ctx) => {
+  try {
+    const manager = await getAuthorizedManager(ctx.from!.id);
+    if (!manager) {
+      await ctx.reply('Ви не привʼязані. Використайте /link <код>.');
+      return;
+    }
+    const label = managerLabelFromUser(manager);
+    const tg = manager.tgUsername ? `@${manager.tgUsername}` : '—';
+    await ctx.reply(
+      `Ви: ${label}\nЛогін: ${manager.username}\nРоль: ${manager.role}\nTelegram: ${tg}\nTG id: ${manager.tgUserId}`,
+    );
+  } catch (err) {
+    log.error(err, 'Error in /whoami command');
     await ctx.reply('Сталася помилка. Спробуйте пізніше.');
   }
 });
@@ -394,24 +441,40 @@ bot.command('takeover', async (ctx) => {
       return;
     }
 
-    if (conversation.state === 'handoff') {
-      await ctx.reply('Розмова вже в режимі менеджера.');
+    const manager = await getAuthorizedManager(ctx.from!.id);
+    if (!manager) {
+      await ctx.reply('Спочатку /link <код>.');
       return;
     }
 
+    const now = new Date();
     await prisma.conversation.update({
       where: { id: conversation.id },
       data: {
         state: 'handoff',
-        handedOffTo: String(ctx.from!.id),
+        handedOffTo: manager.id,
         handoffReason: 'Менеджер взяв вручну',
-        handedOffAt: new Date(),
+        handedOffAt: conversation.handedOffAt ?? now,
       },
     });
 
+    // Refresh username from Telegram when available
+    if (ctx.from?.username && ctx.from.username !== manager.tgUsername) {
+      await prisma.adminUser.update({
+        where: { id: manager.id },
+        data: { tgUsername: ctx.from.username },
+      });
+    }
+
     const id = shortId(conversation.id);
-    log.info({ conversationId: conversation.id, tgUserId: ctx.from!.id }, 'Conversation taken over');
-    await ctx.reply(`Розмову #${id} взято. Нові повідомлення клієнта будуть пересилатися сюди.`);
+    const label = managerLabelFromUser(manager);
+    log.info(
+      { conversationId: conversation.id, adminUserId: manager.id, tgUserId: ctx.from!.id },
+      'Conversation taken over',
+    );
+    await ctx.reply(
+      `Розмову #${id} взято (${label}). Нові повідомлення клієнта будуть пересилатися сюди.`,
+    );
   } catch (err) {
     log.error(err, 'Error in /takeover command');
     await ctx.reply('Сталася помилка. Спробуйте пізніше.');
@@ -495,8 +558,9 @@ bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
 
     if (data.startsWith('takeover:')) {
-      if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+      const manager = await getAuthorizedManager(ctx.from.id);
+      if (!manager) {
+        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
         return;
       }
 
@@ -511,29 +575,38 @@ bot.on('callback_query:data', async (ctx) => {
         return;
       }
 
-      if (conversation.state === 'handoff') {
-        await ctx.answerCallbackQuery({ text: 'Розмова вже в режимі менеджера.' });
-        return;
-      }
-
+      const now = new Date();
       await prisma.conversation.update({
         where: { id: conversationId },
         data: {
           state: 'handoff',
-          handedOffTo: String(ctx.from.id),
+          handedOffTo: manager.id,
           handoffReason: 'Менеджер взяв вручну',
-          handedOffAt: new Date(),
+          handedOffAt: conversation.handedOffAt ?? now,
         },
       });
 
-      const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
-      log.info({ conversationId, tgUserId: ctx.from.id }, 'Conversation taken over via callback');
+      if (ctx.from.username && ctx.from.username !== manager.tgUsername) {
+        await prisma.adminUser.update({
+          where: { id: manager.id },
+          data: { tgUsername: ctx.from.username },
+        });
+      }
+
+      const label = managerLabelFromUser({
+        ...manager,
+        tgUsername: ctx.from.username ?? manager.tgUsername,
+      });
+      log.info(
+        { conversationId, adminUserId: manager.id, tgUserId: ctx.from.id },
+        'Conversation taken over via callback',
+      );
 
       await ctx.answerCallbackQuery({ text: 'Взято!' });
-      await ctx.editMessageText(`\u{2705} Взято менеджером @${username}`);
+      await ctx.editMessageText(`\u{2705} Взято менеджером ${label}`);
     } else if (data.startsWith('return:')) {
       if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
         return;
       }
 
@@ -563,7 +636,7 @@ bot.on('callback_query:data', async (ctx) => {
       await ctx.editMessageText('\u{2705} Повернуто боту');
     } else if (data.startsWith('approve:')) {
       if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
         return;
       }
 
@@ -603,7 +676,7 @@ bot.on('callback_query:data', async (ctx) => {
       await ctx.editMessageText(`\u{2705} Замовлення підтверджено менеджером @${username}`);
     } else if (data.startsWith('decline:')) {
       if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /login <пароль> у боті' });
+        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
         return;
       }
 

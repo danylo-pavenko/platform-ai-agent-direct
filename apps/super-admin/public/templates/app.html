@@ -797,7 +797,7 @@
       <!-- Advanced (one-time server setup) -->
       <hr class="modal-sep" />
       <div class="modal-section-toggle" :class="{'open': modal.advancedOpen}" @click="modal.advancedOpen=!modal.advancedOpen">
-        <span>⚙️ Server setup <span style="color:var(--muted);font-weight:400;font-size:11px;text-transform:none;letter-spacing:0">(Linux user, path, repo — one time)</span></span>
+        <span>⚙️ Server setup <span style="color:var(--muted);font-weight:400;font-size:11px;text-transform:none;letter-spacing:0">(Linux user, password, path, repo)</span></span>
         <span class="toggle-arrow">▼</span>
       </div>
       <div v-show="modal.advancedOpen" class="field-group">
@@ -816,6 +816,19 @@
             </div>
             <input v-model="modal.form.appDir" placeholder="/home/cultura/platform-ai-agent-direct" />
           </div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span class="field-label-text">Linux password</span>
+            <button type="button" class="info-btn" :title="fieldHints.linuxPassword" aria-label="Підказка">i</button>
+          </div>
+          <input
+            v-model="modal.form.linuxPassword"
+            type="password"
+            autocomplete="new-password"
+            placeholder="порожньо = згенерувати при Provision"
+          />
+          <p class="field-hint-inline">Потрібен для sudo / pm2 на VPS. Задається при Provision (і при re-provision).</p>
         </div>
         <div class="field">
           <div class="field-label">

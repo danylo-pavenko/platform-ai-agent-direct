@@ -705,7 +705,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    * Authenticated. Returns the Facebook Login authorization URL.
    * App ID must already be saved in DB (appSecret is read in the callback).
    */
-  app.get('/meta/oauth-init', { onRequest: [app.authenticate] }, async (_request, reply) => {
+  app.get('/meta/oauth-init', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
     const { meta } = await getIntegrationConfig();
 
     if (!meta.facebookAppId) {
@@ -1051,7 +1051,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post<{
     Body: { sessionId?: string; pageId?: string };
-  }>('/meta/oauth-select', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/meta/oauth-select', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const { sessionId, pageId } = request.body ?? {};
 
     if (!sessionId || !pageId) {
@@ -1118,7 +1118,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    * Verifies the saved Page Access Token is still valid and returns
    * the connected Instagram Business account info.
    */
-  app.get('/meta/status', { onRequest: [app.authenticate] }, async () => {
+  app.get('/meta/status', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     return checkIgConnectionStatus();
   });
 
@@ -1127,7 +1127,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    * Diagnostic: hits several Facebook/Instagram Graph API endpoints with the
    * stored Page token and returns raw responses.
    */
-  app.get('/meta/debug', { onRequest: [app.authenticate] }, async () => {
+  app.get('/meta/debug', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const { meta } = await getIntegrationConfig();
     if (!meta.pageAccessToken) {
       return { error: 'Facebook авторизацію не виконано — натисніть «Авторизуватись через Facebook»' };
@@ -1302,7 +1302,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    *   3. best-effort clear instagramUserId routing on the platform hub
    * Conversations and other settings are left intact.
    */
-  app.post('/meta/disconnect', { onRequest: [app.authenticate] }, async (_request, reply) => {
+  app.post('/meta/disconnect', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
     const { meta } = await getIntegrationConfig();
 
     if (!meta.pageId && !meta.pageAccessToken && !meta.igUserId) {
@@ -1370,7 +1370,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post<{ Body: { limit?: number } }>(
     '/meta/import-recent-conversations',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const limit = Math.max(1, Math.min(500, Number(request.body?.limit) || 20));
 

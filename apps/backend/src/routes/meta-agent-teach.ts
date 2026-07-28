@@ -58,7 +58,7 @@ function sseWrite(reply: { raw: NodeJS.WritableStream }, event: string, data: un
 export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/session',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request) => {
       const session = await getOrCreateActiveTeachSession(request.user.id);
       return { session };
@@ -67,7 +67,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
 
   app.post(
     '/session/new',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request) => {
       const session = await startNewTeachSession(request.user.id);
       return { session };
@@ -77,7 +77,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
   // Non-stream teach chat (compat / simple clients)
   app.post<{ Body: TeachChatBody }>(
     '/chat',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { message, conversationContext, conversationId, useFullPrompt } = request.body ?? {};
 
@@ -189,7 +189,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
    */
   app.post<{ Body: TeachChatBody }>(
     '/chat/stream',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { message, conversationContext, conversationId, useFullPrompt } = request.body ?? {};
 

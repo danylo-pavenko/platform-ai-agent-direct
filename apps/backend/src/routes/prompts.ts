@@ -29,7 +29,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
   // POST / - Create new prompt version
   app.post<{
     Body: { content: string; changeSummary?: string | null };
-  }>('/', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const { content, changeSummary } = request.body ?? {};
 
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
@@ -64,7 +64,7 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
   // POST /:id/activate - Activate a prompt
   app.post<{
     Params: { id: string };
-  }>('/:id/activate', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/:id/activate', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const prompt = await prisma.systemPrompt.findUnique({
       where: { id: request.params.id },
     });

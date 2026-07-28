@@ -46,7 +46,7 @@ const INTEGRATION_KEYS = [
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // GET / - Get all non-integration settings
-  app.get('/', { onRequest: [app.authenticate] }, async () => {
+  app.get('/', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const settings = await prisma.setting.findMany({
       where: { key: { notIn: INTEGRATION_KEYS } },
     });
@@ -62,7 +62,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // PUT / - Update settings (non-integration)
   app.put<{
     Body: Record<string, unknown>;
-  }>('/', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const body = request.body;
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -123,7 +123,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
    * Returns integration config with sensitive fields masked as "••••••"
    * so the UI can show whether a secret is configured without leaking it.
    */
-  app.get('/integrations', { onRequest: [app.authenticate] }, async () => {
+  app.get('/integrations', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const rows = await prisma.setting.findMany({
       where: { key: { in: INTEGRATION_KEYS } },
     });
@@ -167,7 +167,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.put<{
     Body: Record<string, Record<string, unknown>>;
-  }>('/integrations', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/integrations', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const body = request.body;
 
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -309,21 +309,21 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   /** POST /settings/health-check
    * Self-diagnostic for the tenant instance: Instagram, Claude, CRM, agent latency.
    */
-  app.post('/health-check', { onRequest: [app.authenticate] }, async () => {
+  app.post('/health-check', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     return runTenantHealthCheck();
   });
 
   /** GET /settings/claude-auth — Claude CLI binary + session status. */
   app.get<{ Querystring: { fresh?: string } }>(
     '/claude-auth',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request) => {
       return getClaudeAuthStatus({ skipLiveCache: request.query.fresh === 'true' });
     },
   );
 
   /** POST /settings/claude-auth/login/start — spawn claude auth login, return OAuth URL. */
-  app.post('/claude-auth/login/start', { onRequest: [app.authenticate] }, async (_request, reply) => {
+  app.post('/claude-auth/login/start', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
     const current = await getClaudeAuthStatus();
     if (current.loggedIn) {
       return reply.code(409).send({ error: 'Claude вже авторизовано на цьому інстансі' });
@@ -345,7 +345,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   /** GET /settings/claude-auth/login/status?sessionId= — poll OAuth completion. */
   app.get<{ Querystring: { sessionId?: string } }>(
     '/claude-auth/login/status',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const sessionId = request.query.sessionId?.trim();
       if (!sessionId) {
@@ -362,7 +362,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   /** POST /settings/claude-auth/login/code — pipe OAuth callback code into CLI stdin. */
   app.post<{ Body: { sessionId?: string; code?: string } }>(
     '/claude-auth/login/code',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const sessionId = request.body?.sessionId?.trim();
       const code = request.body?.code?.trim();
@@ -383,7 +383,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   /** POST /settings/claude-auth/login/cancel — abort in-progress login. */
   app.post<{ Body: { sessionId?: string } }>(
     '/claude-auth/login/cancel',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const sessionId = request.body?.sessionId?.trim();
       if (!sessionId) {
@@ -397,7 +397,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /** GET /settings/claude-usage — latest subscription usage snapshot (auto-polled). */
-  app.get('/claude-usage', { onRequest: [app.authenticate] }, async () => {
+  app.get('/claude-usage', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const snapshot = await loadClaudeUsageSnapshot();
     return {
       snapshot,
@@ -407,7 +407,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** POST /settings/claude-usage/check — on-demand refresh. */
-  app.post('/claude-usage/check', { onRequest: [app.authenticate] }, async () => {
+  app.post('/claude-usage/check', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const snapshot = await runClaudeUsageCheck();
     return {
       snapshot,
@@ -427,7 +427,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       botToken?: string;
       managerGroupId?: string;
     };
-  }>('/telegram/test', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/telegram/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const { variant, botToken, managerGroupId } = request.body ?? {};
     try {
       const result = await sendTelegramTestMessage({ variant, botToken, managerGroupId });
@@ -442,7 +442,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** POST /settings/meta-agent/test — ping Claude on the meta_agent channel. */
-  app.post('/meta-agent/test', { onRequest: [app.authenticate] }, async (_request, reply) => {
+  app.post('/meta-agent/test', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
     const result = await runMetaAgentTest();
     if (!result.ok) {
       return reply.code(503).send(result);
@@ -459,7 +459,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post<{ Body: { confirm?: string } }>(
     '/purge-dialogs',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       if (request.body?.confirm !== PURGE_DIALOGS_CONFIRM) {
         return reply.code(400).send({
@@ -497,7 +497,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // Given a city name, returns its NP Ref UUID. Used to configure sender city.
   app.post<{ Body: { cityName: string } }>(
     '/nova-poshta/resolve-city',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const { cityName } = request.body ?? {};
       if (!cityName || typeof cityName !== 'string') {

@@ -53,7 +53,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   // ── GET /available — live custom-field catalogue from the active CRM ──
   app.get<{
     Querystring: { scope?: string };
-  }>('/available', { onRequest: [app.authenticate] }, async (request, reply) => {
+  }>('/available', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const scope = request.query.scope;
     if (!isScope(scope)) {
       return reply.code(400).send({ error: SCOPE_ERROR });
@@ -76,7 +76,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── GET /mappings — list all mappings (active + inactive) ──
-  app.get('/mappings', { onRequest: [app.authenticate] }, async () => {
+  app.get('/mappings', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const data = await prisma.crmFieldMapping.findMany({
       orderBy: [{ scope: 'asc' }, { label: 'asc' }],
     });
@@ -86,7 +86,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   // ── POST /mappings — create a new mapping ──
   app.post<{ Body: CreateBody }>(
     '/mappings',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const b = request.body ?? {};
       const localKey = b.localKey?.trim();
@@ -134,7 +134,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   // ── PATCH /mappings/:id — partial update ──
   app.patch<{ Params: { id: string }; Body: UpdateBody }>(
     '/mappings/:id',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const b = request.body ?? {};
       const data: Record<string, unknown> = {};
@@ -188,7 +188,7 @@ export async function crmFieldsRoutes(app: FastifyInstance): Promise<void> {
   // ── DELETE /mappings/:id ──
   app.delete<{ Params: { id: string } }>(
     '/mappings/:id',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       try {
         await prisma.crmFieldMapping.delete({ where: { id: request.params.id } });

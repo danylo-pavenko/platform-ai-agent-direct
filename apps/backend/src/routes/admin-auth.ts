@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import bcrypt from 'bcryptjs';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { checkPlatformAccess } from '../lib/platform-access.js';
 import { platformAccessError } from '../lib/auth.js';
@@ -7,6 +8,7 @@ import {
   CHANGE_PASSWORD_ERROR_UK,
   validateChangePasswordInput,
 } from '../lib/change-password.js';
+import { toAdminUserPublic } from '../lib/admin-user.js';
 
 function signAdminToken(
   app: FastifyInstance,
@@ -35,6 +37,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: 'Invalid credentials' });
     }
 
+    if (!user.isActive) {
+      return reply.code(401).send({
+        error: 'Обліковий запис вимкнено. Зверніться до адміністратора.',
+        code: 'ACCOUNT_DISABLED',
+      });
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       return reply.code(401).send({ error: 'Invalid credentials' });
@@ -49,7 +58,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     const token = signAdminToken(app, user);
 
-    return { token, user: { id: user.id, username: user.username, role: user.role } };
+    return { token, user: toAdminUserPublic(user) };
   });
 
   // POST /auth/change-password — authenticated admin changes own password
@@ -99,12 +108,52 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     return {
       token,
-      user: { id: updated.id, username: updated.username, role: updated.role },
+      user: toAdminUserPublic(updated),
     };
   });
 
   // GET /auth/me (authenticated)
-  app.get('/me', { onRequest: [app.authenticate] }, async (request) => {
-    return { user: request.user };
+  app.get('/me', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const user = await prisma.adminUser.findUnique({
+      where: { id: request.user.id },
+    });
+    if (!user || !user.isActive) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
+    return { user: toAdminUserPublic(user) };
+  });
+
+  // PATCH /auth/me — update own display name
+  app.patch<{
+    Body: { displayName?: string | null };
+  }>('/me', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const parsed = z
+      .object({
+        displayName: z
+          .string()
+          .trim()
+          .max(80)
+          .nullable()
+          .optional(),
+      })
+      .safeParse(request.body ?? {});
+
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid body' });
+    }
+
+    const displayName =
+      parsed.data.displayName === undefined
+        ? undefined
+        : parsed.data.displayName === null || parsed.data.displayName === ''
+          ? null
+          : parsed.data.displayName;
+
+    const updated = await prisma.adminUser.update({
+      where: { id: request.user.id },
+      data: displayName === undefined ? {} : { displayName },
+    });
+
+    return { user: toAdminUserPublic(updated) };
   });
 }

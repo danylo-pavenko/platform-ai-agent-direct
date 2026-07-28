@@ -55,7 +55,7 @@ export async function referencePhotoRoutes(app: FastifyInstance): Promise<void> 
 
   app.get<{ Params: { clientId: string } }>(
     '/client/:clientId',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request) => {
       const photos = await listClientReferencePhotos(request.params.clientId);
       return { photos };
@@ -64,7 +64,7 @@ export async function referencePhotoRoutes(app: FastifyInstance): Promise<void> 
 
   app.post<{ Params: { clientId: string } }>(
     '/client/:clientId',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const parsed = saveSchema.safeParse(request.body);
       if (!parsed.success) {

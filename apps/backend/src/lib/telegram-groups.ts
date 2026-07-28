@@ -4,7 +4,7 @@
  * Targets:
  * - legacy managerGroupId from Settings / .env
  * - auto-discovered groups when the bot is added to a group/supergroup
- * - private chat ids of admin users linked via /login (tgUserId on admin_users)
+ * - private chat ids of admin users linked via /link (tgUserId on admin_users)
  */
 
 import pino from 'pino';
@@ -60,7 +60,7 @@ export function mergeNotificationChatIds(params: {
 
 async function readAuthorizedManagerChatIds(): Promise<string[]> {
   const rows = await prisma.adminUser.findMany({
-    where: { tgUserId: { not: null } },
+    where: { tgUserId: { not: null }, isActive: true },
     select: { tgUserId: true },
   });
 

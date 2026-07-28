@@ -18,16 +18,16 @@ const importSchema = z.object({
 });
 
 export async function branchRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/', { onRequest: [app.authenticate] }, async () => {
+  app.get('/', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     const branches = await listBranches();
     return { branches };
   });
 
-  app.get('/crm-candidates', { onRequest: [app.authenticate] }, async () => {
+  app.get('/crm-candidates', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     return fetchBranchesFromCrm();
   });
 
-  app.post('/import-from-crm', { onRequest: [app.authenticate] }, async (request, reply) => {
+  app.post('/import-from-crm', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const parsed = importSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
@@ -36,7 +36,7 @@ export async function branchRoutes(app: FastifyInstance): Promise<void> {
     return { ok: true, ...result };
   });
 
-  app.post('/', { onRequest: [app.authenticate] }, async (request, reply) => {
+  app.post('/', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const parsed = branchInputSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
@@ -55,7 +55,7 @@ export async function branchRoutes(app: FastifyInstance): Promise<void> {
 
   app.put<{ Params: { id: string } }>(
     '/:id',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const existing = await getBranchById(request.params.id);
       if (!existing) return reply.code(404).send({ error: 'Branch not found' });
@@ -72,7 +72,7 @@ export async function branchRoutes(app: FastifyInstance): Promise<void> {
 
   app.delete<{ Params: { id: string } }>(
     '/:id',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
       const existing = await getBranchById(request.params.id);
       if (!existing) return reply.code(404).send({ error: 'Branch not found' });

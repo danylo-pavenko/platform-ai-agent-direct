@@ -75,6 +75,8 @@ export function buildProvisionArgs(tenant: TenantPayload): string[] {
   ];
 }
 
+const PROVISION_ONLY_ENV_KEYS = new Set(['LINUX_PASSWORD']);
+
 export function parseEnvExtra(raw: string | null | undefined): Record<string, string> {
   const out: Record<string, string> = {};
   if (!raw?.trim()) return out;
@@ -105,7 +107,12 @@ export function buildEnvMergePatch(
     SA_INTERNAL_URL: saInternalUrl,
   };
   if (supervisorSecret) patch.SUPERVISOR_SHARED_SECRET = supervisorSecret;
-  if (includeEnvExtra) Object.assign(patch, parseEnvExtra(tenant.envExtra));
+  if (includeEnvExtra) {
+    for (const [key, value] of Object.entries(parseEnvExtra(tenant.envExtra))) {
+      if (PROVISION_ONLY_ENV_KEYS.has(key)) continue;
+      patch[key] = value;
+    }
+  }
   return patch;
 }
 
@@ -147,10 +154,15 @@ export async function listLivePorts(): Promise<number[]> {
   }
 }
 
-export function provisionEnv(tenant: Pick<TenantPayload, 'gitRepo'>): NodeJS.ProcessEnv {
-  return {
+export function provisionEnv(tenant: Pick<TenantPayload, 'gitRepo' | 'envExtra'>): NodeJS.ProcessEnv {
+  const extra = parseEnvExtra(tenant.envExtra);
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PLATFORM_REPO: tenant.gitRepo || DEFAULT_GIT_REPO,
     PROVISION_SOURCE_USER: process.env.PROVISION_SOURCE_USER || 'agentsadmin',
   };
+  if (extra.LINUX_PASSWORD) {
+    env.LINUX_PASSWORD = extra.LINUX_PASSWORD;
+  }
+  return env;
 }
