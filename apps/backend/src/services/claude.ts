@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import { formatAgentToolsPrompt } from '../lib/agent-tools-prompt.js';
 import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
-import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
+import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
 import { isUnusableClaudeResultText } from '../lib/claude-result-usable.js';
 import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { Semaphore } from '../lib/queue.js';
@@ -25,14 +25,14 @@ const execFileAsync = promisify(execFile);
  * Isolated spawn cwd so Claude Code does NOT walk into the git repo
  * CLAUDE.md (coding guide → English “not a coding task” leaks).
  * Do NOT use `--bare`: it disables OAuth/keychain (Max subscription auth).
- * Soft prevention + stripAssistantMetaReasoning in finalizeResponse.
+ * Soft prevention + sanitizeCustomerFacingReply in finalizeResponse.
  */
 const SPAWN_CLAUDE_MD = `# Instagram DM runtime agent
 
 You answer customers in Instagram Direct only.
 Output ONLY the client-facing reply (customer language).
-Never write English meta-reasoning, coding commentary, or lines like
-"not a coding task" / "I should respond in character".
+Never write English meta-reasoning, coding commentary, JSON dumps, code fences,
+or lines like "not a coding task" / "I should respond in character".
 `;
 
 function resolveClaudeSpawnCwd(): string {
@@ -200,14 +200,14 @@ function buildArgs(useStreamJsonInput = false): string[] {
 function finalizeResponse(response: ClaudeResponse): ClaudeResponse {
   const fromText = parseToolCallsFromText(response.text);
   const strippedTools = stripToolCallBlocks(response.text);
-  const text = stripAssistantMetaReasoning(strippedTools);
-  if (text !== strippedTools) {
+  const text = sanitizeCustomerFacingReply(strippedTools);
+  if (text !== strippedTools.trim()) {
     log.info(
       {
         beforeChars: strippedTools.length,
         afterChars: text.length,
       },
-      'Stripped assistant meta-reasoning from Claude reply',
+      'Sanitized customer-facing Claude reply (artifacts / meta-reasoning)',
     );
   }
   const merged = [...(response.toolCalls ?? []), ...fromText];

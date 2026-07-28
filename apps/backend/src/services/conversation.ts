@@ -51,7 +51,7 @@ import {
   type IgInboundContext,
 } from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
-import { stripAssistantMetaReasoning } from '../lib/assistant-output.js';
+import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -1030,9 +1030,9 @@ async function handleIncomingMessageImpl(
   }
 
   // Belt-and-suspenders: finalizeResponse already scrubbed, but never ship
-  // English coding-persona preamble to Instagram.
+  // English coding-persona preamble / JSON dumps to Instagram.
   const clientFacingText = stripMarkdownForInstagram(
-    stripAssistantMetaReasoning(responseText),
+    sanitizeCustomerFacingReply(responseText),
   );
 
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {

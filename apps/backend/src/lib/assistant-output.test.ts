@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   looksLikeAssistantMetaReasoning,
+  sanitizeCustomerFacingReply,
   stripAssistantMetaReasoning,
+  stripMarkdownCodeFences,
+  stripStandaloneJsonArtifacts,
 } from './assistant-output.js';
 
 describe('stripAssistantMetaReasoning', () => {
@@ -28,6 +31,7 @@ describe('stripAssistantMetaReasoning', () => {
     const raw = 'Так, модель Oversized Hoodie є в наявності у розмірі M.';
     expect(stripAssistantMetaReasoning(raw)).toBe(raw);
   });
+
   it('strips “The user is asking…” style preamble', () => {
     const raw =
       'The user is asking what is available. I should respond in character. Привіт! Що шукаєте?';
@@ -46,5 +50,38 @@ describe('looksLikeAssistantMetaReasoning', () => {
 
   it('rejects normal customer copy', () => {
     expect(looksLikeAssistantMetaReasoning('Привіт! Хочу записатись.')).toBe(false);
+  });
+});
+
+describe('stripMarkdownCodeFences', () => {
+  it('removes fenced json dumps', () => {
+    const raw = 'Ось варіанти:\n\n```json\n{"name":"x"}\n```\n\nПишіть якщо треба.';
+    expect(stripMarkdownCodeFences(raw)).toBe('Ось варіанти:\n\n\n\nПишіть якщо треба.');
+  });
+});
+
+describe('stripStandaloneJsonArtifacts', () => {
+  it('drops a whole-message JSON object', () => {
+    expect(stripStandaloneJsonArtifacts('{"name":"collect_order","args":{}}')).toBe('');
+  });
+
+  it('keeps prose', () => {
+    expect(stripStandaloneJsonArtifacts('Ціна від 500 ₴.')).toBe('Ціна від 500 ₴.');
+  });
+});
+
+describe('sanitizeCustomerFacingReply', () => {
+  it('strips thinking XML, fences, and meta preamble together', () => {
+    const raw = [
+      '<thinking>plan the reply</thinking>',
+      'This is not a coding task. I should respond in Ukrainian.',
+      '',
+      '```js',
+      'console.log(1)',
+      '```',
+      '',
+      'Привіт! Готові оформити?',
+    ].join('\n');
+    expect(sanitizeCustomerFacingReply(raw)).toBe('Привіт! Готові оформити?');
   });
 });
