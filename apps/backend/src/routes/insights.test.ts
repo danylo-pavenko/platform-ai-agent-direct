@@ -32,6 +32,7 @@ describe('insights routes', () => {
     app.decorate('authenticate', async (_request, reply) => {
       await reply.code(401).send({ error: 'Unauthorized' });
     });
+    app.decorate('requireOwner', async () => {});
     await app.register(insightsRoutes, { prefix: '/insights' });
     return app;
   }
@@ -40,6 +41,18 @@ describe('insights routes', () => {
     const app = Fastify();
     apps.push(app);
     app.decorate('authenticate', async () => {});
+    app.decorate('requireOwner', async () => {});
+    await app.register(insightsRoutes, { prefix: '/insights' });
+    return app;
+  }
+
+  async function buildManagerApp() {
+    const app = Fastify();
+    apps.push(app);
+    app.decorate('authenticate', async () => {});
+    app.decorate('requireOwner', async (_request, reply) => {
+      await reply.code(403).send({ error: 'Forbidden' });
+    });
     await app.register(insightsRoutes, { prefix: '/insights' });
     return app;
   }
@@ -68,6 +81,17 @@ describe('insights routes', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: 'Unauthorized' });
+  });
+
+  it('rejects snapshot access for non-owner roles', async () => {
+    const app = await buildManagerApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/insights/snapshot?period=7d',
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toEqual({ error: 'Forbidden' });
   });
 
   it('sends business context and chat history through the insights channel', async () => {
