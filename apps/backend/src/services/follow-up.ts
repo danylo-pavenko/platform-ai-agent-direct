@@ -22,7 +22,7 @@ import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { isAgentFallbackReply } from '../lib/agent-fallback.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
-import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
+import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { sendText } from './instagram.js';
 import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
@@ -58,8 +58,6 @@ const log = pino({ name: 'follow-up' });
 
 /** Max history turns for remarketing Claude call (same cap as live bot). */
 const MAX_HISTORY_MESSAGES = 30;
-
-const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 
 const REMARKETING_USER_MESSAGE = [
   '[PLATFORM — internal instruction, not from the client]',
@@ -393,14 +391,22 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       }
 
       const responseText = (response.text ?? '').trim();
-      if (!responseText || LEAKED_INTERNALS_RE.test(responseText)) {
-        await markJob(jobId, 'failed', 'empty_or_leaked_output');
+      if (!responseText) {
+        await markJob(jobId, 'failed', 'empty_output');
         return 'failed';
       }
 
-      const clientFacingText = stripMarkdownForInstagram(
-        sanitizeCustomerFacingReply(responseText),
-      ).trim();
+      const gated = gateCustomerFacingReply(responseText);
+      if (gated.rejected) {
+        await markJob(jobId, 'failed', `output_gate:${gated.reason}`);
+        log.warn(
+          { conversationId, jobId, reason: gated.reason },
+          'Remarketing output blocked by customer-facing gate',
+        );
+        return 'failed';
+      }
+
+      const clientFacingText = stripMarkdownForInstagram(gated.text).trim();
       if (!clientFacingText) {
         await markJob(jobId, 'failed', 'sanitized_empty');
         return 'failed';

@@ -1,7 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
 import { homedir } from 'node:os';
+import { resolve as resolvePath } from 'node:path';
 import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
@@ -16,7 +15,7 @@ import {
   isClaudeAuthFailure,
   type ClaudeAuthHealth,
 } from '../lib/claude-auth-probe.js';
-import { getTenantKnowledgeDir } from '../lib/paths.js';
+import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
 import {
@@ -25,38 +24,9 @@ import {
 } from '../lib/agent-fallback.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 
+export { resolveClaudeSpawnCwd };
+
 const execFileAsync = promisify(execFile);
-
-/**
- * Isolated spawn cwd so Claude Code does NOT walk into the git repo
- * CLAUDE.md (coding guide → English “not a coding task” leaks).
- * Do NOT use `--bare`: it disables OAuth/keychain (Max subscription auth).
- * Soft prevention + sanitizeCustomerFacingReply in finalizeResponse.
- */
-const SPAWN_CLAUDE_MD = `# Instagram DM runtime agent
-
-You answer customers in Instagram Direct only.
-Output ONLY the client-facing reply (customer language).
-Never write English meta-reasoning, coding commentary, JSON dumps, code fences,
-or lines like "not a coding task" / "I should respond in character".
-`;
-
-function resolveClaudeSpawnCwd(): string {
-  const base = existsSync(getTenantKnowledgeDir())
-    ? resolvePath(getTenantKnowledgeDir(), '.claude-spawn')
-    : resolvePath(homedir(), '.cache', 'platform-ai-agent', 'claude-spawn');
-
-  try {
-    mkdirSync(base, { recursive: true });
-    const mdPath = resolvePath(base, 'CLAUDE.md');
-    if (!existsSync(mdPath)) {
-      writeFileSync(mdPath, SPAWN_CLAUDE_MD, 'utf8');
-    }
-  } catch {
-    // Logged after `log` is declared below if prepare fails at spawn time.
-  }
-  return base;
-}
 
 // ---------------------------------------------------------------------------
 // Types

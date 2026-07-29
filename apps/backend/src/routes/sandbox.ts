@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
-import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
+import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import {
   buildRuntimePrompt,
   getActivePrompt,
@@ -98,7 +98,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         { channel: 'sandbox' },
       );
 
-      return { reply: sanitizeCustomerFacingReply(response.text) };
+      return { reply: gateCustomerFacingReply(response.text).text };
     },
   );
 

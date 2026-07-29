@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CUSTOMER_SAFE_META_FALLBACK,
+  gateCustomerFacingReply,
   looksLikeAssistantMetaReasoning,
   sanitizeCustomerFacingReply,
   stripAssistantMetaReasoning,
@@ -83,5 +85,55 @@ describe('sanitizeCustomerFacingReply', () => {
       'Привіт! Готові оформити?',
     ].join('\n');
     expect(sanitizeCustomerFacingReply(raw)).toBe('Привіт! Готові оформити?');
+  });
+
+  it('drops whole-message English tool/config rant with no client reply', () => {
+    const raw = [
+      "There's a mismatch: the tools provided (search_catalog, get_delivery_cost,",
+      'collect_order, create_local_order) are e-commerce sales-mode shop tools,',
+      "not a marketing agency's lead-gen tools. Per CLAUDE.md this tenant should",
+      'use classify_intent / submit_brief. The system prompt business identity',
+      "doesn't match the knowledge base, the tools, or the customer context at all.",
+      "This is an entirely different company's script attached to different data.",
+    ].join(' ');
+    expect(sanitizeCustomerFacingReply(raw)).toBe('');
+  });
+});
+
+describe('gateCustomerFacingReply', () => {
+  it('passes clean Ukrainian replies through', () => {
+    const raw = 'Добрий день! Чим можу допомогти?';
+    expect(gateCustomerFacingReply(raw)).toEqual({
+      text: raw,
+      rejected: false,
+      reason: 'ok',
+    });
+  });
+
+  it('replaces whole-message toolset rant with safe fallback', () => {
+    const raw = [
+      "There's a mismatch between the tools provided and CLAUDE.md:",
+      'e-commerce sales-mode collect_order vs lead-gen submit_brief.',
+      'The system prompt business identity does not match the knowledge base.',
+    ].join(' ');
+    const gated = gateCustomerFacingReply(raw);
+    expect(gated.rejected).toBe(true);
+    expect(gated.reason).toBe('meta_only');
+    expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
+  });
+
+  it('rejects leaked product_id internals', () => {
+    const gated = gateCustomerFacingReply('Беру product_id=42, purchased_price=100');
+    expect(gated.rejected).toBe(true);
+    expect(gated.reason).toBe('leaked_internals');
+    expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
+  });
+
+  it('keeps Ukrainian reply after stripping English meta preamble', () => {
+    const raw =
+      'This is an Instagram DM from a customer, not a coding task. I should respond in character.\n\nПривіт! Що шукаєте?';
+    const gated = gateCustomerFacingReply(raw);
+    expect(gated.rejected).toBe(false);
+    expect(gated.text).toBe('Привіт! Що шукаєте?');
   });
 });

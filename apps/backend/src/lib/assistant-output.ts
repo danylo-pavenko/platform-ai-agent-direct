@@ -1,19 +1,41 @@
 /**
- * Post-process Claude text before it reaches Instagram / sandbox clients.
- * Strips coding-persona CoT, fenced scripts/JSON, and other internal artifacts.
+ * Customer-facing reply contract for Instagram / Telegram / sandbox.
+ *
+ * Layered defenses (prefer fixing causes upstream):
+ * 1. Claude spawn cwd outside tenant_knowledge (no parent CLAUDE.md walk)
+ * 2. Mode-scoped tool instructions in the prompt
+ * 3. Anti-injection preamble in prompt-builder
+ * 4. This gate — last mile: never ship coding/meta/tool rants to customers
  */
 
 const META_MARKERS_RE =
-  /not a coding task|I should respond|respond in character|per the system prompt|This is an Instagram DM|Instagram DM from a customer|Looking at (?:the|this) (?:message|prompt)|Let me (?:just )?(?:respond|reply)|I'll (?:respond|reply) (?:as|in)|I'm going to (?:respond|reply)|The (?:user|customer) (?:is asking|asked|wants)|As (?:an? )?(?:AI|assistant|sales agent)/i;
+  /not a coding task|I should respond|respond in character|per the system prompt|This is an Instagram DM|Instagram DM from a customer|Looking at (?:the|this) (?:message|prompt)|Let me (?:just )?(?:respond|reply)|I'll (?:respond|reply) (?:as|in)|I'm going to (?:respond|reply)|The (?:user|customer) (?:is asking|asked|wants)|As (?:an? )?(?:AI|assistant|sales agent)|CLAUDE\.md|toolset|tools provided|doesn't match|does not match|knowledge base|business identity|entirely different compan|lead-?gen tools|e-commerce sales-?mode|mismatch between|wrong tools|orientation file/i;
 
 const CYRILLIC_RE = /[\u0400-\u04FF]/;
 
-/** XML-ish internal blocks the model sometimes emits. */
 const INTERNAL_XML_RE =
   /<\/?(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)[^>]*>[\s\S]*?<\/(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)>/gi;
 
 const INTERNAL_XML_OPEN_ONLY_RE =
   /<\/?(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)[^>]*>/gi;
+
+/** Safe Ukrainian copy when the model produced only internal/meta text. */
+export const CUSTOMER_SAFE_META_FALLBACK =
+  'Дякую за повідомлення! Менеджер уточнить деталі й відповість найближчим часом.';
+
+export type CustomerFacingGateReason =
+  | 'ok'
+  | 'empty_after_sanitize'
+  | 'meta_only'
+  | 'leaked_internals';
+
+export interface CustomerFacingGateResult {
+  /** Text safe to send to the customer (never empty when ok/replaced). */
+  text: string;
+  /** True when original model text was rejected and replaced. */
+  rejected: boolean;
+  reason: CustomerFacingGateReason;
+}
 
 function latinCount(s: string): number {
   return (s.match(/[A-Za-z]/g) ?? []).length;
@@ -31,7 +53,10 @@ export function looksLikeAssistantMetaReasoning(chunk: string): boolean {
 
   const lat = latinCount(t);
   const cyr = cyrillicCount(t);
-  if (lat >= 40 && cyr < 8 && /\b(I should|I'll|I will|Let me|This is)\b/i.test(t)) {
+  if (lat >= 40 && cyr < 8 && /\b(I should|I'll|I will|Let me|This is|There's|There is|I'm)\b/i.test(t)) {
+    return true;
+  }
+  if (lat >= 120 && cyr < 12 && t.length >= 200) {
     return true;
   }
   return false;
@@ -39,17 +64,11 @@ export function looksLikeAssistantMetaReasoning(chunk: string): boolean {
 
 /**
  * Remove leading English meta-reasoning so only the client-facing reply remains.
- * Handles both separate paragraphs and “English. Привіт!” same-block leaks.
+ * If the *entire* reply is meta (no client copy left), returns empty string.
  */
 export function stripAssistantMetaReasoning(text: string): string {
   let s = text.replace(/^\uFEFF/, '').trim();
   if (!s) return s;
-
-  const parts = s.split(/\n\n+/);
-  while (parts.length > 1 && looksLikeAssistantMetaReasoning(parts[0]!)) {
-    parts.shift();
-  }
-  s = parts.join('\n\n').trim();
 
   const cyrIdx = s.search(CYRILLIC_RE);
   if (cyrIdx > 0) {
@@ -59,15 +78,26 @@ export function stripAssistantMetaReasoning(text: string): string {
     }
   }
 
+  const parts = s.split(/\n\n+/);
+  while (parts.length > 0 && looksLikeAssistantMetaReasoning(parts[0]!)) {
+    if (cyrillicCount(parts[0]!) >= 8) break;
+    parts.shift();
+  }
+  s = parts.join('\n\n').trim();
+
+  if (!s) return '';
+
+  if (looksLikeAssistantMetaReasoning(s) && cyrillicCount(s) < 8) {
+    return '';
+  }
+
   return s;
 }
 
-/** Drop ```…``` fences (json/js/bash dumps, “thinking” blocks). */
 export function stripMarkdownCodeFences(text: string): string {
   return text.replace(/```[\w+-]*\n?[\s\S]*?```/g, '').trim();
 }
 
-/** Drop <thinking>…</thinking> and similar internal XML wrappers. */
 export function stripInternalXmlBlocks(text: string): string {
   return text
     .replace(INTERNAL_XML_RE, '')
@@ -75,10 +105,6 @@ export function stripInternalXmlBlocks(text: string): string {
     .trim();
 }
 
-/**
- * Drop standalone JSON object/array dumps (whole message or whole paragraph).
- * Keeps normal prose that happens to mention {price} etc.
- */
 export function stripStandaloneJsonArtifacts(text: string): string {
   const trimmed = text.trim();
   if (
@@ -108,7 +134,6 @@ export function stripStandaloneJsonArtifacts(text: string): string {
         return true;
       }
     }
-    // Single-line JSON-looking tool dumps
     if (/^\s*[\{\[]/.test(p) && /"\w+"\s*:/.test(p) && p.length > 40) {
       try {
         JSON.parse(p);
@@ -128,8 +153,7 @@ function collapseBlankLines(text: string): string {
 }
 
 /**
- * Full customer-facing scrubber (our real post-hook before IG / sandbox send).
- * Claude Code Stop hooks cannot rewrite `-p` stdout — sanitize here instead.
+ * Scrub artifacts from model text. May return empty when nothing customer-facing remains.
  */
 export function sanitizeCustomerFacingReply(text: string): string {
   let s = text.replace(/^\uFEFF/, '');
@@ -138,4 +162,31 @@ export function sanitizeCustomerFacingReply(text: string): string {
   s = stripStandaloneJsonArtifacts(s);
   s = stripAssistantMetaReasoning(s);
   return collapseBlankLines(s);
+}
+
+const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
+
+/**
+ * Single outbound contract: scrub + reject meta-only / empty / leaked internals.
+ * Callers should send `result.text` and treat `rejected` as output_validation.
+ */
+export function gateCustomerFacingReply(raw: string): CustomerFacingGateResult {
+  if (LEAKED_INTERNALS_RE.test(raw)) {
+    return {
+      text: CUSTOMER_SAFE_META_FALLBACK,
+      rejected: true,
+      reason: 'leaked_internals',
+    };
+  }
+
+  const scrubbed = sanitizeCustomerFacingReply(raw);
+  if (!scrubbed.trim()) {
+    return {
+      text: CUSTOMER_SAFE_META_FALLBACK,
+      rejected: true,
+      reason: looksLikeAssistantMetaReasoning(raw.trim()) ? 'meta_only' : 'empty_after_sanitize',
+    };
+  }
+
+  return { text: scrubbed, rejected: false, reason: 'ok' };
 }

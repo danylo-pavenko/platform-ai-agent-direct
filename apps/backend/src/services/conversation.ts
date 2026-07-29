@@ -56,7 +56,7 @@ import {
   type IgInboundContext,
 } from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
-import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
+import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -83,9 +83,6 @@ import {
 import type { ClaudeResponse } from './claude.js';
 
 const log = pino({ name: 'conversation' });
-
-/** Regex to detect leaked internal IDs / prices in bot output */
-const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 
 /** Max messages to include in Claude conversation history */
 const MAX_HISTORY_MESSAGES = 30;
@@ -1025,23 +1022,24 @@ async function handleIncomingMessageImpl(
     }
   }
 
-  // ── 10. Validate output ───────────────────────────────────────────
+  // ── 10. Validate output (customer-facing gate) ─────────────────────
 
   let outputValidationFailure = false;
-  if (LEAKED_INTERNALS_RE.test(responseText)) {
-    log.warn(
-      { conversationId, originalResponse: responseText, clientMessage: messageText.slice(0, 200) },
-      'Bot response contained internal IDs - replacing with safe fallback',
-    );
-    responseText = 'Дякую за запитання! Зверніться до менеджера для деталей.';
+  // Single contract: scrub meta/JSON/leaks; never ship English tool/config rants.
+  const gated = gateCustomerFacingReply(responseText);
+  let clientFacingText = stripMarkdownForInstagram(gated.text);
+  if (gated.rejected) {
     outputValidationFailure = true;
+    log.warn(
+      {
+        conversationId,
+        gateReason: gated.reason,
+        originalChars: responseText.length,
+        clientMessage: messageText.slice(0, 200),
+      },
+      'Bot reply rejected by customer-facing gate — using safe fallback',
+    );
   }
-
-  // Belt-and-suspenders: finalizeResponse already scrubbed, but never ship
-  // English coding-persona preamble / JSON dumps to Instagram.
-  const clientFacingText = stripMarkdownForInstagram(
-    sanitizeCustomerFacingReply(responseText),
-  );
 
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
