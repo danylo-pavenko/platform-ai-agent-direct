@@ -64,16 +64,59 @@ echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
 
 # npm ci can fail with ENOTEMPTY when node_modules is partially corrupted; one clean retry only.
 # Long hangs are killed via DEPLOY_NPM_CI_TIMEOUT_SEC (default 20 min) with stdout heartbeats.
+#
+# Speed knobs (tenant deploy):
+#   DEPLOY_FORCE_NPM_CI=1           — always run npm ci (ignore lock stamp)
+#   DEPLOY_NPM_ALL_WORKSPACES=1     — install every workspace (incl. super-admin / platform-worker)
+#   Default: only backend + admin workspaces; skip npm ci when package-lock.json hash unchanged.
 npm_ci_with_enotempty_retry() {
   local _timeout_sec="${DEPLOY_NPM_CI_TIMEOUT_SEC:-1200}"
   local _heartbeat_sec="${DEPLOY_NPM_CI_HEARTBEAT_SEC:-15}"
   local _pid _hb_pid _elapsed _rc
   local _has_timeout=0
+  local _stamp_dir="${PROJECT_ROOT}/.deploy-cache"
+  local _stamp_file="${_stamp_dir}/npm-ci.sha"
+  local _lock_file="${PROJECT_ROOT}/package-lock.json"
+  local _lock_hash=""
+  # Intentionally not `local` — used by nested timeout shell via declare -p
+  DEPLOY__NPM_CI_ARGS=(ci --prefer-offline)
+
+  if [[ ! -f "${_lock_file}" ]]; then
+    echo "[err] package-lock.json missing — cannot run npm ci" >&2
+    return 1
+  fi
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    _lock_hash="$(sha256sum "${_lock_file}" | awk '{print $1}')"
+  else
+    _lock_hash="$(shasum -a 256 "${_lock_file}" | awk '{print $1}')"
+  fi
+
+  if [[ "${DEPLOY_NPM_ALL_WORKSPACES:-0}" != "1" ]]; then
+    # Tenant VPS does not need SA / platform-worker packages.
+    DEPLOY__NPM_CI_ARGS+=(
+      --workspace=@platform-ai-agent/backend
+      --workspace=@platform-ai-agent/admin
+      --include-workspace-root
+    )
+    echo "  npm ci scope: backend + admin (+ root). Set DEPLOY_NPM_ALL_WORKSPACES=1 for full monorepo."
+  else
+    echo "  npm ci scope: all workspaces"
+  fi
+
+  if [[ "${DEPLOY_FORCE_NPM_CI:-0}" != "1" ]] \
+    && [[ -d "${PROJECT_ROOT}/node_modules" ]] \
+    && [[ -f "${_stamp_file}" ]] \
+    && [[ "$(cat "${_stamp_file}" 2>/dev/null || true)" == "${_lock_hash}" ]]; then
+    echo "  npm ci skipped — package-lock.json unchanged (stamp ${_stamp_file})"
+    echo "  Force reinstall: DEPLOY_FORCE_NPM_CI=1 bash infra/scripts/deploy-client.sh"
+    return 0
+  fi
 
   _run_npm_ci() {
     local __log
     __log="$(mktemp)"
-    if npm ci --prefer-offline >"$__log" 2>&1; then
+    if npm "${DEPLOY__NPM_CI_ARGS[@]}" >"$__log" 2>&1; then
       rm -f "$__log"
       return 0
     fi
@@ -85,8 +128,8 @@ npm_ci_with_enotempty_retry() {
     echo "  WARN: npm ci failed (corrupt node_modules) — removing and retrying once..."
     cat "$__log" >&2
     rm -f "$__log"
-    rm -rf node_modules apps/backend/node_modules apps/admin/node_modules apps/super-admin/node_modules
-    npm ci --prefer-offline
+    rm -rf node_modules apps/backend/node_modules apps/admin/node_modules apps/super-admin/node_modules apps/platform-worker/node_modules
+    npm "${DEPLOY__NPM_CI_ARGS[@]}"
   }
 
   if command -v timeout >/dev/null 2>&1; then
@@ -106,14 +149,12 @@ npm_ci_with_enotempty_retry() {
 
   set +e
   if [ "${_has_timeout}" -eq 1 ]; then
-    # GNU timeout kills the whole process group (npm + children).
-    timeout --foreground "${_timeout_sec}" bash -c "$(declare -f _run_npm_ci); _run_npm_ci"
+    timeout --foreground "${_timeout_sec}" bash -c "$(declare -p DEPLOY__NPM_CI_ARGS); $(declare -f _run_npm_ci); _run_npm_ci"
     _rc=$?
     if [ "${_rc}" -eq 124 ]; then
       echo "[err] npm ci timed out after ${_timeout_sec}s" >&2
     fi
   else
-    # Fallback without GNU timeout: own process group + kill.
     set -m
     _run_npm_ci &
     _pid=$!
@@ -141,7 +182,10 @@ npm_ci_with_enotempty_retry() {
     echo "[err] npm ci failed (exit ${_rc})" >&2
     return "${_rc}"
   fi
-  echo "  npm ci OK"
+
+  mkdir -p "${_stamp_dir}"
+  echo "${_lock_hash}" > "${_stamp_file}"
+  echo "  npm ci OK (stamp updated)"
   return 0
 }
 
@@ -209,8 +253,8 @@ git pull --ff-only
 echo "[1b/11] Ensuring npm ${TARGET_NPM:-11.18.0}..."
 bash "${SCRIPT_DIR}/ensure-npm.sh" || true
 
-# ── 2. Claude Code CLI (idempotent) ──
-echo "[2/11] Ensuring Claude Code CLI..."
+# ── 2. Claude Code CLI (install if missing, update if present) ──
+echo "[2/11] Ensuring Claude Code CLI is installed and up to date..."
 bash "${SCRIPT_DIR}/setup-claude-cli.sh"
 
 # ── 3. Install dependencies ──

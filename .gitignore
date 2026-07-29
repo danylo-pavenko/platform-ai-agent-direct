@@ -37,6 +37,9 @@ Thumbs.db
 *.log
 pm2-*.log
 
+# Deploy local cache (npm-ci lock stamp, etc.)
+.deploy-cache/
+
 # Prisma
 apps/backend/src/generated/
 apps/super-admin/src/generated/
