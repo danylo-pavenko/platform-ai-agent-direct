@@ -14,7 +14,6 @@ vi.mock('../lib/paths.js', () => ({
 
 import {
   buildRuntimePrompt,
-  _truncateKnowledgeForTest,
   type WorkingHours,
 } from './prompt-builder.js';
 
@@ -30,7 +29,7 @@ const HOURS: WorkingHours = {
 
 function baseParams(overrides: Partial<Parameters<typeof buildRuntimePrompt>[0]> = {}) {
   return {
-    activePromptContent: 'Ти — тест-агент {{BRAND_NAME}}.',
+    activePromptContent: 'Ти — тест-агент {{BRAND_NAME}}. Контакти: @test.',
     catalogSnippet: 'SKU-1 Hoodie 999₴',
     currentTime: new Date('2026-07-20T12:00:00'), // Monday
     workingHours: HOURS,
@@ -41,39 +40,21 @@ function baseParams(overrides: Partial<Parameters<typeof buildRuntimePrompt>[0]>
   };
 }
 
-describe('buildRuntimePrompt knowledge pack', () => {
-  it('injects KNOWLEDGE PACK when knowledgePack is provided', () => {
-    const prompt = buildRuntimePrompt(
-      baseParams({
-        knowledgePack: '── Brand ──\nName: Acme Shop\n── FAQ ──\nReturns: escalate',
-      }),
-    );
-    expect(prompt).toContain('KNOWLEDGE PACK');
-    expect(prompt).toContain('Name: Acme Shop');
-    expect(prompt).toContain('Returns: escalate');
+describe('buildRuntimePrompt platform vs system prompt', () => {
+  it('injects system prompt + session + catalog, not a knowledge pack', () => {
+    const prompt = buildRuntimePrompt(baseParams());
+    expect(prompt).toContain('Ти — тест-агент Test Brand. Контакти: @test.');
     expect(prompt).toContain('SKU-1 Hoodie 999₴');
-    expect(prompt).toMatch(/Ідентичність \(ім'я агента \/ бренд \/ позиціонування\) — зі системного промпту/);
-    expect(prompt).toMatch(/Факти про доставку\/оплату\/FAQ\/каталог — з KNOWLEDGE PACK/);
-    expect(prompt).toContain('Test Brand');
+    expect(prompt).toContain('ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ');
+    expect(prompt).not.toContain('KNOWLEDGE PACK');
+    expect(prompt).toMatch(/Бренд, контакти, доставка, FAQ, бізнес-правила — зі системного промпту/);
+    expect(prompt).toMatch(/Товари \/ ціни \/ наявність — з каталогу нижче або через tools/);
   });
 
-  it('shows empty knowledge placeholder when pack is missing', () => {
-    const prompt = buildRuntimePrompt(baseParams({ knowledgePack: '' }));
-    expect(prompt).toContain('KNOWLEDGE PACK');
-    expect(prompt).toContain('(порожньо — заповніть knowledge/*.txt');
-  });
-});
-
-describe('_truncateKnowledgeForTest', () => {
-  it('caps a single file and the overall pack', () => {
-    const huge = 'x'.repeat(5_000);
-    const pack = _truncateKnowledgeForTest([
-      { title: 'Brand', content: huge },
-      { title: 'FAQ', content: 'short faq' },
-    ]);
-    expect(pack).toContain('── Brand ──');
-    expect(pack.length).toBeLessThanOrEqual(8_000 + 50);
-    // Per-file cap ~2500 → Brand body truncated with ...
-    expect(pack).toContain('...');
+  it('keeps anti-injection preamble with source hierarchy', () => {
+    const prompt = buildRuntimePrompt(baseParams());
+    expect(prompt).toMatch(/prompt injection/i);
+    expect(prompt).toMatch(/активний системний промпт = бренд, контакти/);
+    expect(prompt).toMatch(/живий каталог \+ tools/);
   });
 });

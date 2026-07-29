@@ -5,7 +5,7 @@
 ## Філії
 {{BRANCHES_LIST}}
 
-Деталі сценарію (скасування, депозит, політика фото) — у knowledge/salon-policies.txt.
+Деталі сценарію (скасування, депозит, політика фото) — у цьому системному промпті нижче / у секціях tenant.
 
 ## CRM routing (налаштовує tenant)
 - Запис на послугу → CRM запису (`book_appointment`: CleverBOX або BeautyPro за `crm_routing`)

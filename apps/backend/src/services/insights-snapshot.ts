@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { config } from '../config.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { getCrmRouting } from '../lib/crm-routing.js';
@@ -8,7 +6,6 @@ import {
   getIntegrationConfig,
   type IntegrationConfig,
 } from '../lib/integration-config.js';
-import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { prisma } from '../lib/prisma.js';
 import { getRuntimeConfig } from '../lib/runtime-config.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
@@ -20,13 +17,6 @@ const DAY_MS = 86_400_000;
 const SAMPLE_LIMIT = 15;
 const SAMPLE_MESSAGE_LIMIT = 4;
 const SAMPLE_TEXT_LIMIT = 220;
-const KNOWLEDGE_TEXT_LIMIT = 2_500;
-const BUSINESS_KNOWLEDGE_FILES = [
-  ['brand', 'brand.txt'],
-  ['contacts', 'contacts.txt'],
-  ['delivery', 'delivery.txt'],
-  ['faq', 'faq.txt'],
-] as const;
 
 export function parseInsightsPeriod(value: unknown): InsightsPeriod {
   const normalized = typeof value === 'string' ? value.toLowerCase() : '7d';
@@ -102,27 +92,6 @@ export function buildSafeIntegrationSummary(
     novaPoshtaConfigured: Boolean(integrationConfig.novaposhta.apiKey),
     novaPoshtaSenderCity: integrationConfig.novaposhta.senderCity || null,
   };
-}
-
-async function loadBusinessKnowledge(): Promise<Record<string, string>> {
-  const knowledgeDir = resolve(getTenantKnowledgeDir(), 'knowledge');
-  const entries = await Promise.all(
-    BUSINESS_KNOWLEDGE_FILES.map(async ([key, filename]) => {
-      try {
-        const content = (await readFile(resolve(knowledgeDir, filename), 'utf8')).trim();
-        if (!content) return null;
-        return [
-          key,
-          content.length > KNOWLEDGE_TEXT_LIMIT
-            ? `${content.slice(0, KNOWLEDGE_TEXT_LIMIT).trimEnd()}\n…`
-            : content,
-        ] as const;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return Object.fromEntries(entries.filter((entry) => entry !== null));
 }
 
 type TtfrRow = {
@@ -379,7 +348,6 @@ export async function buildInsightsSnapshot(
     latestSync,
     activeBranches,
     activeCrmFields,
-    businessKnowledge,
   ] = await Promise.all([
     prisma.message.groupBy({
       by: ['direction', 'sender'],
@@ -577,7 +545,6 @@ export async function buildInsightsSnapshot(
       orderBy: { label: 'asc' },
       select: { label: true },
     }),
-    loadBusinessKnowledge(),
   ]);
 
   const messageCount = (direction?: string, sender?: string): number =>
@@ -760,7 +727,7 @@ export async function buildInsightsSnapshot(
     business: {
       instanceName: config.INSTANCE_NAME,
       brandName: config.BRAND_NAME,
-      knowledge: businessKnowledge,
+      knowledge: {},
     },
     configuration: {
       agent: {

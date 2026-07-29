@@ -52,10 +52,12 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 - Реакції (message_reactions) — синтетичний inbound + короткий теплий ack; unreact ігнорується.
 - Shared post (пересланий пост) — окремий шлях з catalog search (як і раніше).
 
-## Knowledge files (tenant_knowledge)
+## Knowledge / prompts (tenant)
 
-prompts/{sales|leadgen|booking}-agent.txt, knowledge/{brand,contacts,delivery,faq,categories,services}.txt,
-catalog.txt (KeyCRM sync), services-live.txt (salon sync).
+- **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
+- **Live catalog** → knowledge/catalog.txt / services-live.txt (CRM sync) + catalog tools.
+- Seed files: prompts/{sales|leadgen|booking}-agent.txt (first DB seed only).
+- Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
 ## Правила редагування промпту
 

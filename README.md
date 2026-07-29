@@ -245,7 +245,6 @@ platform-ai-agent-direct/
 │   └── workspace/                      # Seed content shared across tenants
 │       └── templates/                  # Copied to $HOME/tenant_knowledge on first deploy
 │           ├── knowledge/
-│           │   ├── brand.txt
 │           │   ├── contacts.txt
 │           │   ├── delivery.txt
 │           │   ├── categories.txt

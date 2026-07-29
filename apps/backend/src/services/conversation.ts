@@ -11,7 +11,6 @@ import {
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
-  loadKnowledgePack,
   type ClientProfile,
 } from './prompt-builder.js';
 import { resolveVisualMediaPathsForClaude } from './media.js';
@@ -441,7 +440,6 @@ async function handleIncomingMessageImpl(
   // ── 5. Build prompt ───────────────────────────────────────────────
   const activePrompt = await getActivePrompt();
   const catalog = await loadCatalogSnippet();
-  const knowledgePack = await loadKnowledgePack();
 
   // Per-tenant CRM field mappings — shapes both the prompt (extra-fields
   // hints) and the tool schema (update_client_info.custom_fields). Cache
@@ -474,7 +472,6 @@ async function handleIncomingMessageImpl(
   const prompt = buildRuntimePrompt({
     activePromptContent: activePrompt,
     catalogSnippet: catalog,
-    knowledgePack,
     currentTime: now,
     workingHours: hours,
     conversationState: conversation.state as 'bot' | 'handoff',

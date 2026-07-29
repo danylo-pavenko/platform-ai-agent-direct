@@ -25,10 +25,9 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 
 ## Джерела правди
 
-1. Активний системний промпт (БД / seed `prompts/*-agent.txt`).
-2. Runtime-блок бекенду (профіль, години, філії, знімок catalog/services, CRM history якщо linked).
-3. `knowledge/*.txt` у `$TENANT_KNOWLEDGE_DIR` (~/tenant_knowledge).
-4. Живі tools: `search_catalog` / `search_services` — не вигадуй ціни з голови.
+1. Активний системний промпт у БД (бренд, контакти, доставка, FAQ, правила).
+2. Runtime-блок бекенду (профіль клієнта, години, філії, знімок catalog/services).
+3. Живі tools: `search_catalog` / `search_services` — не вигадуй ціни з голови.
 
 ## Заборони
 

@@ -32,7 +32,6 @@ import {
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
-  loadKnowledgePack,
   type ClientProfile,
 } from './prompt-builder.js';
 import { formatBranchesForPrompt } from './branches.js';
@@ -311,7 +310,6 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
 
       const activePrompt = await getActivePrompt();
       const catalog = await loadCatalogSnippet();
-      const knowledgePack = await loadKnowledgePack();
       const crmWritesEnabled = await isCrmWriteEnabled();
       const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
       const branchesList = await formatBranchesForPrompt();
@@ -321,7 +319,6 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const prompt = buildRuntimePrompt({
         activePromptContent: activePrompt,
         catalogSnippet: catalog,
-        knowledgePack,
         currentTime: now,
         workingHours: hours,
         conversationState: 'bot',

@@ -258,9 +258,8 @@ overwrite tenant edits.
 
 ```bash
 su - agent_sb
-nano ~/tenant_knowledge/knowledge/brand.txt
-nano ~/tenant_knowledge/knowledge/contacts.txt
-nano ~/tenant_knowledge/knowledge/delivery.txt
+# Brand / contacts / delivery / FAQ → active system prompt in Admin → Prompts
+# Live catalog stays in ~/tenant_knowledge/knowledge/catalog.txt (CRM sync)
 nano ~/tenant_knowledge/knowledge/faq.txt
 ```
 

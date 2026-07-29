@@ -1,6 +1,6 @@
-# Contacts & hours
-# Used in KNOWLEDGE PACK. Prefer also setting working_hours in Admin → Settings
-# (runtime session block). Keep this file aligned with what clients see.
+# Contacts & hours (OPTIONAL LEGACY — not injected into Claude)
+# Put contacts / hours / FAQ into the active system prompt (Admin → Prompts).
+# Prefer also setting working_hours in Admin → Settings (runtime session block).
 
 ## Phone
 TODO: +380…
