@@ -854,15 +854,50 @@ const AGENT_LATENCY_PROBE_USER = 'ping';
 export async function probeAgentLatency(
   maxLatencyMs = config.CLAUDE_TIMEOUT_MS,
 ): Promise<AgentLatencyProbe> {
+  return runLatencyProbe({
+    timeoutMs: maxLatencyMs,
+    model: config.CLAUDE_MODEL,
+  });
+}
+
+/**
+ * One light CLI spawn after PM2/API start (haiku + ping).
+ * Does not go through the customer semaphore — fire-and-forget from server.ts.
+ * Warmup failure must never block the API; it only logs.
+ */
+export async function warmUpClaudeCli(): Promise<AgentLatencyProbe> {
+  const timeoutMs = config.CLAUDE_TIMEOUT_MS;
+  log.info({ timeoutMs, model: 'haiku' }, 'Claude CLI warmup starting');
+  const result = await runLatencyProbe({ timeoutMs, model: 'haiku' });
+  if (result.ok) {
+    log.info({ latencyMs: result.latencyMs }, 'Claude CLI warmup OK');
+  } else {
+    log.warn(
+      { latencyMs: result.latencyMs, error: result.error, fallback: result.fallback ?? null },
+      'Claude CLI warmup failed (API stays up; first DM may still be cold)',
+    );
+  }
+  return result;
+}
+
+async function runLatencyProbe(opts: {
+  timeoutMs: number;
+  model: string;
+}): Promise<AgentLatencyProbe> {
   const startMs = Date.now();
   const prompt = buildPrompt({
     systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
     conversationHistory: [],
     userMessage: AGENT_LATENCY_PROBE_USER,
   });
-  const args = buildArgs(false);
+  const args = [
+    '-p',
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--model', opts.model,
+  ];
 
-  const response = await spawnClaude(prompt, args, maxLatencyMs);
+  const response = await spawnClaude(prompt, args, opts.timeoutMs);
   const latencyMs = Date.now() - startMs;
 
   if (response.fallback) {
@@ -885,11 +920,11 @@ export async function probeAgentLatency(
     };
   }
 
-  if (latencyMs > maxLatencyMs) {
+  if (latencyMs > opts.timeoutMs) {
     return {
       ok: false,
       latencyMs,
-      error: `Відповідь зайняла ${latencyMs} мс (ліміт ${maxLatencyMs} мс)`,
+      error: `Відповідь зайняла ${latencyMs} мс (ліміт ${opts.timeoutMs} мс)`,
     };
   }
 

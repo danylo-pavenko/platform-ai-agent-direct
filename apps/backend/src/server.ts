@@ -133,6 +133,13 @@ try {
 
   const { startFollowUpMonitor } = await import('./services/follow-up.js');
   startFollowUpMonitor(app.log);
+
+  if (config.CLAUDE_WARMUP_ON_START) {
+    const { warmUpClaudeCli } = await import('./services/claude.js');
+    void warmUpClaudeCli().catch((err) => {
+      app.log.warn({ err }, 'Claude CLI warmup threw (ignored)');
+    });
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

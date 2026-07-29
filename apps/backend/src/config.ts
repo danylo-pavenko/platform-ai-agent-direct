@@ -112,6 +112,12 @@ const envSchema = z.object({
   // diffs — allow a longer window than generic admin turns.
   CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(300000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
+  // One light `claude -p` after API listen so the first IG DM after PM2
+  // restart is less likely to hit cold-start timeouts.
+  CLAUDE_WARMUP_ON_START: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
   // Poll Claude Code `/usage` for subscription limits (Pro/Max rolling windows).
   CLAUDE_USAGE_CHECK_ENABLED: z
     .string()
