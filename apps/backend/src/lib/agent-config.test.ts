@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../config.js', () => ({
+  config: {
+    CLAUDE_MODEL: 'sonnet',
+  },
+}));
+
+vi.mock('./prisma.js', () => ({ prisma: {} }));
+
 import {
+  normalizeClaudeModel,
   normalizeResponseDelayBounds,
   resolveResponseDelayMs,
   RESPONSE_DELAY_SEC_MAX,
@@ -16,6 +26,24 @@ describe('normalizeResponseDelayBounds', () => {
       max: RESPONSE_DELAY_SEC_MAX,
     });
     expect(normalizeResponseDelayBounds(10, 5)).toEqual({ min: 10, max: 10 });
+  });
+});
+
+describe('normalizeClaudeModel', () => {
+  it('accepts haiku, sonnet, opus', () => {
+    expect(normalizeClaudeModel('haiku')).toBe('haiku');
+    expect(normalizeClaudeModel('sonnet')).toBe('sonnet');
+    expect(normalizeClaudeModel('opus')).toBe('opus');
+  });
+
+  it('falls back for unknown values', () => {
+    expect(normalizeClaudeModel('gpt-4', 'haiku')).toBe('haiku');
+    expect(normalizeClaudeModel(undefined, 'opus')).toBe('opus');
+    expect(normalizeClaudeModel(null, 'sonnet')).toBe('sonnet');
+  });
+
+  it('uses CLAUDE_MODEL env when fallback omitted', () => {
+    expect(normalizeClaudeModel('invalid')).toBe('sonnet');
   });
 });
 

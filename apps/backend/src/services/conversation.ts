@@ -651,6 +651,7 @@ async function handleIncomingMessageImpl(
       conversationId,
       clientId: client.id,
       timeoutMs: claudeTimeoutMs,
+      model: agentCfg.claudeModel,
     },
   );
 
@@ -754,6 +755,7 @@ async function handleIncomingMessageImpl(
           channel: conversation.channel,
           conversationId,
           clientId: client.id,
+          model: agentCfg.claudeModel,
         },
       );
 
@@ -822,6 +824,7 @@ async function handleIncomingMessageImpl(
           channel: conversation.channel,
           conversationId,
           clientId: client.id,
+          model: agentCfg.claudeModel,
         },
       );
 
@@ -873,7 +876,7 @@ async function handleIncomingMessageImpl(
           userMessage: toolResultContent,
           tools,
         },
-        { channel: conversation.channel, conversationId, clientId: client.id },
+        { channel: conversation.channel, conversationId, clientId: client.id, model: agentCfg.claudeModel },
       );
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
@@ -926,7 +929,7 @@ async function handleIncomingMessageImpl(
           userMessage: toolResultContent,
           tools,
         },
-        { channel: conversation.channel, conversationId, clientId: client.id },
+        { channel: conversation.channel, conversationId, clientId: client.id, model: agentCfg.claudeModel },
       );
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
@@ -997,7 +1000,7 @@ async function handleIncomingMessageImpl(
           userMessage: toolResultContent,
           tools,
         },
-        { channel: conversation.channel, conversationId, clientId: client.id },
+        { channel: conversation.channel, conversationId, clientId: client.id, model: agentCfg.claudeModel },
       );
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;

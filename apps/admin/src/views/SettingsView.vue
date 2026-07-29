@@ -400,6 +400,39 @@
         </v-card-text>
       </v-card>
 
+      <!-- Claude model -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="indigo">mdi-brain</v-icon>
+          Claude — модель агента
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Яку модель Claude Code використовує для відповідей у Direct (і sandbox / follow-up).
+        </v-card-subtitle>
+        <v-card-text>
+          <v-select
+            v-model="agentConfig.claudeModel"
+            :items="[
+              { title: 'Haiku — швидше, дешевше (менше таймаутів)', value: 'haiku' },
+              { title: 'Sonnet — баланс якості й швидкості', value: 'sonnet' },
+              { title: 'Opus — якісніше, повільніше', value: 'opus' },
+            ]"
+            item-title="title"
+            item-value="value"
+            label="Модель агента"
+            variant="outlined"
+            density="compact"
+            hide-details
+            class="mb-2"
+            style="max-width: 420px"
+          />
+          <div class="text-caption text-medium-emphasis">
+            Зміна застосовується до нових відповідей без рестарту PM2
+            (кеш налаштувань до ~60 с). Збережіть налаштування кнопкою внизу сторінки.
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- Claude subscription usage -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
@@ -3575,6 +3608,7 @@ interface AgentConfigShape {
   sessionFreshnessDays: number;
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
+  claudeModel: 'haiku' | 'sonnet' | 'opus';
 }
 
 const agentConfig = ref<AgentConfigShape>({
@@ -3584,6 +3618,7 @@ const agentConfig = ref<AgentConfigShape>({
   sessionFreshnessDays: 14,
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
+  claudeModel: 'sonnet',
 });
 
 interface FollowUpConfigShape {
@@ -3747,6 +3782,10 @@ async function fetchSettings() {
           if (!Number.isFinite(n) || n < 0) return 0;
           return Math.min(60, Math.floor(n));
         })(),
+        claudeModel:
+          raw.claudeModel === 'haiku' || raw.claudeModel === 'opus' || raw.claudeModel === 'sonnet'
+            ? raw.claudeModel
+            : 'sonnet',
       };
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {
         agentConfig.value.responseDelayMaxSeconds = agentConfig.value.responseDelayMinSeconds;
@@ -3851,6 +3890,12 @@ async function saveSettings() {
       feature_flags: featureFlags.value,
       agent_config: {
         ...agentConfig.value,
+        claudeModel:
+          agentConfig.value.claudeModel === 'haiku' ||
+          agentConfig.value.claudeModel === 'opus' ||
+          agentConfig.value.claudeModel === 'sonnet'
+            ? agentConfig.value.claudeModel
+            : 'sonnet',
         responseDelayMinSeconds: (() => {
           const n = Math.floor(Number(agentConfig.value.responseDelayMinSeconds) || 0);
           return Math.max(0, Math.min(60, n));

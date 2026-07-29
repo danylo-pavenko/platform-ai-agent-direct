@@ -371,6 +371,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
           channel: conversation.channel,
           conversationId,
           clientId: client.id,
+          model: agentCfg.claudeModel,
         },
       );
 

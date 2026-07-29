@@ -22,6 +22,7 @@ import {
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_TIMEOUT,
 } from '../lib/agent-fallback.js';
+import { getAgentConfig, normalizeClaudeModel, type ClaudeModelId } from '../lib/agent-config.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 
 export { resolveClaudeSpawnCwd };
@@ -69,6 +70,8 @@ export interface ClaudeCallContext {
   clientId?: string;
   /** Per-call override (e.g. voice turns after STT). */
   timeoutMs?: number;
+  /** Claude Code CLI `--model` (haiku/sonnet/opus). Falls back to agent_config. */
+  model?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,12 +158,12 @@ function buildPrompt(req: ClaudeRequest): string {
 }
 
 /** Build the CLI argument list (prompt / images go via stdin). */
-function buildArgs(useStreamJsonInput = false): string[] {
+function buildArgs(useStreamJsonInput = false, model: string = config.CLAUDE_MODEL): string[] {
   const args: string[] = [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', config.CLAUDE_MODEL,
+    '--model', normalizeClaudeModel(model),
   ];
 
   // Claude Code has no `--image` flag. Vision uses Anthropic image content
@@ -170,6 +173,20 @@ function buildArgs(useStreamJsonInput = false): string[] {
   }
 
   return args;
+}
+
+/** Exported for unit tests. */
+export function buildClaudeCliArgsForTest(
+  useStreamJsonInput = false,
+  model?: string,
+): string[] {
+  return buildArgs(useStreamJsonInput, model ?? config.CLAUDE_MODEL);
+}
+
+async function resolveClaudeModel(context?: ClaudeCallContext): Promise<ClaudeModelId> {
+  if (context?.model) return normalizeClaudeModel(context.model);
+  const cfg = await getAgentConfig();
+  return cfg.claudeModel;
 }
 
 /** Merge native stream-json tool_use blocks with `<tool_call>` text protocol. */
@@ -528,7 +545,8 @@ export async function askClaude(
 ): Promise<ClaudeResponse> {
   const prompt = buildPrompt(req);
   const vision = await buildClaudeVisionStdin(prompt, req.images);
-  const args = buildArgs(vision.useStreamJsonInput);
+  const model = await resolveClaudeModel(context);
+  const args = buildArgs(vision.useStreamJsonInput, model);
   const startMs = Date.now();
 
   if (req.images && req.images.length > 0) {
@@ -621,6 +639,7 @@ export async function askClaude(
         channel: context?.channel ?? null,
         timeoutMs: timeoutFor(context),
         visionAttached: vision.attachedImages.length,
+        model,
       },
       'Claude invocation complete',
     );
@@ -657,7 +676,8 @@ export async function askClaudeStream(
 ): Promise<ClaudeResponse> {
   const prompt = buildPrompt(req);
   const vision = await buildClaudeVisionStdin(prompt, req.images);
-  const args = buildArgs(vision.useStreamJsonInput);
+  const model = await resolveClaudeModel(context);
+  const args = buildArgs(vision.useStreamJsonInput, model);
   const startMs = Date.now();
   const gate = semaphoreFor(context);
 

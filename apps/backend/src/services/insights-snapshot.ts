@@ -199,12 +199,13 @@ export interface InsightsSnapshot {
   };
   configuration: {
     agent: {
-      mode: string;
+        mode: string;
       outOfHoursStrategy: string;
       managerSlaHoursBusiness: number;
       sessionFreshnessDays: number;
       responseDelayMinSeconds: number;
       responseDelayMaxSeconds: number;
+      claudeModel: string;
     };
     runtime: {
       mode: string;
@@ -737,6 +738,7 @@ export async function buildInsightsSnapshot(
         sessionFreshnessDays: agentConfig.sessionFreshnessDays,
         responseDelayMinSeconds: agentConfig.responseDelayMinSeconds,
         responseDelayMaxSeconds: agentConfig.responseDelayMaxSeconds,
+        claudeModel: agentConfig.claudeModel,
       },
       runtime: {
         mode: runtimeConfig.mode,

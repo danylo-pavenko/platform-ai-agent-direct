@@ -16,12 +16,18 @@
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
+ *     claudeModel: 'haiku' | 'sonnet' | 'opus',  // CLI --model; falls back to CLAUDE_MODEL env
  *   }
  */
+import { config } from '../config.js';
 import { prisma } from './prisma.js';
 import type { AgentMode } from './tool-definitions.js';
 
 export type OutOfHoursStrategy = 'warn_early' | 'defer_to_end';
+
+export type ClaudeModelId = 'haiku' | 'sonnet' | 'opus';
+
+export const CLAUDE_MODEL_IDS: readonly ClaudeModelId[] = ['haiku', 'sonnet', 'opus'] as const;
 
 export const RESPONSE_DELAY_SEC_MAX = 60;
 
@@ -34,6 +40,13 @@ export interface AgentConfig {
   responseDelayMinSeconds: number;
   /** Inclusive upper bound; reply waits a random time in [min, max]. */
   responseDelayMaxSeconds: number;
+  /** Claude Code CLI `--model` for agent turns. */
+  claudeModel: ClaudeModelId;
+}
+
+function envClaudeModelFallback(): ClaudeModelId {
+  const m = config.CLAUDE_MODEL;
+  return m === 'haiku' || m === 'opus' || m === 'sonnet' ? m : 'sonnet';
 }
 
 const DEFAULTS: AgentConfig = {
@@ -43,6 +56,7 @@ const DEFAULTS: AgentConfig = {
   sessionFreshnessDays: 14,
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
+  claudeModel: 'sonnet',
 };
 
 let _cache: AgentConfig | null = null;
@@ -63,6 +77,15 @@ export function normalizeResponseDelayBounds(
   let max = clampDelaySec(maxRaw, DEFAULTS.responseDelayMaxSeconds);
   if (max < min) max = min;
   return { min, max };
+}
+
+/** Normalize a settings/env value to a supported Claude CLI model id. */
+export function normalizeClaudeModel(
+  value: unknown,
+  fallback: ClaudeModelId = envClaudeModelFallback(),
+): ClaudeModelId {
+  if (value === 'haiku' || value === 'sonnet' || value === 'opus') return value;
+  return fallback;
 }
 
 /**
@@ -92,11 +115,12 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     where: { key: 'agent_config' },
   });
 
-  const raw = (row?.value ?? {}) as Partial<AgentConfig>;
+  const raw = (row?.value ?? {}) as Partial<AgentConfig> & Record<string, unknown>;
   const delay = normalizeResponseDelayBounds(
     raw.responseDelayMinSeconds,
     raw.responseDelayMaxSeconds,
   );
+  const envFallback = envClaudeModelFallback();
 
   _cache = {
     mode:
@@ -117,6 +141,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
         : DEFAULTS.sessionFreshnessDays,
     responseDelayMinSeconds: delay.min,
     responseDelayMaxSeconds: delay.max,
+    claudeModel: normalizeClaudeModel(raw.claudeModel, envFallback),
   };
   _cacheAt = Date.now();
   return _cache;
