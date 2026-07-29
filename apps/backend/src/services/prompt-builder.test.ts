@@ -52,7 +52,8 @@ describe('buildRuntimePrompt knowledge pack', () => {
     expect(prompt).toContain('Name: Acme Shop');
     expect(prompt).toContain('Returns: escalate');
     expect(prompt).toContain('SKU-1 Hoodie 999₴');
-    expect(prompt).toMatch(/Факти про бренд\/доставку\/оплату — з KNOWLEDGE PACK/);
+    expect(prompt).toMatch(/Ідентичність \(ім'я агента \/ бренд \/ позиціонування\) — зі системного промпту/);
+    expect(prompt).toMatch(/Факти про доставку\/оплату\/FAQ\/каталог — з KNOWLEDGE PACK/);
     expect(prompt).toContain('Test Brand');
   });
 
