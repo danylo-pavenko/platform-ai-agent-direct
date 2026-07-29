@@ -106,9 +106,40 @@ model Conversation {
   briefs          PresaleBrief[]
   appointments    Appointment[]
   referencePhotos ClientReferencePhoto[]
+  followUpJobs    FollowUpJob[]
 
   @@index([state, followUpSentAt, lastMessageAt])
   @@map("conversations")
+}
+
+// ── Smart-trigger / remarketing queue ──
+
+enum FollowUpJobStatus {
+  pending
+  processing
+  done
+  cancelled
+  failed
+}
+
+/// Scheduled silence follow-up. Worker only loads due rows (status=pending, runAt<=now).
+model FollowUpJob {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String            @map("conversation_id") @db.Uuid
+  runAt          DateTime          @map("run_at")
+  status         FollowUpJobStatus @default(pending)
+  /// Timestamp of the bot outbound that scheduled this job.
+  scheduledFrom  DateTime          @map("scheduled_from")
+  attemptCount   Int               @default(0) @map("attempt_count")
+  lastError      String?           @map("last_error")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt])
+  @@index([conversationId, status])
+  @@map("follow_up_jobs")
 }
 
 // ── Messages ──

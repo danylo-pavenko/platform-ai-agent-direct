@@ -8,6 +8,8 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   evaluateFollowUpNeed,
   FOLLOW_UP_MAX_AGE_MS,
+  IG_MESSAGING_WINDOW_MS,
+  isIgOutsideMessagingWindowError,
 } from '../lib/follow-up-eval.js';
 import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
@@ -36,20 +38,29 @@ import {
 import { formatBranchesForPrompt } from './branches.js';
 import { fetchClientCrmHistory } from './client-crm-link.js';
 
-export { evaluateFollowUpNeed, FOLLOW_UP_MAX_AGE_MS } from '../lib/follow-up-eval.js';
+export {
+  evaluateFollowUpNeed,
+  FOLLOW_UP_MAX_AGE_MS,
+  IG_MESSAGING_WINDOW_MS,
+  isIgOutsideMessagingWindowError,
+} from '../lib/follow-up-eval.js';
+
+export {
+  scheduleFollowUpAfterBotOutbound,
+  scheduleFollowUpAfterBotOutboundSafe,
+  cancelPendingFollowUps,
+  cancelPendingFollowUpsSafe,
+  reschedulePendingFollowUpsForDelay,
+  onFollowUpConfigSaved,
+} from '../lib/follow-up-schedule.js';
 
 const log = pino({ name: 'follow-up' });
 
 /** Max history turns for remarketing Claude call (same cap as live bot). */
 const MAX_HISTORY_MESSAGES = 30;
 
-/** Regex to detect leaked internal IDs / prices in bot output */
 const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
 
-/**
- * Internal userMessage for Claude — not persisted to the conversation.
- * Agent must write one contextual remarketing line from system prompt + history.
- */
 const REMARKETING_USER_MESSAGE = [
   '[PLATFORM — internal instruction, not from the client]',
   'The client has been silent after your last message.',
@@ -67,6 +78,21 @@ export interface FollowUpStats {
   sent: number;
   skipped: number;
   failed: number;
+  consumed: number;
+}
+
+async function markJob(
+  jobId: string,
+  status: 'done' | 'cancelled' | 'failed',
+  lastError?: string | null,
+): Promise<void> {
+  await prisma.followUpJob.update({
+    where: { id: jobId },
+    data: {
+      status,
+      lastError: lastError ? lastError.slice(0, 500) : null,
+    },
+  });
 }
 
 async function sendFollowUpToClient(params: {
@@ -90,31 +116,12 @@ async function sendFollowUpToClient(params: {
   await bot.api.sendMessage(params.tgUserId, params.text);
 }
 
-async function releaseFollowUpClaim(conversationId: string): Promise<void> {
-  await prisma.conversation.updateMany({
-    where: { id: conversationId },
-    data: { followUpSentAt: null },
-  });
-}
-
 /**
- * Claim slot, ask Claude with full runtime prompt + history, send one outbound.
- * Returns true only when a client-facing remarketing message was delivered/persisted.
+ * Execute one due follow-up job. Claude only after cheap gates pass.
+ * Does not schedule a new job after send (one nudge per silence cycle).
  */
-async function sendRemarketingFollowUp(conversationId: string): Promise<boolean> {
+async function processFollowUpJob(jobId: string, conversationId: string): Promise<'sent' | 'skipped' | 'failed'> {
   return runConversationTurnSerialized(conversationId, async () => {
-    const claimed = await prisma.conversation.updateMany({
-      where: {
-        id: conversationId,
-        state: 'bot',
-        followUpSentAt: null,
-      },
-      data: { followUpSentAt: new Date() },
-    });
-    if (claimed.count === 0) {
-      return false;
-    }
-
     const turnStartedAt = new Date();
 
     try {
@@ -124,39 +131,116 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
       });
 
       if (!conversation || conversation.state !== 'bot') {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'cancelled', 'conversation_not_bot');
+        return 'skipped';
+      }
+
+      if (conversation.followUpSentAt) {
+        await markJob(jobId, 'cancelled', 'already_sent_this_cycle');
+        return 'skipped';
       }
 
       const { client } = conversation;
       const channel = conversation.channel === 'tg' ? 'tg' : 'ig';
 
       if (channel === 'ig' && !client.igUserId) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'failed', 'missing_ig_user_id');
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { followUpSentAt: new Date() },
+        });
+        return 'failed';
       }
       if (channel === 'tg' && !client.tgUserId) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'failed', 'missing_tg_user_id');
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { followUpSentAt: new Date() },
+        });
+        return 'failed';
       }
 
       const runtime = await getRuntimeConfig();
       if (isUsernameBotIgnored(runtime, client.igUsername)) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'cancelled', 'bot_ignored_username');
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { followUpSentAt: new Date() },
+        });
+        return 'skipped';
       }
 
-      // Client replied while we were claiming / waiting on the turn queue.
       const recentCheck = await prisma.message.findMany({
         where: { conversationId },
         orderBy: { createdAt: 'desc' },
-        take: 5,
+        take: 40,
         select: { direction: true, sender: true, createdAt: true },
       });
-      const last = recentCheck[0];
-      if (!last || last.direction !== 'out' || last.sender === 'manager') {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+
+      const followCfg = await getFollowUpConfig();
+      const delayMs = followCfg.delayHours * 60 * 60_000;
+      const lastInbound = recentCheck.find(
+        (m) => m.direction === 'in' && m.sender === 'client',
+      );
+      const gate = evaluateFollowUpNeed(recentCheck, Date.now(), {
+        delayMs,
+        maxAgeMs: FOLLOW_UP_MAX_AGE_MS,
+        followUpAlreadySent: false,
+        channel,
+        lastClientInboundAt: lastInbound?.createdAt ?? null,
+      });
+
+      if (!gate.needed) {
+        if (gate.reason === 'too_soon' && gate.lastBotAt) {
+          await prisma.followUpJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'pending',
+              runAt: new Date(gate.lastBotAt.getTime() + delayMs),
+              lastError: 'too_soon_rescheduled',
+            },
+          });
+          return 'skipped';
+        }
+        const permanent =
+          gate.consumeWithoutSend ||
+          gate.reason === 'outside_messaging_window' ||
+          gate.reason === 'delay_exceeds_window' ||
+          gate.reason === 'too_old';
+        if (
+          gate.reason === 'client_replied' ||
+          gate.reason === 'manager_replied' ||
+          gate.reason === 'no_bot_outbound'
+        ) {
+          await markJob(jobId, 'cancelled', gate.reason);
+          return 'skipped';
+        }
+        await markJob(jobId, permanent ? 'failed' : 'cancelled', gate.reason);
+        if (permanent) {
+          await prisma.conversation.update({
+            where: { id: conversationId },
+            data: { followUpSentAt: new Date() },
+          });
+        }
+        log.info(
+          { conversationId, jobId, reason: gate.reason },
+          'Follow-up job skipped before Claude',
+        );
+        return permanent ? 'failed' : 'skipped';
+      }
+
+      // Claim silence slot so we never double-send / re-queue this cycle.
+      const claimed = await prisma.conversation.updateMany({
+        where: {
+          id: conversationId,
+          state: 'bot',
+          followUpSentAt: null,
+        },
+        data: { followUpSentAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        await markJob(jobId, 'cancelled', 'claim_lost');
+        return 'skipped';
       }
 
       const previousOrders = await prisma.order.findMany({
@@ -287,7 +371,6 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
           systemPrompt: prompt,
           conversationHistory: history,
           userMessage: REMARKETING_USER_MESSAGE,
-          // No tools: remarketing is a single soft text nudge.
         },
         {
           channel: conversation.channel,
@@ -297,41 +380,41 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
       );
 
       if (response.fallback || isAgentFallbackReply(response.text)) {
-        log.warn(
-          { conversationId, fallback: response.fallback, detail: response.errorDetail },
-          'Remarketing Claude fallback — releasing claim for retry',
+        await markJob(
+          jobId,
+          'failed',
+          response.errorDetail ?? response.fallback ?? 'claude_fallback',
         );
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        log.warn(
+          { conversationId, jobId, fallback: response.fallback },
+          'Remarketing Claude fallback — job failed (no retry)',
+        );
+        return 'failed';
       }
 
-      let responseText = (response.text ?? '').trim();
-      if (!responseText) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
-      }
-
-      if (LEAKED_INTERNALS_RE.test(responseText)) {
-        log.warn({ conversationId }, 'Remarketing reply leaked internals — aborting send');
-        await releaseFollowUpClaim(conversationId);
-        return false;
+      const responseText = (response.text ?? '').trim();
+      if (!responseText || LEAKED_INTERNALS_RE.test(responseText)) {
+        await markJob(jobId, 'failed', 'empty_or_leaked_output');
+        return 'failed';
       }
 
       const clientFacingText = stripMarkdownForInstagram(
         sanitizeCustomerFacingReply(responseText),
       ).trim();
       if (!clientFacingText) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'failed', 'sanitized_empty');
+        return 'failed';
       }
 
       if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
-        log.info({ conversationId }, 'Remarketing aborted — manager took over during turn');
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'cancelled', 'manager_took_over');
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { followUpSentAt: null },
+        });
+        return 'skipped';
       }
 
-      // Re-check silence after Claude latency.
       const postClaude = await prisma.message.findMany({
         where: { conversationId },
         orderBy: { createdAt: 'desc' },
@@ -341,8 +424,21 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
       const stillBotLast =
         postClaude[0]?.direction === 'out' && postClaude[0]?.sender !== 'manager';
       if (!stillBotLast) {
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(jobId, 'cancelled', 'client_or_manager_spoke');
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { followUpSentAt: null },
+        });
+        return 'skipped';
+      }
+
+      if (channel === 'ig' && lastInbound) {
+        const inboundAgeMs = Date.now() - lastInbound.createdAt.getTime();
+        if (inboundAgeMs > IG_MESSAGING_WINDOW_MS) {
+          await markJob(jobId, 'failed', 'ig_window_closed_after_claude');
+          log.info({ conversationId, jobId }, 'IG window closed after Claude — no send');
+          return 'failed';
+        }
       }
 
       try {
@@ -353,9 +449,25 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
           text: clientFacingText,
         });
       } catch (err) {
-        log.error({ err, conversationId }, 'Remarketing send failed');
-        await releaseFollowUpClaim(conversationId);
-        return false;
+        await markJob(
+          jobId,
+          'failed',
+          isIgOutsideMessagingWindowError(err)
+            ? 'ig_outside_messaging_window'
+            : err instanceof Error
+              ? err.message
+              : 'send_failed',
+        );
+        log.error(
+          {
+            err,
+            conversationId,
+            jobId,
+            outsideWindow: isIgOutsideMessagingWindowError(err),
+          },
+          'Remarketing send failed — job failed (no retry)',
+        );
+        return 'failed';
       }
 
       const sentAt = new Date();
@@ -375,6 +487,10 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
             lastMessageAt: sentAt,
           },
         }),
+        prisma.followUpJob.update({
+          where: { id: jobId },
+          data: { status: 'done', lastError: null },
+        }),
       ]);
 
       markFirstOutboundAt(conversationId).catch((err) =>
@@ -382,24 +498,30 @@ async function sendRemarketingFollowUp(conversationId: string): Promise<boolean>
       );
 
       log.info(
-        { conversationId, channel: conversation.channel },
+        { conversationId, jobId, channel: conversation.channel },
         'Silence remarketing follow-up sent via agent',
       );
-      return true;
+      return 'sent';
     } catch (err) {
-      log.error({ err, conversationId }, 'Remarketing follow-up crashed');
-      await releaseFollowUpClaim(conversationId);
-      return false;
+      const msg = err instanceof Error ? err.message : String(err);
+      await markJob(jobId, 'failed', msg).catch(() => undefined);
+      log.error({ err, conversationId, jobId }, 'Remarketing follow-up crashed');
+      return 'failed';
     }
   });
 }
 
-export async function runFollowUpPass(): Promise<FollowUpStats> {
+/**
+ * Lightweight due-job pass — only rows with status=pending AND runAt<=now.
+ * Does not scan all conversations.
+ */
+export async function runFollowUpDuePass(): Promise<FollowUpStats> {
   const stats: FollowUpStats = {
     scanned: 0,
     sent: 0,
     skipped: 0,
     failed: 0,
+    consumed: 0,
   };
 
   if (!config.FOLLOW_UP_JOB_ENABLED) {
@@ -411,61 +533,50 @@ export async function runFollowUpPass(): Promise<FollowUpStats> {
     return stats;
   }
 
-  const delayMs = followCfg.delayHours * 60 * 60_000;
-  const now = Date.now();
-  const cutoffMax = new Date(now - delayMs);
-  const cutoffMin = new Date(now - FOLLOW_UP_MAX_AGE_MS);
-
-  const conversations = await prisma.conversation.findMany({
+  const now = new Date();
+  const due = await prisma.followUpJob.findMany({
     where: {
-      state: 'bot',
-      channel: { in: ['ig', 'tg'] },
-      followUpSentAt: null,
-      lastMessageAt: {
-        lte: cutoffMax,
-        gte: cutoffMin,
-      },
+      status: 'pending',
+      runAt: { lte: now },
     },
-    orderBy: { lastMessageAt: 'asc' },
+    orderBy: { runAt: 'asc' },
     take: config.FOLLOW_UP_BATCH_SIZE,
-    select: { id: true, followUpSentAt: true },
+    select: { id: true, conversationId: true, attemptCount: true },
   });
 
-  stats.scanned = conversations.length;
+  stats.scanned = due.length;
 
-  for (const row of conversations) {
-    const recentMessages = await prisma.message.findMany({
-      where: { conversationId: row.id },
-      orderBy: { createdAt: 'desc' },
-      take: 40,
-      select: {
-        direction: true,
-        sender: true,
-        createdAt: true,
+  for (const row of due) {
+    const claimed = await prisma.followUpJob.updateMany({
+      where: { id: row.id, status: 'pending' },
+      data: {
+        status: 'processing',
+        attemptCount: { increment: 1 },
       },
     });
-
-    const evalResult = evaluateFollowUpNeed(recentMessages, now, {
-      delayMs,
-      maxAgeMs: FOLLOW_UP_MAX_AGE_MS,
-      followUpAlreadySent: row.followUpSentAt != null,
-    });
-
-    if (!evalResult.needed) {
+    if (claimed.count === 0) {
       stats.skipped += 1;
       continue;
     }
 
-    const ok = await sendRemarketingFollowUp(row.id);
-    if (ok) stats.sent += 1;
-    else stats.failed += 1;
+    const outcome = await processFollowUpJob(row.id, row.conversationId);
+    if (outcome === 'sent') stats.sent += 1;
+    else if (outcome === 'failed') {
+      stats.failed += 1;
+      stats.consumed += 1;
+    } else stats.skipped += 1;
   }
 
-  if (stats.sent > 0 || stats.failed > 0) {
-    log.info(stats, 'Follow-up pass finished');
+  if (stats.sent > 0 || stats.failed > 0 || stats.scanned > 0) {
+    log.info(stats, 'Follow-up due pass finished');
   }
 
   return stats;
+}
+
+/** @deprecated alias — prefer runFollowUpDuePass */
+export async function runFollowUpPass(): Promise<FollowUpStats> {
+  return runFollowUpDuePass();
 }
 
 let monitorTimer: ReturnType<typeof setInterval> | null = null;
@@ -479,8 +590,8 @@ export function startFollowUpMonitor(logger?: FastifyBaseLogger): void {
   const intervalMs = config.FOLLOW_UP_INTERVAL_MIN * 60 * 1000;
 
   const run = () => {
-    void runFollowUpPass().catch((err) => {
-      log.error({ err }, 'Follow-up pass crashed');
+    void runFollowUpDuePass().catch((err) => {
+      log.error({ err }, 'Follow-up due pass crashed');
     });
   };
 
@@ -490,8 +601,10 @@ export function startFollowUpMonitor(logger?: FastifyBaseLogger): void {
     {
       intervalMin: config.FOLLOW_UP_INTERVAL_MIN,
       batchSize: config.FOLLOW_UP_BATCH_SIZE,
+      igMessagingWindowHours: IG_MESSAGING_WINDOW_MS / (60 * 60 * 1000),
+      mode: 'due_jobs_queue',
     },
-    'Follow-up monitor started',
+    'Follow-up monitor started (due-jobs queue)',
   );
 }
 

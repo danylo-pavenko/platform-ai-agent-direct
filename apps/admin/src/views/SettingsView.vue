@@ -998,7 +998,9 @@
         <v-card-subtitle class="pb-2">
           Якщо бот написав, а клієнт не відповів — після паузи (у годинах) агент один раз напише
           контекстний ремаркетинг за системним промптом і історією діалогу.
-          Після відповіді клієнта лічильник скидається.
+          Джоба ставиться в чергу одразу після відповіді бота; Claude викликається лише в запланований час
+          (не сканує всі чати). Після відповіді клієнта черга скасовується.
+          Для Instagram — лише в межах ~24 год messaging window Meta (макс. затримка 24 год, дефолт 18).
         </v-card-subtitle>
         <v-card-text>
           <v-switch
@@ -1012,11 +1014,11 @@
             v-model.number="followUpConfig.delayHours"
             type="number"
             min="1"
-            max="168"
+            max="24"
             label="Затримка (годин)"
             variant="outlined"
             density="compact"
-            hint="За замовчуванням 72 (3 дні), максимум 168 (7 днів). Текст пише агент, не шаблон."
+            hint="За замовчуванням 18 год, максимум 24 (вікно Meta для Instagram). Текст пише агент, не шаблон."
             persistent-hint
             style="max-width: 280px"
             :disabled="!followUpConfig.enabled"
@@ -3591,7 +3593,7 @@ interface FollowUpConfigShape {
 
 const followUpConfig = ref<FollowUpConfigShape>({
   enabled: false,
-  delayHours: 72,
+  delayHours: 18,
 });
 
 const defaultCrmRouting = (): CrmRoutingShape => ({
@@ -3757,8 +3759,8 @@ async function fetchSettings() {
       };
       const delay =
         typeof raw.delayHours === 'number' && Number.isFinite(raw.delayHours)
-          ? Math.max(1, Math.min(168, Math.floor(raw.delayHours)))
-          : 72;
+          ? Math.max(1, Math.min(24, Math.floor(raw.delayHours)))
+          : 18;
       followUpConfig.value = {
         enabled: raw.enabled === true,
         delayHours: delay,
@@ -3869,7 +3871,7 @@ async function saveSettings() {
         enabled: followUpConfig.value.enabled === true,
         delayHours: Math.max(
           1,
-          Math.min(168, Math.floor(Number(followUpConfig.value.delayHours) || 72)),
+          Math.min(24, Math.floor(Number(followUpConfig.value.delayHours) || 18)),
         ),
       },
       crm_routing: crmRouting.value,

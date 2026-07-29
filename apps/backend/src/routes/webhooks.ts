@@ -23,6 +23,7 @@ import {
   shouldProcessIncoming,
 } from '../lib/runtime-config.js';
 import { evaluateBotAccessForClient } from '../lib/platform-bot-access.js';
+import { cancelPendingFollowUpsSafe } from '../lib/follow-up-schedule.js';
 import {
   type IgInboundContext,
   reactionDisplay,
@@ -535,6 +536,7 @@ async function processReactionEvent(
       ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
     },
   });
+  cancelPendingFollowUpsSafe(conversation.id, 'client_inbound_reaction');
 
   app.log.info(
     {
@@ -940,6 +942,7 @@ async function processMessageEvent(
       ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
     },
   });
+  cancelPendingFollowUpsSafe(conversation.id, 'client_inbound');
 
   app.log.debug(
     {

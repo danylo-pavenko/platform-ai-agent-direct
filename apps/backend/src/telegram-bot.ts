@@ -23,6 +23,7 @@ import {
   unlinkTelegramFromManager,
 } from './lib/telegram-link.js';
 import { formatAdminLabel } from './lib/admin-user.js';
+import { cancelPendingFollowUpsSafe } from './lib/follow-up-schedule.js';
 
 const log = pino({
   name: `${config.INSTANCE_ID.toUpperCase()}-bot`,
@@ -457,6 +458,7 @@ bot.command('takeover', async (ctx) => {
         handedOffAt: conversation.handedOffAt ?? now,
       },
     });
+    cancelPendingFollowUpsSafe(conversation.id, 'telegram_takeover');
 
     // Refresh username from Telegram when available
     if (ctx.from?.username && ctx.from.username !== manager.tgUsername) {

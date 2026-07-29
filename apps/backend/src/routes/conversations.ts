@@ -11,6 +11,7 @@ import {
   resolveConversationAssignees,
 } from '../lib/conversation-assignee.js';
 import { formatAdminLabel } from '../lib/admin-user.js';
+import { cancelPendingFollowUpsSafe } from '../lib/follow-up-schedule.js';
 
 export async function conversationRoutes(app: FastifyInstance): Promise<void> {
   // GET / - List conversations
@@ -230,6 +231,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
         ...(conversation.firstOutboundAt ? {} : { firstOutboundAt: now }),
       },
     });
+    cancelPendingFollowUpsSafe(conversation.id, 'manager_reply');
 
     return message;
   });
@@ -344,6 +346,10 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       },
     });
 
+    if (!enabled) {
+      cancelPendingFollowUpsSafe(updated.id, 'bot_paused');
+    }
+
     await prisma.message.create({
       data: {
         conversationId: updated.id,
@@ -396,6 +402,10 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     const note = await prisma.$transaction(async (tx) => {
       await tx.message.deleteMany({
         where: { conversationId: conversation.id },
+      });
+      await tx.followUpJob.updateMany({
+        where: { conversationId: conversation.id, status: 'pending' },
+        data: { status: 'cancelled', lastError: 'chat_cleared' },
       });
       await tx.conversation.update({
         where: { id: conversation.id },

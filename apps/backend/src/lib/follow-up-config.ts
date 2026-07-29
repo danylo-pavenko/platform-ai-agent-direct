@@ -15,10 +15,10 @@ export interface FollowUpConfig {
 
 /** Minimum delay: 1 hour. */
 export const FOLLOW_UP_DELAY_HOURS_MIN = 1;
-/** Maximum delay: 7 days. */
-export const FOLLOW_UP_DELAY_HOURS_MAX = 168;
-/** Default: 3 days. */
-export const FOLLOW_UP_DELAY_HOURS_DEFAULT = 72;
+/** Maximum delay: 24 hours (Meta IG messaging window — later outbound fails). */
+export const FOLLOW_UP_DELAY_HOURS_MAX = 24;
+/** Default: 18 hours (fits Instagram ~24h messaging window). */
+export const FOLLOW_UP_DELAY_HOURS_DEFAULT = 18;
 
 const DEFAULTS: FollowUpConfig = {
   enabled: false,

@@ -29,6 +29,10 @@ import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
 import { handleBookAppointment } from './appointment.js';
 import { saveClientReferencePhoto } from './reference-photos.js';
 import {
+  cancelPendingFollowUpsSafe,
+  scheduleFollowUpAfterBotOutboundSafe,
+} from '../lib/follow-up-schedule.js';
+import {
   getAvailableSlotsForContext,
   searchServicesForContext,
 } from './service-search.js';
@@ -116,6 +120,7 @@ async function performManagerHandoff(params: {
       handedOffAt: new Date(),
     },
   });
+  cancelPendingFollowUpsSafe(conversationId, 'handoff');
 
   const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
 
@@ -1193,6 +1198,9 @@ async function handleIncomingMessageImpl(
     }).catch((err) =>
       log.warn({ err, conversationId }, 'notifyAgentFailure failed (non-fatal)'),
     );
+  } else if (!isAgentFallbackReply(clientFacingText)) {
+    // Schedule silence remarketing — Claude runs only when runAt is due.
+    scheduleFollowUpAfterBotOutboundSafe(conversationId);
   }
 
   // Admin-only vision/CRM debug note (not sent to Instagram).

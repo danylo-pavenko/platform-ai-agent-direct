@@ -7,7 +7,8 @@ import {
   META_ENV_ONLY_FIELDS,
 } from '../lib/integration-config.js';
 import { invalidateAgentConfigCache } from '../lib/agent-config.js';
-import { invalidateFollowUpConfigCache } from '../lib/follow-up-config.js';
+import { getFollowUpConfig } from '../lib/follow-up-config.js';
+import { onFollowUpConfigSaved } from '../lib/follow-up-schedule.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
@@ -79,6 +80,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(400).send({ error: 'No settings provided' });
     }
 
+    const previousFollowUp =
+      'follow_up_config' in filtered ? await getFollowUpConfig() : null;
+
     await Promise.all(
       Object.entries(filtered).map(([key, value]) =>
         prisma.setting.upsert({
@@ -93,7 +97,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       invalidateAgentConfigCache();
     }
     if ('follow_up_config' in filtered) {
-      invalidateFollowUpConfigCache();
+      await onFollowUpConfigSaved(previousFollowUp, filtered.follow_up_config);
     }
     if ('crm_routing' in filtered) {
       invalidateCrmRoutingCache();

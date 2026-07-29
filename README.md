@@ -85,7 +85,7 @@ server
 - **Instagram `standby` webhooks** — when another messaging surface (e.g. Meta Business Suite) holds primary control, new customer messages may arrive under `entry[].standby[]`; the backend merges `standby` with `messaging` and OAuth subscribes the Page to the `standby` field alongside `messages`
 - **Smart conversation routing** — bot / handoff / paused states, working hours awareness, optional auto-return from handoff
 - **Reply delay** — optional human-like pause (`responseDelayMin/MaxSeconds`, 0–60 s) before Claude after typing starts
-- **Smart-trigger (remarketing)** — if the bot wrote and the client stays silent for N hours (default **72**, max **168**), the platform runs **one** agent turn with full system prompt + history and sends a contextual soft nudge (not a fixed template). Counter resets when the client replies. Job env: `FOLLOW_UP_*`
+- **Smart-trigger (remarketing)** — if the bot wrote and the client stays silent for N hours (default **18**, max **24**), the platform schedules a **FollowUpJob** (`runAt`) and later runs **one** agent turn (not a fixed template). Worker only loads due jobs — no full conversation scan. Counter/queue resets when the client replies. Instagram outbound only inside Meta’s ~24h window. Job env: `FOLLOW_UP_*`
 - **Shared post handling** — agent identifies product / garment from IG post; catalog match; size guidance where configured
 - **Catalog & services sync** — KeyCRM → `catalog.txt`; CleverBOX / BeautyPro → live services; branches for booking
 - **Orders** — local-first collection (`collect_order` / `create_local_order`); CRM mirror optional (`CRM_WRITE_ENABLED`)
@@ -462,7 +462,7 @@ Stored in DB settings (not only `.env`):
 | Setting | Key / fields | Purpose |
 |---------|--------------|---------|
 | Agent config | `agent_config` | Mode, out-of-hours strategy, manager SLA, **reply delay** (`responseDelayMinSeconds` / `responseDelayMaxSeconds`, 0–60) |
-| Smart-trigger | `follow_up_config` | `{ enabled, delayHours }` — agent-written remarketing after client silence (default 72 h, max 168 h) |
+| Smart-trigger | `follow_up_config` | `{ enabled, delayHours }` — schedules `follow_up_jobs` after bot outbound (default 18 h, max 24 h) |
 | Working hours | `working_hours` | Weekly schedule injected into the bot runtime prompt |
 
 ---
