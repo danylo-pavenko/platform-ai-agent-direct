@@ -422,13 +422,29 @@
             label="Модель агента"
             variant="outlined"
             density="compact"
+            :loading="claudeModelSaving"
+            :disabled="claudeModelSaving"
             hide-details
             class="mb-2"
             style="max-width: 420px"
+            @update:model-value="onClaudeModelChange"
           />
+          <v-alert
+            v-if="claudeModelSaveError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+            closable
+            @click:close="claudeModelSaveError = ''"
+          >
+            {{ claudeModelSaveError }}
+          </v-alert>
+          <div v-if="claudeModelSavedOk" class="text-caption text-success mb-1">
+            Модель збережено — нові відповіді підуть через неї одразу.
+          </div>
           <div class="text-caption text-medium-emphasis">
-            Зміна застосовується до нових відповідей без рестарту PM2
-            (кеш налаштувань до ~60 с). Збережіть налаштування кнопкою внизу сторінки.
+            Зберігається одразу при зміні (без кнопки внизу сторінки). Рестарт PM2 не потрібен.
           </div>
         </v-card-text>
       </v-card>
@@ -448,7 +464,8 @@
           </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв через <code>claude /usage</code>
+          Читаємо ліміти з кешу Claude Code (<code>~/.claude.json</code>),
+          автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв
           (лише коли Claude авторизовано).
           Telegram-сповіщення при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
         </v-card-subtitle>
@@ -483,7 +500,7 @@
 
           <v-alert
             v-if="claudeUsageError"
-            type="error"
+            :type="claudeUsageSnapshot?.buckets?.length ? 'warning' : 'error'"
             variant="tonal"
             density="compact"
             class="mb-3"
@@ -492,7 +509,7 @@
           </v-alert>
 
           <v-alert
-            v-else-if="claudeUsageSnapshot"
+            v-if="claudeUsageSnapshot"
             :type="claudeUsageAlertType"
             variant="tonal"
             density="compact"
@@ -2918,6 +2935,42 @@ const claudeUsageSnapshot = ref<ClaudeUsageSnapshot | null>(null);
 const claudeUsageCheckIntervalMin = ref(30);
 const claudeUsageWarningPercent = ref(90);
 
+const claudeModelSaving = ref(false);
+const claudeModelSaveError = ref('');
+const claudeModelSavedOk = ref(false);
+let claudeModelSavedTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function onClaudeModelChange(value: unknown) {
+  const model =
+    value === 'haiku' || value === 'opus' || value === 'sonnet' ? value : 'sonnet';
+  agentConfig.value.claudeModel = model;
+  claudeModelSaving.value = true;
+  claudeModelSaveError.value = '';
+  claudeModelSavedOk.value = false;
+  if (claudeModelSavedTimer) {
+    clearTimeout(claudeModelSavedTimer);
+    claudeModelSavedTimer = null;
+  }
+  try {
+    await api.put('/settings', {
+      agent_config: {
+        ...agentConfig.value,
+        claudeModel: model,
+      },
+    });
+    claudeModelSavedOk.value = true;
+    claudeModelSavedTimer = setTimeout(() => {
+      claudeModelSavedOk.value = false;
+      claudeModelSavedTimer = null;
+    }, 4000);
+  } catch (e: any) {
+    claudeModelSaveError.value =
+      e.response?.data?.error ?? 'Не вдалося зберегти модель Claude';
+  } finally {
+    claudeModelSaving.value = false;
+  }
+}
+
 const claudeUsageStatusColor = computed(() => {
   const s = claudeUsageSnapshot.value?.status;
   if (s === 'exhausted') return 'error';
@@ -2965,9 +3018,16 @@ async function refreshClaudeUsage(live = false) {
     claudeUsageSnapshot.value = data.snapshot;
     claudeUsageCheckIntervalMin.value = data.checkIntervalMin;
     claudeUsageWarningPercent.value = data.warningPercent;
+    // Live check may return previous buckets + error when CLI timed out.
+    if (live && data.snapshot?.error && data.snapshot.error !== 'not_authenticated') {
+      claudeUsageError.value = `Оновлення лімітів: ${data.snapshot.error}`;
+    }
   } catch (e: any) {
     claudeUsageError.value = e.response?.data?.error ?? 'Не вдалося завантажити ліміти Claude';
-    claudeUsageSnapshot.value = null;
+    // Keep last good snapshot so a timeout does not blank the UI.
+    if (!claudeUsageSnapshot.value) {
+      claudeUsageSnapshot.value = null;
+    }
   } finally {
     claudeUsageLoading.value = false;
   }

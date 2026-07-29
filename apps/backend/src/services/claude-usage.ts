@@ -12,9 +12,14 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve as resolvePath } from 'node:path';
 import { promisify } from 'node:util';
 import pino from 'pino';
-import { getClaudeBinaryPath } from './claude.js';
+import { config } from '../config.js';
+import { getClaudeBinaryPath } from '../lib/claude-binary.js';
+import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
 
 const execFileAsync = promisify(execFile);
 const log = pino({ name: 'claude-usage' });
@@ -80,6 +85,160 @@ function isPlanLimitBucketLabel(label: string): boolean {
   // Extra usage / credits bars if present
   if (l.includes('extra')) return true;
   return false;
+}
+
+function formatResetsAt(raw: string | null | undefined): string {
+  if (!raw || !raw.trim()) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return raw.trim();
+  try {
+    return d.toLocaleString('uk-UA', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
+  } catch {
+    return raw.trim();
+  }
+}
+
+function labelForCachedLimit(limit: {
+  kind?: unknown;
+  group?: unknown;
+  scope?: unknown;
+}): string {
+  const kind = typeof limit.kind === 'string' ? limit.kind : '';
+  const group = typeof limit.group === 'string' ? limit.group : '';
+  let modelName: string | null = null;
+  if (limit.scope && typeof limit.scope === 'object' && !Array.isArray(limit.scope)) {
+    const scope = limit.scope as Record<string, unknown>;
+    const model = scope.model;
+    if (model && typeof model === 'object' && !Array.isArray(model)) {
+      const display = (model as Record<string, unknown>).display_name;
+      if (typeof display === 'string' && display.trim()) modelName = display.trim();
+    }
+  }
+
+  if (kind === 'session' || group === 'session') return 'Current session';
+  if (kind === 'weekly_all' || (group === 'weekly' && !modelName)) {
+    return 'Current week (all models)';
+  }
+  if (kind === 'weekly_scoped' || modelName) {
+    return `Current week (${modelName ?? 'scoped'})`;
+  }
+  if (kind) return kind.replace(/_/g, ' ');
+  if (group) return group;
+  return 'Limit';
+}
+
+/**
+ * Parse Claude Code's local `cachedUsageUtilization` from `~/.claude.json`.
+ * This is the same cache the CLI writes after subscription rate-limit responses —
+ * modern `claude -p /usage` often omits `% used` lines and only prints a breakdown.
+ */
+export function parseCachedUsageUtilization(
+  cached: unknown,
+  warningAt: number = DEFAULT_USAGE_WARNING_PERCENT,
+): (Omit<ClaudeUsageSnapshot, 'checkedAt' | 'subscriptionType' | 'authEmail'> & {
+  fetchedAtMs: number | null;
+}) | null {
+  if (!cached || typeof cached !== 'object' || Array.isArray(cached)) return null;
+  const root = cached as Record<string, unknown>;
+  const fetchedAtMs = typeof root.fetchedAtMs === 'number' ? root.fetchedAtMs : null;
+  const utilization = root.utilization;
+  if (!utilization || typeof utilization !== 'object' || Array.isArray(utilization)) {
+    return null;
+  }
+  const util = utilization as Record<string, unknown>;
+  const buckets: ClaudeUsageBucket[] = [];
+  const seen = new Set<string>();
+
+  const limits = Array.isArray(util.limits) ? util.limits : [];
+  for (const item of limits) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const limit = item as Record<string, unknown>;
+    const percentRaw = limit.percent;
+    const percentUsed =
+      typeof percentRaw === 'number'
+        ? Math.round(percentRaw)
+        : typeof percentRaw === 'string'
+          ? Number.parseInt(percentRaw, 10)
+          : NaN;
+    if (!Number.isFinite(percentUsed)) continue;
+
+    const label = labelForCachedLimit(limit);
+    const id = slugifyBucketLabel(label);
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    buckets.push({
+      id,
+      label,
+      percentUsed,
+      resetsAt: formatResetsAt(typeof limit.resets_at === 'string' ? limit.resets_at : null),
+    });
+  }
+
+  // Fallback to five_hour / seven_day windows when `limits[]` is empty.
+  if (buckets.length === 0) {
+    const windows: Array<{ id: string; label: string; key: string }> = [
+      { id: 'current_session', label: 'Current session', key: 'five_hour' },
+      { id: 'current_week_all_models', label: 'Current week (all models)', key: 'seven_day' },
+    ];
+    for (const w of windows) {
+      const win = util[w.key];
+      if (!win || typeof win !== 'object' || Array.isArray(win)) continue;
+      const rec = win as Record<string, unknown>;
+      const u = rec.utilization;
+      const percentUsed = typeof u === 'number' ? Math.round(u) : NaN;
+      if (!Number.isFinite(percentUsed)) continue;
+      buckets.push({
+        id: w.id,
+        label: w.label,
+        percentUsed,
+        resetsAt: formatResetsAt(typeof rec.resets_at === 'string' ? rec.resets_at : null),
+      });
+    }
+  }
+
+  if (buckets.length === 0) return null;
+
+  const worstPercent = Math.max(...buckets.map((b) => b.percentUsed));
+  let status: ClaudeUsageStatus = 'ok';
+  if (worstPercent >= 100) status = 'exhausted';
+  else if (worstPercent >= warningAt) status = 'warning';
+
+  const ageNote =
+    fetchedAtMs != null
+      ? ` (кеш Claude Code, ${formatResetsAt(new Date(fetchedAtMs).toISOString())})`
+      : ' (кеш Claude Code)';
+
+  return {
+    status,
+    buckets,
+    worstPercent,
+    message: `${buildUsageMessage(status, buckets, worstPercent, warningAt)}${ageNote}`,
+    rawText: null,
+    error: null,
+    fetchedAtMs,
+  };
+}
+
+/** Read ~/.claude.json → cachedUsageUtilization (no network / no CLI). */
+export function readCachedUsageFromClaudeJson(
+  warningAt: number = DEFAULT_USAGE_WARNING_PERCENT,
+): ReturnType<typeof parseCachedUsageUtilization> {
+  const path = resolvePath(homedir(), '.claude.json');
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    return parseCachedUsageUtilization(obj.cachedUsageUtilization, warningAt);
+  } catch (err) {
+    log.debug({ err, path }, 'Claude cachedUsageUtilization unavailable');
+    return null;
+  }
 }
 
 /** Parse the plain-text block returned by `/usage`. */
@@ -196,9 +355,22 @@ function tryExtractUsageResult(jsonText: string): string | null {
   }
 }
 
-async function fetchClaudeUsageText(timeoutMs = 25_000): Promise<string> {
+async function fetchClaudeUsageText(
+  timeoutMs = config.CLAUDE_USAGE_TIMEOUT_MS,
+): Promise<string> {
   const binary = getClaudeBinaryPath();
-  const args = ['-p', '/usage', '--output-format', 'json'];
+  // Haiku + max-turns 1: usage is not a coding task; keep cold-start cost down.
+  const args = [
+    '-p',
+    '/usage',
+    '--output-format',
+    'json',
+    '--model',
+    'haiku',
+    '--max-turns',
+    '1',
+  ];
+  const cwd = resolveClaudeSpawnCwd();
 
   return new Promise<string>((resolve, reject) => {
     let child: ChildProcess;
@@ -206,6 +378,7 @@ async function fetchClaudeUsageText(timeoutMs = 25_000): Promise<string> {
       child = spawn(binary, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env },
+        cwd,
       });
     } catch (err) {
       reject(err);
@@ -295,9 +468,10 @@ async function fetchClaudeAuthMeta(): Promise<{
   }
 }
 
-/** Live fetch from Claude CLI `/usage` command. */
+/** Live fetch: prefer Claude Code local cache; CLI `/usage` only as legacy fallback. */
 export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
   const checkedAt = new Date().toISOString();
+  const warningAt = config.CLAUDE_USAGE_WARNING_PERCENT;
 
   try {
     // Cheap gate: do not spawn `claude -p /usage` when there is no session.
@@ -317,15 +491,73 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
       };
     }
 
-    const usageText = await fetchClaudeUsageText();
-    const { config } = await import('../config.js');
-    const parsed = parseClaudeUsageText(usageText, config.CLAUDE_USAGE_WARNING_PERCENT);
-    return {
-      checkedAt,
-      subscriptionType: auth.subscriptionType,
-      authEmail: auth.authEmail,
-      ...parsed,
-    };
+    // Primary: ~/.claude.json cachedUsageUtilization (instant; updated by Claude Code
+    // on subscription rate-limit responses). Modern `claude -p /usage` often has no
+    // "% used" lines and only times out on a busy VPS.
+    const fromCache = readCachedUsageFromClaudeJson(warningAt);
+    if (fromCache) {
+      const { fetchedAtMs: _fetchedAtMs, ...snap } = fromCache;
+      return {
+        checkedAt,
+        subscriptionType: auth.subscriptionType,
+        authEmail: auth.authEmail,
+        ...snap,
+      };
+    }
+
+    // Legacy fallback: parse "% used" text from CLI when local cache is empty.
+    try {
+      const usageText = await fetchClaudeUsageText();
+      const parsed = parseClaudeUsageText(usageText, warningAt);
+      if (parsed.buckets.length > 0) {
+        return {
+          checkedAt,
+          subscriptionType: auth.subscriptionType,
+          authEmail: auth.authEmail,
+          ...parsed,
+        };
+      }
+
+      // CLI may have refreshed cache even when text has no buckets.
+      const refreshed = readCachedUsageFromClaudeJson(warningAt);
+      if (refreshed) {
+        const { fetchedAtMs: _f, ...snap } = refreshed;
+        return {
+          checkedAt,
+          subscriptionType: auth.subscriptionType,
+          authEmail: auth.authEmail,
+          ...snap,
+        };
+      }
+
+      return {
+        checkedAt,
+        status: 'unavailable',
+        subscriptionType: auth.subscriptionType,
+        authEmail: auth.authEmail,
+        buckets: [],
+        worstPercent: 0,
+        message:
+          parsed.error ??
+          'Ліміти Claude недоступні (немає кешу в ~/.claude.json і /usage без % used).',
+        rawText: parsed.rawText,
+        error: parsed.error ?? 'no_usage_data',
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn({ err, message }, 'claude /usage CLI failed and no local cache');
+      return {
+        checkedAt,
+        status: 'unavailable',
+        subscriptionType: auth.subscriptionType,
+        authEmail: auth.authEmail,
+        buckets: [],
+        worstPercent: 0,
+        message: `Не вдалося перевірити ліміти Claude: ${message}`,
+        rawText: null,
+        error: message,
+      };
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn({ err, message }, 'Failed to fetch Claude usage snapshot');

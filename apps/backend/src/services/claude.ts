@@ -1,6 +1,4 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { homedir } from 'node:os';
-import { resolve as resolvePath } from 'node:path';
 import { promisify } from 'node:util';
 import pino from 'pino';
 import { config } from '../config.js';
@@ -15,6 +13,7 @@ import {
   isClaudeAuthFailure,
   type ClaudeAuthHealth,
 } from '../lib/claude-auth-probe.js';
+import { getClaudeBinaryPath } from '../lib/claude-binary.js';
 import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
@@ -25,7 +24,7 @@ import {
 import { getAgentConfig, normalizeClaudeModel, type ClaudeModelId } from '../lib/agent-config.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 
-export { resolveClaudeSpawnCwd };
+export { getClaudeBinaryPath, resolveClaudeSpawnCwd };
 
 const execFileAsync = promisify(execFile);
 
@@ -223,16 +222,6 @@ function parseResponse(raw: string): ClaudeResponse {
     ...(parsed.toolCalls?.length ? { toolCalls: parsed.toolCalls } : {}),
     ...(parsed.errorDetail ? { errorDetail: parsed.errorDetail } : {}),
   };
-}
-
-/**
- * Path to the Claude CLI binary used by the runtime spawn.
- *
- * Anthropic's official install script places it here. The healthcheck
- * endpoint probes this exact path so diagnostics match runtime behaviour.
- */
-export function getClaudeBinaryPath(): string {
-  return resolvePath(homedir(), '.local', 'bin', 'claude');
 }
 
 export type ClaudeStreamDeltaHandler = (delta: string) => void;

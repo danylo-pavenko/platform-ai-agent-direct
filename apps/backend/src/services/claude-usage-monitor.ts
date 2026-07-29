@@ -78,6 +78,32 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
 /** Fetch live usage, persist, and optionally alert managers via Telegram. */
 export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
   const snapshot = await fetchClaudeUsageSnapshot();
+
+  // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
+  const transientFailure =
+    snapshot.status === 'unavailable' &&
+    snapshot.error != null &&
+    snapshot.error !== 'not_authenticated' &&
+    snapshot.buckets.length === 0;
+
+  if (transientFailure) {
+    const prev = await loadClaudeUsageSnapshot();
+    if (prev && prev.buckets.length > 0) {
+      const merged: ClaudeUsageSnapshot = {
+        ...prev,
+        checkedAt: snapshot.checkedAt,
+        error: snapshot.error,
+        message: `Останні відомі ліміти (оновлення не вдалось: ${snapshot.error}). ${prev.message}`,
+      };
+      log.warn(
+        { error: snapshot.error, keptBuckets: prev.buckets.length },
+        'Claude usage live check failed — keeping previous snapshot',
+      );
+      await persistSnapshot(merged);
+      return merged;
+    }
+  }
+
   await persistSnapshot(snapshot);
 
   log.info(

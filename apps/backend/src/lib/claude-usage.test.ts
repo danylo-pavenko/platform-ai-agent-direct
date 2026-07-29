@@ -1,10 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../services/claude.js', () => ({
+vi.mock('../config.js', () => ({
+  config: {
+    CLAUDE_USAGE_TIMEOUT_MS: 90_000,
+    CLAUDE_USAGE_WARNING_PERCENT: 90,
+    INSTANCE_ID: 'test',
+  },
+}));
+
+vi.mock('./claude-spawn-cwd.js', () => ({
+  resolveClaudeSpawnCwd: () => '/tmp/claude-spawn-test',
+}));
+
+vi.mock('./claude-binary.js', () => ({
   getClaudeBinaryPath: () => '/usr/bin/claude',
 }));
 
-import { parseClaudeUsageText, parseUsageJsonStdout } from '../services/claude-usage.js';
+import {
+  parseCachedUsageUtilization,
+  parseClaudeUsageText,
+  parseUsageJsonStdout,
+} from '../services/claude-usage.js';
 
 const LEGACY_SAMPLE = `You are currently using your subscription to power your Claude Code usage
 
@@ -31,6 +47,13 @@ Last 24h · 236 requests · 4 sessions
 
 Last 7d · 1070 requests · 15 sessions
   85% of your usage came from subagent-heavy sessions`;
+
+/** Breakdown-only /usage (Claude Code ≥2.1.x print mode — no "% used" lines). */
+const BREAKDOWN_ONLY_SAMPLE = `You are currently using your subscription to power your Claude Code usage
+
+What's contributing to your limits usage?
+Last 24h · 309 requests · 6 sessions
+  84% of your usage was at >150k context`;
 
 describe('parseClaudeUsageText', () => {
   it('parses legacy subscription usage buckets', () => {
@@ -76,6 +99,80 @@ describe('parseClaudeUsageText', () => {
     const snap = parseClaudeUsageText('no usage data here');
     expect(snap.status).toBe('unavailable');
     expect(snap.buckets).toHaveLength(0);
+  });
+
+  it('returns unavailable for modern breakdown-only /usage text', () => {
+    const snap = parseClaudeUsageText(BREAKDOWN_ONLY_SAMPLE);
+    expect(snap.status).toBe('unavailable');
+    expect(snap.buckets).toHaveLength(0);
+  });
+});
+
+describe('parseCachedUsageUtilization', () => {
+  it('parses limits[] from ~/.claude.json cachedUsageUtilization', () => {
+    const snap = parseCachedUsageUtilization({
+      fetchedAtMs: Date.now(),
+      accountUuid: 'test',
+      utilization: {
+        five_hour: { utilization: 29, resets_at: '2026-07-29T13:10:00.000Z' },
+        seven_day: { utilization: 13, resets_at: '2026-08-01T19:00:00.000Z' },
+        limits: [
+          {
+            group: 'session',
+            kind: 'session',
+            percent: 29,
+            resets_at: '2026-07-29T13:10:00.000Z',
+            severity: 'normal',
+          },
+          {
+            group: 'weekly',
+            kind: 'weekly_all',
+            percent: 13,
+            resets_at: '2026-08-01T19:00:00.000Z',
+            severity: 'normal',
+          },
+          {
+            group: 'weekly',
+            kind: 'weekly_scoped',
+            percent: 19,
+            resets_at: '2026-08-01T19:00:00.000Z',
+            scope: { model: { display_name: 'Fable', id: null } },
+            severity: 'normal',
+          },
+        ],
+      },
+    });
+
+    expect(snap).not.toBeNull();
+    expect(snap!.buckets).toHaveLength(3);
+    expect(snap!.buckets.map((b) => b.label)).toEqual([
+      'Current session',
+      'Current week (all models)',
+      'Current week (Fable)',
+    ]);
+    expect(snap!.worstPercent).toBe(29);
+    expect(snap!.status).toBe('ok');
+    expect(snap!.message).toMatch(/кеш Claude Code/);
+  });
+
+  it('falls back to five_hour / seven_day when limits[] missing', () => {
+    const snap = parseCachedUsageUtilization({
+      fetchedAtMs: Date.now(),
+      utilization: {
+        five_hour: { utilization: 91, resets_at: '2026-07-30T12:00:00.000Z' },
+        seven_day: { utilization: 40, resets_at: '2026-08-01T12:00:00.000Z' },
+        limits: [],
+      },
+    });
+    expect(snap).not.toBeNull();
+    expect(snap!.status).toBe('warning');
+    expect(snap!.worstPercent).toBe(91);
+    expect(snap!.buckets[0].label).toBe('Current session');
+  });
+
+  it('returns null for empty cache', () => {
+    expect(parseCachedUsageUtilization(null)).toBeNull();
+    expect(parseCachedUsageUtilization({ utilization: { limits: [] } })).toBeNull();
   });
 });
 

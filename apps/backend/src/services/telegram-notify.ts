@@ -172,7 +172,7 @@ export async function notifyClaudeUsageLimit(params: {
     `<b>Бакети:</b>`,
     bucketsBlock || '<i>(немає даних)</i>',
     ``,
-    `Перевірте <code>claude -p '/usage'</code> на сервері або Налаштування → Claude ліміти.`,
+    `Перевірте ліміти в Налаштування → Claude або кеш <code>~/.claude.json</code> (cachedUsageUtilization).`,
   ]
     .filter((line) => line !== '')
     .join('\n');
