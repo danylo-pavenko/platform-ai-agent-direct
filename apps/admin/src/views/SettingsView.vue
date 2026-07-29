@@ -2927,6 +2927,8 @@ interface ClaudeUsageSnapshot {
   buckets: ClaudeUsageBucket[];
   worstPercent: number;
   message: string;
+  rawText?: string | null;
+  error?: string | null;
 }
 
 const claudeUsageLoading = ref(false);
