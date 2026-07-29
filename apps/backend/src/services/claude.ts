@@ -11,6 +11,11 @@ import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-c
 import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
 import { isUnusableClaudeResultText } from '../lib/claude-result-usable.js';
 import { parseClaudeStreamJson } from '../lib/claude-stream-parse.js';
+import {
+  classifyClaudeLiveProbe,
+  isClaudeAuthFailure,
+  type ClaudeAuthHealth,
+} from '../lib/claude-auth-probe.js';
 import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
@@ -788,27 +793,12 @@ export async function claudeHealthCheck(timeoutMs = 5000): Promise<ClaudeHealth>
   }
 }
 
-export interface ClaudeAuthHealth {
-  ok: boolean;
-  error: string | null;
-}
-
-/** Detect expired/invalid OAuth tokens in CLI stderr, stdout, or API errors. */
-export function isClaudeAuthFailure(text: string): boolean {
-  const lower = text.toLowerCase();
-  return (
-    lower.includes('401') ||
-    lower.includes('invalid authentication') ||
-    lower.includes('authentication credentials') ||
-    lower.includes('not logged in') ||
-    lower.includes('not authenticated') ||
-    lower.includes('login required') ||
-    lower.includes('run `claude auth login`') ||
-    lower.includes('run "claude auth login"') ||
-    lower.includes('run /login') ||
-    lower.includes('please run /login')
-  );
-}
+export type { ClaudeAuthHealth } from '../lib/claude-auth-probe.js';
+export {
+  classifyClaudeLiveProbe,
+  isClaudeAuthFailure,
+  isClaudeRateLimitSignal,
+} from '../lib/claude-auth-probe.js';
 
 /**
  * Verify Claude CLI session is authenticated (`claude auth status`).
@@ -858,6 +848,8 @@ export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealt
 /**
  * Live API probe — `auth status` can report loggedIn while tokens return 401.
  * Uses a minimal haiku ping (same path as runtime askClaude).
+ *
+ * Rate-limit (429) means credentials are valid — do not treat as session expired.
  */
 export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAuthHealth> {
   const prompt = buildPrompt({
@@ -867,27 +859,11 @@ export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAut
   });
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'];
   const response = await spawnClaude(prompt, args, timeoutMs);
-  const combined = [response.text, response.errorDetail ?? ''].join('\n');
-
-  if (isClaudeAuthFailure(combined)) {
-    return {
-      ok: false,
-      error: 'Токен Claude недійсний або прострочений — увійдіть знову через Налаштування',
-    };
-  }
-
-  if (response.fallback) {
-    return {
-      ok: false,
-      error: response.errorDetail ?? 'Claude API не відповідає',
-    };
-  }
-
-  if (!response.text.trim()) {
-    return { ok: false, error: 'Claude API повернув порожню відповідь' };
-  }
-
-  return { ok: true, error: null };
+  return classifyClaudeLiveProbe({
+    text: response.text,
+    errorDetail: response.errorDetail,
+    fallback: response.fallback,
+  });
 }
 
 export interface AgentLatencyProbe {

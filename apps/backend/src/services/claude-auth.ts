@@ -66,13 +66,22 @@ interface LoginSession {
 
 const sessions = new Map<string, LoginSession>();
 let lastLoginStartAt = 0;
-let liveAuthCache: { at: number; ok: boolean; error: string | null } | null = null;
+let liveAuthCache: {
+  at: number;
+  ok: boolean;
+  error: string | null;
+  failureKind?: 'auth' | 'temporary';
+} | null = null;
 
 export function clearClaudeAuthLiveCache(): void {
   liveAuthCache = null;
 }
 
-async function verifyClaudeAuthLiveCached(skipCache: boolean): Promise<{ ok: boolean; error: string | null }> {
+async function verifyClaudeAuthLiveCached(skipCache: boolean): Promise<{
+  ok: boolean;
+  error: string | null;
+  failureKind?: 'auth' | 'temporary';
+}> {
   if (
     !skipCache &&
     liveAuthCache &&
@@ -82,7 +91,12 @@ async function verifyClaudeAuthLiveCached(skipCache: boolean): Promise<{ ok: boo
   }
 
   const result = await verifyClaudeAuthLive();
-  liveAuthCache = { at: Date.now(), ok: result.ok, error: result.error };
+  liveAuthCache = {
+    at: Date.now(),
+    ok: result.ok,
+    error: result.error,
+    failureKind: result.failureKind,
+  };
   return liveAuthCache;
 }
 
@@ -453,6 +467,23 @@ export async function getClaudeAuthStatus(
 
   const live = await verifyClaudeAuthLiveCached(Boolean(opts.skipLiveCache));
   if (!live.ok) {
+    // Only real OAuth/token failures mark the session expired. Rate limits return
+    // ok=true from the probe; timeouts/busy are temporary and keep loggedIn.
+    if (live.failureKind === 'temporary') {
+      log.warn(
+        { error: live.error, email: meta.email },
+        'Claude live probe temporary failure — keeping loggedIn from auth status',
+      );
+      return {
+        ...meta,
+        previouslyAuthorized: true,
+        loggedIn: true,
+        sessionExpired: false,
+        error: null,
+        loginInProgress: false,
+      };
+    }
+
     return {
       ...meta,
       previouslyAuthorized: true,
