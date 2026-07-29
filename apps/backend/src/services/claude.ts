@@ -10,6 +10,7 @@ import { buildClaudeVisionStdin } from '../lib/claude-vision.js';
 import { parseToolCallsFromText, stripToolCallBlocks } from '../lib/parse-tool-calls.js';
 import { sanitizeCustomerFacingReply } from '../lib/assistant-output.js';
 import { isUnusableClaudeResultText } from '../lib/claude-result-usable.js';
+import { parseClaudeStreamJson } from '../lib/claude-stream-parse.js';
 import { getTenantKnowledgeDir } from '../lib/paths.js';
 import { Semaphore } from '../lib/queue.js';
 import { prisma } from '../lib/prisma.js';
@@ -220,80 +221,16 @@ function finalizeResponse(response: ClaudeResponse): ClaudeResponse {
 }
 
 /**
- * Parse the stream-json output from the Claude CLI.
- *
- * Each line is a JSON object. We look for the final result message
- * that contains the assistant's text response.
- *
- * Known line shapes:
- *   {"type":"assistant","content":[{"type":"text","text":"..."}]}
- *   {"type":"result","result":"...","duration_ms":...}
+ * Parse Claude Code stream-json stdout. See `parseClaudeStreamJson` —
+ * never returns raw NDJSON on rate-limit / API error envelopes.
  */
 function parseResponse(raw: string): ClaudeResponse {
-  const lines = raw.split('\n').filter((l) => l.trim().length > 0);
-
-  // Walk lines in reverse to find the last meaningful content
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const obj = JSON.parse(lines[i]);
-
-      // result-type line (Claude CLI >= 2024)
-      if (obj.type === 'result' && typeof obj.result === 'string') {
-        // Auth / API failures still produce a result string — reject them.
-        if (obj.is_error === true || isUnusableClaudeResultText(obj.result)) {
-          continue;
-        }
-        return { text: obj.result };
-      }
-
-      // assistant message with content array
-      if (obj.type === 'assistant' && Array.isArray(obj.content)) {
-        const textParts: string[] = [];
-        const toolCalls: { name: string; args: Record<string, unknown> }[] = [];
-
-        for (const block of obj.content) {
-          if (block.type === 'text' && typeof block.text === 'string') {
-            textParts.push(block.text);
-          }
-          if (block.type === 'tool_use') {
-            toolCalls.push({
-              name: block.name as string,
-              args: (block.input ?? {}) as Record<string, unknown>,
-            });
-          }
-        }
-
-        const joined = textParts.join('\n');
-        if (isUnusableClaudeResultText(joined) && toolCalls.length === 0) {
-          continue;
-        }
-
-        if (textParts.length > 0 || toolCalls.length > 0) {
-          return {
-            text: joined,
-            ...(toolCalls.length > 0 ? { toolCalls } : {}),
-          };
-        }
-      }
-
-      // content_block_delta streaming events - accumulate text
-      // (handled by looking at the final assistant message above,
-      //  but as a safety net we also check for a plain text field)
-      if (typeof obj.text === 'string' && obj.text.length > 0 && !obj.type) {
-        return { text: obj.text };
-      }
-    } catch {
-      // Not valid JSON - skip
-    }
-  }
-
-  // If nothing parsed, return whatever raw text we got (trimmed)
-  const trimmed = raw.trim();
-  if (trimmed.length > 0) {
-    return { text: trimmed };
-  }
-
-  return { text: '' };
+  const parsed = parseClaudeStreamJson(raw);
+  return {
+    text: parsed.text,
+    ...(parsed.toolCalls?.length ? { toolCalls: parsed.toolCalls } : {}),
+    ...(parsed.errorDetail ? { errorDetail: parsed.errorDetail } : {}),
+  };
 }
 
 /**
@@ -320,20 +257,39 @@ interface SpawnClaudeOptions {
 function extractAssistantTextFromStreamLine(line: string): string | null {
   try {
     const obj = JSON.parse(line) as Record<string, unknown>;
-    if (obj.type === 'assistant' && Array.isArray(obj.content)) {
+    if (obj.type === 'assistant') {
+      // Skip synthetic rate-limit / API error stubs (nested or flat).
+      if (
+        obj.is_api_error_message === true ||
+        obj.error === 'rate_limit' ||
+        obj.error === 'authentication_failed'
+      ) {
+        return null;
+      }
+      const blocks = Array.isArray(obj.content)
+        ? (obj.content as Array<Record<string, unknown>>)
+        : obj.message &&
+            typeof obj.message === 'object' &&
+            Array.isArray((obj.message as Record<string, unknown>).content)
+          ? ((obj.message as Record<string, unknown>).content as Array<Record<string, unknown>>)
+          : null;
+      if (!blocks) return null;
       const parts: string[] = [];
-      for (const block of obj.content as Array<Record<string, unknown>>) {
+      for (const block of blocks) {
         if (block.type === 'text' && typeof block.text === 'string') {
           parts.push(block.text);
         }
       }
-      if (parts.length > 0) return parts.join('\n');
+      const joined = parts.join('\n');
+      if (!joined || isUnusableClaudeResultText(joined)) return null;
+      return joined;
     }
     if (obj.type === 'content_block_delta' && obj.delta && typeof obj.delta === 'object') {
       const delta = obj.delta as Record<string, unknown>;
       if (typeof delta.text === 'string') return delta.text;
     }
     if (obj.type === 'result' && typeof obj.result === 'string') {
+      if (obj.is_error === true || isUnusableClaudeResultText(obj.result)) return null;
       return obj.result;
     }
   } catch {
@@ -493,9 +449,9 @@ function spawnClaude(
         (parsed.text.trim().length > 0 && !isUnusableClaudeResultText(parsed.text)) ||
         (parsed.toolCalls?.length ?? 0) > 0;
 
-      // Claude Code sometimes exits 1 even after a valid stream-json result.
-      // Prefer the reply over a canned fallback when stdout is usable.
-      if (code !== 0 && !usable) {
+      // Claude Code may exit 0 with subtype=success even on 429 rate limits.
+      // Never settle empty / unusable / raw stream dumps as a customer reply.
+      if (!usable) {
         const stderrPreview = stderr.slice(0, 500);
         log.error(
           {
@@ -504,14 +460,18 @@ function spawnClaude(
             cwd: resolveClaudeSpawnCwd(),
             channel: callContext?.channel ?? null,
             stdoutChars: stdout.length,
+            errorDetail: parsed.errorDetail ?? null,
           },
-          'Claude CLI exited with non-zero code',
+          code !== 0
+            ? 'Claude CLI exited with non-zero code'
+            : 'Claude CLI returned unusable stdout (rate limit / auth / empty)',
         );
         settle(
           fallbackFor(
             'timeout',
             callContext,
-            `exit ${code}${stderrPreview ? `: ${stderrPreview}` : ''}`,
+            parsed.errorDetail ??
+              `unusable reply (exit ${code})${stderrPreview ? `: ${stderrPreview}` : ''}`,
           ),
         );
         return;

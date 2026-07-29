@@ -8,6 +8,14 @@ describe('isUnusableClaudeResultText', () => {
     expect(isUnusableClaudeResultText('authentication_failed')).toBe(true);
   });
 
+  it('flags session / rate-limit stubs', () => {
+    expect(
+      isUnusableClaudeResultText(
+        "You've hit your session limit · resets 9am (Europe/Berlin)",
+      ),
+    ).toBe(true);
+  });
+
   it('accepts normal customer replies', () => {
     expect(isUnusableClaudeResultText('Привіт! Як можу допомогти?')).toBe(false);
   });
