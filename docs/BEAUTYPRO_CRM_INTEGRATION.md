@@ -18,9 +18,13 @@
 
 1. Зареєструвати інтеграцію в AI Helps (тариф Ultimate).
 2. Отримати `application_id`, `application_secret`, `database_code`.
-3. В Admin → Settings → BeautyPro зберегти credentials.
+3. В Admin → Settings → BeautyPro зберегти credentials → **Перевірити підключення**.
 4. Власник бази: BeautyPro → Settings → Marketplace → **Grant access**.
 5. Adapter викликає `GET /auth/database`, зберігає access/refresh tokens (TTL 24h), refresh через `/auth/refresh`.
+
+**Тестова vs бойова база:** окремого sandbox API **немає**. Той самий host `https://api.aihelps.com/v1/` (auth завжди на server 1). Різниця лише в `database_code` і Grant access на потрібній базі. Після токена data-запити йдуть на `api` / `api4` залежно від поля `server` у відповіді auth.
+
+Кнопка «Перевірити підключення» → `POST /settings/beautypro/test` (auth + `GET /locations`).
 
 ## Tenant routing (приклад)
 

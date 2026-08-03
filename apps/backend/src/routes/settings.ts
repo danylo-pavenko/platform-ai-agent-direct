@@ -28,6 +28,7 @@ import {
 } from '../lib/telegram-bots.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
+import { testBeautyproConnection } from '../services/crm/beautypro.js';
 import {
   cancelClaudeAuthLogin,
   getClaudeAuthStatus,
@@ -471,6 +472,38 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(503).send(result);
     }
     return result;
+  });
+
+  /**
+   * POST /settings/beautypro/test
+   * Auth + GET /locations. Body may include unsaved credentials (masked secret → DB).
+   */
+  app.post<{
+    Body: {
+      applicationId?: string;
+      applicationSecret?: string;
+      databaseCode?: string;
+    };
+  }>('/beautypro/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const result = await testBeautyproConnection({
+        applicationId: body.applicationId,
+        applicationSecret: body.applicationSecret,
+        databaseCode: body.databaseCode,
+      });
+      if (!result.ok) {
+        return reply.code(result.status === 'error' ? 400 : 200).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({
+        ok: false,
+        status: 'error',
+        message,
+      });
+    }
   });
 
   const PURGE_DIALOGS_CONFIRM = 'ВИДАЛИТИ ДІАЛОГИ';

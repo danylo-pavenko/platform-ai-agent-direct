@@ -9,6 +9,7 @@
 import pino from 'pino';
 import { prisma } from '../../lib/prisma.js';
 import { getIntegrationConfig, invalidateIntegrationConfigCache } from '../../lib/integration-config.js';
+import { sanitizeIntegrationSecret } from '../../lib/integration-secrets.js';
 import { config } from '../../config.js';
 import type {
   CrmAdapter,
@@ -822,3 +823,197 @@ export const beautyproAdapter: CrmAdapter = {
     return items.slice(0, limit);
   },
 };
+
+export interface BeautyproConnectionTestResult {
+  ok: boolean;
+  status: 'granted' | 'pending' | 'refused' | 'error';
+  message: string;
+  server?: number;
+  expiresAt?: string;
+  database?: string;
+  locationCount?: number;
+  locationsPreview?: Array<{ id: string; name: string }>;
+  /** Tokens/authStatus written to integration_beautypro (only when testing saved creds). */
+  persisted?: boolean;
+}
+
+/**
+ * Probe BeautyPro auth + a light data call (GET /locations).
+ * Same API host for test and live databases — only database_code differs.
+ * Optional overrides allow testing form values before Save (masked secret → use DB).
+ */
+export async function testBeautyproConnection(overrides?: {
+  applicationId?: string;
+  applicationSecret?: string;
+  databaseCode?: string;
+}): Promise<BeautyproConnectionTestResult> {
+  const { beautypro } = await getIntegrationConfig({ fresh: true });
+  const saved = {
+    applicationId: beautypro.applicationId || config.BEAUTYPRO_APPLICATION_ID,
+    applicationSecret:
+      beautypro.applicationSecret || config.BEAUTYPRO_APPLICATION_SECRET,
+    databaseCode: beautypro.databaseCode || config.BEAUTYPRO_DATABASE_CODE,
+  };
+
+  const applicationId =
+    (overrides?.applicationId?.trim() || saved.applicationId).trim();
+  const databaseCode =
+    (overrides?.databaseCode?.trim() || saved.databaseCode).trim();
+  const fromOverride = sanitizeIntegrationSecret(overrides?.applicationSecret);
+  const applicationSecret = fromOverride || saved.applicationSecret;
+
+  if (!applicationId || !applicationSecret || !databaseCode) {
+    return {
+      ok: false,
+      status: 'error',
+      message:
+        'Потрібні Application ID, Application Secret і Database code (спочатку збережіть або введіть у формі)',
+    };
+  }
+
+  const matchesSaved =
+    Boolean(saved.applicationId && saved.applicationSecret && saved.databaseCode) &&
+    applicationId === saved.applicationId &&
+    databaseCode === saved.databaseCode &&
+    applicationSecret === saved.applicationSecret;
+
+  const url = new URL(`${AUTH_HOST}/auth/database`);
+  url.searchParams.set('application_id', applicationId);
+  url.searchParams.set('application_secret', applicationSecret);
+  url.searchParams.set('database_code', databaseCode);
+
+  let authBody: Record<string, unknown>;
+  try {
+    const res = await fetch(url.toString(), { method: 'GET' });
+    authBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: 'error',
+        message: `Auth HTTP ${res.status}: ${JSON.stringify(authBody).slice(0, 280)}`,
+        persisted: false,
+      };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      status: 'error',
+      message: `Не вдалося звернутись до api.aihelps.com: ${message.slice(0, 200)}`,
+      persisted: false,
+    };
+  }
+
+  if (typeof authBody.status === 'string' && !authBody.access_token) {
+    const status = authBody.status === 'refused' ? 'refused' : 'pending';
+    if (matchesSaved) {
+      await persistTokens({ authStatus: status });
+    }
+    return {
+      ok: false,
+      status,
+      message:
+        status === 'refused'
+          ? 'Доступ відхилено в Marketplace'
+          : 'Очікує Grant access: BeautyPro → Settings → Marketplace → Grant access (потім натисніть перевірку знову)',
+      persisted: matchesSaved,
+    };
+  }
+
+  const accessToken =
+    typeof authBody.access_token === 'string' ? authBody.access_token : '';
+  if (!accessToken) {
+    return {
+      ok: false,
+      status: 'error',
+      message: 'Відповідь auth без access_token і без status pending/refused',
+      persisted: false,
+    };
+  }
+
+  const apiServer = typeof authBody.server === 'number' ? authBody.server : 1;
+  const expiresAt =
+    typeof authBody.expires_at === 'string'
+      ? authBody.expires_at
+      : new Date(Date.now() + 23 * 3600_000).toISOString();
+  const refreshToken =
+    typeof authBody.refresh_token === 'string' ? authBody.refresh_token : '';
+  const database =
+    typeof authBody.database === 'string' ? authBody.database : databaseCode;
+
+  const tokens: TokenState = {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    apiServer,
+    authStatus: 'granted',
+  };
+
+  let locationCount = 0;
+  let locationsPreview: Array<{ id: string; name: string }> = [];
+  try {
+    const base = apiHostForServer(apiServer);
+    const locUrl = new URL(`${base}/locations`);
+    locUrl.searchParams.set('fields', 'name,city,street,active');
+    locUrl.searchParams.set('active', 'true');
+    const locRes = await fetch(locUrl.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const locText = await locRes.text();
+    if (!locRes.ok) {
+      if (matchesSaved) await persistTokens(tokens);
+      return {
+        ok: false,
+        status: 'error',
+        message: `Auth OK (server ${apiServer}), але GET /locations → HTTP ${locRes.status}: ${locText.slice(0, 200)}`,
+        server: apiServer,
+        expiresAt,
+        database,
+        persisted: matchesSaved,
+      };
+    }
+    const rows = (locText ? JSON.parse(locText) : []) as RawLocation[];
+    const active = (rows ?? []).filter((l) => l.active !== false);
+    locationCount = active.length;
+    locationsPreview = active.slice(0, 5).map((l) => ({
+      id: l.id,
+      name: l.name,
+    }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (matchesSaved) await persistTokens(tokens);
+    return {
+      ok: false,
+      status: 'error',
+      message: `Auth OK, але читання локацій зірвалось: ${message.slice(0, 200)}`,
+      server: apiServer,
+      expiresAt,
+      database,
+      persisted: matchesSaved,
+    };
+  }
+
+  if (matchesSaved) {
+    await persistTokens(tokens);
+  }
+
+  const saveHint = matchesSaved
+    ? ''
+    : ' Credentials ще не збережені в інтеграції — натисніть «Зберегти», потім перевірте знову, щоб токени залишились на сервері.';
+
+  return {
+    ok: true,
+    status: 'granted',
+    message: `Підключення OK · база ${database} · server ${apiServer} · локацій: ${locationCount}.${saveHint}`,
+    server: apiServer,
+    expiresAt,
+    database,
+    locationCount,
+    locationsPreview,
+    persisted: matchesSaved,
+  };
+}
