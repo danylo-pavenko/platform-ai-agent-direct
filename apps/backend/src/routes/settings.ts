@@ -477,12 +477,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   /**
    * POST /settings/beautypro/test
    * Auth + GET /locations. Body may include unsaved credentials (masked secret → DB).
+   * Pass debug: true for per-stage API request/response details (tokens redacted).
    */
   app.post<{
     Body: {
       applicationId?: string;
       applicationSecret?: string;
       databaseCode?: string;
+      debug?: boolean;
     };
   }>('/beautypro/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
     const body = request.body ?? {};
@@ -491,6 +493,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         applicationId: body.applicationId,
         applicationSecret: body.applicationSecret,
         databaseCode: body.databaseCode,
+        debug: body.debug === true,
       });
       if (!result.ok) {
         return reply.code(result.status === 'error' ? 400 : 200).send(result);

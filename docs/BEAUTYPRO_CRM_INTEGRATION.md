@@ -25,6 +25,7 @@
 **Тестова vs бойова база:** окремого sandbox API **немає**. Той самий host `https://api.aihelps.com/v1/` (auth завжди на server 1). Різниця лише в `database_code` і Grant access на потрібній базі. Після токена data-запити йдуть на `api` / `api4` залежно від поля `server` у відповіді auth.
 
 Кнопка «Перевірити підключення» → `POST /settings/beautypro/test` (auth + `GET /locations`).
+Кнопка **DEBUG** → той самий endpoint з `debug: true`: етапи (`resolve_credentials` → `auth_database` → `grant_access` / `locations`), HTTP status, duration, response body (tokens redacted) + «Копіювати для підтримки».
 
 ## Tenant routing (приклад)
 

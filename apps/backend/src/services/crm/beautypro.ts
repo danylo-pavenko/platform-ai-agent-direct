@@ -824,6 +824,20 @@ export const beautyproAdapter: CrmAdapter = {
   },
 };
 
+export interface BeautyproDebugStep {
+  stage: string;
+  ok: boolean;
+  method: string;
+  /** URL with application_secret redacted. */
+  url: string;
+  httpStatus?: number;
+  durationMs?: number;
+  /** Parsed or raw response; tokens redacted. */
+  response?: unknown;
+  error?: string;
+  note?: string;
+}
+
 export interface BeautyproConnectionTestResult {
   ok: boolean;
   status: 'granted' | 'pending' | 'refused' | 'error';
@@ -832,21 +846,110 @@ export interface BeautyproConnectionTestResult {
   expiresAt?: string;
   database?: string;
   locationCount?: number;
-  locationsPreview?: Array<{ id: string; name: string }>;
+  /** All active locations from GET /locations (for picking default UUID). */
+  locations?: Array<{ id: string; name: string; address?: string }>;
+  /** @deprecated use locations */
+  locationsPreview?: Array<{ id: string; name: string; address?: string }>;
   /** Tokens/authStatus written to integration_beautypro (only when testing saved creds). */
   persisted?: boolean;
+  /** Present when `debug: true` — for support / developer diagnosis. */
+  debug?: {
+    checkedAt: string;
+    failedAtStage: string | null;
+    applicationId: string;
+    databaseCode: string;
+    secretSource: 'override' | 'saved' | 'missing';
+    matchesSavedCredentials: boolean;
+    steps: BeautyproDebugStep[];
+  };
+}
+
+function redactSecretInUrl(url: string): string {
+  return url.replace(/([?&]application_secret=)[^&]*/gi, '$1***');
+}
+
+function maskTokenValue(value: string): string {
+  const t = value.trim();
+  if (!t) return '';
+  if (t.length <= 10) return `*** (${t.length} chars)`;
+  return `${t.slice(0, 4)}…${t.slice(-4)} (${t.length} chars)`;
+}
+
+function redactApiPayload(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((item) => redactApiPayload(item));
+  }
+  if (typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      typeof v === 'string' &&
+      /token|secret|password|authorization/i.test(k)
+    ) {
+      out[k] = maskTokenValue(v);
+    } else {
+      out[k] = redactApiPayload(v);
+    }
+  }
+  return out;
+}
+
+function truncateJson(value: unknown, maxChars = 8000): unknown {
+  try {
+    const raw = JSON.stringify(value);
+    if (raw.length <= maxChars) return value;
+    return {
+      _truncated: true,
+      _originalChars: raw.length,
+      preview: raw.slice(0, maxChars),
+    };
+  } catch {
+    return String(value).slice(0, maxChars);
+  }
 }
 
 /**
  * Probe BeautyPro auth + a light data call (GET /locations).
  * Same API host for test and live databases — only database_code differs.
  * Optional overrides allow testing form values before Save (masked secret → use DB).
+ * Pass `debug: true` for per-stage request/response details (tokens redacted).
  */
 export async function testBeautyproConnection(overrides?: {
   applicationId?: string;
   applicationSecret?: string;
   databaseCode?: string;
+  debug?: boolean;
 }): Promise<BeautyproConnectionTestResult> {
+  const wantDebug = overrides?.debug === true;
+  const steps: BeautyproDebugStep[] = [];
+  const checkedAt = new Date().toISOString();
+
+  const finish = (
+    result: BeautyproConnectionTestResult,
+    failedAtStage: string | null,
+    meta: {
+      applicationId: string;
+      databaseCode: string;
+      secretSource: 'override' | 'saved' | 'missing';
+      matchesSavedCredentials: boolean;
+    },
+  ): BeautyproConnectionTestResult => {
+    if (!wantDebug) return result;
+    return {
+      ...result,
+      debug: {
+        checkedAt,
+        failedAtStage,
+        applicationId: meta.applicationId,
+        databaseCode: meta.databaseCode,
+        secretSource: meta.secretSource,
+        matchesSavedCredentials: meta.matchesSavedCredentials,
+        steps,
+      },
+    };
+  };
+
   const { beautypro } = await getIntegrationConfig({ fresh: true });
   const saved = {
     applicationId: beautypro.applicationId || config.BEAUTYPRO_APPLICATION_ID,
@@ -861,14 +964,43 @@ export async function testBeautyproConnection(overrides?: {
     (overrides?.databaseCode?.trim() || saved.databaseCode).trim();
   const fromOverride = sanitizeIntegrationSecret(overrides?.applicationSecret);
   const applicationSecret = fromOverride || saved.applicationSecret;
+  const secretSource: 'override' | 'saved' | 'missing' = fromOverride
+    ? 'override'
+    : saved.applicationSecret
+      ? 'saved'
+      : 'missing';
+
+  const metaBase = {
+    applicationId: applicationId || '(empty)',
+    databaseCode: databaseCode || '(empty)',
+    secretSource,
+    matchesSavedCredentials: false,
+  };
 
   if (!applicationId || !applicationSecret || !databaseCode) {
-    return {
+    steps.push({
+      stage: 'resolve_credentials',
       ok: false,
-      status: 'error',
-      message:
-        'Потрібні Application ID, Application Secret і Database code (спочатку збережіть або введіть у формі)',
-    };
+      method: 'LOCAL',
+      url: 'integration_beautypro',
+      error: 'missing applicationId / applicationSecret / databaseCode',
+      response: {
+        hasApplicationId: Boolean(applicationId),
+        hasApplicationSecret: Boolean(applicationSecret),
+        hasDatabaseCode: Boolean(databaseCode),
+        secretSource,
+      },
+    });
+    return finish(
+      {
+        ok: false,
+        status: 'error',
+        message:
+          'Потрібні Application ID, Application Secret і Database code (спочатку збережіть або введіть у формі)',
+      },
+      'resolve_credentials',
+      metaBase,
+    );
   }
 
   const matchesSaved =
@@ -876,32 +1008,85 @@ export async function testBeautyproConnection(overrides?: {
     applicationId === saved.applicationId &&
     databaseCode === saved.databaseCode &&
     applicationSecret === saved.applicationSecret;
+  metaBase.matchesSavedCredentials = matchesSaved;
+
+  steps.push({
+    stage: 'resolve_credentials',
+    ok: true,
+    method: 'LOCAL',
+    url: 'integration_beautypro',
+    response: {
+      applicationId,
+      databaseCode,
+      secretSource,
+      matchesSavedCredentials: matchesSaved,
+      savedAuthStatus: beautypro.authStatus || '',
+      savedApiServer: beautypro.apiServer || null,
+      savedTokenExpiresAt: beautypro.tokenExpiresAt || null,
+    },
+  });
 
   const url = new URL(`${AUTH_HOST}/auth/database`);
   url.searchParams.set('application_id', applicationId);
   url.searchParams.set('application_secret', applicationSecret);
   url.searchParams.set('database_code', databaseCode);
+  const authUrlSafe = redactSecretInUrl(url.toString());
 
   let authBody: Record<string, unknown>;
+  let authHttpStatus = 0;
   try {
+    const t0 = Date.now();
     const res = await fetch(url.toString(), { method: 'GET' });
-    authBody = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    authHttpStatus = res.status;
+    const durationMs = Date.now() - t0;
+    const rawText = await res.text();
+    try {
+      authBody = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+    } catch {
+      authBody = { _nonJson: rawText.slice(0, 2000) };
+    }
+    steps.push({
+      stage: 'auth_database',
+      ok: res.ok,
+      method: 'GET',
+      url: authUrlSafe,
+      httpStatus: res.status,
+      durationMs,
+      response: truncateJson(redactApiPayload(authBody)),
+      note: 'GET https://api.aihelps.com/v1/auth/database — auth always on server 1',
+    });
     if (!res.ok) {
-      return {
-        ok: false,
-        status: 'error',
-        message: `Auth HTTP ${res.status}: ${JSON.stringify(authBody).slice(0, 280)}`,
-        persisted: false,
-      };
+      return finish(
+        {
+          ok: false,
+          status: 'error',
+          message: `Auth HTTP ${res.status}: ${JSON.stringify(authBody).slice(0, 280)}`,
+          persisted: false,
+        },
+        'auth_database',
+        metaBase,
+      );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
+    steps.push({
+      stage: 'auth_database',
       ok: false,
-      status: 'error',
-      message: `Не вдалося звернутись до api.aihelps.com: ${message.slice(0, 200)}`,
-      persisted: false,
-    };
+      method: 'GET',
+      url: authUrlSafe,
+      httpStatus: authHttpStatus || undefined,
+      error: message,
+    });
+    return finish(
+      {
+        ok: false,
+        status: 'error',
+        message: `Не вдалося звернутись до api.aihelps.com: ${message.slice(0, 200)}`,
+        persisted: false,
+      },
+      'auth_database',
+      metaBase,
+    );
   }
 
   if (typeof authBody.status === 'string' && !authBody.access_token) {
@@ -909,26 +1094,53 @@ export async function testBeautyproConnection(overrides?: {
     if (matchesSaved) {
       await persistTokens({ authStatus: status });
     }
-    return {
+    steps.push({
+      stage: 'grant_access',
       ok: false,
-      status,
-      message:
-        status === 'refused'
-          ? 'Доступ відхилено в Marketplace'
-          : 'Очікує Grant access: BeautyPro → Settings → Marketplace → Grant access (потім натисніть перевірку знову)',
-      persisted: matchesSaved,
-    };
+      method: 'N/A',
+      url: 'BeautyPro → Settings → Marketplace → Grant access',
+      response: { authStatus: status, raw: redactApiPayload(authBody) },
+      note:
+        status === 'pending'
+          ? 'Credentials OK; access request created. Owner must Grant access, then re-test.'
+          : 'Owner refused Marketplace access for this application.',
+    });
+    return finish(
+      {
+        ok: false,
+        status,
+        message:
+          status === 'refused'
+            ? 'Доступ відхилено в Marketplace'
+            : 'Очікує Grant access: BeautyPro → Settings → Marketplace → Grant access (потім натисніть перевірку знову)',
+        persisted: matchesSaved,
+      },
+      'grant_access',
+      metaBase,
+    );
   }
 
   const accessToken =
     typeof authBody.access_token === 'string' ? authBody.access_token : '';
   if (!accessToken) {
-    return {
+    steps.push({
+      stage: 'auth_database',
       ok: false,
-      status: 'error',
-      message: 'Відповідь auth без access_token і без status pending/refused',
-      persisted: false,
-    };
+      method: 'GET',
+      url: authUrlSafe,
+      response: truncateJson(redactApiPayload(authBody)),
+      error: 'no access_token and no pending/refused status',
+    });
+    return finish(
+      {
+        ok: false,
+        status: 'error',
+        message: 'Відповідь auth без access_token і без status pending/refused',
+        persisted: false,
+      },
+      'auth_database',
+      metaBase,
+    );
   }
 
   const apiServer = typeof authBody.server === 'number' ? authBody.server : 1;
@@ -941,6 +1153,23 @@ export async function testBeautyproConnection(overrides?: {
   const database =
     typeof authBody.database === 'string' ? authBody.database : databaseCode;
 
+  steps.push({
+    stage: 'token_issued',
+    ok: true,
+    method: 'GET',
+    url: authUrlSafe,
+    response: {
+      server: apiServer,
+      database,
+      expires_at: expiresAt,
+      has_refresh_token: Boolean(refreshToken),
+      scope: authBody.scope ?? null,
+      location: authBody.location ?? null,
+      access_token: maskTokenValue(accessToken),
+    },
+    note: `Data API host will be ${apiHostForServer(apiServer)}`,
+  });
+
   const tokens: TokenState = {
     accessToken,
     refreshToken,
@@ -950,12 +1179,14 @@ export async function testBeautyproConnection(overrides?: {
   };
 
   let locationCount = 0;
-  let locationsPreview: Array<{ id: string; name: string }> = [];
+  let locations: Array<{ id: string; name: string; address?: string }> = [];
+  const base = apiHostForServer(apiServer);
+  const locUrl = new URL(`${base}/locations`);
+  locUrl.searchParams.set('fields', 'name,city,street,active');
+  locUrl.searchParams.set('active', 'true');
+
   try {
-    const base = apiHostForServer(apiServer);
-    const locUrl = new URL(`${base}/locations`);
-    locUrl.searchParams.set('fields', 'name,city,street,active');
-    locUrl.searchParams.set('active', 'true');
+    const t0 = Date.now();
     const locRes = await fetch(locUrl.toString(), {
       method: 'GET',
       headers: {
@@ -963,57 +1194,124 @@ export async function testBeautyproConnection(overrides?: {
         Accept: 'application/json',
       },
     });
+    const durationMs = Date.now() - t0;
     const locText = await locRes.text();
+    let locParsed: unknown = locText;
+    try {
+      locParsed = locText ? JSON.parse(locText) : [];
+    } catch {
+      locParsed = { _nonJson: locText.slice(0, 2000) };
+    }
+
     if (!locRes.ok) {
+      steps.push({
+        stage: 'locations',
+        ok: false,
+        method: 'GET',
+        url: locUrl.toString(),
+        httpStatus: locRes.status,
+        durationMs,
+        response: truncateJson(redactApiPayload(locParsed)),
+        note: 'Auth succeeded; data call failed (token/server/scope issue?)',
+      });
       if (matchesSaved) await persistTokens(tokens);
-      return {
+      return finish(
+        {
+          ok: false,
+          status: 'error',
+          message: `Auth OK (server ${apiServer}), але GET /locations → HTTP ${locRes.status}: ${locText.slice(0, 200)}`,
+          server: apiServer,
+          expiresAt,
+          database,
+          persisted: matchesSaved,
+        },
+        'locations',
+        metaBase,
+      );
+    }
+    const rows = (Array.isArray(locParsed) ? locParsed : []) as RawLocation[];
+    const active = (rows ?? []).filter((l) => l.active !== false);
+    locationCount = active.length;
+    locations = active.map((l) => ({
+      id: l.id,
+      name: l.name,
+      address: [l.city, l.street].filter(Boolean).join(', ') || undefined,
+    }));
+    steps.push({
+      stage: 'locations',
+      ok: true,
+      method: 'GET',
+      url: locUrl.toString(),
+      httpStatus: locRes.status,
+      durationMs,
+      response: truncateJson({
+        activeCount: locationCount,
+        totalReturned: rows.length,
+        locations,
+      }),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    steps.push({
+      stage: 'locations',
+      ok: false,
+      method: 'GET',
+      url: locUrl.toString(),
+      error: message,
+    });
+    if (matchesSaved) await persistTokens(tokens);
+    return finish(
+      {
         ok: false,
         status: 'error',
-        message: `Auth OK (server ${apiServer}), але GET /locations → HTTP ${locRes.status}: ${locText.slice(0, 200)}`,
+        message: `Auth OK, але читання локацій зірвалось: ${message.slice(0, 200)}`,
         server: apiServer,
         expiresAt,
         database,
         persisted: matchesSaved,
-      };
-    }
-    const rows = (locText ? JSON.parse(locText) : []) as RawLocation[];
-    const active = (rows ?? []).filter((l) => l.active !== false);
-    locationCount = active.length;
-    locationsPreview = active.slice(0, 5).map((l) => ({
-      id: l.id,
-      name: l.name,
-    }));
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (matchesSaved) await persistTokens(tokens);
-    return {
-      ok: false,
-      status: 'error',
-      message: `Auth OK, але читання локацій зірвалось: ${message.slice(0, 200)}`,
-      server: apiServer,
-      expiresAt,
-      database,
-      persisted: matchesSaved,
-    };
+      },
+      'locations',
+      metaBase,
+    );
   }
 
   if (matchesSaved) {
     await persistTokens(tokens);
   }
+  steps.push({
+    stage: 'persist_tokens',
+    ok: true,
+    method: 'LOCAL',
+    url: 'settings.integration_beautypro',
+    response: {
+      persisted: matchesSaved,
+      authStatus: 'granted',
+      apiServer,
+      expiresAt,
+    },
+    note: matchesSaved
+      ? 'Tokens saved to tenant settings'
+      : 'Not persisted — form credentials differ from saved; Save integrations first',
+  });
 
   const saveHint = matchesSaved
     ? ''
     : ' Credentials ще не збережені в інтеграції — натисніть «Зберегти», потім перевірте знову, щоб токени залишились на сервері.';
 
-  return {
-    ok: true,
-    status: 'granted',
-    message: `Підключення OK · база ${database} · server ${apiServer} · локацій: ${locationCount}.${saveHint}`,
-    server: apiServer,
-    expiresAt,
-    database,
-    locationCount,
-    locationsPreview,
-    persisted: matchesSaved,
-  };
+  return finish(
+    {
+      ok: true,
+      status: 'granted',
+      message: `Підключення OK · база ${database} · server ${apiServer} · локацій: ${locationCount}.${saveHint}`,
+      server: apiServer,
+      expiresAt,
+      database,
+      locationCount,
+      locations,
+      locationsPreview: locations,
+      persisted: matchesSaved,
+    },
+    null,
+    metaBase,
+  );
 }
