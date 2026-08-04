@@ -1,5 +1,5 @@
 /**
- * Live service search for booking-mode agents (CleverBOX and future providers).
+ * Live service search for booking-mode agents (CleverBOX, BeautyPro, and future providers).
  */
 
 import { resolveCrmProvider } from '../lib/crm-routing.js';
@@ -34,11 +34,27 @@ export async function searchServicesForContext(
   };
 }
 
+/** Format slot masters for the agent (ids for tools; names for client copy). */
+export function formatSlotMastersLine(
+  masterIds: string[],
+  masterMap: Map<string, string>,
+  limit = 4,
+): string {
+  return masterIds
+    .slice(0, limit)
+    .map((id) => {
+      const name = masterMap.get(id) ?? id;
+      return `[master_id=${id}] ${name}`;
+    })
+    .join(', ');
+}
+
 export async function getAvailableSlotsForContext(args: {
   date: string;
   branchCrmId: string;
   services: Array<{ id: string; durationMin: number }>;
   fullMonth?: boolean;
+  masterId?: string;
 }): Promise<string> {
   const provider = await resolveCrmProvider('booking');
   const crm = getCrmAdapter(provider);
@@ -52,6 +68,7 @@ export async function getAvailableSlotsForContext(args: {
     branchId: args.branchCrmId,
     services: args.services,
     fullMonth: args.fullMonth,
+    masterId: args.masterId,
   });
 
   const lines: string[] = [];
@@ -62,13 +79,20 @@ export async function getAvailableSlotsForContext(args: {
     if (daySlots.length === 0) continue;
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
-      const masterNames = slot.masterIds
-        .map((id) => masterMap.get(id) ?? id)
-        .slice(0, 4)
-        .join(', ');
-      lines.push(`- ${slot.time} | майстри: ${masterNames || '—'}`);
+      const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
+      lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
     }
   }
 
-  return lines.length > 0 ? lines.join('\n') : 'Вільних слотів на обрану дату не знайдено.';
+  if (lines.length === 0) {
+    return args.masterId
+      ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
+      : 'Вільних слотів на обрану дату не знайдено.';
+  }
+
+  lines.push(
+    '',
+    'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
+  );
+  return lines.join('\n');
 }

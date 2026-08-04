@@ -43,7 +43,12 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
   }
   if (names.has('book_appointment')) {
     rules.push(
-      'book_appointment — коли клієнт підтвердив слот запису (дата/час/послуга/філія за потреби).',
+      'book_appointment — коли клієнт підтвердив слот запису (дата/час/послуга/філія за потреби). Передай master_id з get_available_slots або історії, якщо клієнт йде до конкретного майстра.',
+    );
+  }
+  if (names.has('get_available_slots')) {
+    rules.push(
+      'Повторний клієнт з master_id в історії — get_available_slots з цим master_id (слоти того майстра). Новий клієнт або без майстра — без master_id (найближчі вікна / день, який назвав клієнт). Клієнту лише імена майстрів, не id.',
     );
   }
   if (names.has('submit_brief')) {

@@ -18,6 +18,7 @@ import type {
   OfferSearchParams,
   ProductSearchParams,
 } from './types.js';
+import { filterSlotsByMasterId } from './slot-filter.js';
 
 const log = pino({ name: 'crm:cleverbox' });
 
@@ -211,10 +212,13 @@ export const cleverboxAdapter: CrmAdapter = {
         }));
     }
 
-    return {
-      slots,
-      masters: res.masters ?? [],
-    };
+    return filterSlotsByMasterId(
+      {
+        slots,
+        masters: res.masters ?? [],
+      },
+      query.masterId,
+    );
   },
 
   async createBooking(input: CrmBookingInput) {

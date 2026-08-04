@@ -976,11 +976,19 @@ async function handleIncomingMessageImpl(
           '[get_available_slots] ПОМИЛКА: спочатку обери філію через set_conversation_branch';
       } else {
         try {
+          const masterIdRaw = slotsCall.args.master_id;
+          const masterId =
+            typeof masterIdRaw === 'string'
+              ? masterIdRaw.trim()
+              : typeof masterIdRaw === 'number' && Number.isFinite(masterIdRaw)
+                ? String(masterIdRaw)
+                : undefined;
           const slotsText = await getAvailableSlotsForContext({
             date,
             branchCrmId: conversation.branch.crmExternalId,
             services,
             fullMonth: slotsCall.args.full_month === true,
+            masterId: masterId || undefined,
           });
           toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
         } catch (err) {

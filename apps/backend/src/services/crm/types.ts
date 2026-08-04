@@ -199,6 +199,8 @@ export interface CrmSlotQuery {
   branchId: string;
   services: Array<{ id: string; durationMin: number }>;
   fullMonth?: boolean;
+  /** Prefer slots for this professional / master (CRM employee id). */
+  masterId?: string;
 }
 
 export interface CrmSlot {
@@ -228,6 +230,8 @@ export interface CrmVisitHistoryItem {
   id: string;
   date: string;
   durationMin: number;
+  /** CRM professional / employee id for preferred-master booking (internal). */
+  professionalId?: string;
   professionalName?: string;
   paid?: boolean;
   items: Array<{

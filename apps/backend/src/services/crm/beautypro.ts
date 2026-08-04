@@ -27,6 +27,7 @@ import type {
   OfferSearchParams,
   ProductSearchParams,
 } from './types.js';
+import { filterSlotsByMasterId } from './slot-filter.js';
 
 const log = pino({ name: 'crm:beautypro' });
 
@@ -611,7 +612,7 @@ export const beautyproAdapter: CrmAdapter = {
       }
     }
 
-    return { slots, masters };
+    return filterSlotsByMasterId({ slots, masters }, query.masterId);
   },
 
   async findClient(match: CrmClientMatch) {
@@ -806,6 +807,7 @@ export const beautyproAdapter: CrmAdapter = {
         id: string;
         date?: string;
         duration?: number;
+        professional?: string | null;
         professional_name?: string | null;
         paid?: boolean;
         items?: Array<{
@@ -830,6 +832,7 @@ export const beautyproAdapter: CrmAdapter = {
       id: row.id,
       date: row.date ?? '',
       durationMin: typeof row.duration === 'number' ? row.duration : 0,
+      professionalId: row.professional?.trim() || undefined,
       professionalName: row.professional_name || undefined,
       paid: row.paid,
       items: (row.items ?? []).map((it) => ({

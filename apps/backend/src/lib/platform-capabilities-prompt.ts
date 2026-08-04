@@ -41,7 +41,15 @@ Telegram-сповіщення менеджерам — НЕ окремий tool 
 
 Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox).
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
-Історія візитів BeautyPro (тривалість послуг) — get_client_crm_history + runtime-блок.
+Історія візитів (тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок.
+
+## Booking master preference (booking mode)
+
+- Повторний клієнт: історія з [master_id=…] → запропонуй цього майстра → get_available_slots з master_id → після підтвердження дати/часу → book_appointment з тим master_id.
+- Новий клієнт: get_available_slots без master_id (найближчі вікна або день, який назвав клієнт) → підтвердження → book_appointment; master_id лише якщо клієнт обрав майстра зі слотів.
+- Клієнту показуй лише імена майстрів; ids — тільки в tool args.
+- Не вигадуй окремі tools на кшталт get_master_availability — лише get_available_slots.master_id.
+
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.
 

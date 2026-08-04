@@ -160,7 +160,7 @@ const SEARCH_SERVICES: ToolDefinition = {
 const GET_AVAILABLE_SLOTS: ToolDefinition = {
   name: 'get_available_slots',
   description:
-    'Вільні слоти для запису на обрану дату. Потрібна філія (set_conversation_branch) та список послуг з id і тривалістю.',
+    'Вільні слоти для запису на обрану дату. Потрібна філія (set_conversation_branch) та список послуг з id і тривалістю. Для повторного клієнта передай master_id з історії візитів, щоб показати лише цього майстра.',
   parameters: {
     type: 'object',
     properties: {
@@ -180,6 +180,11 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
         },
       },
       full_month: { type: 'boolean', description: 'Показати слоти на весь місяць' },
+      master_id: {
+        type: 'string',
+        description:
+          'ID майстра з CRM історії / masters-live / попередніх слотів — фільтр слотів лише для цього майстра',
+      },
     },
     required: ['date', 'services'],
   },
@@ -214,7 +219,8 @@ const BOOK_APPOINTMENT: ToolDefinition = {
       },
       master_id: {
         type: 'string',
-        description: 'ID майстра з get_available_slots (число або UUID)',
+        description:
+          'ID майстра з get_available_slots або CRM історії (master_id=…); клієнту не показуй',
       },
       comment: { type: 'string' },
       crm_provider: {

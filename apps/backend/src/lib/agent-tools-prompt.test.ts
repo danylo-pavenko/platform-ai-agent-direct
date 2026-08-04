@@ -40,4 +40,11 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/Не згадуй інші tools/i);
     expect(prompt).toMatch(/не коментуй розбіжність/i);
   });
+
+  it('includes preferred-master slot rules for booking tools', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toContain('get_available_slots');
+    expect(prompt).toMatch(/Повторний клієнт/);
+    expect(prompt).toMatch(/master_id/);
+  });
 });

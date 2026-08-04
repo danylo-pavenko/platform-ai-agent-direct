@@ -273,7 +273,9 @@ export function formatCrmHistoryForPrompt(
     return 'CRM історія візитів: записів за останні ~2 місяці немає.';
   }
 
-  const lines: string[] = ['CRM історія візитів (для планування тривалості запису):'];
+  const lines: string[] = [
+    'CRM історія візитів (тривалість + улюблений майстер для запису):',
+  ];
   const durations: number[] = [];
 
   for (const visit of slice) {
@@ -288,9 +290,14 @@ export function formatCrmHistoryForPrompt(
     const dur =
       visit.durationMin > 0 ? `${visit.durationMin} хв` : 'тривалість н/д';
     if (visit.durationMin > 0) durations.push(visit.durationMin);
-    const master = visit.professionalName
-      ? ` | майстер: ${visit.professionalName}`
-      : '';
+    let master = '';
+    if (visit.professionalName || visit.professionalId) {
+      const name = visit.professionalName ?? 'майстер';
+      const idPart = visit.professionalId
+        ? ` [master_id=${visit.professionalId}]`
+        : '';
+      master = ` | майстер: ${name}${idPart}`;
+    }
     lines.push(`- ${dateLabel} | ${dur} | ${allNames}${master}`);
   }
 
@@ -301,6 +308,14 @@ export function formatCrmHistoryForPrompt(
     const last = durations[0]!;
     lines.push(
       `Орієнтир: остання тривалість ${last} хв, середня з історії ~${avg} хв — враховуй при виборі слота (якщо клієнт бере ту саму/схожу послугу).`,
+    );
+  }
+
+  const lastWithMaster = slice.find((v) => v.professionalId);
+  if (lastWithMaster?.professionalId) {
+    const label = lastWithMaster.professionalName ?? 'попередній майстер';
+    lines.push(
+      `Улюблений майстер: ${label} [master_id=${lastWithMaster.professionalId}] — запропонуй його і виклич get_available_slots з цим master_id. Клієнту показуй лише ім'я, не id.`,
     );
   }
 
