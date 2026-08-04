@@ -880,17 +880,18 @@ async function sendChatMessage(text: string) {
     const body = e.response?.data;
     const networkFailure = classifySandboxNetworkError(e);
     lastDebug.value = body?.debug ?? null;
-    lastFailure.value = body?.failure ?? networkFailure;
-    if (!lastDebug.value?.copyBundle && lastFailure.value) {
+    const failure: SandboxFailure = body?.failure ?? networkFailure;
+    lastFailure.value = failure;
+    if (!lastDebug.value?.copyBundle) {
       lastDebug.value = {
         ...(lastDebug.value ?? {}),
         copyBundle: [
           '=== Sandbox agent debug (paste into Cursor) ===',
           `at: ${new Date().toISOString()}`,
           `ok: false`,
-          `failure.code: ${lastFailure.value.code}`,
-          `failure.reasonUk: ${lastFailure.value.reasonUk}`,
-          `failure.errorDetail: ${lastFailure.value.errorDetail ?? '—'}`,
+          `failure.code: ${failure.code}`,
+          `failure.reasonUk: ${failure.reasonUk}`,
+          `failure.errorDetail: ${failure.errorDetail ?? '—'}`,
           `httpStatus: ${e.response?.status ?? 'n/a'}`,
           `axiosCode: ${e.code ?? 'n/a'}`,
           `axiosMessage: ${e.message ?? 'n/a'}`,
@@ -898,7 +899,7 @@ async function sendChatMessage(text: string) {
         ].join('\n'),
       };
     }
-    const errorMsg = lastFailure.value.reasonUk;
+    const errorMsg = failure.reasonUk;
     chatMessages.value.push({
       role: 'assistant',
       content: `⚠️ ${errorMsg}`,
