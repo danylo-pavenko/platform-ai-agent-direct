@@ -78,12 +78,14 @@
           v-if="authStore.isOwner"
           prepend-icon="mdi-brain"
           title="Навчання агента"
+          subtitle="Редагує промпт"
           :to="{ name: 'teach' }"
           @click="onNavClick"
         />
         <v-list-item
           prepend-icon="mdi-flask-outline"
           title="Тестування агента"
+          subtitle="Симуляція чату з клієнтом"
           :to="{ name: 'sandbox' }"
           @click="onNavClick"
         />

@@ -10,14 +10,19 @@
       />
       <div class="flex-grow-1 min-width-0">
         <div class="text-subtitle-2 text-truncate">Тестування агента</div>
-        <div class="text-caption text-grey text-truncate">Пісочниця</div>
+        <div class="text-caption text-grey text-truncate">Симуляція чату з клієнтом</div>
       </div>
-      <v-btn
-        icon="mdi-tune"
-        variant="text"
-        size="small"
-        @click="showPromptPanel = !showPromptPanel"
-      />
+      <v-btn-toggle
+        v-model="mobileTab"
+        mandatory
+        density="compact"
+        variant="outlined"
+        divided
+        class="sandbox-mobile-tabs"
+      >
+        <v-btn size="x-small" value="chat">Чат</v-btn>
+        <v-btn size="x-small" value="prompt">Промпт</v-btn>
+      </v-btn-toggle>
     </div>
 
     <div class="sandbox-layout" :class="{ 'with-prompt': showPromptPanel && !mobile }">
@@ -45,7 +50,34 @@
           </v-avatar>
           <div class="flex-grow-1">
             <div class="text-subtitle-2">Тестовий клієнт</div>
-            <div class="text-caption text-grey">sandbox_test • Пісочниця</div>
+            <div class="text-caption text-grey">
+              {{ persona === 'returning' ? 'sandbox_returning' : 'sandbox_test' }} · симуляція IG
+            </div>
+            <div class="d-flex flex-wrap ga-1 mt-1">
+              <v-chip size="x-small" variant="tonal" color="primary">
+                {{ sandboxMeta?.agentMode || '…' }}
+              </v-chip>
+              <v-chip size="x-small" variant="tonal" color="success">
+                CRM reads: live
+              </v-chip>
+              <v-chip size="x-small" variant="tonal" color="warning">
+                writes: dry-run
+              </v-chip>
+              <v-chip
+                v-if="sandboxMeta?.locationLabel"
+                size="x-small"
+                variant="outlined"
+              >
+                {{ sandboxMeta.locationLabel }}
+              </v-chip>
+              <v-chip
+                v-if="selectedPromptLabel"
+                size="x-small"
+                variant="outlined"
+              >
+                {{ selectedPromptLabel }}
+              </v-chip>
+            </div>
           </div>
 
           <!-- Replay controls -->
@@ -99,20 +131,33 @@
             <div class="ig-logo-placeholder mb-3">
               <v-icon size="48" color="grey-lighten-1">mdi-instagram</v-icon>
             </div>
-            <div class="text-body-1 text-grey-darken-1 mb-1">Тестовий чат</div>
-            <div class="text-body-2 text-grey mb-4" style="max-width: 300px; text-align: center;">
-              Пишіть як клієнт і дивіться як відповідає AI-агент
+            <div class="text-body-1 text-grey-darken-1 mb-1">Симуляція чату з клієнтом</div>
+            <div class="text-body-2 text-grey mb-3" style="max-width: 340px; text-align: center;">
+              Тут відповідає клієнтський агент (не мета-агент). Навчання лише редагує промпт —
+              перевіряй відповіді тут.
             </div>
+            <div class="d-flex flex-wrap ga-2 justify-center mb-3">
+              <v-btn
+                size="small"
+                variant="tonal"
+                color="secondary"
+                prepend-icon="mdi-brain"
+                :to="{ name: 'teach' }"
+              >
+                Відкрити навчання
+              </v-btn>
+            </div>
+            <div class="text-caption text-grey mb-2">Сценарії</div>
             <div class="d-flex flex-wrap ga-2 justify-center">
               <v-chip
-                v-for="hint in quickHints"
-                :key="hint"
+                v-for="hint in scenarioHints"
+                :key="hint.text"
                 size="small"
                 variant="outlined"
                 class="cursor-pointer hint-chip-touch"
-                @click="sendQuickHint(hint)"
+                @click="sendQuickHint(hint.text)"
               >
-                {{ hint }}
+                {{ hint.label }}
               </v-chip>
             </div>
           </div>
@@ -145,12 +190,79 @@
             <!-- Typing indicator -->
             <div v-if="loading" class="msg-row msg-received mb-2">
               <div class="msg-bubble bubble-received typing-bubble">
+                <div v-if="loadingStage" class="text-caption text-grey mb-1">{{ loadingStage }}</div>
                 <div class="typing-dots">
                   <span /><span /><span />
                 </div>
               </div>
             </div>
+
+            <!-- Tool debug -->
+            <v-expansion-panels
+              v-if="lastDebug?.tools?.length"
+              class="mt-2 sandbox-debug-panels"
+              variant="accordion"
+            >
+              <v-expansion-panel>
+                <v-expansion-panel-title class="text-caption">
+                  Що зробив агент ({{ lastDebug.tools.length }} tools)
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <div
+                    v-for="(t, i) in lastDebug.tools"
+                    :key="i"
+                    class="sandbox-debug-tool mb-2"
+                  >
+                    <div class="text-caption font-weight-medium">
+                      {{ t.name }}
+                      <v-chip
+                        v-if="t.dryRun"
+                        size="x-small"
+                        color="warning"
+                        variant="tonal"
+                        class="ml-1"
+                      >
+                        dry-run
+                      </v-chip>
+                    </div>
+                    <pre class="sandbox-debug-pre">{{ formatDebugArgs(t.args) }}</pre>
+                    <pre class="sandbox-debug-pre sandbox-debug-pre--result">{{ t.resultPreview }}</pre>
+                  </div>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
           </div>
+        </div>
+
+        <div
+          v-if="sandboxMeta?.warnings?.length"
+          class="px-3 py-1"
+        >
+          <v-alert
+            v-for="(w, i) in sandboxMeta.warnings"
+            :key="i"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mb-1 text-caption"
+          >
+            {{ w }}
+          </v-alert>
+        </div>
+
+        <!-- Persona + scenarios bar -->
+        <div v-if="!replayMode" class="persona-bar px-2 px-md-3 pt-2 d-flex flex-wrap align-center ga-2">
+          <v-btn-toggle
+            v-model="persona"
+            mandatory
+            density="compact"
+            variant="outlined"
+            divided
+            color="primary"
+          >
+            <v-btn size="x-small" value="new">Новий клієнт</v-btn>
+            <v-btn size="x-small" value="returning">Повторний + історія</v-btn>
+          </v-btn-toggle>
         </div>
 
         <!-- Replay step confirmation -->
@@ -211,13 +323,19 @@
       </div>
 
       <!-- Right: Prompt panel (desktop only, or mobile bottom sheet) -->
-      <v-bottom-sheet v-if="mobile" v-model="showPromptPanel" inset scrollable>
+      <v-bottom-sheet
+        v-if="mobile"
+        :model-value="mobileTab === 'prompt' || showPromptPanel"
+        inset
+        scrollable
+        @update:model-value="(v: boolean) => { if (!v) { mobileTab = 'chat'; showPromptPanel = false; } }"
+      >
         <v-card class="prompt-mobile-sheet">
           <div class="prompt-sheet-handle" />
           <div class="prompt-sheet-header d-flex align-center pa-3 pb-2">
             <div class="flex-grow-1">
               <div class="text-subtitle-2">Системний промпт</div>
-              <div class="text-caption text-grey">Редагування та мета-агент</div>
+              <div class="text-caption text-grey">Редагування та помічник промпту</div>
             </div>
             <v-btn
               icon="mdi-close"
@@ -330,12 +448,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, defineComponent, h } from 'vue';
+import { ref, computed, nextTick, onMounted, watch, defineComponent, h } from 'vue';
 import { useDisplay } from 'vuetify';
+import { useRoute } from 'vue-router';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 
 const { mobile } = useDisplay();
+const route = useRoute();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -362,6 +482,33 @@ interface PromptOption {
   isActive: boolean;
 }
 
+interface SandboxToolDebug {
+  name: string;
+  args: Record<string, unknown>;
+  resultPreview: string;
+  dryRun?: boolean;
+}
+
+interface SandboxDebug {
+  agentMode?: string;
+  promptVersion?: number | null;
+  persona?: string;
+  locationLabel?: string | null;
+  branchCrmId?: string | null;
+  fidelity?: { reads: string; writes: string };
+  warnings?: string[];
+  stages?: string[];
+  tools?: SandboxToolDebug[];
+}
+
+interface SandboxMeta {
+  agentMode: string;
+  locationLabel: string | null;
+  branchCrmId: string | null;
+  fidelity: { reads: string; writes: string };
+  warnings: string[];
+}
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -369,7 +516,12 @@ interface PromptOption {
 const chatMessages = ref<ChatMessage[]>([]);
 const inputText = ref('');
 const loading = ref(false);
+const loadingStage = ref('');
 const messagesArea = ref<HTMLElement | null>(null);
+const mobileTab = ref<'chat' | 'prompt'>('chat');
+const persona = ref<'new' | 'returning'>('new');
+const sandboxMeta = ref<SandboxMeta | null>(null);
+const lastDebug = ref<SandboxDebug | null>(null);
 
 // Cases
 const cases = ref<SandboxCase[]>([]);
@@ -417,12 +569,14 @@ const snackbarColor = ref('success');
 
 const MAX_CASES = 15;
 
-const quickHints = [
-  'Привіт! Що є в наявності?',
-  'Скільки коштує доставка?',
-  'Є щось зі знижкою?',
-  'Хочу замовити',
+const scenarioHints = [
+  { label: 'Запис на завтра', text: 'Добрий день! Хочу записатись на чоловічий манікюр на завтра в обід. Які є вікна?' },
+  { label: 'У мого майстра', text: 'Привіт! Хочу як минулого разу, до мого майстра. Що є найближчим часом?' },
+  { label: 'Курс', text: 'Цікавлять курси манікюру з нуля. Скільки коштує Base Classic?' },
+  { label: 'Скарга', text: 'У мене відшарувався гель-лак на 5 день. Що робити?' },
 ];
+
+const quickHints = scenarioHints.map((h) => h.text);
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -432,6 +586,18 @@ const clientMessagesFromChat = computed(() =>
   chatMessages.value.filter((m) => m.role === 'user').map((m) => m.content),
 );
 
+const selectedPromptLabel = computed(() => {
+  if (useCustomPrompt.value) return 'override draft';
+  const p = prompts.value.find((x) => x.id === selectedPromptId.value);
+  if (p) return `v${p.version}${p.isActive ? ' active' : ''}`;
+  const active = prompts.value.find((x) => x.isActive);
+  return active ? `v${active.version} active` : null;
+});
+
+watch(mobileTab, (tab) => {
+  if (tab === 'prompt') showPromptPanel.value = true;
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -440,6 +606,14 @@ function showSnack(text: string, color = 'success') {
   snackbarText.value = text;
   snackbarColor.value = color;
   snackbar.value = true;
+}
+
+function formatDebugArgs(args: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
 }
 
 function formatTime(date: Date): string {
@@ -533,11 +707,14 @@ async function sendChatMessage(text: string) {
     timestamp: new Date(),
   });
   loading.value = true;
+  loadingStage.value = 'Думаю…';
+  lastDebug.value = null;
   await scrollToBottom();
 
   try {
     const payload: Record<string, unknown> = {
       messages: chatMessages.value.map((m) => ({ role: m.role, content: m.content })),
+      persona: persona.value,
     };
     if (useCustomPrompt.value && promptOverride.value.trim()) {
       payload.promptOverride = promptOverride.value;
@@ -546,6 +723,19 @@ async function sendChatMessage(text: string) {
     }
 
     const { data } = await api.post('/sandbox/chat', payload, { signal: controller.signal });
+
+    if (data.debug?.stages?.length) {
+      loadingStage.value = data.debug.stages[data.debug.stages.length - 1];
+    }
+    lastDebug.value = data.debug ?? null;
+    if (data.debug?.warnings?.length && sandboxMeta.value) {
+      sandboxMeta.value = {
+        ...sandboxMeta.value,
+        warnings: data.debug.warnings,
+        locationLabel: data.debug.locationLabel ?? sandboxMeta.value.locationLabel,
+        agentMode: data.debug.agentMode ?? sandboxMeta.value.agentMode,
+      };
+    }
 
     chatMessages.value.push({
       role: 'assistant',
@@ -565,6 +755,7 @@ async function sendChatMessage(text: string) {
   } finally {
     currentAbortController.value = null;
     loading.value = false;
+    loadingStage.value = '';
     await scrollToBottom();
   }
 }
@@ -957,13 +1148,16 @@ const PromptEditor = defineComponent({
           h('button', {
             class: ['prompt-tab', promptAgentTab.value === 'agent' ? 'prompt-tab-active' : ''],
             onClick: () => { promptAgentTab.value = 'agent'; },
-          }, 'Через агента'),
+          }, 'Помічник промпту'),
         ]),
 
         // Edit tab
         promptAgentTab.value === 'edit'
           ? h('div', { class: 'flex-grow-1 d-flex flex-column px-3 pb-3', style: 'min-height: 0; overflow: hidden;' }, [
-              // Prompt version selector
+          h('div', { class: 'text-caption text-grey mb-2' },
+            'Щоб порівняти версії промпту: обери іншу версію вище і прожени той самий кейс.',
+          ),
+          // Prompt version selector
               h('select', {
                 class: 'prompt-select mb-2',
                 value: selectedPromptId.value ?? '',
@@ -1023,7 +1217,7 @@ const PromptEditor = defineComponent({
         promptAgentTab.value === 'agent'
           ? h('div', { class: 'flex-grow-1 d-flex flex-column px-3 pb-3', style: 'min-height: 0; overflow: hidden;' }, [
               h('div', { class: 'text-caption text-grey mb-2' },
-                'Опишіть що змінити - агент запропонує правки',
+                'Опишіть що змінити в промпті — помічник запропонує правки (це не клієнтський чат)',
               ),
               // Messages
               h('div', {
@@ -1039,7 +1233,7 @@ const PromptEditor = defineComponent({
                           class: ['prompt-agent-msg mb-2', msg.role === 'user' ? 'msg-user' : 'msg-bot'],
                         }, [
                           h('div', { class: 'text-caption font-weight-medium mb-1' },
-                            msg.role === 'user' ? 'Ви' : 'Агент',
+                            msg.role === 'user' ? 'Ви' : 'Помічник',
                           ),
                           h('div', {
                             class: [
@@ -1144,8 +1338,26 @@ const promptEditor = PromptEditor;
 // ---------------------------------------------------------------------------
 
 onMounted(async () => {
-  await Promise.all([loadCases(), loadPrompts()]);
+  await Promise.all([loadCases(), loadPrompts(), loadSandboxMeta()]);
+  const qVersion = route.query.promptVersion;
+  if (typeof qVersion === 'string' && qVersion.trim()) {
+    const match = prompts.value.find((p) => String(p.version) === qVersion.trim());
+    if (match) {
+      selectedPromptId.value = match.id;
+      useCustomPrompt.value = false;
+      showSnack(`Підставлено чернетку v${match.version} для тесту`);
+    }
+  }
 });
+
+async function loadSandboxMeta() {
+  try {
+    const { data } = await api.get<SandboxMeta>('/sandbox/meta');
+    sandboxMeta.value = data;
+  } catch {
+    sandboxMeta.value = null;
+  }
+}
 </script>
 
 <style scoped>
@@ -1153,6 +1365,36 @@ onMounted(async () => {
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
   flex: 0 0 auto;
+}
+
+.sandbox-mobile-tabs {
+  flex-shrink: 0;
+}
+
+.persona-bar {
+  border-top: 1px solid rgba(var(--v-border-color), 0.4);
+  background: rgb(var(--v-theme-surface));
+}
+
+.sandbox-debug-panels {
+  max-width: 100%;
+}
+
+.sandbox-debug-pre {
+  margin: 4px 0 0;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 6px;
+  max-height: 160px;
+  overflow: auto;
+}
+
+.sandbox-debug-pre--result {
+  background: rgba(76, 175, 80, 0.08);
 }
 
 .sandbox-layout {

@@ -1660,7 +1660,16 @@
             :disabled="metaAgentTestLoading"
             @click="runMetaAgentClaudeTest"
           >
-            Перевірити мета-агента (Claude)
+            Перевірити Claude (канал meta-agent)
+          </v-btn>
+          <v-btn
+            color="pink"
+            variant="text"
+            size="small"
+            prepend-icon="mdi-flask-outline"
+            :to="{ name: 'sandbox' }"
+          >
+            Тестувати діалог → Пісочниця
           </v-btn>
         </template>
       </TelegramBotsCard>

@@ -1,10 +1,16 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { buildAgentTools } from '../lib/tool-definitions.js';
+import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
+import { isCrmWriteEnabled } from '../lib/crm-write.js';
+import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatBranchesForPrompt, getDefaultBranch } from '../services/branches.js';
+import { resolveBookingBranchCrmId } from '../services/booking-branch.js';
 import {
   buildRuntimePrompt,
   getActivePrompt,
@@ -13,64 +19,109 @@ import {
   loadCatalogSnippet,
 } from '../services/prompt-builder.js';
 import {
+  buildReturningPersonaHistory,
   executeSandboxToolCall,
   MAX_TOOL_ROUNDS,
   pickSandboxToolCall,
+  previewToolResult,
+  stageLabelForTool,
+  type SandboxToolDebugEntry,
 } from '../services/sandbox-tools.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface ChatBody {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  systemPromptId?: string;
-  promptOverride?: string;
-}
+const chatBodySchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string(),
+      }),
+    )
+    .min(1),
+  systemPromptId: z.string().optional(),
+  promptOverride: z.string().optional(),
+  persona: z.enum(['new', 'returning']).optional().default('new'),
+});
 
 interface SaveCaseBody {
   name: string;
-  messages: string[]; // Only client messages (strings)
+  messages: string[];
 }
 
 const MAX_CASES = 15;
+
+async function buildSandboxMeta() {
+  const agentCfg = await getAgentConfig();
+  const defaultBranch = await getDefaultBranch();
+  const branchCrmId = await resolveBookingBranchCrmId(defaultBranch?.crmExternalId);
+  const { beautypro } = await getIntegrationConfig();
+  const locationLabel =
+    defaultBranch?.displayName ||
+    (beautypro.defaultLocationId
+      ? `BeautyPro location ${beautypro.defaultLocationId.slice(0, 8)}…`
+      : null);
+
+  return {
+    agentMode: agentCfg.mode,
+    locationLabel,
+    branchCrmId,
+    fidelity: {
+      reads: 'live' as const,
+      writes: 'dry-run' as const,
+    },
+    warnings: branchCrmId
+      ? ([] as string[])
+      : ([
+          'Немає CRM локації для слотів. Налаштуй філію або BeautyPro default location.',
+        ] as string[]),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
 export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
-  // ── POST /chat - Send message to AI agent (sandbox, isolated) ──────
-  app.post<{ Body: ChatBody }>(
+  app.get('/meta', { onRequest: [app.authenticate] }, async () => buildSandboxMeta());
+
+  app.post(
     '/chat',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const { messages, systemPromptId, promptOverride } = request.body ?? {};
-
-      if (!Array.isArray(messages) || messages.length === 0) {
+      const parsed = chatBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
         return reply.code(400).send({ error: 'Messages array is required' });
       }
+      const { messages, systemPromptId, promptOverride, persona } = parsed.data;
 
       const lastMessage = messages[messages.length - 1];
       if (!lastMessage || lastMessage.role !== 'user') {
         return reply.code(400).send({ error: 'Last message must be from user' });
       }
 
-      // 1. Get system prompt content
       let promptContent: string;
+      let promptVersion: number | null = null;
       if (promptOverride) {
         promptContent = promptOverride;
       } else if (systemPromptId) {
         const prompt = await prisma.systemPrompt.findUnique({
           where: { id: systemPromptId },
-          select: { content: true },
+          select: { content: true, version: true },
         });
         promptContent = prompt?.content ?? (await getActivePrompt());
+        promptVersion = prompt?.version ?? null;
       } else {
-        promptContent = await getActivePrompt();
+        const active = await prisma.systemPrompt.findFirst({
+          where: { isActive: true },
+          select: { content: true, version: true },
+        });
+        promptContent = active?.content ?? (await getActivePrompt());
+        promptVersion = active?.version ?? null;
       }
 
-      // 2. Build runtime prompt with real context + agent mode/tools
       const now = new Date();
       const workingHours = await getWorkingHours();
       const catalogSnippet = await loadCatalogSnippet();
@@ -79,6 +130,22 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
       const branchesList = await formatBranchesForPrompt();
       const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
       const defaultBranch = await getDefaultBranch();
+      const meta = await buildSandboxMeta();
+
+      const crmWritesEnabled = await isCrmWriteEnabled();
+      const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
+
+      const clientProfile =
+        persona === 'returning'
+          ? {
+              igUsername: 'sandbox_returning',
+              igFullName: 'Тестова клієнтка',
+              phone: '380501112233',
+              crmVisitHistory: buildReturningPersonaHistory(),
+            }
+          : {
+              igUsername: 'sandbox_test',
+            };
 
       const systemPrompt = buildRuntimePrompt({
         activePromptContent: promptContent,
@@ -86,13 +153,19 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         currentTime: now,
         workingHours,
         conversationState: 'bot',
-        clientIgUserId: 'sandbox_test',
+        clientIgUserId: persona === 'returning' ? 'sandbox_returning' : 'sandbox_test',
+        clientProfile,
         conversationIdShort: 'sandbox',
         isOutOfHours,
         agentMode: agentCfg.mode,
         outOfHoursStrategy: agentCfg.outOfHoursStrategy,
         managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
         branchesList,
+        customFieldHints: crmMappings?.buyer.map((m) => ({
+          localKey: m.localKey,
+          label: m.label,
+          promptHint: m.promptHint,
+        })),
         selectedBranch: defaultBranch
           ? {
               slug: defaultBranch.slug,
@@ -104,19 +177,21 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
       });
 
       const tools = buildAgentTools(agentCfg.mode, {
+        buyerScopeMappings: crmMappings?.buyer ?? [],
+        leadScopeMappings: crmMappings?.lead ?? [],
         hasBranches: activeBranchCount > 0,
       });
 
-      // 3. Prepare history (all messages except last)
       const history = messages.slice(0, -1).map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
       }));
 
-      // 4. Claude + tool loop (read CRM tools; no real bookings)
       let userMessage = lastMessage.content;
       let conversationHistory = [...history];
       let finalText = '';
+      const toolDebug: SandboxToolDebugEntry[] = [];
+      const stages: string[] = [];
 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const response = await askClaude(
@@ -133,7 +208,15 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         const toolCall = pickSandboxToolCall(response.toolCalls ?? []);
         if (!toolCall) break;
 
-        const toolResult = await executeSandboxToolCall(toolCall);
+        stages.push(stageLabelForTool(toolCall.name));
+        const executed = await executeSandboxToolCall(toolCall);
+        toolDebug.push({
+          name: toolCall.name,
+          args: toolCall.args,
+          resultPreview: previewToolResult(executed.content),
+          dryRun: executed.dryRun,
+        });
+
         conversationHistory = [
           ...conversationHistory,
           { role: 'user' as const, content: userMessage },
@@ -142,26 +225,33 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
             content: response.text || `[tool: ${toolCall.name}]`,
           },
         ];
-        userMessage = toolResult;
+        userMessage = executed.content;
       }
 
-      return { reply: gateCustomerFacingReply(finalText).text };
+      const gated = gateCustomerFacingReply(finalText);
+      const clientReply = stripMarkdownForInstagram(gated.text);
+
+      return {
+        reply: clientReply,
+        debug: {
+          agentMode: agentCfg.mode,
+          promptVersion,
+          persona,
+          locationLabel: meta.locationLabel,
+          branchCrmId: meta.branchCrmId,
+          fidelity: meta.fidelity,
+          warnings: meta.warnings,
+          stages,
+          tools: toolDebug,
+        },
+      };
     },
   );
 
-  // ── GET /cases - List saved test cases ─────────────────────────────
-  app.get(
-    '/cases',
-    { onRequest: [app.authenticate] },
-    async () => {
-      const cases = await prisma.sandboxCase.findMany({
-        orderBy: { updatedAt: 'desc' },
-      });
-      return cases;
-    },
-  );
+  app.get('/cases', { onRequest: [app.authenticate] }, async () => {
+    return prisma.sandboxCase.findMany({ orderBy: { updatedAt: 'desc' } });
+  });
 
-  // ── POST /cases - Save a test case ─────────────────────────────────
   app.post<{ Body: SaveCaseBody }>(
     '/cases',
     { onRequest: [app.authenticate] },
@@ -176,7 +266,6 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'At least one message is required' });
       }
 
-      // Check limit
       const count = await prisma.sandboxCase.count();
       if (count >= MAX_CASES) {
         return reply.code(400).send({
@@ -195,7 +284,6 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
-  // ── PUT /cases/:id - Update a test case ────────────────────────────
   app.put<{ Params: { id: string }; Body: SaveCaseBody }>(
     '/cases/:id',
     { onRequest: [app.authenticate] },
@@ -208,45 +296,40 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: 'Case not found' });
       }
 
-      const updated = await prisma.sandboxCase.update({
+      return prisma.sandboxCase.update({
         where: { id },
         data: {
           ...(name ? { name: name.trim() } : {}),
           ...(messages ? { messages: messages as any } : {}),
         },
       });
-
-      return updated;
     },
   );
 
-  // ── DELETE /cases/:id - Delete a test case ─────────────────────────
   app.delete<{ Params: { id: string } }>(
     '/cases/:id',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
       const { id } = request.params;
-
       const existing = await prisma.sandboxCase.findUnique({ where: { id } });
       if (!existing) {
         return reply.code(404).send({ error: 'Case not found' });
       }
-
       await prisma.sandboxCase.delete({ where: { id } });
       return { ok: true };
     },
   );
 
-  // ── GET /prompts - List all prompts for sandbox selector ───────────
-  app.get(
-    '/prompts',
-    { onRequest: [app.authenticate] },
-    async () => {
-      const prompts = await prisma.systemPrompt.findMany({
-        select: { id: true, version: true, changeSummary: true, isActive: true, createdAt: true },
-        orderBy: { version: 'desc' },
-      });
-      return prompts;
-    },
-  );
+  app.get('/prompts', { onRequest: [app.authenticate] }, async () => {
+    return prisma.systemPrompt.findMany({
+      select: {
+        id: true,
+        version: true,
+        changeSummary: true,
+        isActive: true,
+        createdAt: true,
+      },
+      orderBy: { version: 'desc' },
+    });
+  });
 }

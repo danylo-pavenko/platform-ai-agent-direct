@@ -6,9 +6,11 @@
     <div class="agent-page-header-compact d-flex align-center ga-2 mb-2 mb-md-3 px-1 flex-shrink-0">
       <div class="flex-grow-1 min-width-0">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
-        <div class="page-subtitle d-none d-sm-block">Опишіть зміни — мета-агент запропонує правки до промпту</div>
+        <div class="page-subtitle d-none d-sm-block">
+          Редагує системний промпт (мета-агент). Щоб перевірити відповіді клієнту — відкрий пісочницю.
+        </div>
         <div v-if="mobile" class="page-subtitle-mobile d-sm-none">
-          Опишіть зміни — агент запропонує правки
+          Редагує промпт · тест відповідей — у пісочниці
         </div>
       </div>
       <v-btn
@@ -742,6 +744,10 @@ async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean }
     );
 
     if (opts.openSandbox) {
+      showSnackbar(
+        'Далі тестуєш відповіді клієнтському агенту в пісочниці (не мета-агенту)',
+        'info',
+      );
       await router.push({ name: 'sandbox', query: { promptVersion: String(data.version) } });
     }
   } catch (e: any) {
