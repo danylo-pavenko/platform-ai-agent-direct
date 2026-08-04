@@ -55,7 +55,7 @@ const apps = [
     cwd: './apps/backend',
     script: 'dist/sync-worker.js',
     instances: 1,
-    cron_restart: '*/30 * * * *',
+    cron_restart: '0 4 * * *', // daily ~04:00 — full CRM catalog/services/masters sync
     autorestart: false,
     env: { NODE_ENV: 'production', API_PORT: apiPort },
   },

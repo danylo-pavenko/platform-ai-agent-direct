@@ -116,7 +116,11 @@ export async function fetchBranchesFromCrm(providerOverride?: string): Promise<{
   }
 
   const crm = getCrmAdapter(
-    providerName === 'cleverbox' ? 'cleverbox' : providerName === 'keycrm' ? 'keycrm' : undefined,
+    providerName === 'cleverbox' ||
+      providerName === 'keycrm' ||
+      providerName === 'beautypro'
+      ? providerName
+      : undefined,
   );
 
   if (typeof crm.fetchBranches !== 'function') {
@@ -125,7 +129,7 @@ export async function fetchBranchesFromCrm(providerOverride?: string): Promise<{
       branches: [],
       hint:
         providerName === 'keycrm'
-          ? 'KeyCRM не має філій — додайте локації вручну або підключіть CleverBOX.'
+          ? 'KeyCRM не має філій — додайте локації вручну або підключіть CleverBOX / BeautyPro.'
           : `Провайдер ${crm.name} не підтримує імпорт філій.`,
     };
   }

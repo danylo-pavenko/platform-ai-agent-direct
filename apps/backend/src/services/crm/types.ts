@@ -188,6 +188,12 @@ export interface CrmServiceItem {
   branchPrices?: Array<{ branchId: string; branchName: string; price: number }>;
 }
 
+export interface CrmEmployee {
+  id: string;
+  name: string;
+  public?: boolean;
+}
+
 export interface CrmSlotQuery {
   date: string;
   branchId: string;
@@ -270,6 +276,8 @@ export interface CrmAdapter {
   // Salon / booking (optional — CleverBOX)
   fetchBranches?(): Promise<CrmBranch[]>;
   fetchServices?(): Promise<CrmServiceItem[]>;
+  /** Professionals / masters list for local sync (BeautyPro employees, etc.). */
+  fetchEmployees?(): Promise<CrmEmployee[]>;
   searchServices?(query: string, limit?: number): Promise<CrmServiceItem[]>;
   getAvailableSlots?(query: CrmSlotQuery): Promise<{
     slots: Record<string, CrmSlot[]>;

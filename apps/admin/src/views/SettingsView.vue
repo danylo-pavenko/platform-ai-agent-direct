@@ -1168,6 +1168,19 @@
 
       <div v-if="activeSection === 'settings-crm-routing'" class="settings-section">
       <CrmRoutingCard v-model="crmRouting" />
+      <v-row class="mt-2 mb-5">
+        <v-col cols="auto">
+          <v-btn
+            color="primary"
+            size="large"
+            :loading="savingCrmRouting"
+            @click="saveCrmRouting"
+          >
+            <v-icon start>mdi-content-save</v-icon>
+            Зберегти зміни
+          </v-btn>
+        </v-col>
+      </v-row>
       </div>
 
       <div v-if="activeSection === 'settings-branches'" class="settings-section">
@@ -2404,6 +2417,7 @@ const days = [
 
 const loading = ref(true);
 const saving = ref(false);
+const savingCrmRouting = ref(false);
 const savingIntegrations = ref(false);
 const integrationsSaved = ref(false);
 
@@ -3999,6 +4013,22 @@ async function saveSettings() {
     error.value = 'Не вдалося зберегти налаштування';
   } finally {
     saving.value = false;
+  }
+}
+
+async function saveCrmRouting() {
+  savingCrmRouting.value = true;
+  error.value = '';
+  try {
+    await api.put('/settings', {
+      crm_routing: crmRouting.value,
+    });
+    crmRoutingSnackbarText.value = 'Маршрутизацію CRM збережено';
+    crmRoutingSnackbar.value = true;
+  } catch {
+    error.value = 'Не вдалося зберегти маршрутизацію CRM';
+  } finally {
+    savingCrmRouting.value = false;
   }
 }
 

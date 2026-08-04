@@ -517,6 +517,23 @@ export const beautyproAdapter: CrmAdapter = {
     return fetchAllServices();
   },
 
+  async fetchEmployees() {
+    const rows = await bpFetch<RawEmployee[]>('GET', '/employees', {
+      query: {
+        fields: 'name,archive,public,roles',
+        role: 'professional',
+        archive: false,
+      },
+    });
+    return (rows ?? [])
+      .filter((e) => e.archive !== true)
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        public: e.public,
+      }));
+  },
+
   async searchServices(query: string, limit = 8): Promise<CrmServiceItem[]> {
     const q = query.trim().toLowerCase();
     if (!q) return [];

@@ -23,15 +23,27 @@ import pino from 'pino';
 
 import { config } from './config.js';
 import { prisma, toInputJsonValue } from './lib/prisma.js';
-import { REPO_ROOT, getCatalogPath, getServicesCatalogPath } from './lib/paths.js';
+import {
+  REPO_ROOT,
+  getCatalogPath,
+  getServicesCatalogPath,
+  getMastersCatalogPath,
+} from './lib/paths.js';
 import { getCrmAdapter } from './services/crm/index.js';
-import { resolveCrmProvider } from './lib/crm-routing.js';
+import { getCrmRouting, resolveCrmProvider } from './lib/crm-routing.js';
 import { getIntegrationConfig } from './lib/integration-config.js';
 import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
 import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
 import { invalidateCatalogIndexCache } from './lib/catalog-index.js';
-import type { CrmCategory, CrmProduct, CrmOffer } from './services/crm/index.js';
+import type {
+  CrmCategory,
+  CrmEmployee,
+  CrmProduct,
+  CrmOffer,
+  CrmServiceItem,
+} from './services/crm/index.js';
+import type { CrmProviderName } from './lib/crm-providers.js';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 
@@ -443,6 +455,8 @@ function buildServicesCatalog(
     price: number;
     durationMin: number;
     categoryName?: string;
+    provider?: string;
+    branchPrices?: Array<{ branchId: string; price: number }>;
   }>,
 ): string {
   const lines = [
@@ -453,9 +467,65 @@ function buildServicesCatalog(
   for (const s of services) {
     const price = s.price > 0 ? `від ${s.price} ₴` : 'ціна за запитом';
     const cat = s.categoryName ? ` | ${s.categoryName}` : '';
-    lines.push(`[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${cat}`);
+    const prov = s.provider ? ` | crm=${s.provider}` : '';
+    const locPrices =
+      s.branchPrices && s.branchPrices.length > 0
+        ? ` | prices=${s.branchPrices.map((p) => `${p.branchId}:${p.price}`).join(',')}`
+        : '';
+    lines.push(
+      `[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${cat}${prov}${locPrices}`,
+    );
   }
   return lines.join('\n');
+}
+
+function buildMastersCatalog(
+  masters: Array<{ id: string; name: string; provider?: string }>,
+): string {
+  const lines = [
+    '# Masters / professionals (synced from CRM)',
+    `# Generated: ${new Date().toISOString()}`,
+    '',
+  ];
+  for (const m of masters) {
+    const prov = m.provider ? ` | crm=${m.provider}` : '';
+    lines.push(`[master_id=${m.id}] ${m.name}${prov}`);
+  }
+  return lines.join('\n');
+}
+
+async function listConfiguredSalonProviders(): Promise<CrmProviderName[]> {
+  const routing = await getCrmRouting({ fresh: true });
+  const { cleverbox, beautypro } = await getIntegrationConfig({ fresh: true });
+  const out: CrmProviderName[] = [];
+
+  const beautyproOk = Boolean(
+    beautypro.applicationId && beautypro.applicationSecret && beautypro.databaseCode,
+  );
+  const cleverboxOk = Boolean(cleverbox.apiToken);
+
+  let servicesRoute: CrmProviderName = 'keycrm';
+  try {
+    servicesRoute = await resolveCrmProvider('services');
+  } catch {
+    // ignore
+  }
+
+  const candidates = new Set<CrmProviderName>([
+    ...routing.enabled_providers,
+    servicesRoute,
+  ]);
+
+  for (const p of candidates) {
+    if (p === 'beautypro' && beautyproOk) out.push('beautypro');
+    if (p === 'cleverbox' && cleverboxOk) out.push('cleverbox');
+  }
+
+  // Connected salon CRMs even if not yet in enabled_providers (pre-routing save)
+  if (beautyproOk && !out.includes('beautypro')) out.push('beautypro');
+  if (cleverboxOk && !out.includes('cleverbox')) out.push('cleverbox');
+
+  return [...new Set(out)];
 }
 
 // ── Main (exported for use by routes/sync.ts) ─────────────────────────────
@@ -511,79 +581,143 @@ export async function runSync(): Promise<void> {
       'Data fetched from CRM',
     );
 
-    const { liveProducts, liveOffers } = activeCatalogSets(products, offers);
-    if (liveProducts.length !== products.length || liveOffers.length !== offers.length) {
+    // Salon-only CRMs (BeautyPro / CleverBOX) return empty catalog — do not
+    // wipe an existing KeyCRM catalog.txt / JSON with empty arrays.
+    if (crm.capabilities.catalog) {
+      const { liveProducts, liveOffers } = activeCatalogSets(products, offers);
+      if (liveProducts.length !== products.length || liveOffers.length !== offers.length) {
+        log.info(
+          {
+            productsActive: liveProducts.length,
+            productsTotal: products.length,
+            offersActive: liveOffers.length,
+            offersTotal: offers.length,
+          },
+          'Filtered archived catalog rows before save',
+        );
+      }
+
+      await Promise.all([
+        atomicWrite(resolve(DATA_DIR, 'categories.json'), JSON.stringify(categories, null, 2)),
+        atomicWrite(resolve(DATA_DIR, 'products.json'), JSON.stringify(liveProducts, null, 2)),
+        atomicWrite(resolve(DATA_DIR, 'offers.json'), JSON.stringify(liveOffers, null, 2)),
+      ]);
+      log.info({ dir: DATA_DIR }, 'Raw JSON saved');
+
+      const catalogText = buildCatalog(liveProducts, liveOffers, categories);
+      await atomicWrite(CATALOG_PATH, catalogText);
+      log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
+
+      counts.categories = categories.length;
+      counts.products = liveProducts.length;
+      counts.offers = liveOffers.length;
+      artifacts.catalogPath = CATALOG_PATH;
+      (artifacts.sources as Record<string, unknown>).categories = {
+        provider: catalogProvider,
+        count: categories.length,
+      };
+      (artifacts.sources as Record<string, unknown>).products = {
+        provider: catalogProvider,
+        count: liveProducts.length,
+      };
+      (artifacts.sources as Record<string, unknown>).offers = {
+        provider: catalogProvider,
+        count: liveOffers.length,
+      };
+    } else {
       log.info(
-        {
-          productsActive: liveProducts.length,
-          productsTotal: products.length,
-          offersActive: liveOffers.length,
-          offersTotal: offers.length,
-        },
-        'Filtered archived catalog rows before save',
+        { provider: catalogProvider },
+        'Skipping product catalog write — provider has no catalog capability',
+      );
+      (artifacts.sources as Record<string, unknown>).catalog = {
+        provider: catalogProvider,
+        skipped: true,
+        reason: 'no_catalog_capability',
+      };
+    }
+
+    const salonProviders = await listConfiguredSalonProviders();
+    const allServices: Array<CrmServiceItem & { provider: string }> = [];
+    const allMasters: Array<CrmEmployee & { provider: string }> = [];
+
+    for (const provider of salonProviders) {
+      const salonCrm = getCrmAdapter(provider);
+      if (salonCrm.capabilities.services && salonCrm.fetchServices) {
+        try {
+          log.info({ provider }, 'Fetching services from CRM...');
+          const services = await salonCrm.fetchServices();
+          for (const s of services) {
+            allServices.push({ ...s, provider });
+          }
+          (artifacts.sources as Record<string, unknown>)[`services_${provider}`] = {
+            provider,
+            count: services.length,
+          };
+        } catch (err) {
+          log.warn({ err, provider }, 'Services fetch failed for provider — continuing');
+          (artifacts.sources as Record<string, unknown>)[`services_${provider}`] = {
+            provider,
+            error: formatError(err),
+          };
+        }
+      }
+
+      if (salonCrm.fetchEmployees) {
+        try {
+          log.info({ provider }, 'Fetching employees/masters from CRM...');
+          const employees = await salonCrm.fetchEmployees();
+          for (const e of employees) {
+            allMasters.push({ ...e, provider });
+          }
+          (artifacts.sources as Record<string, unknown>)[`masters_${provider}`] = {
+            provider,
+            count: employees.length,
+          };
+        } catch (err) {
+          log.warn({ err, provider }, 'Employees fetch failed for provider — continuing');
+          (artifacts.sources as Record<string, unknown>)[`masters_${provider}`] = {
+            provider,
+            error: formatError(err),
+          };
+        }
+      }
+    }
+
+    if (allServices.length > 0) {
+      const servicesPath = getServicesCatalogPath();
+      const servicesText = buildServicesCatalog(allServices);
+      await atomicWrite(servicesPath, servicesText);
+      await atomicWrite(
+        resolve(DATA_DIR, 'services.json'),
+        JSON.stringify(allServices, null, 2),
+      );
+      counts.services = allServices.length;
+      artifacts.servicesPath = servicesPath;
+      (artifacts.sources as Record<string, unknown>).services = {
+        providers: salonProviders,
+        count: allServices.length,
+      };
+      log.info(
+        { path: servicesPath, count: allServices.length, providers: salonProviders },
+        'Services catalog generated',
       );
     }
 
-    // Save raw JSON and generated catalog atomically — only active (non-archived) rows.
-    await Promise.all([
-      atomicWrite(resolve(DATA_DIR, 'categories.json'), JSON.stringify(categories, null, 2)),
-      atomicWrite(resolve(DATA_DIR, 'products.json'), JSON.stringify(liveProducts, null, 2)),
-      atomicWrite(resolve(DATA_DIR, 'offers.json'), JSON.stringify(liveOffers, null, 2)),
-    ]);
-    log.info({ dir: DATA_DIR }, 'Raw JSON saved');
-
-    const catalogText = buildCatalog(liveProducts, liveOffers, categories);
-    await atomicWrite(CATALOG_PATH, catalogText);
-    log.info({ path: CATALOG_PATH, chars: catalogText.length }, 'Catalog generated');
-
-    counts.categories = categories.length;
-    counts.products = liveProducts.length;
-    counts.offers = liveOffers.length;
-    artifacts.catalogPath = CATALOG_PATH;
-    (artifacts.sources as Record<string, unknown>).categories = {
-      provider: catalogProvider,
-      count: categories.length,
-    };
-    (artifacts.sources as Record<string, unknown>).products = {
-      provider: catalogProvider,
-      count: liveProducts.length,
-    };
-    (artifacts.sources as Record<string, unknown>).offers = {
-      provider: catalogProvider,
-      count: liveOffers.length,
-    };
-
-    const servicesProvider = await resolveCrmProvider('services');
-    const servicesCrm = getCrmAdapter(servicesProvider);
-    const { cleverbox, beautypro } = await getIntegrationConfig();
-    const servicesConfigured =
-      servicesProvider === 'cleverbox'
-        ? Boolean(cleverbox.apiToken)
-        : servicesProvider === 'beautypro'
-          ? Boolean(
-              beautypro.applicationId &&
-                beautypro.applicationSecret &&
-                beautypro.databaseCode,
-            )
-          : true;
-
-    if (
-      servicesConfigured &&
-      servicesCrm.capabilities.services &&
-      servicesCrm.fetchServices
-    ) {
-      log.info({ provider: servicesProvider }, 'Fetching services from CRM...');
-      const services = await servicesCrm.fetchServices();
-      const servicesPath = getServicesCatalogPath();
-      const servicesText = buildServicesCatalog(services);
-      await atomicWrite(servicesPath, servicesText);
-      counts.services = services.length;
-      artifacts.servicesPath = servicesPath;
-      (artifacts.sources as Record<string, unknown>).services = {
-        provider: servicesProvider,
-        count: services.length,
+    if (allMasters.length > 0) {
+      const mastersPath = getMastersCatalogPath();
+      const mastersText = buildMastersCatalog(allMasters);
+      await atomicWrite(mastersPath, mastersText);
+      await atomicWrite(resolve(DATA_DIR, 'masters.json'), JSON.stringify(allMasters, null, 2));
+      counts.masters = allMasters.length;
+      artifacts.mastersPath = mastersPath;
+      (artifacts.sources as Record<string, unknown>).masters = {
+        providers: salonProviders,
+        count: allMasters.length,
       };
-      log.info({ path: servicesPath, count: services.length }, 'Services catalog generated');
+      log.info(
+        { path: mastersPath, count: allMasters.length, providers: salonProviders },
+        'Masters catalog generated',
+      );
     }
 
     await prisma.crmSyncRun.update({
@@ -591,8 +725,11 @@ export async function runSync(): Promise<void> {
       data: {
         finishedAt: new Date(),
         status: 'ok',
-        provider: counts.services ? 'mixed' : primaryProvider,
-        syncType: counts.services ? 'full' : 'catalog',
+        provider:
+          counts.services || counts.masters
+            ? 'mixed'
+            : primaryProvider,
+        syncType: counts.services || counts.masters ? 'full' : 'catalog',
         counts: toInputJsonValue(counts),
         artifacts: toInputJsonValue(artifacts),
       },

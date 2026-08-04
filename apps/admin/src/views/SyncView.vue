@@ -4,7 +4,8 @@
       <v-col>
         <div class="page-title">Синхронізація</div>
         <div class="text-body-2 text-medium-emphasis">
-          Каталог товарів, послуг і цін з підключених CRM. Деталі кожного run — джерело даних.
+          Каталог товарів, послуг, цін і майстрів з підключених CRM.
+          Автозапуск раз на добу (~04:00) + ручний тригер. Деталі кожного run — джерело даних.
         </div>
       </v-col>
       <v-col cols="auto">
@@ -112,8 +113,11 @@
             <v-chip v-if="item.counts.offers != null" size="x-small" class="mr-1" variant="outlined">
               Варіантів: {{ item.counts.offers }}
             </v-chip>
-            <v-chip v-if="item.counts.services != null" size="x-small" variant="outlined">
+            <v-chip v-if="item.counts.services != null" size="x-small" class="mr-1" variant="outlined">
               Послуг: {{ item.counts.services }}
+            </v-chip>
+            <v-chip v-if="item.counts.masters != null" size="x-small" variant="outlined">
+              Майстрів: {{ item.counts.masters }}
             </v-chip>
           </template>
           <span v-else class="text-grey">-</span>
@@ -146,12 +150,14 @@ interface SyncCounts {
   products?: number;
   offers?: number;
   services?: number;
+  masters?: number;
 }
 
 interface SyncArtifacts {
   catalogPath?: string;
   servicesPath?: string;
-  sources?: Record<string, { provider: string; count: number }>;
+  mastersPath?: string;
+  sources?: Record<string, { provider?: string; count?: number; error?: string; skipped?: boolean }>;
 }
 
 interface SyncRun {
@@ -202,6 +208,9 @@ const latestSourceChips = computed(() => {
     if (run.counts.services != null) {
       chips.push({ label: 'Послуги', count: run.counts.services, provider: providerLabel(run.provider) });
     }
+    if (run.counts.masters != null) {
+      chips.push({ label: 'Майстри', count: run.counts.masters, provider: providerLabel(run.provider) });
+    }
     return chips;
   }
   return Object.entries(run.artifacts.sources).map(([key, src]) => ({
@@ -217,6 +226,7 @@ function sourceLabel(key: string): string {
     products: 'Товари',
     offers: 'Варіанти',
     services: 'Послуги',
+    masters: 'Майстри',
     branches: 'Філії',
   };
   return map[key] ?? key;
@@ -252,6 +262,7 @@ function artifactSummary(item: SyncRun): string {
   const parts: string[] = [];
   if (item.artifacts?.catalogPath) parts.push('catalog.txt');
   if (item.artifacts?.servicesPath) parts.push('services-live.txt');
+  if (item.artifacts?.mastersPath) parts.push('masters-live.txt');
   return parts.join(', ');
 }
 

@@ -51,6 +51,11 @@ export function getServicesCatalogPath(): string {
   return resolve(getTenantKnowledgeDir(), 'knowledge', 'services-live.txt');
 }
 
+/** Shortcut: masters / professionals catalog for booking-mode salons. */
+export function getMastersCatalogPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'knowledge', 'masters-live.txt');
+}
+
 /**
  * Reference photos from IG DM (color samples, hair refs) — outside git,
  * on the tenant Linux user's home (under tenant_knowledge by default).
