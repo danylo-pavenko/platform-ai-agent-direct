@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
+import { getAgentConfig } from '../lib/agent-config.js';
+import { buildAgentTools } from '../lib/tool-definitions.js';
+import { formatBranchesForPrompt, getDefaultBranch } from '../services/branches.js';
 import {
   buildRuntimePrompt,
   getActivePrompt,
@@ -9,6 +12,11 @@ import {
   isWithinWorkingHours,
   loadCatalogSnippet,
 } from '../services/prompt-builder.js';
+import {
+  executeSandboxToolCall,
+  MAX_TOOL_ROUNDS,
+  pickSandboxToolCall,
+} from '../services/sandbox-tools.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,16 +65,20 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
           where: { id: systemPromptId },
           select: { content: true },
         });
-        promptContent = prompt?.content ?? await getActivePrompt();
+        promptContent = prompt?.content ?? (await getActivePrompt());
       } else {
         promptContent = await getActivePrompt();
       }
 
-      // 2. Build runtime prompt with real context
+      // 2. Build runtime prompt with real context + agent mode/tools
       const now = new Date();
       const workingHours = await getWorkingHours();
       const catalogSnippet = await loadCatalogSnippet();
       const isOutOfHours = !isWithinWorkingHours(now, workingHours);
+      const agentCfg = await getAgentConfig();
+      const branchesList = await formatBranchesForPrompt();
+      const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
+      const defaultBranch = await getDefaultBranch();
 
       const systemPrompt = buildRuntimePrompt({
         activePromptContent: promptContent,
@@ -77,6 +89,22 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         clientIgUserId: 'sandbox_test',
         conversationIdShort: 'sandbox',
         isOutOfHours,
+        agentMode: agentCfg.mode,
+        outOfHoursStrategy: agentCfg.outOfHoursStrategy,
+        managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
+        branchesList,
+        selectedBranch: defaultBranch
+          ? {
+              slug: defaultBranch.slug,
+              displayName: defaultBranch.displayName,
+              address: defaultBranch.address,
+              crmExternalId: defaultBranch.crmExternalId,
+            }
+          : undefined,
+      });
+
+      const tools = buildAgentTools(agentCfg.mode, {
+        hasBranches: activeBranchCount > 0,
       });
 
       // 3. Prepare history (all messages except last)
@@ -85,17 +113,39 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         content: m.content,
       }));
 
-      // 4. Call Claude
-      const response = await askClaude(
-        {
-          systemPrompt,
-          conversationHistory: history,
-          userMessage: lastMessage.content,
-        },
-        { channel: 'sandbox' },
-      );
+      // 4. Claude + tool loop (read CRM tools; no real bookings)
+      let userMessage = lastMessage.content;
+      let conversationHistory = [...history];
+      let finalText = '';
 
-      return { reply: gateCustomerFacingReply(response.text).text };
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const response = await askClaude(
+          {
+            systemPrompt,
+            conversationHistory,
+            userMessage,
+            tools,
+          },
+          { channel: 'sandbox', model: agentCfg.claudeModel },
+        );
+
+        finalText = response.text;
+        const toolCall = pickSandboxToolCall(response.toolCalls ?? []);
+        if (!toolCall) break;
+
+        const toolResult = await executeSandboxToolCall(toolCall);
+        conversationHistory = [
+          ...conversationHistory,
+          { role: 'user' as const, content: userMessage },
+          {
+            role: 'assistant' as const,
+            content: response.text || `[tool: ${toolCall.name}]`,
+          },
+        ];
+        userMessage = toolResult;
+      }
+
+      return { reply: gateCustomerFacingReply(finalText).text };
     },
   );
 

@@ -35,6 +35,7 @@ import {
   getAvailableSlotsForContext,
   searchServicesForContext,
 } from './service-search.js';
+import { resolveBookingBranchCrmId } from './booking-branch.js';
 import { handleCollectOrder, handleCreateLocalOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
@@ -971,29 +972,34 @@ async function handleIncomingMessageImpl(
       let toolResultContent: string;
       if (!date || services.length === 0) {
         toolResultContent = '[get_available_slots] ПОМИЛКА: потрібні date та services';
-      } else if (!conversation.branch?.crmExternalId) {
-        toolResultContent =
-          '[get_available_slots] ПОМИЛКА: спочатку обери філію через set_conversation_branch';
       } else {
-        try {
-          const masterIdRaw = slotsCall.args.master_id;
-          const masterId =
-            typeof masterIdRaw === 'string'
-              ? masterIdRaw.trim()
-              : typeof masterIdRaw === 'number' && Number.isFinite(masterIdRaw)
-                ? String(masterIdRaw)
-                : undefined;
-          const slotsText = await getAvailableSlotsForContext({
-            date,
-            branchCrmId: conversation.branch.crmExternalId,
-            services,
-            fullMonth: slotsCall.args.full_month === true,
-            masterId: masterId || undefined,
-          });
-          toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
-        } catch (err) {
-          log.error({ err, date }, 'get_available_slots failed');
-          toolResultContent = '[get_available_slots] ПОМИЛКА: не вдалося отримати слоти';
+        const branchCrmId = await resolveBookingBranchCrmId(
+          conversation.branch?.crmExternalId,
+        );
+        if (!branchCrmId) {
+          toolResultContent =
+            '[get_available_slots] ПОМИЛКА: немає філії/локації CRM. Обери філію через set_conversation_branch або налаштуй default location.';
+        } else {
+          try {
+            const masterIdRaw = slotsCall.args.master_id;
+            const masterId =
+              typeof masterIdRaw === 'string'
+                ? masterIdRaw.trim()
+                : typeof masterIdRaw === 'number' && Number.isFinite(masterIdRaw)
+                  ? String(masterIdRaw)
+                  : undefined;
+            const slotsText = await getAvailableSlotsForContext({
+              date,
+              branchCrmId,
+              services,
+              fullMonth: slotsCall.args.full_month === true,
+              masterId: masterId || undefined,
+            });
+            toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
+          } catch (err) {
+            log.error({ err, date }, 'get_available_slots failed');
+            toolResultContent = '[get_available_slots] ПОМИЛКА: не вдалося отримати слоти';
+          }
         }
       }
 
