@@ -197,9 +197,53 @@
               </div>
             </div>
 
+            <!-- Failure (always) + copy debug (only with ?debug_enabled=true) -->
+            <div v-if="lastFailure || (debugEnabled && lastDebug?.copyBundle)" class="mt-2 sandbox-failure-block">
+              <v-alert
+                v-if="lastFailure"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="mb-2"
+              >
+                <div class="font-weight-medium mb-1">Агент не зміг нормально відповісти</div>
+                <div class="text-body-2">{{ lastFailure.reasonUk }}</div>
+                <div v-if="lastFailure.errorDetail" class="text-caption text-medium-emphasis mt-1">
+                  Технічно: {{ lastFailure.errorDetail }}
+                </div>
+              </v-alert>
+
+              <v-expansion-panels
+                v-if="debugEnabled && lastDebug?.copyBundle"
+                class="sandbox-debug-panels"
+                variant="accordion"
+                :model-value="lastFailure ? [0] : []"
+              >
+                <v-expansion-panel>
+                  <v-expansion-panel-title class="text-caption">
+                    Debug для Cursor (скопіюй і надішли в чат)
+                  </v-expansion-panel-title>
+                  <v-expansion-panel-text>
+                    <div class="d-flex justify-end mb-1">
+                      <v-btn
+                        size="small"
+                        variant="tonal"
+                        color="primary"
+                        prepend-icon="mdi-content-copy"
+                        @click="copyDebugBundle"
+                      >
+                        Копіювати
+                      </v-btn>
+                    </div>
+                    <pre class="sandbox-debug-pre sandbox-debug-pre--copy">{{ lastDebug.copyBundle }}</pre>
+                  </v-expansion-panel-text>
+                </v-expansion-panel>
+              </v-expansion-panels>
+            </div>
+
             <!-- Tool debug -->
             <v-expansion-panels
-              v-if="lastDebug?.tools?.length"
+              v-if="debugEnabled && lastDebug?.tools?.length"
               class="mt-2 sandbox-debug-panels"
               variant="accordion"
             >
@@ -457,6 +501,13 @@ import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 const { mobile } = useDisplay();
 const route = useRoute();
 
+/** Opt-in debug UI: /sandbox?debug_enabled=true */
+const debugEnabled = computed(() => {
+  const q = route.query.debug_enabled;
+  const raw = Array.isArray(q) ? q[0] : q;
+  return raw === 'true' || raw === '1';
+});
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -499,6 +550,16 @@ interface SandboxDebug {
   warnings?: string[];
   stages?: string[];
   tools?: SandboxToolDebug[];
+  copyBundle?: string;
+  claudeRounds?: unknown[];
+  durationMs?: number;
+  gateReason?: string;
+}
+
+interface SandboxFailure {
+  code: string;
+  reasonUk: string;
+  errorDetail?: string | null;
 }
 
 interface SandboxMeta {
@@ -522,6 +583,7 @@ const mobileTab = ref<'chat' | 'prompt'>('chat');
 const persona = ref<'new' | 'returning'>('new');
 const sandboxMeta = ref<SandboxMeta | null>(null);
 const lastDebug = ref<SandboxDebug | null>(null);
+const lastFailure = ref<SandboxFailure | null>(null);
 
 // Cases
 const cases = ref<SandboxCase[]>([]);
@@ -614,6 +676,61 @@ function formatDebugArgs(args: Record<string, unknown>): string {
   } catch {
     return String(args);
   }
+}
+
+async function copyDebugBundle() {
+  const text = lastDebug.value?.copyBundle;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    showSnack('Debug скопійовано — можна вставити в Cursor');
+  } catch {
+    showSnack('Не вдалося скопіювати в буфер', 'error');
+  }
+}
+
+/** Map axios/network failures so we don't show a vague "Помилка зв'язку". */
+function classifySandboxNetworkError(e: any): SandboxFailure {
+  const status = e.response?.status as number | undefined;
+  const code = String(e.code ?? '');
+  const msg = String(e.message ?? '');
+  const bodyError = typeof e.response?.data?.error === 'string' ? e.response.data.error : null;
+
+  if (code === 'ECONNABORTED' || /timeout/i.test(msg)) {
+    return {
+      code: 'proxy_timeout',
+      reasonUk:
+        'Запит обірвався за часом (часто nginx proxy_read_timeout < часу Claude+CRM). Потрібен timeout ≥600s на /api/.',
+      errorDetail: bodyError || msg || code,
+    };
+  }
+  if (!e.response && (code === 'ERR_NETWORK' || code === 'ECONNRESET' || code === 'ECONNREFUSED')) {
+    return {
+      code: 'proxy_cut',
+      reasonUk:
+        'Зв\'язок обірвано посеред відповіді (типово nginx закрив довгий /sandbox/chat). Перевір proxy_read_timeout і логи backend.',
+      errorDetail: bodyError || `${code}: ${msg}`,
+    };
+  }
+  if (status === 502 || status === 504) {
+    return {
+      code: 'gateway',
+      reasonUk: `Шлюз ${status}: проксі не дочекався відповіді backend (підніми proxy_read_timeout).`,
+      errorDetail: bodyError || msg,
+    };
+  }
+  if (status === 413) {
+    return {
+      code: 'payload_too_large',
+      reasonUk: 'Занадто великий запит (413).',
+      errorDetail: bodyError || msg,
+    };
+  }
+  return {
+    code: 'exception',
+    reasonUk: bodyError || (status ? `Помилка HTTP ${status}` : 'Помилка зв\'язку з API'),
+    errorDetail: bodyError || msg || code || null,
+  };
 }
 
 function formatTime(date: Date): string {
@@ -709,6 +826,7 @@ async function sendChatMessage(text: string) {
   loading.value = true;
   loadingStage.value = 'Думаю…';
   lastDebug.value = null;
+  lastFailure.value = null;
   await scrollToBottom();
 
   try {
@@ -722,12 +840,22 @@ async function sendChatMessage(text: string) {
       payload.systemPromptId = selectedPromptId.value;
     }
 
-    const { data } = await api.post('/sandbox/chat', payload, { signal: controller.signal });
+    // Claude + CRM tool rounds can take several minutes; nginx default 60s used to cut this short.
+    const { data } = await api.post('/sandbox/chat', payload, {
+      signal: controller.signal,
+      timeout: 600_000,
+    });
 
     if (data.debug?.stages?.length) {
       loadingStage.value = data.debug.stages[data.debug.stages.length - 1];
     }
     lastDebug.value = data.debug ?? null;
+    lastFailure.value = data.failure ?? (data.ok === false ? {
+      code: 'unknown',
+      reasonUk: data.error || 'Агент не зміг відповісти',
+      errorDetail: null,
+    } : null);
+
     if (data.debug?.warnings?.length && sandboxMeta.value) {
       sandboxMeta.value = {
         ...sandboxMeta.value,
@@ -737,15 +865,40 @@ async function sendChatMessage(text: string) {
       };
     }
 
+    const replyText = data.reply || lastFailure.value?.reasonUk || 'Порожня відповідь';
     chatMessages.value.push({
       role: 'assistant',
-      content: data.reply,
+      content: lastFailure.value ? `⚠️ ${replyText}` : replyText,
       timestamp: new Date(),
     });
+    if (lastFailure.value) {
+      showSnack(lastFailure.value.reasonUk, 'error');
+    }
   } catch (e: any) {
     // Silently ignore aborted requests (stop replay / switch scenario)
     if (e.name === 'CanceledError' || e.code === 'ERR_CANCELED' || e.name === 'AbortError') return;
-    const errorMsg = e.response?.data?.error || 'Помилка зв\'язку';
+    const body = e.response?.data;
+    const networkFailure = classifySandboxNetworkError(e);
+    lastDebug.value = body?.debug ?? null;
+    lastFailure.value = body?.failure ?? networkFailure;
+    if (!lastDebug.value?.copyBundle && lastFailure.value) {
+      lastDebug.value = {
+        ...(lastDebug.value ?? {}),
+        copyBundle: [
+          '=== Sandbox agent debug (paste into Cursor) ===',
+          `at: ${new Date().toISOString()}`,
+          `ok: false`,
+          `failure.code: ${lastFailure.value.code}`,
+          `failure.reasonUk: ${lastFailure.value.reasonUk}`,
+          `failure.errorDetail: ${lastFailure.value.errorDetail ?? '—'}`,
+          `httpStatus: ${e.response?.status ?? 'n/a'}`,
+          `axiosCode: ${e.code ?? 'n/a'}`,
+          `axiosMessage: ${e.message ?? 'n/a'}`,
+          '=== end ===',
+        ].join('\n'),
+      };
+    }
+    const errorMsg = lastFailure.value.reasonUk;
     chatMessages.value.push({
       role: 'assistant',
       content: `⚠️ ${errorMsg}`,
@@ -1395,6 +1548,15 @@ async function loadSandboxMeta() {
 
 .sandbox-debug-pre--result {
   background: rgba(76, 175, 80, 0.08);
+}
+
+.sandbox-debug-pre--copy {
+  max-height: 280px;
+  background: rgba(33, 33, 33, 0.06);
+}
+
+.sandbox-failure-block {
+  max-width: 100%;
 }
 
 .sandbox-layout {
