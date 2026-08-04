@@ -382,9 +382,15 @@ function mapService(raw: RawService, categories: Map<string, string>): CrmServic
   const priceFromLocations = prices
     .map((p) => (typeof p.price === 'number' ? p.price : 0))
     .filter((p) => p > 0);
-  const basePrice =
+  // Optional field — some API scopes omit it; do not request it in `fields`
+  // (live GET /services returns 400 Unknown parameter 'no_professional_price').
+  const noProPrice =
     typeof raw.no_professional_price === 'number' && raw.no_professional_price > 0
       ? raw.no_professional_price
+      : 0;
+  const basePrice =
+    noProPrice > 0
+      ? noProPrice
       : priceFromLocations.length > 0
         ? Math.min(...priceFromLocations)
         : 0;
@@ -407,8 +413,10 @@ async function fetchAllServices(): Promise<CrmServiceItem[]> {
   const [raw, categories] = await Promise.all([
     bpFetch<RawService[]>('GET', '/services', {
       query: {
+        // Live API rejects `no_professional_price` in fields ("Unknown parameter")
+        // even though older docs list it — prices come from location_prices.
         fields:
-          'name,description,duration,category,public,location_prices,no_professional_price,archive',
+          'name,description,duration,category,public,location_prices,archive,price_currency',
         public: true,
         archive: false,
       },
@@ -1448,7 +1456,7 @@ export async function probeBeautyproDatasets(opts: {
         bpFetch<RawService[]>('GET', '/services', {
           query: {
             fields:
-              'name,description,duration,category,public,location_prices,no_professional_price,archive',
+              'name,description,duration,category,public,location_prices,archive,price_currency',
             public: true,
             archive: false,
           },
