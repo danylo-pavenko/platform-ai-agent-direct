@@ -2054,6 +2054,9 @@
       <v-snackbar v-model="success" color="success" :timeout="3000">
         Налаштування збережено
       </v-snackbar>
+      <v-snackbar v-model="crmRoutingSnackbar" color="info" :timeout="6000">
+        {{ crmRoutingSnackbarText }}
+      </v-snackbar>
       <v-snackbar v-model="oauthSnackbar" :color="oauthSnackbarColor" :timeout="4000">
         {{ oauthSnackbarText }}
       </v-snackbar>
@@ -3709,6 +3712,8 @@ const defaultCrmRouting = (): CrmRoutingShape => ({
 });
 
 const crmRouting = ref<CrmRoutingShape>(defaultCrmRouting());
+const crmRoutingSnackbar = ref(false);
+const crmRoutingSnackbarText = ref('');
 
 const workingHours = ref<WorkingHoursMap>({
   mon: { start: '09:00', end: '20:00', enabled: true },
@@ -4180,8 +4185,15 @@ async function saveIntegrations() {
       npPayload.apiKey = npKey;
     }
 
-    await Promise.all([
-      api.put('/settings/integrations', {
+    const [integrationsRes] = await Promise.all([
+      api.put<{
+        ok: boolean;
+        crmRoutingUpdated?: {
+          applied: 'single_auto' | 'enabled_only' | 'noop';
+          config: CrmRoutingShape;
+          configuredProviders: string[];
+        };
+      }>('/settings/integrations', {
         integration_meta: metaPayload,
         integration_telegram: telegramPayload,
         integration_keycrm: keycrmPayload,
@@ -4194,6 +4206,33 @@ async function saveIntegrations() {
       }),
     ]);
     integrationsSaved.value = true;
+
+    const routingUpdate = integrationsRes.data.crmRoutingUpdated;
+    if (routingUpdate?.applied === 'single_auto' && routingUpdate.config) {
+      crmRouting.value = {
+        mode: routingUpdate.config.mode,
+        default: routingUpdate.config.default,
+        enabled_providers: [...routingUpdate.config.enabled_providers],
+        routes: { ...routingUpdate.config.routes },
+      };
+      const name =
+        routingUpdate.config.default === 'beautypro'
+          ? 'BeautyPro'
+          : routingUpdate.config.default === 'cleverbox'
+            ? 'CleverBOX'
+            : 'KeyCRM';
+      crmRoutingSnackbarText.value = `${name} став єдиним CRM для всіх дій (авто).`;
+      crmRoutingSnackbar.value = true;
+    } else if (routingUpdate?.applied === 'enabled_only' && routingUpdate.config) {
+      crmRouting.value = {
+        ...crmRouting.value,
+        enabled_providers: [...routingUpdate.config.enabled_providers],
+      };
+      crmRoutingSnackbarText.value =
+        'Підключено кілька CRM — увімкнені провайдери оновлено. Перевірте маршрути вручну.';
+      crmRoutingSnackbar.value = true;
+    }
+
     if (tgTokenUpdated) {
       telegramTestDialog.value = true;
     }

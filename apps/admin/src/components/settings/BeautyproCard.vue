@@ -89,7 +89,7 @@
           color="pink-darken-2"
           variant="tonal"
           :loading="testLoading && !debugMode"
-          :disabled="testLoading"
+          :disabled="busy"
           prepend-icon="mdi-lan-check"
           @click="runConnectionTest(false)"
         >
@@ -99,7 +99,7 @@
           color="grey-darken-2"
           variant="outlined"
           :loading="testLoading && debugMode"
-          :disabled="testLoading"
+          :disabled="busy"
           prepend-icon="mdi-bug"
           @click="runConnectionTest(true)"
         >
@@ -110,16 +110,49 @@
         </span>
       </div>
 
+      <div class="d-flex flex-wrap align-center ga-2 mb-2">
+        <v-btn
+          size="small"
+          variant="tonal"
+          :loading="probeLoading === 'services'"
+          :disabled="busy"
+          prepend-icon="mdi-content-cut"
+          @click="runProbe(['services'], false)"
+        >
+          Послуги + ціни
+        </v-btn>
+        <v-btn
+          size="small"
+          variant="tonal"
+          :loading="probeLoading === 'employees'"
+          :disabled="busy"
+          prepend-icon="mdi-account-tie"
+          @click="runProbe(['employees'], false)"
+        >
+          Майстри
+        </v-btn>
+        <v-btn
+          size="small"
+          variant="tonal"
+          :loading="probeLoading === 'all'"
+          :disabled="busy"
+          prepend-icon="mdi-database-search"
+          @click="runProbe(['locations', 'services', 'employees'], true)"
+        >
+          Усе (+ DEBUG)
+        </v-btn>
+      </div>
+
       <v-alert
-        v-if="testResult"
-        :type="testResult.ok ? 'success' : testResult.status === 'pending' ? 'warning' : 'error'"
+        v-if="statusMessage"
+        :type="statusOk ? 'success' : statusPending ? 'warning' : 'error'"
         variant="tonal"
         density="compact"
         closable
         class="mt-2"
-        @click:close="clearTestResult"
+        @click:close="clearStatus"
       >
-        {{ testResult.message }}
+        {{ statusMessage }}
       </v-alert>
 
       <v-card
@@ -129,10 +162,10 @@
       >
         <v-card-title class="text-subtitle-2 d-flex align-center py-3">
           <v-icon start size="small">mdi-map-marker-multiple</v-icon>
-          Локації з API ({{ locationsList.length }})
+          Локації ({{ locationsList.length }})
           <v-spacer />
           <span class="text-caption text-medium-emphasis font-weight-regular">
-            Натисніть «Підставити» або скопіюйте UUID
+            Підставити / скопіювати UUID
           </span>
         </v-card-title>
         <v-list density="compact" class="py-0">
@@ -149,8 +182,7 @@
                   size="x-small"
                   variant="text"
                   icon="mdi-content-copy"
-                  :title="'Копіювати ' + loc.id"
-                  @click="copyLocationId(loc.id)"
+                  @click="copyText(loc.id)"
                 />
                 <v-btn
                   size="small"
@@ -164,13 +196,99 @@
             </template>
           </v-list-item>
         </v-list>
-        <v-card-text v-if="copiedLocationId" class="text-caption text-success pt-0">
-          Скопійовано: {{ copiedLocationId }}
-        </v-card-text>
       </v-card>
 
       <v-card
-        v-if="testResult?.debug"
+        v-if="servicesList.length"
+        variant="outlined"
+        class="mt-3"
+      >
+        <v-card-title class="text-subtitle-2 d-flex align-center py-3">
+          <v-icon start size="small">mdi-content-cut</v-icon>
+          Послуги ({{ servicesList.length }})
+        </v-card-title>
+        <v-table density="compact" class="text-caption">
+          <thead>
+            <tr>
+              <th>Назва</th>
+              <th>Категорія</th>
+              <th>Хв</th>
+              <th>Ціна</th>
+              <th>ID</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in servicesList" :key="s.id">
+              <td>{{ s.name }}</td>
+              <td>{{ s.categoryName || '—' }}</td>
+              <td>{{ s.durationMin }}</td>
+              <td>
+                {{ s.price }}
+                <span
+                  v-if="s.locationPrices?.length"
+                  class="text-medium-emphasis"
+                >
+                  ({{ s.locationPrices.length }} лок.)
+                </span>
+              </td>
+              <td><code class="beautypro-loc-id">{{ s.id }}</code></td>
+              <td>
+                <v-btn
+                  size="x-small"
+                  variant="text"
+                  icon="mdi-content-copy"
+                  @click="copyText(s.id)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </v-table>
+      </v-card>
+
+      <v-card
+        v-if="employeesList.length"
+        variant="outlined"
+        class="mt-3"
+      >
+        <v-card-title class="text-subtitle-2 d-flex align-center py-3">
+          <v-icon start size="small">mdi-account-tie</v-icon>
+          Майстри ({{ employeesList.length }})
+        </v-card-title>
+        <v-list density="compact" class="py-0">
+          <v-list-item
+            v-for="e in employeesList"
+            :key="e.id"
+            :title="e.name"
+            :subtitle="e.id"
+          >
+            <template #append>
+              <v-chip
+                v-if="e.public === false"
+                size="x-small"
+                variant="tonal"
+                class="mr-2"
+              >
+                private
+              </v-chip>
+              <code class="text-caption beautypro-loc-id mr-1">{{ e.id }}</code>
+              <v-btn
+                size="x-small"
+                variant="text"
+                icon="mdi-content-copy"
+                @click="copyText(e.id)"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </v-card>
+
+      <v-card-text v-if="copiedHint" class="text-caption text-success px-0 pb-0">
+        Скопійовано: {{ copiedHint }}
+      </v-card-text>
+
+      <v-card
+        v-if="debugPayload"
         variant="outlined"
         class="mt-3 beautypro-debug"
       >
@@ -178,12 +296,12 @@
           <v-icon start size="small">mdi-bug</v-icon>
           DEBUG · BeautyPro API
           <v-chip
-            v-if="testResult.debug.failedAtStage"
+            v-if="debugPayload.failedAtStage"
             size="small"
             color="warning"
             variant="tonal"
           >
-            failed @ {{ testResult.debug.failedAtStage }}
+            failed @ {{ debugPayload.failedAtStage }}
           </v-chip>
           <v-chip
             v-else
@@ -206,17 +324,20 @@
         </v-card-title>
         <v-card-text class="pt-0">
           <div class="text-caption text-medium-emphasis mb-3">
-            {{ testResult.debug.checkedAt }}
-            · app {{ testResult.debug.applicationId }}
-            · db {{ testResult.debug.databaseCode }}
-            · secret: {{ testResult.debug.secretSource }}
-            · matchesSaved: {{ testResult.debug.matchesSavedCredentials }}
+            {{ debugPayload.checkedAt }}
+            <template v-if="'applicationId' in debugPayload">
+              · app {{ (debugPayload as BeautyproTestDebug).applicationId }}
+              · db {{ (debugPayload as BeautyproTestDebug).databaseCode }}
+            </template>
+            <template v-if="'datasets' in debugPayload">
+              · datasets {{ ((debugPayload as BeautyproProbeDebug).datasets || []).join(', ') }}
+            </template>
             · tokens redacted
           </div>
 
           <v-timeline density="compact" side="end" truncate-line="both" class="mb-2">
             <v-timeline-item
-              v-for="(step, idx) in testResult.debug.steps"
+              v-for="(step, idx) in debugPayload.steps"
               :key="`${step.stage}-${idx}`"
               :dot-color="step.ok ? 'success' : 'error'"
               size="x-small"
@@ -250,7 +371,7 @@
 
           <details class="mt-2">
             <summary class="text-caption cursor-pointer">Повний JSON dump</summary>
-            <pre class="beautypro-debug__pre mt-2">{{ formatJson(testResult.debug) }}</pre>
+            <pre class="beautypro-debug__pre mt-2">{{ formatJson(debugPayload) }}</pre>
           </details>
         </v-card-text>
       </v-card>
@@ -281,6 +402,22 @@ interface BeautyproLocationRow {
   address?: string;
 }
 
+interface BeautyproServiceRow {
+  id: string;
+  name: string;
+  durationMin: number;
+  categoryName?: string;
+  price: number;
+  locationPrices?: Array<{ locationId: string; price: number }>;
+}
+
+interface BeautyproEmployeeRow {
+  id: string;
+  name: string;
+  public?: boolean;
+  archive?: boolean;
+}
+
 interface BeautyproDebugStep {
   stage: string;
   ok: boolean;
@@ -291,6 +428,23 @@ interface BeautyproDebugStep {
   response?: unknown;
   error?: string;
   note?: string;
+}
+
+interface BeautyproTestDebug {
+  checkedAt: string;
+  failedAtStage: string | null;
+  applicationId: string;
+  databaseCode: string;
+  secretSource: 'override' | 'saved' | 'missing';
+  matchesSavedCredentials: boolean;
+  steps: BeautyproDebugStep[];
+}
+
+interface BeautyproProbeDebug {
+  checkedAt: string;
+  failedAtStage: string | null;
+  datasets: Array<'locations' | 'services' | 'employees'>;
+  steps: BeautyproDebugStep[];
 }
 
 interface BeautyproTestResponse {
@@ -304,34 +458,40 @@ interface BeautyproTestResponse {
   locations?: BeautyproLocationRow[];
   locationsPreview?: BeautyproLocationRow[];
   persisted?: boolean;
-  debug?: {
-    checkedAt: string;
-    failedAtStage: string | null;
-    applicationId: string;
-    databaseCode: string;
-    secretSource: 'override' | 'saved' | 'missing';
-    matchesSavedCredentials: boolean;
-    steps: BeautyproDebugStep[];
-  };
+  debug?: BeautyproTestDebug;
+}
+
+interface BeautyproProbeResponse {
+  ok: boolean;
+  status: 'granted' | 'pending' | 'refused' | 'error';
+  message: string;
+  server?: number;
+  locations?: BeautyproLocationRow[];
+  services?: BeautyproServiceRow[];
+  employees?: BeautyproEmployeeRow[];
+  debug?: BeautyproProbeDebug;
 }
 
 const beautypro = defineModel<BeautyproIntegrationShape>({ required: true });
 const showSecret = ref(false);
 const testLoading = ref(false);
 const debugMode = ref(false);
-const testResult = ref<BeautyproTestResponse | null>(null);
+const probeLoading = ref<'services' | 'employees' | 'all' | ''>('');
+const statusMessage = ref('');
+const statusOk = ref(false);
+const statusPending = ref(false);
+const locationsList = ref<BeautyproLocationRow[]>([]);
+const servicesList = ref<BeautyproServiceRow[]>([]);
+const employeesList = ref<BeautyproEmployeeRow[]>([]);
+const debugPayload = ref<BeautyproTestDebug | BeautyproProbeDebug | null>(null);
 const copyDone = ref(false);
-const copiedLocationId = ref('');
+const copiedHint = ref('');
 
 const emit = defineEmits<{
   tested: [result: BeautyproTestResponse];
 }>();
 
-const locationsList = computed(() => {
-  const data = testResult.value;
-  if (!data) return [] as BeautyproLocationRow[];
-  return data.locations?.length ? data.locations : (data.locationsPreview ?? []);
-});
+const busy = computed(() => testLoading.value || Boolean(probeLoading.value));
 
 function formatExpiry(iso: string): string {
   const ms = Date.parse(iso);
@@ -347,28 +507,43 @@ function formatJson(value: unknown): string {
   }
 }
 
-function clearTestResult() {
-  testResult.value = null;
-  copyDone.value = false;
-  copiedLocationId.value = '';
+function clearStatus() {
+  statusMessage.value = '';
+  statusOk.value = false;
+  statusPending.value = false;
 }
 
-function applyAuthFromResult(data: BeautyproTestResponse) {
-  if (data.ok && data.persisted) {
+function credPayload(): Record<string, string> {
+  const payload: Record<string, string> = {
+    applicationId: beautypro.value.applicationId.trim(),
+    databaseCode: beautypro.value.databaseCode.trim(),
+  };
+  const secret = beautypro.value.applicationSecret.trim();
+  if (secret && secret !== '••••••') {
+    payload.applicationSecret = secret;
+  }
+  return payload;
+}
+
+function applyAuthFromResult(data: BeautyproTestResponse | BeautyproProbeResponse) {
+  if (data.ok && 'persisted' in data && data.persisted) {
     beautypro.value.authStatus = 'granted';
     if (data.expiresAt) beautypro.value.tokenExpiresAt = data.expiresAt;
     if (data.server) beautypro.value.apiServer = data.server;
   } else if (data.status === 'pending' || data.status === 'refused') {
     beautypro.value.authStatus = data.status;
+  } else if (data.ok) {
+    beautypro.value.authStatus = 'granted';
+    if (data.server) beautypro.value.apiServer = data.server;
   }
 }
 
-async function copyLocationId(id: string) {
+async function copyText(id: string) {
   try {
     await navigator.clipboard.writeText(id);
-    copiedLocationId.value = id;
+    copiedHint.value = id;
     setTimeout(() => {
-      if (copiedLocationId.value === id) copiedLocationId.value = '';
+      if (copiedHint.value === id) copiedHint.value = '';
     }, 2000);
   } catch {
     // ignore
@@ -377,17 +552,17 @@ async function copyLocationId(id: string) {
 
 function useAsDefaultLocation(id: string) {
   beautypro.value.defaultLocationId = id;
-  void copyLocationId(id);
+  void copyText(id);
 }
 
 async function copyDebugReport() {
-  if (!testResult.value?.debug) return;
+  if (!debugPayload.value) return;
   const report = {
-    summary: testResult.value.message,
-    status: testResult.value.status,
-    ok: testResult.value.ok,
+    summary: statusMessage.value,
     locations: locationsList.value,
-    debug: testResult.value.debug,
+    services: servicesList.value,
+    employees: employeesList.value,
+    debug: debugPayload.value,
   };
   try {
     await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
@@ -396,48 +571,85 @@ async function copyDebugReport() {
       copyDone.value = false;
     }, 2000);
   } catch {
-    // ignore clipboard errors
+    // ignore
   }
 }
 
 async function runConnectionTest(withDebug: boolean) {
   testLoading.value = true;
   debugMode.value = withDebug;
-  testResult.value = null;
+  clearStatus();
+  locationsList.value = [];
+  servicesList.value = [];
+  employeesList.value = [];
+  debugPayload.value = null;
   copyDone.value = false;
-  copiedLocationId.value = '';
   try {
-    const payload: Record<string, string | boolean> = {
-      applicationId: beautypro.value.applicationId.trim(),
-      databaseCode: beautypro.value.databaseCode.trim(),
-      debug: withDebug,
-    };
-    const secret = beautypro.value.applicationSecret.trim();
-    if (secret && secret !== '••••••') {
-      payload.applicationSecret = secret;
-    }
-
     const { data } = await api.post<BeautyproTestResponse>(
       '/settings/beautypro/test',
-      payload,
+      { ...credPayload(), debug: withDebug },
       { validateStatus: (s) => s < 500 },
     );
-    testResult.value = data;
+    statusMessage.value = data.message;
+    statusOk.value = data.ok;
+    statusPending.value = data.status === 'pending';
+    locationsList.value = data.locations?.length
+      ? data.locations
+      : (data.locationsPreview ?? []);
+    debugPayload.value = data.debug ?? null;
     applyAuthFromResult(data);
     emit('tested', data);
   } catch (e: unknown) {
     const err = e as { response?: { data?: BeautyproTestResponse & { error?: string } } };
     const data = err.response?.data;
-    testResult.value = {
-      ok: false,
-      status: data?.status ?? 'error',
-      message: data?.message ?? data?.error ?? 'Не вдалося виконати перевірку',
-      locations: data?.locations,
-      locationsPreview: data?.locationsPreview,
-      debug: data?.debug,
-    };
+    statusMessage.value = data?.message ?? data?.error ?? 'Не вдалося виконати перевірку';
+    statusOk.value = false;
+    statusPending.value = data?.status === 'pending';
+    locationsList.value = data?.locations ?? data?.locationsPreview ?? [];
+    debugPayload.value = data?.debug ?? null;
   } finally {
     testLoading.value = false;
+  }
+}
+
+async function runProbe(
+  datasets: Array<'locations' | 'services' | 'employees'>,
+  withDebug: boolean,
+) {
+  probeLoading.value =
+    datasets.length > 1 ? 'all' : datasets[0] === 'employees' ? 'employees' : 'services';
+  clearStatus();
+  if (datasets.includes('locations')) locationsList.value = [];
+  if (datasets.includes('services')) servicesList.value = [];
+  if (datasets.includes('employees')) employeesList.value = [];
+  if (withDebug) debugPayload.value = null;
+  copyDone.value = false;
+  try {
+    const { data } = await api.post<BeautyproProbeResponse>(
+      '/settings/beautypro/probe',
+      { ...credPayload(), datasets, debug: withDebug },
+      { validateStatus: (s) => s < 500 },
+    );
+    statusMessage.value = data.message;
+    statusOk.value = data.ok;
+    statusPending.value = data.status === 'pending';
+    if (data.locations) locationsList.value = data.locations;
+    if (data.services) servicesList.value = data.services;
+    if (data.employees) employeesList.value = data.employees;
+    if (data.debug) debugPayload.value = data.debug;
+    applyAuthFromResult(data);
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: BeautyproProbeResponse & { error?: string } } };
+    const data = err.response?.data;
+    statusMessage.value = data?.message ?? data?.error ?? 'Не вдалося виконати probe';
+    statusOk.value = false;
+    statusPending.value = data?.status === 'pending';
+    if (data?.locations) locationsList.value = data.locations;
+    if (data?.services) servicesList.value = data.services;
+    if (data?.employees) employeesList.value = data.employees;
+    if (data?.debug) debugPayload.value = data.debug;
+  } finally {
+    probeLoading.value = '';
   }
 }
 </script>
@@ -456,11 +668,13 @@ async function runConnectionTest(withDebug: boolean) {
   word-break: break-word;
 }
 .beautypro-loc-id {
-  max-width: 220px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.75;
+  display: inline-block;
+  vertical-align: bottom;
 }
 .text-break {
   word-break: break-all;

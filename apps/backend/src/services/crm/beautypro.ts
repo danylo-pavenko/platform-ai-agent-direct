@@ -1315,3 +1315,242 @@ export async function testBeautyproConnection(overrides?: {
     metaBase,
   );
 }
+
+export type BeautyproProbeDataset = 'locations' | 'services' | 'employees';
+
+export interface BeautyproProbeLocation {
+  id: string;
+  name: string;
+  address?: string;
+}
+
+export interface BeautyproProbeService {
+  id: string;
+  name: string;
+  durationMin: number;
+  categoryName?: string;
+  price: number;
+  locationPrices: Array<{ locationId: string; price: number }>;
+}
+
+export interface BeautyproProbeEmployee {
+  id: string;
+  name: string;
+  public?: boolean;
+  archive?: boolean;
+}
+
+export interface BeautyproProbeResult {
+  ok: boolean;
+  status: 'granted' | 'pending' | 'refused' | 'error';
+  message: string;
+  server?: number;
+  locations?: BeautyproProbeLocation[];
+  services?: BeautyproProbeService[];
+  employees?: BeautyproProbeEmployee[];
+  debug?: {
+    checkedAt: string;
+    failedAtStage: string | null;
+    datasets: BeautyproProbeDataset[];
+    steps: BeautyproDebugStep[];
+  };
+}
+
+/**
+ * After auth, pull locations / services(+prices) / professionals for admin verify.
+ */
+export async function probeBeautyproDatasets(opts: {
+  datasets: BeautyproProbeDataset[];
+  applicationId?: string;
+  applicationSecret?: string;
+  databaseCode?: string;
+  debug?: boolean;
+}): Promise<BeautyproProbeResult> {
+  const wantDebug = opts.debug === true;
+  const datasets = [...new Set(opts.datasets)].filter(
+    (d): d is BeautyproProbeDataset =>
+      d === 'locations' || d === 'services' || d === 'employees',
+  );
+  const checkedAt = new Date().toISOString();
+  const steps: BeautyproDebugStep[] = [];
+
+  if (datasets.length === 0) {
+    return {
+      ok: false,
+      status: 'error',
+      message: 'Вкажіть datasets: locations | services | employees',
+    };
+  }
+
+  // Reuse connection test for auth + grant gate (also refreshes tokens when saved).
+  const auth = await testBeautyproConnection({
+    applicationId: opts.applicationId,
+    applicationSecret: opts.applicationSecret,
+    databaseCode: opts.databaseCode,
+    debug: wantDebug,
+  });
+
+  if (wantDebug && auth.debug?.steps) {
+    steps.push(...auth.debug.steps);
+  }
+
+  if (!auth.ok) {
+    return {
+      ok: false,
+      status: auth.status,
+      message: auth.message,
+      debug: wantDebug
+        ? {
+            checkedAt,
+            failedAtStage: auth.debug?.failedAtStage ?? 'grant_access',
+            datasets,
+            steps,
+          }
+        : undefined,
+    };
+  }
+
+  const result: BeautyproProbeResult = {
+    ok: true,
+    status: 'granted',
+    message: '',
+    server: auth.server,
+  };
+
+  try {
+    if (datasets.includes('locations')) {
+      const t0 = Date.now();
+      const rows = await bpFetch<RawLocation[]>('GET', '/locations', {
+        query: { fields: 'name,city,street,active', active: true },
+      });
+      const active = (rows ?? []).filter((l) => l.active !== false);
+      result.locations = active.map((l) => ({
+        id: l.id,
+        name: l.name,
+        address: [l.city, l.street].filter(Boolean).join(', ') || undefined,
+      }));
+      steps.push({
+        stage: 'probe_locations',
+        ok: true,
+        method: 'GET',
+        url: '/locations',
+        durationMs: Date.now() - t0,
+        response: truncateJson({
+          totalCount: result.locations.length,
+          sample: result.locations.slice(0, 100),
+        }),
+      });
+    }
+
+    if (datasets.includes('services')) {
+      const t0 = Date.now();
+      const [raw, categories] = await Promise.all([
+        bpFetch<RawService[]>('GET', '/services', {
+          query: {
+            fields:
+              'name,description,duration,category,public,location_prices,no_professional_price,archive',
+            public: true,
+            archive: false,
+          },
+        }),
+        fetchCategoryMap(),
+      ]);
+      const mapped = (raw ?? [])
+        .filter((s) => s.archive !== true)
+        .map((s) => {
+          const item = mapService(s, categories);
+          return {
+            id: item.id,
+            name: item.name,
+            durationMin: item.durationMin,
+            categoryName: item.categoryName,
+            price: item.price,
+            locationPrices: (item.branchPrices ?? []).map((bp) => ({
+              locationId: bp.branchId,
+              price: bp.price,
+            })),
+          } satisfies BeautyproProbeService;
+        });
+      result.services = mapped;
+      steps.push({
+        stage: 'probe_services',
+        ok: true,
+        method: 'GET',
+        url: '/services',
+        durationMs: Date.now() - t0,
+        response: truncateJson({
+          totalCount: mapped.length,
+          sample: mapped.slice(0, 100),
+        }),
+      });
+    }
+
+    if (datasets.includes('employees')) {
+      const t0 = Date.now();
+      const rows = await bpFetch<RawEmployee[]>('GET', '/employees', {
+        query: {
+          fields: 'name,archive,public,roles',
+          role: 'professional',
+          archive: false,
+        },
+      });
+      result.employees = (rows ?? [])
+        .filter((e) => e.archive !== true)
+        .map((e) => ({
+          id: e.id,
+          name: e.name,
+          public: e.public,
+          archive: e.archive,
+        }));
+      steps.push({
+        stage: 'probe_employees',
+        ok: true,
+        method: 'GET',
+        url: '/employees?role=professional',
+        durationMs: Date.now() - t0,
+        response: truncateJson({
+          totalCount: result.employees.length,
+          sample: result.employees.slice(0, 100),
+        }),
+      });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    steps.push({
+      stage: 'probe_fetch',
+      ok: false,
+      method: 'GET',
+      url: 'beautypro datasets',
+      error: message,
+    });
+    return {
+      ok: false,
+      status: 'error',
+      message: `Auth OK, але probe зірвався: ${message.slice(0, 280)}`,
+      server: auth.server,
+      locations: result.locations,
+      services: result.services,
+      employees: result.employees,
+      debug: wantDebug
+        ? { checkedAt, failedAtStage: 'probe_fetch', datasets, steps }
+        : undefined,
+    };
+  }
+
+  const parts: string[] = [];
+  if (result.locations) parts.push(`локацій ${result.locations.length}`);
+  if (result.services) parts.push(`послуг ${result.services.length}`);
+  if (result.employees) parts.push(`майстрів ${result.employees.length}`);
+  result.message = `Probe OK · ${parts.join(' · ') || 'немає даних'}`;
+
+  if (wantDebug) {
+    result.debug = {
+      checkedAt,
+      failedAtStage: null,
+      datasets,
+      steps,
+    };
+  }
+
+  return result;
+}

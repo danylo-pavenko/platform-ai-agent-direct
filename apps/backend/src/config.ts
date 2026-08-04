@@ -110,7 +110,7 @@ const envSchema = z.object({
   CLAUDE_ADMIN_TIMEOUT_MS: z.coerce.number().default(120000),
   // Meta-agent teach chat may query CRM context and draft multi-section prompt
   // diffs — allow a longer window than generic admin turns.
-  CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(300000),
+  CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(600000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
   // One light `claude -p` after API listen so the first IG DM after PM2
   // restart is less likely to hit cold-start timeouts.

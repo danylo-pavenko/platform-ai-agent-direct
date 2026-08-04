@@ -16,7 +16,7 @@ import { loadClaudeUsageSnapshot, runClaudeUsageCheck } from '../services/claude
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
-import { invalidateCrmRoutingCache } from '../lib/crm-routing.js';
+import { invalidateCrmRoutingCache, ensureCrmRoutingAfterIntegrations } from '../lib/crm-routing.js';
 import { invalidateCrmWriteCache } from '../lib/crm-write.js';
 import { invalidateFeatureFlagsCache } from '../lib/feature-flags.js';
 import { bumpTelegramBotWake } from '../lib/telegram-bot-wake.js';
@@ -28,7 +28,7 @@ import {
 } from '../lib/telegram-bots.js';
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
-import { testBeautyproConnection } from '../services/crm/beautypro.js';
+import { probeBeautyproDatasets, testBeautyproConnection } from '../services/crm/beautypro.js';
 import {
   cancelClaudeAuthLogin,
   getClaudeAuthStatus,
@@ -309,7 +309,9 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       await bumpTelegramBotWake();
     }
 
-    return { ok: true };
+    const crmRoutingUpdated = await ensureCrmRoutingAfterIntegrations();
+
+    return { ok: true, crmRoutingUpdated };
   });
 
   /** POST /settings/health-check
@@ -490,6 +492,42 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body ?? {};
     try {
       const result = await testBeautyproConnection({
+        applicationId: body.applicationId,
+        applicationSecret: body.applicationSecret,
+        databaseCode: body.databaseCode,
+        debug: body.debug === true,
+      });
+      if (!result.ok) {
+        return reply.code(result.status === 'error' ? 400 : 200).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({
+        ok: false,
+        status: 'error',
+        message,
+      });
+    }
+  });
+
+  /**
+   * POST /settings/beautypro/probe
+   * Auth + pull locations / services(+prices) / employees for admin verification.
+   */
+  app.post<{
+    Body: {
+      datasets?: Array<'locations' | 'services' | 'employees'>;
+      applicationId?: string;
+      applicationSecret?: string;
+      databaseCode?: string;
+      debug?: boolean;
+    };
+  }>('/beautypro/probe', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const result = await probeBeautyproDatasets({
+        datasets: Array.isArray(body.datasets) ? body.datasets : [],
         applicationId: body.applicationId,
         applicationSecret: body.applicationSecret,
         databaseCode: body.databaseCode,

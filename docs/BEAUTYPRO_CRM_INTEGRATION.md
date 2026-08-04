@@ -26,6 +26,15 @@
 
 Кнопка «Перевірити підключення» → `POST /settings/beautypro/test` (auth + `GET /locations`).
 Кнопка **DEBUG** → той самий endpoint з `debug: true`: етапи (`resolve_credentials` → `auth_database` → `grant_access` / `locations`), HTTP status, duration, response body (tokens redacted) + «Копіювати для підтримки».
+Кнопки **Послуги + ціни / Майстри / Усе** → `POST /settings/beautypro/probe` (`datasets: locations|services|employees`) після Grant — повні списки з UUID для перевірки API.
+
+## Auto crm_routing
+
+Після `PUT /settings/integrations`:
+- рівно **1** підключений CRM (KeyCRM / CleverBOX / BeautyPro) → `mode: single`, усі routes на нього;
+- **2+** → лише додає провайдерів у `enabled_providers`, маршрути гібриду — вручну в «Маршрутизація CRM».
+
+Мета-агент (Teach) **не** викликає CRM API в чаті — лише редагує промпт. Live CRM у IG DM йде через tools + `resolveCrmProvider`. Таймаут мета-агента: `CLAUDE_TEACH_TIMEOUT_MS` (default 10 хв).
 
 ## Tenant routing (приклад)
 
