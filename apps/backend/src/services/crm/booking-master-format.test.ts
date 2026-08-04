@@ -56,6 +56,45 @@ describe('formatCrmHistoryForPrompt preferred master', () => {
     expect(text).not.toContain('[master_id=');
     expect(text).not.toContain('Улюблений майстер');
   });
+
+  it('still emits master_id when only professionalId is present', () => {
+    const text = formatCrmHistoryForPrompt([
+      {
+        id: 'v3',
+        date: '2026-07-02T10:00:00.000Z',
+        durationMin: 30,
+        professionalId: 'only-id',
+        items: [{ name: 'Манікюр', type: 'Service' }],
+      },
+    ]);
+
+    expect(text).toContain('[master_id=only-id]');
+    expect(text).toContain('Улюблений майстер');
+  });
+
+  it('uses the newest visit with a professionalId for the preferred hint', () => {
+    const text = formatCrmHistoryForPrompt([
+      {
+        id: 'newer',
+        date: '2026-07-10T10:00:00.000Z',
+        durationMin: 40,
+        professionalId: 'new-pro',
+        professionalName: 'Новий',
+        items: [{ name: 'Стрижка', type: 'Service' }],
+      },
+      {
+        id: 'older',
+        date: '2026-06-01T10:00:00.000Z',
+        durationMin: 40,
+        professionalId: 'old-pro',
+        professionalName: 'Старий',
+        items: [{ name: 'Стрижка', type: 'Service' }],
+      },
+    ]);
+
+    expect(text).toContain('Улюблений майстер: Новий [master_id=new-pro]');
+    expect(text).not.toContain('Улюблений майстер: Старий');
+  });
 });
 
 describe('formatSlotMastersLine', () => {
@@ -67,5 +106,9 @@ describe('formatSlotMastersLine', () => {
     expect(formatSlotMastersLine(['id-a', 'id-b'], map)).toBe(
       '[master_id=id-a] Anna, [master_id=id-b] Bohdan',
     );
+  });
+
+  it('falls back to raw id when name is unknown', () => {
+    expect(formatSlotMastersLine(['x'], new Map())).toBe('[master_id=x] x');
   });
 });

@@ -38,4 +38,23 @@ describe('filterSlotsByMasterId', () => {
     expect(result.slots).toEqual({});
     expect(result.masters).toEqual([]);
   });
+
+  it('treats blank masterId as no filter', () => {
+    expect(filterSlotsByMasterId({ slots, masters }, '   ')).toEqual({
+      slots,
+      masters,
+    });
+  });
+
+  it('falls back to id as master name when masters list omits the id', () => {
+    const result = filterSlotsByMasterId(
+      {
+        slots: { '2026-08-04': [slot('09:00', ['orphan'])] },
+        masters: [],
+      },
+      'orphan',
+    );
+    expect(result.masters).toEqual([{ id: 'orphan', name: 'orphan' }]);
+    expect(result.slots['2026-08-04']).toEqual([slot('09:00', ['orphan'])]);
+  });
 });
