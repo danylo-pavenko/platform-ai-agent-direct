@@ -6,6 +6,11 @@ const { askClaude, buildInsightsSnapshot } = vi.hoisted(() => ({
   buildInsightsSnapshot: vi.fn(),
 }));
 
+vi.mock('../config.js', () => ({
+  config: {
+    CLAUDE_TEACH_TIMEOUT_MS: 600_000,
+  },
+}));
 vi.mock('../services/claude.js', () => ({ askClaude }));
 vi.mock('../services/insights-snapshot.js', () => ({
   buildInsightsSnapshot,
@@ -142,7 +147,7 @@ describe('insights routes', () => {
         userMessage: 'А що з CRM?',
         systemPrompt: expect.stringContaining('Test Brand'),
       }),
-      { channel: 'insights' },
+      { channel: 'insights', timeoutMs: 600_000 },
     );
   });
 
