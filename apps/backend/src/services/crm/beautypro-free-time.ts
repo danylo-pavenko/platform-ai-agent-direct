@@ -63,6 +63,26 @@ export function resolveFreeTimeDurationMin(
 }
 
 /**
+ * Live BeautyPro rejects `step=auto` (docs still mention it).
+ * Allowed values look like: 5m, 10m, 15m, 20m, 30m, 60m, 90m, 120m, …
+ * Mirror documented auto heuristic: 15 / 30 / 60 by duration.
+ */
+export const FREE_TIME_STEP_MINUTES = [5, 10, 15, 20, 30, 60, 90, 120, 180, 240] as const;
+
+export function resolveFreeTimeStep(durationMin: number): string {
+  const d = Number.isFinite(durationMin) && durationMin > 0 ? durationMin : 60;
+  let preferred: number;
+  if (d <= 30) preferred = 15;
+  else if (d <= 90) preferred = 30;
+  else preferred = 60;
+
+  const match = FREE_TIME_STEP_MINUTES.includes(preferred as (typeof FREE_TIME_STEP_MINUTES)[number])
+    ? preferred
+    : 30;
+  return `${match}m`;
+}
+
+/**
  * Build query params for GET /employees/free_time.
  * Specific calendar day → nearest_day_only=false (all slots that day).
  */
@@ -85,7 +105,7 @@ export function buildFreeTimeQueryParams(
     from,
     to,
     duration,
-    step: 'auto',
+    step: resolveFreeTimeStep(duration),
     location: query.branchId,
     add_now_time: 20,
     nearest_day_only: nearestDayOnly,

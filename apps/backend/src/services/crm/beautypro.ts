@@ -424,21 +424,18 @@ async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTime
     publicEmployees?: boolean;
     includeServices: boolean;
   }> = [
-    // Specific calendar day: ask for ALL slots in from..to (not "nearest day only").
     {
       label: 'day_all_public',
       nearestDayOnly: false,
       publicEmployees: true,
       includeServices: true,
     },
-    // Some salons leave public=false on masters that still take bookings.
     {
       label: 'day_all_employees',
       nearestDayOnly: false,
       publicEmployees: undefined,
       includeServices: true,
     },
-    // Service↔location pairing can 400; duration-only still returns usable windows.
     {
       label: 'day_no_service_filter',
       nearestDayOnly: false,
@@ -456,6 +453,12 @@ async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTime
     });
     try {
       const raw = await bpFetch<unknown>('GET', '/employees/free_time', { query: params });
+      if (attempt.label !== 'day_all_public') {
+        log.info(
+          { attempt: attempt.label, date: query.date, location: query.branchId },
+          'BeautyPro free_time succeeded on fallback',
+        );
+      }
       return assertFreeTimePayload(raw);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -467,14 +470,19 @@ async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTime
           date: query.date,
           location: query.branchId,
           services: query.services.map((s) => s.id),
+          step: params.step,
         },
         'BeautyPro free_time attempt failed',
       );
+      // Bad `step` / hard param errors won't change across our fallbacks — fail fast.
+      if (/Parameter 'step'|invalid step|Unknown parameter/i.test(message)) {
+        break;
+      }
     }
   }
 
   throw new Error(
-    `BeautyPro free_time failed after ${attempts.length} attempts: ${errors.join(' | ')}`.slice(
+    `BeautyPro free_time failed after ${errors.length} attempts: ${errors.join(' | ')}`.slice(
       0,
       600,
     ),

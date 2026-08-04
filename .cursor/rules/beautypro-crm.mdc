@@ -36,6 +36,8 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 | Branches | `GET /locations?active=true` | `fetchBranches` |
 | Services | `GET /services` + `/services/categories` | `fetchServices` / `searchServices` |
 | Slots | `GET /employees/free_time` | `getAvailableSlots` |
+
+`step` must be `5m|10m|15m|…` — live API rejects `auto` (despite docs). We map duration → `15m`/`30m`/`60m`.
 | Book | `POST /appointments` (`state: planned`) | `createBooking` |
 | Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` |
 | Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |

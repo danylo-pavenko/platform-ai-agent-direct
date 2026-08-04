@@ -5,6 +5,7 @@ import {
   invertFreeTime,
   parseAgentDate,
   resolveFreeTimeDurationMin,
+  resolveFreeTimeStep,
 } from './beautypro-free-time.js';
 
 describe('beautypro free_time helpers', () => {
@@ -14,12 +15,19 @@ describe('beautypro free_time helpers', () => {
     expect(parseAgentDate('nope')).toBeNull();
   });
 
+  it('maps duration to allowed step values (not auto)', () => {
+    expect(resolveFreeTimeStep(30)).toBe('15m');
+    expect(resolveFreeTimeStep(60)).toBe('30m');
+    expect(resolveFreeTimeStep(90)).toBe('30m');
+    expect(resolveFreeTimeStep(120)).toBe('60m');
+  });
+
   it('builds day query with nearest_day_only=false and services', () => {
     const params = buildFreeTimeQueryParams(
       {
         date: '05.08.2026',
         branchId: 'loc-1',
-        services: [{ id: 'svc-1', durationMin: 60 }],
+        services: [{ id: 'svc-1', durationMin: 90 }],
       },
       { nearestDayOnly: false, publicEmployees: true, includeServices: true },
     );
@@ -28,7 +36,9 @@ describe('beautypro free_time helpers', () => {
     expect(params.public_employees).toBe(true);
     expect(params.location).toBe('loc-1');
     expect(params.services).toBe('svc-1');
-    expect(params.duration).toBe(60);
+    expect(params.duration).toBe(90);
+    expect(params.step).toBe('30m');
+    expect(params.step).not.toBe('auto');
     expect(String(params.from)).toContain('2026-08-05');
     expect(String(params.to)).toContain('2026-08-05');
   });
