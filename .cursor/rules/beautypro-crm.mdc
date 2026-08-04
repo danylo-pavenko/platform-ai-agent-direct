@@ -41,6 +41,8 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 | Book | `POST /appointments` (`state: planned`) | `createBooking` |
 | Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` |
 | Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
+
+Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no Instagram filter**. We try UA phone variants (`+380` / `380` / `0XX`), then email, then `name` + `IG:@handle` in comments.
 | History | `GET /clients/{id}/history` | `fetchClientHistory` |
 
 **Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks.

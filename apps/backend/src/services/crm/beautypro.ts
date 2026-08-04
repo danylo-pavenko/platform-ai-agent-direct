@@ -35,6 +35,16 @@ import {
   toIsoDate,
   type FreeTimeResponse,
 } from './beautypro-free-time.js';
+import {
+  BP_CLIENT_LIST_FIELDS,
+  buildClientPhoneSearchVariants,
+  buildIgNameSearchVariants,
+  formatPhoneForBeautyproWrite,
+  igCommentMarker,
+  normalizeIgUsername,
+  pickClientMatchingIg,
+  type RawClientLike,
+} from './beautypro-clients.js';
 
 const log = pino({ name: 'crm:beautypro' });
 
@@ -100,10 +110,6 @@ interface RawClient {
   phone?: string[] | string | null;
   email?: string[] | string | null;
   comments?: string | null;
-}
-
-function digitsPhone(phone: string): string {
-  return phone.replace(/\D/g, '');
 }
 
 function normalizeStartTime(time: string): string {
@@ -608,43 +614,96 @@ export const beautyproAdapter: CrmAdapter = {
     if (match.crmBuyerId) {
       return { crmBuyerId: match.crmBuyerId };
     }
-    if (!match.phone) return null;
 
-    const phone = match.phone.trim();
-    const rows = await bpFetch<RawClient[]>('GET', '/clients', {
-      query: {
-        fields: 'name,firstname,lastname,phone,email,comments',
-        phone,
-        archive: false,
-      },
-    });
+    const tryPhone = async (phone: string): Promise<string | null> => {
+      for (const variant of buildClientPhoneSearchVariants(phone)) {
+        try {
+          const rows = await bpFetch<RawClient[]>('GET', '/clients', {
+            query: {
+              fields: BP_CLIENT_LIST_FIELDS,
+              phone: variant,
+              archive: false,
+            },
+          });
+          const hit = (rows ?? [])[0];
+          if (hit?.id) return hit.id;
+        } catch (err) {
+          log.warn({ err, variant }, 'BeautyPro client phone lookup failed');
+        }
+      }
+      return null;
+    };
 
-    const hit = (rows ?? [])[0];
-    if (!hit?.id) {
-      // Retry with digits-only if formatted phone returned nothing
-      const digits = digitsPhone(phone);
-      if (digits && digits !== phone) {
-        const rows2 = await bpFetch<RawClient[]>('GET', '/clients', {
+    const tryEmail = async (email: string): Promise<string | null> => {
+      const normalized = email.trim().toLowerCase();
+      if (!normalized) return null;
+      try {
+        const rows = await bpFetch<RawClient[]>('GET', '/clients', {
           query: {
-            fields: 'name,firstname,lastname,phone',
-            phone: digits,
+            fields: BP_CLIENT_LIST_FIELDS,
+            email: normalized,
             archive: false,
           },
         });
-        const hit2 = (rows2 ?? [])[0];
-        return hit2?.id ? { crmBuyerId: hit2.id } : null;
+        const hit = (rows ?? [])[0];
+        return hit?.id ?? null;
+      } catch (err) {
+        log.warn({ err, email: normalized }, 'BeautyPro client email lookup failed');
+        return null;
+      }
+    };
+
+    /**
+     * BeautyPro has no instagram filter. We store IG:@handle in comments on upsert,
+     * then search via `name` and confirm against comments / name fields.
+     */
+    const tryInstagram = async (username: string): Promise<string | null> => {
+      const handle = normalizeIgUsername(username);
+      if (!handle) return null;
+      for (const nameQ of buildIgNameSearchVariants(handle)) {
+        try {
+          const rows = await bpFetch<RawClientLike[]>('GET', '/clients', {
+            query: {
+              fields: BP_CLIENT_LIST_FIELDS,
+              name: nameQ,
+              archive: false,
+            },
+          });
+          const hit = pickClientMatchingIg(rows, handle);
+          if (hit?.id) return hit.id;
+        } catch (err) {
+          log.warn({ err, nameQ }, 'BeautyPro client IG/name lookup failed');
+        }
       }
       return null;
+    };
+
+    if (match.phone) {
+      const byPhone = await tryPhone(match.phone);
+      if (byPhone) return { crmBuyerId: byPhone };
     }
-    return { crmBuyerId: hit.id };
+
+    if (match.email) {
+      const byEmail = await tryEmail(match.email);
+      if (byEmail) return { crmBuyerId: byEmail };
+    }
+
+    if (match.instagramUsername) {
+      const byIg = await tryInstagram(match.instagramUsername);
+      if (byIg) return { crmBuyerId: byIg };
+    }
+
+    return null;
   },
 
   async upsertClient(crmBuyerId: string | null, input: CrmClientInput) {
     const { firstname, lastname } = splitClientName(input.fullName);
-    const noteParts = [
-      input.note,
-      input.instagramUsername ? `IG: @${input.instagramUsername.replace(/^@/, '')}` : null,
-    ].filter(Boolean);
+    const phone = formatPhoneForBeautyproWrite(input.phone);
+    const email = input.email?.trim().toLowerCase() || undefined;
+    const igMarker = input.instagramUsername
+      ? igCommentMarker(input.instagramUsername)
+      : '';
+    const noteParts = [input.note?.trim() || null, igMarker || null].filter(Boolean);
     const comments = noteParts.join('\n') || undefined;
 
     if (crmBuyerId) {
@@ -652,8 +711,9 @@ export const beautyproAdapter: CrmAdapter = {
         body: {
           firstname,
           lastname,
-          ...(input.phone ? { phone: [input.phone] } : {}),
-          ...(input.email ? { email: [input.email] } : {}),
+          // PUT examples use arrays for phone/email
+          ...(phone ? { phone: [phone] } : {}),
+          ...(email ? { email: [email] } : {}),
           ...(comments ? { comments } : {}),
         },
       });
@@ -665,8 +725,9 @@ export const beautyproAdapter: CrmAdapter = {
       body: {
         firstname,
         lastname,
-        ...(input.phone ? { phone: input.phone } : {}),
-        ...(input.email ? { email: input.email } : {}),
+        // POST examples use scalar phone/email strings
+        ...(phone ? { phone } : {}),
+        ...(email ? { email } : {}),
         ...(comments ? { comments } : {}),
       },
     });
@@ -701,20 +762,35 @@ export const beautyproAdapter: CrmAdapter = {
 
     let professional = input.services[0]?.masterId;
     if (!professional) {
-      const candidates = input.services[0]
-        ? (
-            await bpFetch<RawEmployee[]>('GET', '/employees', {
-              query: {
-                fields: 'name',
-                location: input.branchId,
-                service: input.services.map((s) => s.id).join(','),
-                role: 'professional',
-                public: true,
-                archive: false,
-              },
-            })
-          )?.map((e) => e.id) ?? []
-        : [];
+      const serviceIds = input.services.map((s) => s.id).join(',');
+      const loadCandidates = async (publicOnly: boolean | undefined) => {
+        const rows = await bpFetch<RawEmployee[]>('GET', '/employees', {
+          query: {
+            fields: 'name,public,archive',
+            location: input.branchId,
+            ...(serviceIds ? { service: serviceIds } : {}),
+            role: 'professional',
+            archive: false,
+            ...(publicOnly === true ? { public: true } : {}),
+          },
+        });
+        return (rows ?? []).filter((e) => e.archive !== true).map((e) => e.id);
+      };
+
+      let candidates: string[] = [];
+      try {
+        candidates = await loadCandidates(true);
+        if (candidates.length === 0) {
+          candidates = await loadCandidates(undefined);
+        }
+      } catch (err) {
+        log.warn({ err }, 'BeautyPro employees for booking failed');
+        try {
+          candidates = await loadCandidates(undefined);
+        } catch {
+          candidates = [];
+        }
+      }
 
       if (candidates.length > 0) {
         try {
