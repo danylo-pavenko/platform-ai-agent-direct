@@ -9,6 +9,7 @@ import {
 import { prisma } from '../lib/prisma.js';
 import { getRuntimeConfig } from '../lib/runtime-config.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
+import { loadCatalogSnippet } from './prompt-builder.js';
 
 export const INSIGHTS_PERIODS = ['7d', '30d', '90d', 'all'] as const;
 export type InsightsPeriod = (typeof INSIGHTS_PERIODS)[number];
@@ -196,6 +197,12 @@ export interface InsightsSnapshot {
     instanceName: string;
     brandName: string;
     knowledge: Record<string, string>;
+    /** Truncated CRM sync files (catalog / services / masters) for AI-помічник. */
+    syncedCatalogPreview: string;
+    syncedCatalogMeta: {
+      chars: number;
+      hasContent: boolean;
+    };
   };
   configuration: {
     agent: {
@@ -609,6 +616,14 @@ export async function buildInsightsSnapshot(
   const byAppointmentStatus = Object.fromEntries(
     appointmentGroups.map((row) => [row.status, row._count._all]),
   ) as Record<string, number>;
+
+  const INSIGHTS_CATALOG_PREVIEW_CHARS = 16_000;
+  const syncedCatalogRaw = await loadCatalogSnippet();
+  const syncedCatalogPreview =
+    syncedCatalogRaw.length > INSIGHTS_CATALOG_PREVIEW_CHARS
+      ? `${syncedCatalogRaw.slice(0, INSIGHTS_CATALOG_PREVIEW_CHARS - 3)}...`
+      : syncedCatalogRaw;
+
   const brief = briefRows[0] ?? {
     total: 0n,
     high_completeness: 0n,
@@ -729,6 +744,11 @@ export async function buildInsightsSnapshot(
       instanceName: config.INSTANCE_NAME,
       brandName: config.BRAND_NAME,
       knowledge: {},
+      syncedCatalogPreview,
+      syncedCatalogMeta: {
+        chars: syncedCatalogPreview.length,
+        hasContent: syncedCatalogPreview.length > 0,
+      },
     },
     configuration: {
       agent: {

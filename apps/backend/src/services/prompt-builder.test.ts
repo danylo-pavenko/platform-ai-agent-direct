@@ -9,6 +9,8 @@ vi.mock('../config.js', () => ({
 
 vi.mock('../lib/paths.js', () => ({
   getCatalogPath: () => '/tmp/catalog.txt',
+  getServicesCatalogPath: () => '/tmp/services-live.txt',
+  getMastersCatalogPath: () => '/tmp/masters-live.txt',
   getTenantKnowledgeDir: () => '/tmp/tenant_knowledge_test',
 }));
 
@@ -48,7 +50,9 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toContain('ПОТОЧНИЙ КОНТЕКСТ СЕСІЇ');
     expect(prompt).not.toContain('KNOWLEDGE PACK');
     expect(prompt).toMatch(/Бренд, контакти, доставка, FAQ, бізнес-правила — зі системного промпту/);
-    expect(prompt).toMatch(/Товари \/ ціни \/ наявність — з каталогу нижче або через tools/);
+    expect(prompt).toMatch(
+      /Товари \/ послуги \/ ціни \/ майстри — з блоку нижче або через tools/,
+    );
   });
 
   it('keeps anti-injection preamble with source hierarchy', () => {
@@ -58,3 +62,4 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toMatch(/живий каталог \+ tools/);
   });
 });
+

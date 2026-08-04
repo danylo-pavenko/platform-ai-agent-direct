@@ -89,7 +89,7 @@ ${formatted}
   let catalogBlock = '';
   if (catalogSnippet?.trim()) {
     catalogBlock = `\n\n<catalog_snapshot>
-Орієнтовний знімок каталогу (для контексту при редагуванні промпту — не джерело цін для клієнта):
+Орієнтовний знімок CRM sync (товари / послуги / майстри) для контексту при редагуванні промпту — живі ціни для клієнта краще через tools:
 ${catalogSnippet.trim()}
 </catalog_snapshot>`;
   }

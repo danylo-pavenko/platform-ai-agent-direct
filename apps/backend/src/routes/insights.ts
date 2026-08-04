@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { config } from '../config.js';
 import { askClaude } from '../services/claude.js';
 import {
   buildInsightsSnapshot,
@@ -59,6 +60,8 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
     '- Використовуй лише числа та факти зі snapshot нижче.',
     '- Не вигадуй відсутні дані та прямо кажи, коли вибірки недостатньо.',
     '- Configuration, crm і business описують поточний стан інстансу.',
+    '- `business.syncedCatalogPreview` — знімок файлів CRM sync (catalog.txt / services-live.txt / masters-live.txt).',
+    '  Якщо адмін питає про послуги/ціни/майстрів — дивись цей блок і `crm.latestSync.counts`.',
     '- Цитуй текст лише з samples/recentAll і не намагайся відновити приховані контакти.',
     '- Якщо згадуєш конкретний діалог, додавай Markdown-посилання у форматі',
     '  [Відкрити діалог](/conversations/UUID), використовуючи точний path зі snapshot.',
@@ -128,7 +131,11 @@ export async function insightsRoutes(app: FastifyInstance): Promise<void> {
           conversationHistory: history,
           userMessage: lastMessage.content,
         },
-        { channel: 'insights' },
+        {
+          channel: 'insights',
+          // Snapshot + synced catalog can be large — match meta-agent teach budget.
+          timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
+        },
       );
 
       return {

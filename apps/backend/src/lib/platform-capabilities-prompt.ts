@@ -55,7 +55,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Knowledge / prompts (tenant)
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
-- **Live catalog** → knowledge/catalog.txt / services-live.txt (CRM sync) + catalog tools.
+- **Live catalog** → knowledge/catalog.txt, services-live.txt, masters-live.txt (CRM sync) + tools search_catalog / search_services.
 - Seed files: prompts/{sales|leadgen|booking}-agent.txt (first DB seed only).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
