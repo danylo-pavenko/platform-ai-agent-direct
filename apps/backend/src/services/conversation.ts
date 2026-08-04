@@ -998,7 +998,8 @@ async function handleIncomingMessageImpl(
             toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
           } catch (err) {
             log.error({ err, date }, 'get_available_slots failed');
-            toolResultContent = '[get_available_slots] ПОМИЛКА: не вдалося отримати слоти';
+            const detail = err instanceof Error ? err.message : String(err);
+            toolResultContent = `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`;
           }
         }
       }

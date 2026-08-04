@@ -21,13 +21,20 @@ import type {
   CrmOffer,
   CrmProduct,
   CrmServiceItem,
-  CrmSlot,
   CrmSlotQuery,
   CrmVisitHistoryItem,
   OfferSearchParams,
   ProductSearchParams,
 } from './types.js';
 import { filterSlotsByMasterId } from './slot-filter.js';
+import {
+  assertFreeTimePayload,
+  buildFreeTimeQueryParams,
+  invertFreeTime,
+  parseAgentDate,
+  toIsoDate,
+  type FreeTimeResponse,
+} from './beautypro-free-time.js';
 
 const log = pino({ name: 'crm:beautypro' });
 
@@ -95,28 +102,8 @@ interface RawClient {
   comments?: string | null;
 }
 
-type FreeTimeResponse = Record<string, Record<string, string[]>>;
-
 function digitsPhone(phone: string): string {
   return phone.replace(/\D/g, '');
-}
-
-/** Agent dates are DD.MM.YYYY (CleverBOX style) or ISO YYYY-MM-DD. */
-function parseAgentDate(date: string): { y: number; m: number; d: number } | null {
-  const trimmed = date.trim();
-  const dmy = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
-  if (dmy) {
-    return { d: Number(dmy[1]), m: Number(dmy[2]), y: Number(dmy[3]) };
-  }
-  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-  if (iso) {
-    return { y: Number(iso[1]), m: Number(iso[2]), d: Number(iso[3]) };
-  }
-  return null;
-}
-
-function toIsoDate(parts: { y: number; m: number; d: number }): string {
-  return `${parts.y}-${String(parts.m).padStart(2, '0')}-${String(parts.d).padStart(2, '0')}`;
 }
 
 function normalizeStartTime(time: string): string {
@@ -430,40 +417,68 @@ async function fetchAllServices(): Promise<CrmServiceItem[]> {
     .map((s) => mapService(s, categories));
 }
 
-function invertFreeTime(
-  free: FreeTimeResponse,
-): { slots: Record<string, CrmSlot[]>; masterIds: Set<string> } {
-  const slots: Record<string, CrmSlot[]> = {};
-  const masterIds = new Set<string>();
+async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTimeResponse> {
+  const attempts: Array<{
+    label: string;
+    nearestDayOnly: boolean;
+    publicEmployees?: boolean;
+    includeServices: boolean;
+  }> = [
+    // Specific calendar day: ask for ALL slots in from..to (not "nearest day only").
+    {
+      label: 'day_all_public',
+      nearestDayOnly: false,
+      publicEmployees: true,
+      includeServices: true,
+    },
+    // Some salons leave public=false on masters that still take bookings.
+    {
+      label: 'day_all_employees',
+      nearestDayOnly: false,
+      publicEmployees: undefined,
+      includeServices: true,
+    },
+    // Service↔location pairing can 400; duration-only still returns usable windows.
+    {
+      label: 'day_no_service_filter',
+      nearestDayOnly: false,
+      publicEmployees: true,
+      includeServices: false,
+    },
+  ];
 
-  // API: { professionalId: { "YYYY-MM-DD": ["10:00", ...] } }
-  // We need: { date: [{ time, masterIds }] }
-  const byDateTime = new Map<string, Map<string, string[]>>();
-
-  for (const [professionalId, days] of Object.entries(free ?? {})) {
-    masterIds.add(professionalId);
-    for (const [day, times] of Object.entries(days ?? {})) {
-      if (!byDateTime.has(day)) byDateTime.set(day, new Map());
-      const dayMap = byDateTime.get(day)!;
-      for (const time of times ?? []) {
-        const list = dayMap.get(time) ?? [];
-        list.push(professionalId);
-        dayMap.set(time, list);
-      }
+  const errors: string[] = [];
+  for (const attempt of attempts) {
+    const params = buildFreeTimeQueryParams(query, {
+      nearestDayOnly: attempt.nearestDayOnly,
+      publicEmployees: attempt.publicEmployees,
+      includeServices: attempt.includeServices,
+    });
+    try {
+      const raw = await bpFetch<unknown>('GET', '/employees/free_time', { query: params });
+      return assertFreeTimePayload(raw);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`${attempt.label}: ${message}`);
+      log.warn(
+        {
+          err,
+          attempt: attempt.label,
+          date: query.date,
+          location: query.branchId,
+          services: query.services.map((s) => s.id),
+        },
+        'BeautyPro free_time attempt failed',
+      );
     }
   }
 
-  for (const [day, timeMap] of byDateTime) {
-    const daySlots: CrmSlot[] = [];
-    for (const [time, masters] of [...timeMap.entries()].sort(([a], [b]) =>
-      a.localeCompare(b),
-    )) {
-      daySlots.push({ date: day, time, masterIds: masters });
-    }
-    slots[day] = daySlots;
-  }
-
-  return { slots, masterIds };
+  throw new Error(
+    `BeautyPro free_time failed after ${attempts.length} attempts: ${errors.join(' | ')}`.slice(
+      0,
+      600,
+    ),
+  );
 }
 
 export const beautyproAdapter: CrmAdapter = {
@@ -549,40 +564,7 @@ export const beautyproAdapter: CrmAdapter = {
   },
 
   async getAvailableSlots(query: CrmSlotQuery) {
-    const parts = parseAgentDate(query.date);
-    if (!parts) {
-      throw new Error(`BeautyPro: invalid date "${query.date}" (use DD.MM.YYYY or YYYY-MM-DD)`);
-    }
-
-    let from: Date;
-    let to: Date;
-    if (query.fullMonth) {
-      from = new Date(Date.UTC(parts.y, parts.m - 1, 1, 0, 0, 0));
-      to = new Date(Date.UTC(parts.y, parts.m, 0, 23, 59, 59));
-    } else {
-      from = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 0, 0, 0));
-      to = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 23, 59, 59));
-    }
-
-    const duration = Math.max(
-      ...query.services.map((s) => s.durationMin || 60),
-      15,
-    );
-
-    const free = await bpFetch<FreeTimeResponse>('GET', '/employees/free_time', {
-      query: {
-        from: from.toISOString(),
-        to: to.toISOString(),
-        duration,
-        step: 'auto',
-        location: query.branchId,
-        services: query.services.map((s) => s.id).join(','),
-        public_employees: true,
-        add_now_time: 20,
-        nearest_day_only: !query.fullMonth,
-      },
-    });
-
+    const free = await fetchFreeTimeWithFallbacks(query);
     const { slots, masterIds } = invertFreeTime(free);
 
     let masters: Array<{ id: string; name: string }> = [];
@@ -593,7 +575,6 @@ export const beautyproAdapter: CrmAdapter = {
             fields: 'name,archive,public,roles',
             location: query.branchId,
             role: 'professional',
-            public: true,
             archive: false,
           },
         });

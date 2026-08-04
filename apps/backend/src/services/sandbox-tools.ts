@@ -132,7 +132,10 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
         return { content: `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}` };
       } catch (err) {
         log.error({ err, date }, 'sandbox get_available_slots failed');
-        return { content: '[get_available_slots] ПОМИЛКА: не вдалося отримати слоти' };
+        const detail = err instanceof Error ? err.message : String(err);
+        return {
+          content: `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`,
+        };
       }
     }
 
