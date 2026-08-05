@@ -34,9 +34,19 @@
         </template>
 
         <template #item.role="{ item }">
-          <v-chip size="small" label :color="item.role === 'owner' ? 'primary' : 'secondary'" variant="tonal">
-            {{ item.role === 'owner' ? 'Власник' : 'Менеджер' }}
-          </v-chip>
+          <v-select
+            :model-value="item.role"
+            :items="roleOptions"
+            item-title="title"
+            item-value="value"
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="max-width: 150px"
+            :disabled="roleSavingId === item.id || isLastActiveOwner(item)"
+            :loading="roleSavingId === item.id"
+            @update:model-value="(v: string) => changeRole(item, v)"
+          />
         </template>
 
         <template #item.telegram="{ item }">
@@ -51,7 +61,7 @@
         <template #item.isActive="{ item }">
           <v-switch
             :model-value="item.isActive"
-            :disabled="item.role === 'owner' || togglingId === item.id"
+            :disabled="isLastActiveOwner(item) || togglingId === item.id"
             :loading="togglingId === item.id"
             color="success"
             density="compact"
@@ -222,14 +232,28 @@ const savingEdit = ref(false);
 
 const togglingId = ref<string | null>(null);
 const resetLoadingId = ref<string | null>(null);
+const roleSavingId = ref<string | null>(null);
+
+const roleOptions = [
+  { title: 'Власник', value: 'owner' },
+  { title: 'Менеджер', value: 'manager' },
+];
 
 const headers = [
   { title: 'Користувач', key: 'displayName', sortable: false },
-  { title: 'Роль', key: 'role', sortable: false, width: '120px' },
+  { title: 'Роль', key: 'role', sortable: false, width: '160px' },
   { title: 'Telegram', key: 'telegram', sortable: false, width: '180px' },
   { title: 'Активний', key: 'isActive', sortable: false, width: '110px' },
   { title: 'Дії', key: 'actions', sortable: false, width: '280px' },
 ];
+
+function activeOwnerCount() {
+  return users.value.filter((u) => u.role === 'owner' && u.isActive).length;
+}
+
+function isLastActiveOwner(item: AdminUserRow) {
+  return item.role === 'owner' && item.isActive && activeOwnerCount() <= 1;
+}
 
 async function fetchUsers() {
   loading.value = true;
@@ -291,6 +315,10 @@ async function saveEdit() {
 }
 
 async function toggleActive(item: AdminUserRow, isActive: boolean) {
+  if (!isActive && isLastActiveOwner(item)) {
+    error.value = 'Не можна вимкнути останнього активного власника.';
+    return;
+  }
   togglingId.value = item.id;
   try {
     await api.patch(`/admin/users/${item.id}`, { isActive });
@@ -299,6 +327,23 @@ async function toggleActive(item: AdminUserRow, isActive: boolean) {
     error.value = extractError(err) || 'Не вдалося змінити статус';
   } finally {
     togglingId.value = null;
+  }
+}
+
+async function changeRole(item: AdminUserRow, role: string) {
+  if (role === item.role) return;
+  if (item.role === 'owner' && role === 'manager' && isLastActiveOwner(item)) {
+    error.value = 'Не можна знизити роль останнього активного власника.';
+    return;
+  }
+  roleSavingId.value = item.id;
+  try {
+    await api.patch(`/admin/users/${item.id}`, { role });
+    await fetchUsers();
+  } catch (err: unknown) {
+    error.value = extractError(err) || 'Не вдалося змінити роль';
+  } finally {
+    roleSavingId.value = null;
   }
 }
 
@@ -349,7 +394,8 @@ function formatExpiry(iso: string) {
 
 function extractError(err: unknown): string {
   if (err && typeof err === 'object' && 'response' in err) {
-    const data = (err as { response?: { data?: { error?: string } } }).response?.data;
+    const data = (err as { response?: { data?: { error?: string; code?: string } } }).response
+      ?.data;
     if (data?.error) return data.error;
   }
   return '';

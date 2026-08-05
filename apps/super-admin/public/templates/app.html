@@ -131,6 +131,7 @@
                   <td data-label="Actions">
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="openTenantUsersModal(t)" title="Користувачі панелі тенанта (ролі)">👥 Users</button>
                       <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
                       </button>
@@ -210,6 +211,7 @@
                   <td data-label="Actions">
                     <div class="actions-cell">
                       <button class="btn btn-ghost btn-sm" @click="openChat(t)" title="Supervisor-бот: діагностика інстансу">🩺 Supervisor</button>
+                      <button class="btn btn-ghost btn-sm" @click="openTenantUsersModal(t)" title="Користувачі панелі тенанта (ролі)">👥 Users</button>
                       <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
                       </button>
@@ -978,6 +980,68 @@
       <div v-else style="color:var(--muted);font-size:13px">Loading...</div>
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="claudeHealth.open=false">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tenant admin users modal -->
+  <div class="modal-overlay" v-if="tenantUsersModal.open" @click.self="!tenantUsersModal.savingId && closeTenantUsersModal()">
+    <div class="modal" style="width:min(720px,96vw)">
+      <h2>👥 Users — {{ tenantUsersModal.tenant ? tenantUsersModal.tenant.name : '' }}</h2>
+      <p style="font-size:13px;color:var(--muted);margin:-4px 0 12px">
+        Ролі панелі тенанта. Має лишатися щонайменше один активний власник (owner).
+      </p>
+      <div v-if="tenantUsersModal.error" style="color:var(--danger);font-size:13px;margin-bottom:10px;white-space:pre-wrap">
+        {{ tenantUsersModal.error }}
+      </div>
+      <div v-if="tenantUsersModal.loading" style="color:var(--muted);font-size:13px">Loading...</div>
+      <div v-else-if="!tenantUsersModal.users.length" style="color:var(--muted);font-size:13px">Немає користувачів або тенант недоступний.</div>
+      <div v-else style="overflow:auto;max-height:55vh">
+        <table class="data-table" style="width:100%;font-size:13px">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>Active</th>
+              <th>Telegram</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in tenantUsersModal.users" :key="u.id">
+              <td>
+                <div style="font-weight:600">{{ u.displayName || '—' }}</div>
+                <div style="font-family:monospace;font-size:12px;color:var(--muted)">{{ u.username }}</div>
+              </td>
+              <td>
+                <select
+                  :value="u.role"
+                  :disabled="tenantUsersModal.savingId===u.id || (u.role==='owner' && isLastActiveOwner(u))"
+                  @change="setTenantUserRole(u, $event.target.value)"
+                  style="background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 8px"
+                >
+                  <option value="owner">owner</option>
+                  <option value="manager">manager</option>
+                </select>
+              </td>
+              <td>
+                <input
+                  type="checkbox"
+                  :checked="u.isActive"
+                  :disabled="tenantUsersModal.savingId===u.id || (u.isActive && isLastActiveOwner(u))"
+                  @change="setTenantUserActive(u, $event.target.checked)"
+                />
+              </td>
+              <td style="font-size:12px;color:var(--muted)">
+                <span v-if="u.tgUsername">@{{ u.tgUsername }}</span>
+                <span v-else-if="u.tgUserId">id {{ u.tgUserId }}</span>
+                <span v-else>—</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" :disabled="!!tenantUsersModal.savingId" @click="closeTenantUsersModal()">Close</button>
       </div>
     </div>
   </div>

@@ -17,6 +17,7 @@ import { createLinks } from './composables/links.js';
 import { createLeads } from './composables/leads.js';
 import { createAccess } from './composables/access.js';
 import { createChat } from './composables/chat.js';
+import { createTenantUsers } from './composables/tenant-users.js';
 import { createWorkers } from './composables/workers.js';
 
 /** Vue setup() — wires shared state + domain composables. */
@@ -45,6 +46,14 @@ export function setup() {
     tick: 0,
   });
   const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
+  const tenantUsersModal = reactive({
+    open: false,
+    loading: false,
+    savingId: null,
+    tenant: null,
+    users: [],
+    error: '',
+  });
   const chatMessages = ref(null);
   const deployLogEl = ref(null);
   const tenantModalOverlay = ref(null);
@@ -206,6 +215,11 @@ export function setup() {
     nextTick,
   });
 
+  const tenantUsersApi = createTenantUsers({
+    tenantUsersModal,
+    authHeaders,
+  });
+
   function goPage(p) {
     if (!VALID_PAGES.includes(p)) return;
     page.value = p;
@@ -258,7 +272,7 @@ export function setup() {
   return {
     auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
     deployLogElapsed: deployApi.deployLogElapsed,
-    chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
+    chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, tenantUsersModal, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
     tenantModalOverlay, slugInputEl,
     fieldHints, portDefaults,
     portRegistryRows: tenantsApi.portRegistryRows,
@@ -281,6 +295,11 @@ export function setup() {
     openChat: chatApi.openChat,
     sendChat: chatApi.sendChat,
     checkClaudeHealth: chatApi.checkClaudeHealth,
+    openTenantUsersModal: tenantUsersApi.openTenantUsersModal,
+    closeTenantUsersModal: tenantUsersApi.closeTenantUsersModal,
+    setTenantUserRole: tenantUsersApi.setTenantUserRole,
+    setTenantUserActive: tenantUsersApi.setTenantUserActive,
+    isLastActiveOwner: tenantUsersApi.isLastActiveOwner,
     accessLabel: accessApi.accessLabel,
     accessClass: accessApi.accessClass,
     openAccessModal: accessApi.openAccessModal,

@@ -711,4 +711,86 @@ export async function tenantsRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  // Proxy tenant admin users list for Super Admin UI.
+  app.get<{ Params: { id: string } }>(
+    '/api/tenants/:id/admin-users',
+    auth,
+    async (req, reply) => {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+      if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+      if (!config.SUPERVISOR_SHARED_SECRET) {
+        return reply.status(503).send({
+          error: 'SUPERVISOR_SHARED_SECRET is not set in super-admin .env',
+        });
+      }
+
+      try {
+        const server = await getServerForTenant(tenant.serverId);
+        const apiBase = resolveTenantApiUrl(tenant, server);
+        const res = await fetch(`${apiBase}/supervisor/admin-users`, {
+          headers: { 'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET },
+          signal: AbortSignal.timeout(15_000),
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return reply.status(res.status).send({
+            error: data?.error || `Tenant returned ${res.status}`,
+            code: data?.code,
+          });
+        }
+        return data;
+      } catch (err: any) {
+        return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
+      }
+    },
+  );
+
+  // Proxy role / isActive patch for a tenant admin user.
+  app.patch<{
+    Params: { id: string; userId: string };
+    Body: { role?: 'owner' | 'manager'; isActive?: boolean };
+  }>('/api/tenants/:id/admin-users/:userId', auth, async (req, reply) => {
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+    if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+    if (!config.SUPERVISOR_SHARED_SECRET) {
+      return reply.status(503).send({
+        error: 'SUPERVISOR_SHARED_SECRET is not set in super-admin .env',
+      });
+    }
+
+    const body = req.body ?? {};
+    if (body.role === undefined && body.isActive === undefined) {
+      return reply.status(400).send({ error: 'role or isActive required' });
+    }
+
+    try {
+      const server = await getServerForTenant(tenant.serverId);
+      const apiBase = resolveTenantApiUrl(tenant, server);
+      const res = await fetch(`${apiBase}/supervisor/admin-users/${req.params.userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Supervisor-Token': config.SUPERVISOR_SHARED_SECRET,
+        },
+        body: JSON.stringify({
+          ...(body.role !== undefined ? { role: body.role } : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return reply.status(res.status).send({
+          error: data?.error || `Tenant returned ${res.status}`,
+          code: data?.code,
+        });
+      }
+      return data;
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
+    }
+  });
 }

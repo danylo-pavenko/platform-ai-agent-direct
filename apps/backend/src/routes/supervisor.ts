@@ -21,10 +21,13 @@
  */
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { getClaudeAuthStatus } from '../services/claude-auth.js';
 import { config } from '../config.js';
+import { toAdminUserPublic } from '../lib/admin-user.js';
+import { assertNotRemovingLastActiveOwner } from '../lib/admin-user-guards.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -364,4 +367,59 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
 
     return { reply: response.text, snapshotAt: snapshot.generatedAt };
   });
+
+  // GET /admin-users — list tenant admin accounts for Super Admin UI
+  app.get('/admin-users', async (request, reply) => {
+    if (!requireSupervisorToken(request, reply)) return;
+    const users = await prisma.adminUser.findMany({
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    });
+    return { data: users.map(toAdminUserPublic) };
+  });
+
+  // PATCH /admin-users/:id — change role / isActive (LAST_OWNER protected)
+  const supervisorPatchSchema = z.object({
+    role: z.enum(['owner', 'manager']).optional(),
+    isActive: z.boolean().optional(),
+  });
+
+  app.patch<{ Params: { id: string }; Body: unknown }>(
+    '/admin-users/:id',
+    async (request, reply) => {
+      if (!requireSupervisorToken(request, reply)) return;
+
+      const parsed = supervisorPatchSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid body' });
+      }
+      if (parsed.data.role === undefined && parsed.data.isActive === undefined) {
+        return reply.code(400).send({ error: 'No changes' });
+      }
+
+      const existing = await prisma.adminUser.findUnique({
+        where: { id: request.params.id },
+      });
+      if (!existing) {
+        return reply.code(404).send({ error: 'User not found' });
+      }
+
+      const lastOwner = await assertNotRemovingLastActiveOwner(existing, {
+        role: parsed.data.role,
+        isActive: parsed.data.isActive,
+      });
+      if (lastOwner) {
+        return reply.code(400).send(lastOwner);
+      }
+
+      const updated = await prisma.adminUser.update({
+        where: { id: existing.id },
+        data: {
+          ...(parsed.data.role !== undefined ? { role: parsed.data.role } : {}),
+          ...(parsed.data.isActive !== undefined ? { isActive: parsed.data.isActive } : {}),
+        },
+      });
+
+      return { user: toAdminUserPublic(updated) };
+    },
+  );
 }

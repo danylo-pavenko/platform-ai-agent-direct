@@ -9,6 +9,7 @@ import {
   TELEGRAM_LINK_CODE_TTL_MS,
   toAdminUserPublic,
 } from '../lib/admin-user.js';
+import { assertNotRemovingLastActiveOwner } from '../lib/admin-user-guards.js';
 
 const createBodySchema = z.object({
   displayName: z.string().trim().max(80).optional(),
@@ -17,6 +18,7 @@ const createBodySchema = z.object({
 const patchBodySchema = z.object({
   displayName: z.string().trim().max(80).nullable().optional(),
   isActive: z.boolean().optional(),
+  role: z.enum(['owner', 'manager']).optional(),
   resetPassword: z.boolean().optional(),
 });
 
@@ -82,21 +84,18 @@ export async function adminUsersRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(404).send({ error: 'User not found' });
       }
 
-      if (existing.role === 'owner' && parsed.data.isActive === false) {
-        const activeOwners = await prisma.adminUser.count({
-          where: { role: 'owner', isActive: true },
-        });
-        if (activeOwners <= 1) {
-          return reply.code(400).send({
-            error: 'Не можна вимкнути останнього власника.',
-            code: 'LAST_OWNER',
-          });
-        }
+      const lastOwner = await assertNotRemovingLastActiveOwner(existing, {
+        role: parsed.data.role,
+        isActive: parsed.data.isActive,
+      });
+      if (lastOwner) {
+        return reply.code(400).send(lastOwner);
       }
 
       const data: {
         displayName?: string | null;
         isActive?: boolean;
+        role?: 'owner' | 'manager';
         passwordHash?: string;
       } = {};
 
@@ -108,6 +107,9 @@ export async function adminUsersRoutes(app: FastifyInstance): Promise<void> {
       }
       if (parsed.data.isActive !== undefined) {
         data.isActive = parsed.data.isActive;
+      }
+      if (parsed.data.role !== undefined) {
+        data.role = parsed.data.role;
       }
 
       let password: string | undefined;
