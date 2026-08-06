@@ -24,6 +24,7 @@ import { isAgentFallbackReply } from '../lib/agent-fallback.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { sendText } from './instagram.js';
+import { beginIgTypingIndicator } from './ig-typing-indicator.js';
 import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
 import {
@@ -311,6 +312,12 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const now = new Date();
       const outOfHours = !isWithinWorkingHours(now, hours);
 
+      const igTyping = await beginIgTypingIndicator({
+        channel: conversation.channel,
+        recipientId: client.igUserId,
+      });
+
+      try {
       const [activeSystemPrompt, runtimeGeneration] = await Promise.all([
         getActiveSystemPrompt(),
         getPromptRuntimeGeneration(),
@@ -522,6 +529,9 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         'Silence remarketing follow-up sent via agent',
       );
       return 'sent';
+      } finally {
+        await igTyping.end();
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await markJob(jobId, 'failed', msg).catch(() => undefined);

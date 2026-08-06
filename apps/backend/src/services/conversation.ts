@@ -4,7 +4,7 @@ import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude, type ClaudeCallContext, type ClaudeRequest } from './claude.js';
 import { sendText } from './instagram.js';
-import { beginIgTypingIndicator } from './ig-typing-indicator.js';
+import { beginIgTypingIndicator, stopIgTypingBeforeSend } from './ig-typing-indicator.js';
 import {
   buildRuntimePrompt,
   getWorkingHours,
@@ -307,6 +307,13 @@ async function handleIncomingMessageImpl(
 
   const { client } = conversation;
 
+  /** Clear coalesce bootstrap typing when this turn will not produce a bot reply. */
+  const clearTypingOnSkip = async (): Promise<void> => {
+    if (client.igUserId) {
+      await stopIgTypingBeforeSend(client.igUserId);
+    }
+  };
+
   // Remember conversation language once (heuristic from inbound text).
   if (!client.preferredLanguage && messageText.trim()) {
     const detected = detectClientLanguage(messageText);
@@ -404,6 +411,7 @@ async function handleIncomingMessageImpl(
       });
       if (!refreshed) {
         log.error({ conversationId }, 'Conversation not found after handoff auto-return');
+        await clearTypingOnSkip();
         return 'released';
       }
       conversation = refreshed;
@@ -425,6 +433,7 @@ async function handleIncomingMessageImpl(
           ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
           : [],
       }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
+      await clearTypingOnSkip();
       return 'skipped';
     }
   }
@@ -435,6 +444,7 @@ async function handleIncomingMessageImpl(
       { conversationId, state: conversation.state },
       'Conversation closed or paused, ignoring',
     );
+    await clearTypingOnSkip();
     return 'skipped';
   }
 
@@ -445,6 +455,7 @@ async function handleIncomingMessageImpl(
       { conversationId, igUsername: client.igUsername },
       'Username on bot ignore list — skipping bot response',
     );
+    await clearTypingOnSkip();
     return 'skipped';
   }
 
@@ -1883,6 +1894,8 @@ async function handleIncomingMessageImpl(
       ) {
         suppressCustomerSend = true;
         clientFacingText = AGENT_FALLBACK_RETRY_NOTE;
+        // Stop typing immediately — no customer message will clear it via sendText.
+        await igTyping.end();
         log.warn(
           {
             event: 'bot_fallback_suppressed',

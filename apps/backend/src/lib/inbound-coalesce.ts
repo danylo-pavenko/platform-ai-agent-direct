@@ -6,12 +6,14 @@ import { beginIgTypingIndicator } from '../services/ig-typing-indicator.js';
 import { runConversationTurnSerialized } from './conversation-turn-queue.js';
 import {
   computeCoalesceDelayMs,
+  shouldBootstrapIgTyping,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
 
 export {
   computeCoalesceDelayMs,
   joinInboundBatch,
+  shouldBootstrapIgTyping,
   type JoinedInboundBatch,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
@@ -161,10 +163,19 @@ async function bootstrapTyping(conversationId: string): Promise<void> {
       where: { id: conversationId },
       select: {
         channel: true,
+        state: true,
         client: { select: { igUserId: true } },
       },
     });
     if (!conversation?.client.igUserId) return;
+    // Handoff / closed / paused: never start typing — early skip has no finally end().
+    if (!shouldBootstrapIgTyping(conversation.state)) {
+      log.debug(
+        { conversationId, state: conversation.state },
+        'Skipping coalesce typing bootstrap — conversation not in bot state',
+      );
+      return;
+    }
     await beginIgTypingIndicator({
       channel: conversation.channel,
       recipientId: conversation.client.igUserId,

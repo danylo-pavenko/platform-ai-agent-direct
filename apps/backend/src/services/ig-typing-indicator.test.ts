@@ -111,4 +111,14 @@ describe('beginIgTypingIndicator', () => {
     await vi.advanceTimersByTimeAsync(TYPING_KEEPALIVE_MS * 2);
     expect(sendTypingOn).not.toHaveBeenCalled();
   });
+
+  it('returns the same session handle on repeated begin for one recipient', async () => {
+    vi.mocked(isSendTypingIndicatorEnabled).mockResolvedValue(true);
+    const a = await beginIgTypingIndicator({ channel: 'ig', recipientId: 'ig-user-1' });
+    const b = await beginIgTypingIndicator({ channel: 'ig', recipientId: 'ig-user-1' });
+    expect(a).toBe(b);
+    expect(markSeen).toHaveBeenCalledTimes(1);
+    expect(sendTypingOn).toHaveBeenCalledTimes(1);
+    await a.end();
+  });
 });

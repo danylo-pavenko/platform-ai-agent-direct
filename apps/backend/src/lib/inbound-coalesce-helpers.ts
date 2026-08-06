@@ -35,6 +35,11 @@ const IG_CONTEXT_PRIORITY: Record<IgInboundKind, number> = {
   reaction: 1,
 };
 
+/** Only bot-owned IG threads should show typing during coalesce wait. */
+export function shouldBootstrapIgTyping(state: string): boolean {
+  return state === 'bot';
+}
+
 /**
  * Delay until the next coalesce flush.
  * Fires on silence after the last mid, capped by max-wait from burst start.

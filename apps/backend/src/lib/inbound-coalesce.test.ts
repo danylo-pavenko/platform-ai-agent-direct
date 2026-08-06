@@ -2,8 +2,18 @@ import { describe, expect, it } from 'vitest';
 import {
   computeCoalesceDelayMs,
   joinInboundBatch,
+  shouldBootstrapIgTyping,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
+
+describe('shouldBootstrapIgTyping', () => {
+  it('allows typing only for bot-owned conversations', () => {
+    expect(shouldBootstrapIgTyping('bot')).toBe(true);
+    expect(shouldBootstrapIgTyping('handoff')).toBe(false);
+    expect(shouldBootstrapIgTyping('closed')).toBe(false);
+    expect(shouldBootstrapIgTyping('paused')).toBe(false);
+  });
+});
 
 describe('computeCoalesceDelayMs', () => {
   it('returns silence delay when under max-wait', () => {
