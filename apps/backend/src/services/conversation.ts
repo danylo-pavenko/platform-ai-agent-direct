@@ -85,10 +85,13 @@ import {
   releaseInboundClaim,
 } from '../lib/inbound-coalesce.js';
 import {
+  AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveBotFallbacks,
   formatBotFailureDetail,
   isAgentFallbackReply,
+  isCustomerVisibleFallbackReply,
   shouldHandoffAfterAgentFallback,
+  shouldSuppressDuplicateCustomerFallback,
   type BotFailureCode,
 } from '../lib/agent-fallback.js';
 import { isClaudeVisionImagePath } from '../lib/claude-vision.js';
@@ -1788,6 +1791,7 @@ async function handleIncomingMessageImpl(
   // ── 11. Send response ─────────────────────────────────────────────
   let botFailureCode: BotFailureCode | null = null;
   let botFailureDetail: string | null = null;
+  let suppressCustomerSend = false;
 
   if (outputValidationFailure) {
     botFailureCode = 'output_validation';
@@ -1797,18 +1801,7 @@ async function handleIncomingMessageImpl(
       agentText: responseText,
       gateReason: gated.reason,
     });
-    log.warn(
-      {
-        event: 'bot_fallback_sent',
-        conversationId,
-        clientId: client.id,
-        botFailureCode,
-        botFailureDetail,
-        clientMessage: messageText.slice(0, 300),
-      },
-      'Bot sent safe replacement after output validation failure',
-    );
-  } else if (agentFallback && isAgentFallbackReply(clientFacingText)) {
+  } else if (agentFallback && isCustomerVisibleFallbackReply(clientFacingText)) {
     botFailureCode = agentFallback;
     botFailureDetail = formatBotFailureDetail({
       code: agentFallback,
@@ -1816,29 +1809,93 @@ async function handleIncomingMessageImpl(
       clientMessage: messageText,
       agentText: responseText,
     });
-    log.warn(
-      {
-        event: 'bot_fallback_sent',
-        conversationId,
-        clientId: client.id,
-        botFailureCode,
-        errorDetail: agentErrorDetail ?? null,
-        botFailureDetail,
-        clientMessage: messageText.slice(0, 300),
-        fallbackText: clientFacingText,
-      },
-      'Bot sent canned fallback reply to client',
-    );
   }
 
-  try {
-    await sendText(client.igUserId, clientFacingText);
-  } catch (err) {
-    log.error({ err, conversationId }, 'Failed to send bot response to Instagram');
-    // Still persist the message even if delivery failed
+  // Retries after 429/timeout: keep trying Claude, but do not spam the same
+  // canned "manager will reply" line to the customer again for this inbound.
+  if (
+    CUSTOMER_CHANNELS.has(conversation.channel) &&
+    isCustomerVisibleFallbackReply(clientFacingText)
+  ) {
+    const lastInbound = await prisma.message.findFirst({
+      where: { conversationId, direction: 'in', sender: 'client' },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (lastInbound) {
+      const priorBotOuts = await prisma.message.findMany({
+        where: {
+          conversationId,
+          direction: 'out',
+          sender: 'bot',
+          createdAt: { gt: lastInbound.createdAt },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { text: true },
+      });
+      if (
+        shouldSuppressDuplicateCustomerFallback({
+          candidateText: clientFacingText,
+          botOutboundsAfterInboundNewestFirst: priorBotOuts.map((m) => m.text ?? ''),
+        })
+      ) {
+        suppressCustomerSend = true;
+        clientFacingText = AGENT_FALLBACK_RETRY_NOTE;
+        log.warn(
+          {
+            event: 'bot_fallback_suppressed',
+            conversationId,
+            clientId: client.id,
+            botFailureCode,
+            errorDetail: agentErrorDetail ?? null,
+            botFailureDetail,
+            clientMessage: messageText.slice(0, 300),
+          },
+          'Suppressed duplicate canned fallback — customer already notified',
+        );
+      }
+    }
   }
 
-  // ── 12. Persist bot message (same text as sent to IG — no literal Markdown) ──
+  if (!suppressCustomerSend) {
+    if (outputValidationFailure) {
+      log.warn(
+        {
+          event: 'bot_fallback_sent',
+          conversationId,
+          clientId: client.id,
+          botFailureCode,
+          botFailureDetail,
+          clientMessage: messageText.slice(0, 300),
+        },
+        'Bot sent safe replacement after output validation failure',
+      );
+    } else if (botFailureCode && botFailureCode !== 'output_validation') {
+      log.warn(
+        {
+          event: 'bot_fallback_sent',
+          conversationId,
+          clientId: client.id,
+          botFailureCode,
+          errorDetail: agentErrorDetail ?? null,
+          botFailureDetail,
+          clientMessage: messageText.slice(0, 300),
+          fallbackText: clientFacingText,
+        },
+        'Bot sent canned fallback reply to client',
+      );
+    }
+
+    try {
+      await sendText(client.igUserId, clientFacingText);
+    } catch (err) {
+      log.error({ err, conversationId }, 'Failed to send bot response to Instagram');
+      // Still persist the message even if delivery failed
+    }
+  }
+
+  // ── 12. Persist bot message (same text as sent to IG — or admin retry note) ──
   await prisma.message.create({
     data: {
       conversationId,

@@ -7,13 +7,48 @@ export const CUSTOMER_FALLBACK_BUSY =
 export const CUSTOMER_FALLBACK_TIMEOUT =
   'Одну хвилинку, менеджер відпише трохи пізніше.';
 
+/**
+ * Admin-only note persisted when a retry would re-send the same canned fallback.
+ * Not sent to the customer; still counts as a non-real bot attempt for retry/handoff.
+ */
+export const AGENT_FALLBACK_RETRY_NOTE =
+  '[agent_retry] Claude ще недоступний — клієнту вже надіслано очікування менеджера.';
+
+export const AGENT_FALLBACK_RETRY_PREFIX = '[agent_retry]';
+
 const FALLBACK_TEXTS = new Set([CUSTOMER_FALLBACK_BUSY, CUSTOMER_FALLBACK_TIMEOUT]);
 
 /** How many fallback replies we send before auto-handoff on the next failure. */
 export const AGENT_FALLBACK_MAX_BEFORE_HANDOFF = 5;
 
-export function isAgentFallbackReply(text: string): boolean {
+export function isSuppressedFallbackRetryNote(text: string): boolean {
+  return text.trim().startsWith(AGENT_FALLBACK_RETRY_PREFIX);
+}
+
+/** Canned text that may be delivered to the customer (not the admin retry note). */
+export function isCustomerVisibleFallbackReply(text: string): boolean {
   return FALLBACK_TEXTS.has(text.trim());
+}
+
+/**
+ * True for canned customer fallbacks and suppressed retry notes —
+ * neither counts as a "real" bot reply for conversation retry.
+ */
+export function isAgentFallbackReply(text: string): boolean {
+  const t = text.trim();
+  return FALLBACK_TEXTS.has(t) || isSuppressedFallbackRetryNote(t);
+}
+
+/**
+ * Skip re-sending a canned fallback to the customer when this inbound
+ * already got one (or a suppressed retry note). Retries may continue.
+ */
+export function shouldSuppressDuplicateCustomerFallback(opts: {
+  candidateText: string;
+  botOutboundsAfterInboundNewestFirst: string[];
+}): boolean {
+  if (!isCustomerVisibleFallbackReply(opts.candidateText)) return false;
+  return opts.botOutboundsAfterInboundNewestFirst.some((t) => isAgentFallbackReply(t));
 }
 
 /** Count trailing bot messages that are agent fallbacks (newest first). */

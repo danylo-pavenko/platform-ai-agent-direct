@@ -1,5 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../config.js', () => ({
+  config: {
+    CONVERSATION_RETRY_ENABLED: true,
+    CONVERSATION_RETRY_INTERVAL_MIN: 5,
+    CONVERSATION_RETRY_MIN_AGE_MS: 120_000,
+    CONVERSATION_RETRY_MAX_AGE_MS: 86_400_000,
+    CONVERSATION_RETRY_BATCH_SIZE: 15,
+    CONVERSATION_RETRY_MAX_BOT_ATTEMPTS: 3,
+  },
+}));
+
+vi.mock('../lib/prisma.js', () => ({ prisma: {} }));
+vi.mock('./claude-auth.js', () => ({ getClaudeAuthStatus: vi.fn() }));
+vi.mock('../lib/inbound-coalesce.js', () => ({
+  clearInboundClaims: vi.fn(),
+  flushInboundBotTurnNow: vi.fn(),
+}));
+
 import {
+  AGENT_FALLBACK_RETRY_NOTE,
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_TIMEOUT,
 } from '../lib/agent-fallback.js';
@@ -75,6 +95,36 @@ describe('evaluateConversationRetryNeed', () => {
       baseOpts,
     );
     expect(result).toEqual({ needed: true, reason: 'ok', inboundAt });
+  });
+
+  it('needs retry when suppressed retry notes follow the first fallback', () => {
+    const inboundAt = at(0);
+    const result = evaluateConversationRetryNeed(
+      [
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: AGENT_FALLBACK_RETRY_NOTE,
+          createdAt: at(120_000),
+        },
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: CUSTOMER_FALLBACK_TIMEOUT,
+          createdAt: at(60_000),
+        },
+        {
+          direction: 'in',
+          sender: 'client',
+          text: 'Завтра о 15:00, майстер Іванка',
+          createdAt: inboundAt,
+        },
+      ],
+      at(300_000).getTime(),
+      baseOpts,
+    );
+    expect(result.needed).toBe(true);
+    expect(result.reason).toBe('ok');
   });
 
   it('skips when a real bot reply was sent after inbound', () => {
@@ -156,5 +206,41 @@ describe('evaluateConversationRetryNeed', () => {
       baseOpts,
     );
     expect(result.reason).toBe('max_attempts');
+  });
+
+  it('counts suppressed retry notes toward max bot attempts', () => {
+    const inboundAt = at(0);
+    const result = evaluateConversationRetryNeed(
+      [
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: AGENT_FALLBACK_RETRY_NOTE,
+          createdAt: at(180_000),
+        },
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: AGENT_FALLBACK_RETRY_NOTE,
+          createdAt: at(120_000),
+        },
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: CUSTOMER_FALLBACK_TIMEOUT,
+          createdAt: at(60_000),
+        },
+        {
+          direction: 'in',
+          sender: 'client',
+          text: 'Ало',
+          createdAt: inboundAt,
+        },
+      ],
+      at(300_000).getTime(),
+      baseOpts,
+    );
+    expect(result.reason).toBe('max_attempts');
+    expect(result.needed).toBe(false);
   });
 });
