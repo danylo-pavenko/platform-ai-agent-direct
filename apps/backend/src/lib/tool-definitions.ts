@@ -142,7 +142,7 @@ const SET_CONVERSATION_BRANCH: ToolDefinition = {
 const SEARCH_SERVICES: ToolDefinition = {
   name: 'search_services',
   description:
-    'Пошук послуг у CRM (назва, ціна, тривалість). Викликай коли клієнт питає про послугу, ціну або процедуру.',
+    'Пошук послуг у CRM (назва, ціна, тривалість). Викликай у тій самій відповіді, коли клієнт питає про послугу, ціну або вже назвав процедуру. Не пиши «зараз пошукаю» без цього виклику.',
   parameters: {
     type: 'object',
     properties: {

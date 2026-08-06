@@ -3,6 +3,7 @@ import {
   CUSTOMER_SAFE_META_FALLBACK,
   gateCustomerFacingReply,
   looksLikeAssistantMetaReasoning,
+  redactLeakedInternalIds,
   sanitizeCustomerFacingReply,
   stripAssistantMetaReasoning,
   stripMarkdownCodeFences,
@@ -100,6 +101,24 @@ describe('sanitizeCustomerFacingReply', () => {
   });
 });
 
+describe('redactLeakedInternalIds', () => {
+  it('scrubs product/offer/service/master ids but keeps prices', () => {
+    const { text, redacted } = redactLeakedInternalIds(
+      'Манікюр 850 грн, product_id=42, [master_id=abc-1] у Олі, purchased_price=100',
+    );
+    expect(redacted).toBe(true);
+    expect(text).not.toMatch(/product_id|master_id/i);
+    expect(text).toContain('850 грн');
+    expect(text).toContain('purchased_price=100');
+    expect(text).toContain('у Олі');
+  });
+
+  it('leaves clean copy untouched', () => {
+    const raw = 'На завтра є 14:00 у Анастасії, 930 грн.';
+    expect(redactLeakedInternalIds(raw)).toEqual({ text: raw, redacted: false });
+  });
+});
+
 describe('gateCustomerFacingReply', () => {
   it('passes clean Ukrainian replies through', () => {
     const raw = 'Добрий день! Чим можу допомогти?';
@@ -107,6 +126,7 @@ describe('gateCustomerFacingReply', () => {
       text: raw,
       rejected: false,
       reason: 'ok',
+      redactedInternals: false,
     });
   });
 
@@ -122,11 +142,23 @@ describe('gateCustomerFacingReply', () => {
     expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
   });
 
-  it('rejects leaked product_id internals', () => {
-    const gated = gateCustomerFacingReply('Беру product_id=42, purchased_price=100');
-    expect(gated.rejected).toBe(true);
-    expect(gated.reason).toBe('leaked_internals');
-    expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
+  it('redacts leaked IDs but still sends the customer text', () => {
+    const gated = gateCustomerFacingReply(
+      'Беру product_id=42 на манікюр за 850 грн у Олі',
+    );
+    expect(gated.rejected).toBe(false);
+    expect(gated.reason).toBe('ok');
+    expect(gated.redactedInternals).toBe(true);
+    expect(gated.text).not.toMatch(/product_id/i);
+    expect(gated.text).toContain('850 грн');
+    expect(gated.text).toContain('у Олі');
+  });
+
+  it('allows prices including purchased_price wording', () => {
+    const gated = gateCustomerFacingReply('Ціна 930 грн, purchased_price орієнтовно така сама.');
+    expect(gated.rejected).toBe(false);
+    expect(gated.text).toContain('930 грн');
+    expect(gated.text).toContain('purchased_price');
   });
 
   it('keeps Ukrainian reply after stripping English meta preamble', () => {

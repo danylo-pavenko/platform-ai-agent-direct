@@ -49,6 +49,7 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 - Новий клієнт: get_available_slots без master_id (найближчі вікна або день, який назвав клієнт) → підтвердження → book_appointment; master_id лише якщо клієнт обрав майстра зі слотів.
 - Клієнту показуй лише імена майстрів; ids — тільки в tool args.
 - Не вигадуй окремі tools на кшталт get_master_availability — лише get_available_slots.master_id.
+- Заборонено filler «зараз пошукаю/перевірю» без search_services / get_available_slots у тій самій відповіді. Платформа один раз форсить recovery, якщо агент пообіцяв пошук без tool_call.
 
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.

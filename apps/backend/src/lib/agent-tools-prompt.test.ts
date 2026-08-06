@@ -47,4 +47,11 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/Повторний клієнт/);
     expect(prompt).toMatch(/master_id/);
   });
+
+  it('forbids deferred catalog promises without search_services in booking', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/Заборонено писати клієнту/);
+    expect(prompt).toContain('search_services');
+    expect(prompt).toMatch(/ТІЙ САМІЙ відповіді/);
+  });
 });

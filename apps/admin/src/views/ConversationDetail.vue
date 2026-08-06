@@ -197,9 +197,21 @@
             >
               Очистити переписку
             </v-btn>
+            <v-chip
+              v-if="debugEnabled"
+              size="x-small"
+              color="secondary"
+              variant="tonal"
+              prepend-icon="mdi-bug"
+            >
+              debug_enabled
+            </v-chip>
           </div>
           <div class="text-caption text-medium-emphasis">
-            <template v-if="isGloballyIgnored">
+            <template v-if="debugEnabled">
+              Debug увімкнено — у чаті видно ходи агента (tools / rounds). Без `?debug_enabled=true` ці нотатки приховані.
+            </template>
+            <template v-else-if="isGloballyIgnored">
               @{{ conversation.client.igUsername }} у чорному списку в Налаштуваннях — бот не відповідає незалежно від перемикача.
             </template>
             <template v-else-if="conversation.state === 'handoff'">
@@ -235,7 +247,7 @@
           </div>
 
           <div
-            v-for="msg in messages"
+            v-for="msg in visibleMessages"
             :key="msg.id"
             class="mb-3"
             :class="messageAlignment(msg)"
@@ -254,10 +266,16 @@
                 flat
                 rounded="lg"
                 variant="tonal"
-                color="info"
+                :color="isAgentTurnDebugNote(msg.text) ? 'secondary' : 'info'"
                 class="system-note-card text-left pa-3 mx-auto"
               >
-                <div class="text-caption font-weight-medium mb-1">Системна нота (лише адмінка)</div>
+                <div class="text-caption font-weight-medium mb-1">
+                  {{
+                    isAgentTurnDebugNote(msg.text)
+                      ? 'Debug ходу агента (лише адмінка)'
+                      : 'Системна нота (лише адмінка)'
+                  }}
+                </div>
                 <div class="text-caption system-note-text">{{ formatChatPlain(msg.text) }}</div>
               </v-card>
             </div>
@@ -517,11 +535,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, defineComponent, h } from 'vue';
 import type { PropType } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { formatChatPlain } from '@/lib/chatDisplay';
+import { isAgentTurnDebugNote } from '@/lib/agentTurnDebug';
 import {
   getMessageMediaItems,
   mediaKindIcon,
@@ -529,8 +548,16 @@ import {
 } from '@/lib/messageMedia';
 
 const { mobile } = useDisplay();
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+
+/** Opt-in debug UI: /conversations/:id?debug_enabled=true (same as sandbox). */
+const debugEnabled = computed(() => {
+  const q = route.query.debug_enabled;
+  const raw = Array.isArray(q) ? q[0] : q;
+  return raw === 'true' || raw === '1';
+});
 
 // ---------------------------------------------------------------------------
 // Types
@@ -614,6 +641,11 @@ const props = defineProps<{ id: string }>();
 
 const conversation = ref<ConversationData | null>(null);
 const messages = ref<Message[]>([]);
+/** Hide agent-turn debug system notes unless ?debug_enabled=true */
+const visibleMessages = computed(() => {
+  if (debugEnabled.value) return messages.value;
+  return messages.value.filter((m) => !isAgentTurnDebugNote(m.text));
+});
 const loading = ref(false);
 const replyText = ref('');
 const sending = ref(false);
@@ -773,10 +805,10 @@ function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
 }
 
-/** Vision/CRM debug notes are multiline; keep short status chips compact. */
+/** Vision/CRM/agent-turn debug notes are multiline; keep short status chips compact. */
 function isMultilineSystemNote(text: string | null | undefined): boolean {
   if (!text) return false;
-  return text.includes('\n') || text.startsWith('🔍');
+  return text.includes('\n') || text.startsWith('🔍') || isAgentTurnDebugNote(text);
 }
 
 async function scrollToBottom() {

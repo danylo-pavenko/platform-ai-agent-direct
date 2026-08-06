@@ -5,7 +5,9 @@
  * 1. Claude spawn cwd outside tenant_knowledge (no parent CLAUDE.md walk)
  * 2. Mode-scoped tool instructions in the prompt
  * 3. Anti-injection preamble in prompt-builder
- * 4. This gate — last mile: never ship coding/meta/tool rants to customers
+ * 4. This gate — last mile: redact internal IDs, strip meta/JSON rants;
+ *    replace with safe fallback only when nothing customer-facing remains.
+ *    Prices and human-readable copy pass through.
  */
 
 const META_MARKERS_RE =
@@ -26,8 +28,7 @@ export const CUSTOMER_SAFE_META_FALLBACK =
 export type CustomerFacingGateReason =
   | 'ok'
   | 'empty_after_sanitize'
-  | 'meta_only'
-  | 'leaked_internals';
+  | 'meta_only';
 
 export interface CustomerFacingGateResult {
   /** Text safe to send to the customer (never empty when ok/replaced). */
@@ -35,6 +36,8 @@ export interface CustomerFacingGateResult {
   /** True when original model text was rejected and replaced. */
   rejected: boolean;
   reason: CustomerFacingGateReason;
+  /** True when internal IDs were scrubbed but the reply was still sent. */
+  redactedInternals: boolean;
 }
 
 function latinCount(s: string): number {
@@ -164,29 +167,63 @@ export function sanitizeCustomerFacingReply(text: string): string {
   return collapseBlankLines(s);
 }
 
-const LEAKED_INTERNALS_RE = /product_id|offer_id|purchased_price/i;
+/** Field names that must never reach the customer. Prices / amounts are allowed. */
+const INTERNAL_ID_FIELD =
+  'product_id|offer_id|service_id|master_id|crmBuyerId|crm_buyer_id|crm_external_id';
 
 /**
- * Single outbound contract: scrub + reject meta-only / empty / leaked internals.
+ * Scrub leaked internal IDs from customer-facing text.
+ * Does NOT touch prices, durations, or human-readable names — only id keys/values.
+ */
+export function redactLeakedInternalIds(text: string): { text: string; redacted: boolean } {
+  let redacted = false;
+  let s = text;
+
+  const mark = (): string => {
+    redacted = true;
+    return '';
+  };
+
+  // Bracket form from CRM/tools: [master_id=abc-123], [product_id=9]
+  s = s.replace(new RegExp(`\\[(?:${INTERNAL_ID_FIELD})\\s*=\\s*[^\\]]+\\]`, 'gi'), mark);
+  // Key=value / key: value
+  s = s.replace(new RegExp(`\\b(?:${INTERNAL_ID_FIELD})\\s*[=:]\\s*[\\w-]+`, 'gi'), mark);
+  // Bare field name leftovers
+  s = s.replace(new RegExp(`\\b(?:${INTERNAL_ID_FIELD})\\b`, 'gi'), mark);
+
+  s = s
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/ ?([,.;:!?])/g, '$1')
+    .replace(/\(\s*\)/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return { text: s, redacted };
+}
+
+/**
+ * Single outbound contract: scrub meta/JSON/IDs; replace only when nothing
+ * customer-facing remains. Leaked IDs are redacted in-place (prices pass).
  * Callers should send `result.text` and treat `rejected` as output_validation.
  */
 export function gateCustomerFacingReply(raw: string): CustomerFacingGateResult {
-  if (LEAKED_INTERNALS_RE.test(raw)) {
-    return {
-      text: CUSTOMER_SAFE_META_FALLBACK,
-      rejected: true,
-      reason: 'leaked_internals',
-    };
-  }
+  const { text: withoutIds, redacted } = redactLeakedInternalIds(raw);
+  const scrubbed = sanitizeCustomerFacingReply(withoutIds);
 
-  const scrubbed = sanitizeCustomerFacingReply(raw);
   if (!scrubbed.trim()) {
     return {
       text: CUSTOMER_SAFE_META_FALLBACK,
       rejected: true,
       reason: looksLikeAssistantMetaReasoning(raw.trim()) ? 'meta_only' : 'empty_after_sanitize',
+      redactedInternals: redacted,
     };
   }
 
-  return { text: scrubbed, rejected: false, reason: 'ok' };
+  return {
+    text: scrubbed,
+    rejected: false,
+    reason: 'ok',
+    redactedInternals: redacted,
+  };
 }

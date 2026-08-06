@@ -56,4 +56,18 @@ describe('formatBotFailureDetail', () => {
     expect(detail).toContain('перевантажений');
     expect(detail).toContain('queue overloaded');
   });
+
+  it('includes original agent text for output_validation', () => {
+    const detail = formatBotFailureDetail({
+      code: 'output_validation',
+      gateReason: 'meta_only',
+      clientMessage: 'Привіт! На коли є вільно на манікюр?',
+      agentText:
+        'This is not a coding task. I should respond in character. product_id=9',
+    });
+    expect(detail).toContain('мета-роздуми');
+    expect(detail).toContain('Привіт! На коли є вільно на манікюр?');
+    expect(detail).toContain('Текст агента:');
+    expect(detail).toContain('product_id=9');
+  });
 });

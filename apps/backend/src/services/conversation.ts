@@ -57,6 +57,18 @@ import {
 } from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
+import {
+  buildDeferredLookupNudge,
+  looksLikeDeferredLookupPromise,
+} from '../lib/deferred-lookup.js';
+import {
+  createAgentTurnDebugCollector,
+  formatAgentTurnDebugNote,
+  recordTurnRound,
+  recordTurnTool,
+  shouldPersistAgentTurnDebug,
+  type AgentTurnDebugCollector,
+} from '../lib/agent-turn-debug.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -416,6 +428,9 @@ async function handleIncomingMessageImpl(
     recipientId: client.igUserId,
   });
 
+  let turnDebug: AgentTurnDebugCollector | null = null;
+  const turnStartedMs = Date.now();
+
   try {
   // Human-like pause before Claude (typing indicator already on).
   const responseDelayMs = resolveResponseDelayMs(agentCfg);
@@ -638,6 +653,11 @@ async function handleIncomingMessageImpl(
   }
 
   const turnStartedAt = new Date();
+  turnDebug = createAgentTurnDebugCollector();
+  // Local non-null alias for the rest of the turn (finally still uses turnDebug).
+  const debug = turnDebug;
+  debug.agentMode = agentCfg.mode;
+  debug.clientMessage = messageText;
 
   const response = await askClaude(
     {
@@ -663,8 +683,22 @@ async function handleIncomingMessageImpl(
   /** First Claude text this turn — used for admin vision debug notes. */
   const firstClaudeText = response.text;
 
+  recordTurnRound(debug, {
+    label: 'first',
+    toolCalls: (response.toolCalls ?? []).map((tc) => tc.name),
+    toolCall: response.toolCalls?.[0]?.name ?? null,
+    textPreview: response.text,
+    fallback: response.fallback ?? null,
+  });
+
   if (response.toolCalls && response.toolCalls.length > 0) {
-    await runSideEffectToolCalls(response.toolCalls, client.id, conversationId, mediaAttachments);
+    await runSideEffectToolCalls(
+      response.toolCalls,
+      client.id,
+      conversationId,
+      mediaAttachments,
+      turnDebug,
+    );
 
     if (
       await tryTerminalToolCalls(response.toolCalls, {
@@ -673,6 +707,7 @@ async function handleIncomingMessageImpl(
         agentMode: agentCfg.mode,
         clientMessage: stripMarkdownForInstagram(response.text),
         turnStartedAt,
+        turnDebug: debug,
       })
     ) {
       return 'completed';
@@ -735,6 +770,7 @@ async function handleIncomingMessageImpl(
             '[search_catalog] ПОМИЛКА: каталог тимчасово недоступний. Відповідай за знімком каталогу в промпті.';
         }
       }
+      recordTurnTool(debug, 'search_catalog', searchCatalogCall.args, toolResultContent);
 
       const historyWithResult = [
         ...history,
@@ -764,7 +800,7 @@ async function handleIncomingMessageImpl(
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -772,6 +808,7 @@ async function handleIncomingMessageImpl(
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
+            turnDebug: debug,
           })
         ) {
           return 'completed';
@@ -806,6 +843,7 @@ async function handleIncomingMessageImpl(
           toolResultContent = '[get_delivery_cost] ПОМИЛКА: сервіс тимчасово недоступний';
         }
       }
+      recordTurnTool(debug, 'get_delivery_cost', deliveryCostCall.args, toolResultContent);
 
       // Second Claude call: inject tool result so Claude can reply to the client
       const historyWithResult = [
@@ -833,7 +871,7 @@ async function handleIncomingMessageImpl(
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -841,6 +879,7 @@ async function handleIncomingMessageImpl(
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
+            turnDebug: debug,
           })
         ) {
           return 'completed';
@@ -862,6 +901,7 @@ async function handleIncomingMessageImpl(
         log.error({ err, clientId: client.id }, 'get_client_crm_history failed');
         toolResultContent = '[get_client_crm_history] ПОМИЛКА: не вдалося отримати історію CRM';
       }
+      recordTurnTool(debug, 'get_client_crm_history', crmHistoryCall.args, toolResultContent);
 
       const response2 = await askClaude(
         {
@@ -882,8 +922,14 @@ async function handleIncomingMessageImpl(
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      recordTurnRound(debug, {
+        label: 'after_crm_history',
+        toolCalls: (response2.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: response2.text,
+        fallback: response2.fallback ?? null,
+      });
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -891,6 +937,7 @@ async function handleIncomingMessageImpl(
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
+            turnDebug: debug,
           })
         ) {
           return 'completed';
@@ -918,6 +965,7 @@ async function handleIncomingMessageImpl(
           toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
         }
       }
+      recordTurnTool(debug, 'search_services', searchServicesCall.args, toolResultContent);
 
       const response2 = await askClaude(
         {
@@ -935,8 +983,14 @@ async function handleIncomingMessageImpl(
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      recordTurnRound(debug, {
+        label: 'after_search_services',
+        toolCalls: (response2.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: response2.text,
+        fallback: response2.fallback ?? null,
+      });
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -944,6 +998,7 @@ async function handleIncomingMessageImpl(
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
+            turnDebug: debug,
           })
         ) {
           return 'completed';
@@ -1003,6 +1058,7 @@ async function handleIncomingMessageImpl(
           }
         }
       }
+      recordTurnTool(debug, 'get_available_slots', slotsCall.args, toolResultContent);
 
       const response2 = await askClaude(
         {
@@ -1020,8 +1076,14 @@ async function handleIncomingMessageImpl(
       responseText = response2.text;
       agentFallback = response2.fallback ?? agentFallback;
       if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+      recordTurnRound(debug, {
+        label: 'after_slots',
+        toolCalls: (response2.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: response2.text,
+        fallback: response2.fallback ?? null,
+      });
       if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments);
+        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
         if (
           await tryTerminalToolCalls(response2.toolCalls, {
             conversationId,
@@ -1029,6 +1091,7 @@ async function handleIncomingMessageImpl(
             agentMode: agentCfg.mode,
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
+            turnDebug: debug,
           })
         ) {
           return 'completed';
@@ -1037,12 +1100,251 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  // Recover once when the model promised a catalog/schedule lookup without tools.
+  const hadLookupToolCall =
+    response.toolCalls?.some(
+      (tc) =>
+        tc.name === 'search_services' ||
+        tc.name === 'search_catalog' ||
+        tc.name === 'get_available_slots',
+    ) ?? false;
+  const canSearchServices = tools.some((t) => t.name === 'search_services');
+  const canSearchCatalog = tools.some((t) => t.name === 'search_catalog');
+
+  if (
+    !agentFallback &&
+    !hadLookupToolCall &&
+    looksLikeDeferredLookupPromise(responseText) &&
+    (canSearchServices || canSearchCatalog)
+  ) {
+    const lookupTool = canSearchServices ? 'search_services' : 'search_catalog';
+    const nudge = buildDeferredLookupNudge(lookupTool);
+    log.warn(
+      { conversationId, lookupTool, stallPreview: responseText.slice(0, 200) },
+      'Deferred lookup promise without tool call — forcing one recovery turn',
+    );
+    debug.stallRecovery = true;
+
+    const recovery = await askClaude(
+      {
+        systemPrompt: prompt,
+        conversationHistory: [
+          ...history,
+          { role: 'user' as const, content: enrichedMessageText },
+          { role: 'assistant' as const, content: responseText },
+        ],
+        userMessage: nudge,
+        tools,
+      },
+      {
+        channel: conversation.channel,
+        conversationId,
+        clientId: client.id,
+        model: agentCfg.claudeModel,
+      },
+    );
+
+    responseText = recovery.text;
+    agentFallback = recovery.fallback ?? agentFallback;
+    if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+    recordTurnRound(debug, {
+      label: 'stall_recovery',
+      toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+      textPreview: recovery.text,
+      fallback: recovery.fallback ?? null,
+    });
+
+    if (recovery.toolCalls?.length) {
+      await runSideEffectToolCalls(recovery.toolCalls, client.id, conversationId, mediaAttachments, debug);
+      if (
+        await tryTerminalToolCalls(recovery.toolCalls, {
+          conversationId,
+          client,
+          agentMode: agentCfg.mode,
+          clientMessage: stripMarkdownForInstagram(recovery.text),
+          turnStartedAt,
+          turnDebug: debug,
+        })
+      ) {
+        return 'completed';
+      }
+
+      const recoverySearchServices = recovery.toolCalls.find((tc) => tc.name === 'search_services');
+      const recoverySearchCatalog = recovery.toolCalls.find((tc) => tc.name === 'search_catalog');
+      const recoverySlots = recovery.toolCalls.find((tc) => tc.name === 'get_available_slots');
+
+      if (recoverySearchServices && canSearchServices) {
+        const query =
+          typeof recoverySearchServices.args.query === 'string'
+            ? recoverySearchServices.args.query.trim()
+            : '';
+        let toolResultContent: string;
+        if (!query) {
+          toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
+        } else {
+          try {
+            const { contextBlock, matchCount } = await searchServicesForContext(query);
+            toolResultContent =
+              matchCount > 0
+                ? `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}`
+                : `[search_services] Нічого не знайдено за «${query}».`;
+          } catch (err) {
+            log.error({ err, query }, 'search_services failed (stall recovery)');
+            toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
+          }
+        }
+        recordTurnTool(debug, 'search_services', recoverySearchServices.args, toolResultContent);
+
+        const afterSearch = await askClaude(
+          {
+            systemPrompt: prompt,
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              {
+                role: 'assistant' as const,
+                content: recovery.text || `[Шукаю послуги: ${query}]`,
+              },
+            ],
+            userMessage: toolResultContent,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = afterSearch.text;
+        agentFallback = afterSearch.fallback ?? agentFallback;
+        if (afterSearch.errorDetail) agentErrorDetail = afterSearch.errorDetail;
+        if (afterSearch.toolCalls?.length) {
+          await runSideEffectToolCalls(
+            afterSearch.toolCalls,
+            client.id,
+            conversationId,
+            mediaAttachments,
+            debug,
+          );
+          if (
+            await tryTerminalToolCalls(afterSearch.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(afterSearch.text),
+              turnStartedAt,
+              turnDebug: debug,
+            })
+          ) {
+            return 'completed';
+          }
+        }
+      } else if (recoverySearchCatalog && canSearchCatalog) {
+        const query =
+          typeof recoverySearchCatalog.args.query === 'string'
+            ? recoverySearchCatalog.args.query.trim()
+            : '';
+        let toolResultContent: string;
+        if (!query) {
+          toolResultContent = '[search_catalog] ПОМИЛКА: порожній запит';
+        } else {
+          try {
+            const { contextBlock, matchCount } = await searchActiveProductsForContext(query);
+            catalogDebug = {
+              query,
+              matchCount,
+              contextBlock,
+              source: 'search_catalog',
+            };
+            toolResultContent =
+              matchCount > 0
+                ? `[search_catalog] РЕЗУЛЬТАТ:\n${contextBlock}`
+                : `[search_catalog] Нічого не знайдено за «${query}».`;
+          } catch (err) {
+            log.error({ err, query }, 'search_catalog failed (stall recovery)');
+            toolResultContent =
+              '[search_catalog] ПОМИЛКА: каталог тимчасово недоступний.';
+          }
+        }
+        recordTurnTool(debug, 'search_catalog', recoverySearchCatalog.args, toolResultContent);
+
+        const afterSearch = await askClaude(
+          {
+            systemPrompt: prompt,
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              {
+                role: 'assistant' as const,
+                content: recovery.text || `[Шукаю в каталозі: ${query}]`,
+              },
+            ],
+            userMessage: toolResultContent,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = afterSearch.text;
+        agentFallback = afterSearch.fallback ?? agentFallback;
+        if (afterSearch.errorDetail) agentErrorDetail = afterSearch.errorDetail;
+        if (afterSearch.toolCalls?.length) {
+          await runSideEffectToolCalls(
+            afterSearch.toolCalls,
+            client.id,
+            conversationId,
+            mediaAttachments,
+            debug,
+          );
+          if (
+            await tryTerminalToolCalls(afterSearch.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(afterSearch.text),
+              turnStartedAt,
+              turnDebug: debug,
+            })
+          ) {
+            return 'completed';
+          }
+        }
+      } else if (recoverySlots && canSearchServices) {
+        // Slots-only recovery: reuse the same date/services parsing path lightly via nudge text.
+        // Full slot handling stays in the primary tool block; here we at least surface the attempt.
+        log.info(
+          { conversationId },
+          'Stall recovery returned get_available_slots — primary path already skipped; answering from recovery text',
+        );
+      }
+    }
+  }
+
   // ── 10. Validate output (customer-facing gate) ─────────────────────
 
   let outputValidationFailure = false;
-  // Single contract: scrub meta/JSON/leaks; never ship English tool/config rants.
+  // Single contract: scrub meta/JSON/IDs; replace only when nothing client-facing remains.
   const gated = gateCustomerFacingReply(responseText);
   let clientFacingText = stripMarkdownForInstagram(gated.text);
+  debug.gateReason = gated.reason;
+  debug.redactedInternals = gated.redactedInternals;
+  debug.agentFallback = agentFallback ?? null;
+  debug.finalReplyPreview = clientFacingText;
+  if (gated.redactedInternals && !gated.rejected) {
+    log.info(
+      {
+        conversationId,
+        originalChars: responseText.length,
+        clientChars: clientFacingText.length,
+      },
+      'Redacted internal IDs from bot reply — sending scrubbed text',
+    );
+  }
   if (gated.rejected) {
     outputValidationFailure = true;
     log.warn(
@@ -1051,6 +1353,7 @@ async function handleIncomingMessageImpl(
         gateReason: gated.reason,
         originalChars: responseText.length,
         clientMessage: messageText.slice(0, 200),
+        agentTextPreview: responseText.slice(0, 500),
       },
       'Bot reply rejected by customer-facing gate — using safe fallback',
     );
@@ -1145,6 +1448,8 @@ async function handleIncomingMessageImpl(
     botFailureDetail = formatBotFailureDetail({
       code: 'output_validation',
       clientMessage: messageText,
+      agentText: responseText,
+      gateReason: gated.reason,
     });
     log.warn(
       {
@@ -1163,6 +1468,7 @@ async function handleIncomingMessageImpl(
       code: agentFallback,
       errorDetail: agentErrorDetail,
       clientMessage: messageText,
+      agentText: responseText,
     });
     log.warn(
       {
@@ -1238,6 +1544,35 @@ async function handleIncomingMessageImpl(
   );
   return 'completed';
   } finally {
+    const debugSnapshot = turnDebug;
+    if (debugSnapshot && shouldPersistAgentTurnDebug(debugSnapshot)) {
+      const note = formatAgentTurnDebugNote(debugSnapshot, {
+        durationMs: Date.now() - turnStartedMs,
+      });
+      await prisma.message
+        .create({
+          data: {
+            conversationId,
+            direction: 'system',
+            sender: 'system',
+            text: note,
+          },
+        })
+        .then(() => {
+          log.info(
+            {
+              conversationId,
+              tools: debugSnapshot.tools.length,
+              rounds: debugSnapshot.rounds.length,
+              stallRecovery: debugSnapshot.stallRecovery,
+            },
+            'Agent turn debug system note persisted',
+          );
+        })
+        .catch((err) =>
+          log.warn({ err, conversationId }, 'persistAgentTurnDebugNote failed (non-fatal)'),
+        );
+    }
     await igTyping.end();
   }
 }
@@ -1339,6 +1674,7 @@ type TerminalToolContext = {
   /** Bot reply shown to the client — used as the order confirmation when collect_order fires. */
   clientMessage?: string;
   turnStartedAt: Date;
+  turnDebug?: AgentTurnDebugCollector | null;
 };
 
 /** Fire-and-forget profile / intent writes — never ends the conversation turn. */
@@ -1347,9 +1683,13 @@ async function runSideEffectToolCalls(
   clientId: string,
   conversationId: string,
   mediaAttachments?: StoredMediaAttachment[],
+  turnDebug?: AgentTurnDebugCollector | null,
 ): Promise<void> {
   const updateInfo = toolCalls.find((tc) => tc.name === 'update_client_info');
   if (updateInfo) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'update_client_info', updateInfo.args, '[update_client_info] queued');
+    }
     const extractedCustomFields: Record<string, unknown> =
       typeof updateInfo.args.custom_fields === 'object' &&
       updateInfo.args.custom_fields !== null &&
@@ -1366,6 +1706,9 @@ async function runSideEffectToolCalls(
 
   const tagClient = toolCalls.find((tc) => tc.name === 'tag_client');
   if (tagClient) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'tag_client', tagClient.args, '[tag_client] queued');
+    }
     handleTagClient(clientId, tagClient.args).catch((err) => {
       log.error({ err, conversationId, clientId }, 'Failed to tag client');
     });
@@ -1373,6 +1716,9 @@ async function runSideEffectToolCalls(
 
   const classifyIntent = toolCalls.find((tc) => tc.name === 'classify_intent');
   if (classifyIntent) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'classify_intent', classifyIntent.args, '[classify_intent] queued');
+    }
     handleClassifyIntent(conversationId, classifyIntent.args).catch((err) => {
       log.error({ err, conversationId }, 'Failed to classify intent');
     });
@@ -1380,6 +1726,14 @@ async function runSideEffectToolCalls(
 
   const setBranch = toolCalls.find((tc) => tc.name === 'set_conversation_branch');
   if (setBranch) {
+    if (turnDebug) {
+      recordTurnTool(
+        turnDebug,
+        'set_conversation_branch',
+        setBranch.args,
+        '[set_conversation_branch] queued',
+      );
+    }
     handleSetConversationBranch(conversationId, setBranch.args).catch((err) => {
       log.error({ err, conversationId }, 'Failed to set conversation branch');
     });
@@ -1387,6 +1741,14 @@ async function runSideEffectToolCalls(
 
   const attachPhoto = toolCalls.find((tc) => tc.name === 'attach_reference_photo');
   if (attachPhoto) {
+    if (turnDebug) {
+      recordTurnTool(
+        turnDebug,
+        'attach_reference_photo',
+        attachPhoto.args,
+        '[attach_reference_photo] queued',
+      );
+    }
     handleAttachReferencePhoto(clientId, conversationId, attachPhoto.args, mediaAttachments).catch(
       (err) => {
         log.error({ err, conversationId, clientId }, 'Failed to attach reference photo');
@@ -1400,7 +1762,7 @@ async function tryTerminalToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   ctx: TerminalToolContext,
 ): Promise<boolean> {
-  const { conversationId, client, agentMode, turnStartedAt } = ctx;
+  const { conversationId, client, agentMode, turnStartedAt, turnDebug } = ctx;
 
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Terminal tool calls skipped — manager took over');
@@ -1409,6 +1771,9 @@ async function tryTerminalToolCalls(
 
   const handoff = toolCalls.find((tc) => tc.name === 'request_handoff');
   if (handoff) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'request_handoff', handoff.args, '[request_handoff] handled');
+    }
     const reason =
       typeof handoff.args.reason === 'string'
         ? handoff.args.reason
@@ -1425,6 +1790,9 @@ async function tryTerminalToolCalls(
 
   const createLocal = toolCalls.find((tc) => tc.name === 'create_local_order');
   if (createLocal && client.igUserId) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'create_local_order', createLocal.args, '[create_local_order] …');
+    }
     const orderId = await handleCreateLocalOrder(
       conversationId,
       client.id,
@@ -1437,11 +1805,22 @@ async function tryTerminalToolCalls(
         clientIgUsername: client.igUsername,
       },
     );
-    if (orderId) return true;
+    if (orderId) {
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'create_local_order') {
+          last.resultPreview = `[create_local_order] ok id=${orderId}`;
+        }
+      }
+      return true;
+    }
   }
 
   const collectOrder = toolCalls.find((tc) => tc.name === 'collect_order');
   if (collectOrder && agentMode === 'sales' && client.igUserId) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'collect_order', collectOrder.args, '[collect_order] …');
+    }
     const orderId = await handleCollectOrder(
       conversationId,
       client.id,
@@ -1449,17 +1828,36 @@ async function tryTerminalToolCalls(
       collectOrder.args,
       { clientMessage: ctx.clientMessage },
     );
-    if (orderId) return true;
+    if (orderId) {
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'collect_order') {
+          last.resultPreview = `[collect_order] ok id=${orderId}`;
+        }
+      }
+      return true;
+    }
   }
 
   const bookAppointment = toolCalls.find((tc) => tc.name === 'book_appointment');
   if (bookAppointment && agentMode === 'booking' && client.igUserId) {
+    if (turnDebug) {
+      recordTurnTool(turnDebug, 'book_appointment', bookAppointment.args, '[book_appointment] …');
+    }
     const appointmentId = await handleBookAppointment(
       conversationId,
       client.id,
       bookAppointment.args,
     );
-    if (appointmentId) return true;
+    if (appointmentId) {
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'book_appointment') {
+          last.resultPreview = `[book_appointment] ok id=${appointmentId}`;
+        }
+      }
+      return true;
+    }
   }
 
   return false;

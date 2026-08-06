@@ -475,7 +475,7 @@ export async function notifyAgentFailure(params: {
         : 'таймаут / помилка Claude';
 
   const detail =
-    failureDetail.length > 700 ? `${failureDetail.slice(0, 700)}…` : failureDetail;
+    failureDetail.length > 1200 ? `${failureDetail.slice(0, 1200)}…` : failureDetail;
   const clientPreview = clientMessage?.trim()
     ? clientMessage.trim().slice(0, 200)
     : null;

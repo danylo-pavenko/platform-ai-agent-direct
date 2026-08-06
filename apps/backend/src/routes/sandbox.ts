@@ -285,6 +285,8 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
               code: 'output_validation',
               errorDetail: gated.reason,
               clientMessage: lastMessage.content,
+              agentText: finalText,
+              gateReason: gated.reason,
             }),
             errorDetail: gated.reason,
           };

@@ -46,9 +46,20 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
       'book_appointment — коли клієнт підтвердив слот запису (дата/час/послуга/філія за потреби). Передай master_id з get_available_slots або історії, якщо клієнт йде до конкретного майстра.',
     );
   }
+  if (names.has('search_services')) {
+    rules.push(
+      'Заборонено писати клієнту «зараз пошукаю / перевірю / шукаю в каталозі / зараз буде» без <tool_call> search_services у ТІЙ САМІЙ відповіді. Якщо послуга вже зрозуміла — одразу виклич search_services і в наступному кроці назви ціну/тривалість з результату. Уточнювальне питання можна ставити БЕЗ обіцянки «зараз пошукаю».',
+    );
+  }
+  if (names.has('search_catalog')) {
+    rules.push(
+      'Заборонено писати «зараз пошукаю / перевірю в каталозі» без <tool_call> search_catalog у ТІЙ САМІЙ відповіді. Якщо товар/запит зрозумілий — одразу search_catalog і відповідай фактами з результату.',
+    );
+  }
   if (names.has('get_available_slots')) {
     rules.push(
       'Повторний клієнт з master_id в історії — get_available_slots з цим master_id (слоти того майстра). Новий клієнт або без майстра — без master_id (найближчі вікна / день, який назвав клієнт). Клієнту лише імена майстрів, не id.',
+      'Заборонено обіцяти «зараз перевірю вікна / розклад» без <tool_call> get_available_slots у ТІЙ САМІЙ відповіді (коли вже є послуга з id + duration_min і дата/період).',
     );
   }
   if (names.has('submit_brief')) {
