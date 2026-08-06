@@ -7,10 +7,11 @@
       <div class="flex-grow-1 min-width-0">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
         <div class="page-subtitle d-none d-sm-block">
-          Редагує системний промпт (мета-агент). Щоб перевірити відповіді клієнту — відкрий пісочницю.
+          Мета-агент пропонує правки (diff). Активний системний промпт змінюється лише після
+          «Зберегти» / «Активувати». Перевірка відповідей клієнту — у пісочниці.
         </div>
         <div v-if="mobile" class="page-subtitle-mobile d-sm-none">
-          Редагує промпт · тест відповідей — у пісочниці
+          Diff → Зберегти/Активувати · тест — пісочниця
         </div>
       </div>
       <v-btn
@@ -165,9 +166,12 @@
             density="compact"
             class="mt-2"
             closable
-            @click:close="lastError = null"
+            @click:close="lastError = null; lastErrorDetail = null"
           >
             <div class="text-body-2">{{ lastError }}</div>
+            <div v-if="lastErrorDetail" class="text-caption text-medium-emphasis mt-1">
+              {{ lastErrorDetail }}
+            </div>
             <v-btn
               v-if="lastFailedMessage"
               size="small"
@@ -177,6 +181,18 @@
             >
               Повторити
             </v-btn>
+          </v-alert>
+
+          <v-alert
+            v-if="postReplyHint && !lastError && !loading"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mt-2"
+            closable
+            @click:close="postReplyHint = null"
+          >
+            {{ postReplyHint }}
           </v-alert>
         </div>
 
@@ -420,7 +436,9 @@ const loading = ref(false);
 const streamStageLabel = ref('');
 const streamingText = ref('');
 const lastError = ref<string | null>(null);
+const lastErrorDetail = ref<string | null>(null);
 const lastFailedMessage = ref<string | null>(null);
+const postReplyHint = ref<string | null>(null);
 const currentDiffs = ref<SuggestedDiff[]>([]);
 const appliedResults = ref<Map<number, AppliedResult>>(new Map());
 const applyingIndex = ref<number | null>(null);
@@ -441,6 +459,9 @@ const snackbarText = ref('');
 const snackbarColor = ref('success');
 
 let abortController: AbortController | null = null;
+/** Optimistic user bubble for the in-flight request (cleared on done / cancel / error). */
+let inFlightOptimisticUser: ChatMessage | null = null;
+let streamTerminalReceived = false;
 
 const unappliedDiffs = computed(() =>
   currentDiffs.value.filter((_, i) => !appliedResults.value.has(i)),
@@ -550,12 +571,21 @@ async function loadActiveBase() {
   }
 }
 
+function removeInFlightOptimistic() {
+  if (!inFlightOptimisticUser) return;
+  const target = inFlightOptimisticUser;
+  messages.value = messages.value.filter((m) => m !== target);
+  inFlightOptimisticUser = null;
+}
+
 function cancelStream() {
   abortController?.abort();
   abortController = null;
   loading.value = false;
   streamStageLabel.value = '';
   streamingText.value = '';
+  removeInFlightOptimistic();
+  void loadSession();
   showSnackbar('Запит скасовано', 'warning');
 }
 
@@ -564,8 +594,12 @@ async function sendMessage() {
   if (!text || loading.value || sessionLoading.value) return;
 
   lastError.value = null;
+  lastErrorDetail.value = null;
   lastFailedMessage.value = null;
+  postReplyHint.value = null;
   const optimisticUser: ChatMessage = { role: 'user', content: text };
+  inFlightOptimisticUser = optimisticUser;
+  streamTerminalReceived = false;
   messages.value.push(optimisticUser);
   inputText.value = '';
   loading.value = true;
@@ -598,6 +632,8 @@ async function sendMessage() {
           void scrollToBottom();
         },
         onDone: (payload) => {
+          streamTerminalReceived = true;
+          inFlightOptimisticUser = null;
           if (payload.session) {
             applySessionState(payload.session as TeachSessionState);
           } else {
@@ -612,21 +648,53 @@ async function sendMessage() {
           }
           streamingText.value = '';
           streamStageLabel.value = '';
+
+          if (currentDiffs.value.length > 0) {
+            diffSheetOpen.value = true;
+            postReplyHint.value =
+              'Є запропоновані правки — збережіть як чернетку або активуйте, щоб змінити системний промпт.';
+            showSnackbar('Є запропоновані правки — збережіть або активуйте', 'info');
+          } else {
+            postReplyHint.value =
+              'Відповідь без правок промпту — уточніть, що саме змінити в правилах (конкретний фрагмент).';
+          }
         },
         onError: (err) => {
-          messages.value = messages.value.filter((m) => m !== optimisticUser);
+          streamTerminalReceived = true;
+          removeInFlightOptimistic();
+          if (err.aborted) {
+            // cancelStream already snackbars + reloads; avoid duplicate error UI
+            return;
+          }
           lastFailedMessage.value = text;
           lastError.value = err.error || 'Помилка зв\'язку з мета-агентом';
+          const detailParts = [err.fallback, err.errorDetail].filter(
+            (p): p is string => typeof p === 'string' && p.trim().length > 0,
+          );
+          lastErrorDetail.value = detailParts.length > 0 ? detailParts.join(' · ') : null;
           showSnackbar(lastError.value, 'error');
+          void loadSession();
         },
       },
       signal,
     );
+
+    // Defense in depth if streamTeachChat ever returns without terminal handlers.
+    if (!streamTerminalReceived && !signal.aborted) {
+      removeInFlightOptimistic();
+      lastFailedMessage.value = text;
+      lastError.value = 'Стрім обірвався без відповіді. Спробуйте ще раз.';
+      showSnackbar(lastError.value, 'error');
+      await loadSession();
+    } else if (!streamTerminalReceived && signal.aborted) {
+      removeInFlightOptimistic();
+      await loadSession();
+    }
   } catch (e: any) {
+    removeInFlightOptimistic();
     if (e?.name === 'AbortError') {
-      messages.value = messages.value.filter((m) => m !== optimisticUser);
+      await loadSession();
     } else {
-      messages.value = messages.value.filter((m) => m !== optimisticUser);
       lastFailedMessage.value = text;
       lastError.value = e?.message || 'Помилка стріму';
       await loadSession();

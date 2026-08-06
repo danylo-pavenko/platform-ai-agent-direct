@@ -2,6 +2,15 @@
  * SSE client for POST /meta-agent/teach/chat/stream (JWT via fetch).
  */
 
+import {
+  resolveTeachStreamClose,
+  type TeachStreamCloseKind,
+} from '@/lib/teach-stream-close';
+import { consumeSse } from '@/lib/teach-stream-sse';
+
+export type { TeachStreamCloseKind };
+export { resolveTeachStreamClose, consumeSse };
+
 export type TeachStreamStage = {
   stage: string;
   label: string;
@@ -16,81 +25,24 @@ export type TeachStreamDone = {
   fallback?: string | null;
 };
 
+export type TeachStreamError = {
+  error: string;
+  fallback?: string;
+  errorDetail?: string | null;
+  /** Client aborted the request (Cancel / navigation). */
+  aborted?: boolean;
+};
+
 export type TeachStreamHandlers = {
   onStage?: (stage: TeachStreamStage) => void;
   onDelta?: (text: string) => void;
   onDone?: (payload: TeachStreamDone) => void;
-  onError?: (payload: { error: string; fallback?: string; errorDetail?: string | null }) => void;
+  onError?: (payload: TeachStreamError) => void;
 };
 
 function apiBase(): string {
   const base = import.meta.env.VITE_API_URL || '/api';
   return base.replace(/\/$/, '');
-}
-
-/**
- * Parse SSE chunks from a ReadableStream (event: / data: lines).
- */
-async function consumeSse(
-  body: ReadableStream<Uint8Array>,
-  handlers: {
-    onEvent: (event: string, data: unknown) => void;
-  },
-  signal?: AbortSignal,
-): Promise<void> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let eventName = 'message';
-  let dataLines: string[] = [];
-
-  const flush = () => {
-    if (dataLines.length === 0) {
-      eventName = 'message';
-      return;
-    }
-    const raw = dataLines.join('\n');
-    dataLines = [];
-    const ev = eventName;
-    eventName = 'message';
-    try {
-      handlers.onEvent(ev, JSON.parse(raw));
-    } catch {
-      handlers.onEvent(ev, raw);
-    }
-  };
-
-  try {
-    while (true) {
-      if (signal?.aborted) break;
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let nl: number;
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        let line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        if (line.endsWith('\r')) line = line.slice(0, -1);
-        if (line === '') {
-          flush();
-          continue;
-        }
-        if (line.startsWith(':')) continue;
-        if (line.startsWith('event:')) {
-          eventName = line.slice(6).trim();
-        } else if (line.startsWith('data:')) {
-          dataLines.push(line.slice(5).trimStart());
-        }
-      }
-    }
-    flush();
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 export async function streamTeachChat(
@@ -132,6 +84,9 @@ export async function streamTeachChat(
     return;
   }
 
+  let gotDone = false;
+  let gotError = false;
+
   await consumeSse(
     res.body,
     {
@@ -145,8 +100,10 @@ export async function streamTeachChat(
         } else if (event === 'delta') {
           handlers.onDelta?.(String(payload.text ?? ''));
         } else if (event === 'done') {
+          gotDone = true;
           handlers.onDone?.(payload as unknown as TeachStreamDone);
         } else if (event === 'error') {
+          gotError = true;
           handlers.onError?.({
             error: String(payload.error ?? 'Помилка мета-агента'),
             fallback: typeof payload.fallback === 'string' ? payload.fallback : undefined,
@@ -160,4 +117,21 @@ export async function streamTeachChat(
     },
     signal,
   );
+
+  const closeKind = resolveTeachStreamClose({
+    gotDone,
+    gotError,
+    aborted: signal?.aborted === true,
+  });
+
+  if (closeKind === 'silent_end') {
+    handlers.onError?.({
+      error: 'Стрім обірвався без відповіді. Спробуйте ще раз.',
+    });
+  } else if (closeKind === 'aborted') {
+    handlers.onError?.({
+      error: 'Запит скасовано',
+      aborted: true,
+    });
+  }
 }

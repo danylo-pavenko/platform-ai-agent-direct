@@ -55,6 +55,11 @@ function sseWrite(reply: { raw: NodeJS.WritableStream }, event: string, data: un
   reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+/** Keep proxies from closing idle SSE while Claude generates. */
+function sseComment(reply: { raw: NodeJS.WritableStream }, text: string): void {
+  reply.raw.write(`: ${text}\n\n`);
+}
+
 export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/session',
@@ -222,8 +227,30 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         }
       };
 
+      let userMessageId: string | null = null;
+      let heartbeat: ReturnType<typeof setInterval> | null = null;
+      const stopHeartbeat = () => {
+        if (heartbeat) {
+          clearInterval(heartbeat);
+          heartbeat = null;
+        }
+      };
+
       try {
         send('stage', { stage: 'context', label: 'Готую контекст…' });
+        heartbeat = setInterval(() => {
+          if (!clientOpen) {
+            stopHeartbeat();
+            return;
+          }
+          try {
+            sseComment(reply, 'ping');
+          } catch {
+            clientOpen = false;
+            ac.abort();
+            stopHeartbeat();
+          }
+        }, 15_000);
 
         const active = await getOrCreateActiveTeachSession(request.user.id);
         const result = await appendTeachUserMessage(
@@ -231,13 +258,18 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
           request.user.id,
           message.trim(),
         );
-        const { priorMessages, session: sessionAfterUser, userMessageId } = result;
+        const { priorMessages, session: sessionAfterUser } = result;
+        userMessageId = result.userMessageId;
 
         const activePrompt = await prisma.systemPrompt.findFirst({
           where: { isActive: true },
         });
         if (!activePrompt) {
+          if (userMessageId) {
+            await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
+          }
           send('error', { error: 'No active prompt found' });
+          stopHeartbeat();
           reply.raw.end();
           return;
         }
@@ -280,6 +312,8 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
           ac.signal,
         );
 
+        stopHeartbeat();
+
         if (ac.signal.aborted || !clientOpen) {
           // Client gone — still persist assistant text if we have something useful
           const text = (response.text || streamed).trim();
@@ -290,7 +324,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
               parsed.reply || text,
               parsed.diffs.length > 0 ? parsed.diffs : undefined,
             );
-          } else {
+          } else if (userMessageId) {
             await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
           }
           try {
@@ -302,7 +336,9 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         }
 
         if (response.fallback) {
-          await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
+          if (userMessageId) {
+            await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
+          }
           send('error', {
             error: response.text,
             fallback: response.fallback,
@@ -336,7 +372,11 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         });
         reply.raw.end();
       } catch (err) {
+        stopHeartbeat();
         app.log.error({ err }, 'Meta-agent teach stream failed');
+        if (userMessageId) {
+          await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
+        }
         send('error', {
           error: err instanceof Error ? err.message : 'Teach stream failed',
         });
