@@ -49,6 +49,8 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
   if (names.has('search_services')) {
     rules.push(
       'Заборонено писати клієнту «зараз пошукаю / перевірю / шукаю в каталозі / зараз буде» без <tool_call> search_services у ТІЙ САМІЙ відповіді. Якщо послуга вже зрозуміла — одразу виклич search_services і в наступному кроці назви ціну/тривалість з результату. Уточнювальне питання можна ставити БЕЗ обіцянки «зараз пошукаю».',
+      'Якщо search_services повернув порожньо — НЕ вигадуй ціну/назву. Повторюй з коротшим query (манікюр, чистка, педикюр) або request_handoff.',
+      'Якщо клієнт уже назвав дату/час і search_services дав id+duration_min — у наступній відповіді ОБОВʼЯЗКОВО виклич get_available_slots і дай 2–3 конкретні вікна. Не зупиняйся на «зараз перевірю вікна».',
     );
   }
   if (names.has('search_catalog')) {

@@ -53,5 +53,7 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/Заборонено писати клієнту/);
     expect(prompt).toContain('search_services');
     expect(prompt).toMatch(/ТІЙ САМІЙ відповіді/);
+    expect(prompt).toMatch(/get_available_slots/);
+    expect(prompt).toMatch(/НЕ вигадуй ціну/);
   });
 });

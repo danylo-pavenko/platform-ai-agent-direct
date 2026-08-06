@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDeferredLookupNudge,
   looksLikeDeferredLookupPromise,
+  looksLikeDeferredSlotsPromise,
 } from './deferred-lookup.js';
 
 describe('looksLikeDeferredLookupPromise', () => {
@@ -23,7 +24,25 @@ describe('looksLikeDeferredLookupPromise', () => {
 
   it('ignores normal concrete replies', () => {
     expect(
-      looksLikeDeferredLookupPromise('Класичний манікюр з покриттям — 850 грн, близько години. На який день зручно?'),
+      looksLikeDeferredLookupPromise(
+        'Класичний манікюр з покриттям — 850 грн, близько години. На який день зручно?',
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('looksLikeDeferredSlotsPromise', () => {
+  it('catches “зараз перевірю вільні вікна” without concrete times', () => {
+    expect(
+      looksLikeDeferredSlotsPromise(
+        'Записую тебе на гігієнічну чистку, 850 грн. Зараз перевірю вільні вікна на завтра після обіду 🙏',
+      ),
+    ).toBe(true);
+  });
+
+  it('ignores replies that already list times', () => {
+    expect(
+      looksLikeDeferredSlotsPromise('На завтра після обіду є 14:00 у Олі або 16:30 у Марини.'),
     ).toBe(false);
   });
 });
@@ -32,5 +51,6 @@ describe('buildDeferredLookupNudge', () => {
   it('names the required tool', () => {
     expect(buildDeferredLookupNudge('search_services')).toContain('search_services');
     expect(buildDeferredLookupNudge('search_catalog')).toContain('search_catalog');
+    expect(buildDeferredLookupNudge('get_available_slots')).toContain('get_available_slots');
   });
 });

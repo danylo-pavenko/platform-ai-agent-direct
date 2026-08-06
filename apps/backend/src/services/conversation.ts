@@ -31,11 +31,6 @@ import {
   cancelPendingFollowUpsSafe,
   scheduleFollowUpAfterBotOutboundSafe,
 } from '../lib/follow-up-schedule.js';
-import {
-  getAvailableSlotsForContext,
-  searchServicesForContext,
-} from './service-search.js';
-import { resolveBookingBranchCrmId } from './booking-branch.js';
 import { handleCollectOrder, handleCreateLocalOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
@@ -60,6 +55,7 @@ import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import {
   buildDeferredLookupNudge,
   looksLikeDeferredLookupPromise,
+  looksLikeDeferredSlotsPromise,
 } from '../lib/deferred-lookup.js';
 import {
   createAgentTurnDebugCollector,
@@ -69,6 +65,11 @@ import {
   shouldPersistAgentTurnDebug,
   type AgentTurnDebugCollector,
 } from '../lib/agent-turn-debug.js';
+import {
+  executeGetAvailableSlotsTool,
+  formatSearchServicesToolResult,
+  searchServicesWithFallback,
+} from './booking-lookup.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -955,11 +956,14 @@ async function handleIncomingMessageImpl(
         toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
       } else {
         try {
-          const { contextBlock, matchCount } = await searchServicesForContext(query);
-          toolResultContent =
-            matchCount > 0
-              ? `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}`
-              : `[search_services] Нічого не знайдено за «${query}».`;
+          const found = await searchServicesWithFallback(query);
+          toolResultContent = formatSearchServicesToolResult({
+            query,
+            matchCount: found.matchCount,
+            contextBlock: found.contextBlock,
+            usedQuery: found.usedQuery,
+            broadenedFrom: found.broadenedFrom,
+          });
         } catch (err) {
           log.error({ err, query }, 'search_services failed');
           toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
@@ -989,76 +993,140 @@ async function handleIncomingMessageImpl(
         textPreview: response2.text,
         fallback: response2.fallback ?? null,
       });
-      if (response2.toolCalls?.length) {
-        await runSideEffectToolCalls(response2.toolCalls, client.id, conversationId, mediaAttachments, debug);
+
+      // Continue booking chain: after search results Claude often calls get_available_slots.
+      let followUps = response2.toolCalls ?? [];
+      let followAssistant = response2.text || `[Шукаю послуги: ${query}]`;
+      for (let chain = 0; chain < 3 && followUps.length > 0; chain++) {
+        await runSideEffectToolCalls(followUps, client.id, conversationId, mediaAttachments, debug);
         if (
-          await tryTerminalToolCalls(response2.toolCalls, {
+          await tryTerminalToolCalls(followUps, {
             conversationId,
             client,
             agentMode: agentCfg.mode,
-            clientMessage: stripMarkdownForInstagram(response2.text),
+            clientMessage: stripMarkdownForInstagram(followAssistant),
             turnStartedAt,
             turnDebug: debug,
           })
         ) {
           return 'completed';
         }
+
+        const nextSlots = followUps.find((tc) => tc.name === 'get_available_slots');
+        const nextSearch = followUps.find((tc) => tc.name === 'search_services');
+
+        if (nextSlots) {
+          const slotsResult = await executeGetAvailableSlotsTool({
+            args: nextSlots.args,
+            branchCrmExternalId: conversation.branch?.crmExternalId,
+          });
+          recordTurnTool(debug, 'get_available_slots', nextSlots.args, slotsResult);
+          const afterSlots = await askClaude(
+            {
+              systemPrompt: prompt,
+              conversationHistory: [
+                ...history,
+                { role: 'user' as const, content: enrichedMessageText },
+                { role: 'assistant' as const, content: followAssistant },
+              ],
+              userMessage: slotsResult,
+              tools,
+            },
+            {
+              channel: conversation.channel,
+              conversationId,
+              clientId: client.id,
+              model: agentCfg.claudeModel,
+            },
+          );
+          responseText = afterSlots.text;
+          agentFallback = afterSlots.fallback ?? agentFallback;
+          if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
+          recordTurnRound(debug, {
+            label: 'after_slots',
+            toolCalls: (afterSlots.toolCalls ?? []).map((tc) => tc.name),
+            textPreview: afterSlots.text,
+            fallback: afterSlots.fallback ?? null,
+          });
+          followUps = afterSlots.toolCalls ?? [];
+          followAssistant = afterSlots.text || followAssistant;
+          continue;
+        }
+
+        if (nextSearch) {
+          const q2 =
+            typeof nextSearch.args.query === 'string' ? nextSearch.args.query.trim() : '';
+          let searchResult: string;
+          if (!q2) {
+            searchResult = '[search_services] ПОМИЛКА: порожній запит';
+          } else {
+            try {
+              const found = await searchServicesWithFallback(q2);
+              searchResult = formatSearchServicesToolResult({
+                query: q2,
+                matchCount: found.matchCount,
+                contextBlock: found.contextBlock,
+                usedQuery: found.usedQuery,
+                broadenedFrom: found.broadenedFrom,
+              });
+            } catch (err) {
+              log.error({ err, query: q2 }, 'search_services follow-up failed');
+              searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
+            }
+          }
+          recordTurnTool(debug, 'search_services', nextSearch.args, searchResult);
+          const afterSearch = await askClaude(
+            {
+              systemPrompt: prompt,
+              conversationHistory: [
+                ...history,
+                { role: 'user' as const, content: enrichedMessageText },
+                { role: 'assistant' as const, content: followAssistant },
+              ],
+              userMessage: searchResult,
+              tools,
+            },
+            {
+              channel: conversation.channel,
+              conversationId,
+              clientId: client.id,
+              model: agentCfg.claudeModel,
+            },
+          );
+          responseText = afterSearch.text;
+          agentFallback = afterSearch.fallback ?? agentFallback;
+          if (afterSearch.errorDetail) agentErrorDetail = afterSearch.errorDetail;
+          recordTurnRound(debug, {
+            label: 'after_search_services_retry',
+            toolCalls: (afterSearch.toolCalls ?? []).map((tc) => tc.name),
+            textPreview: afterSearch.text,
+            fallback: afterSearch.fallback ?? null,
+          });
+          followUps = afterSearch.toolCalls ?? [];
+          followAssistant = afterSearch.text || followAssistant;
+          continue;
+        }
+
+        break;
       }
     }
 
-    if (slotsCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall && !crmHistoryCall) {
-      const date = typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
-      const rawServices = Array.isArray(slotsCall.args.services) ? slotsCall.args.services : [];
-      const services = rawServices.flatMap((raw) => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-        const o = raw as Record<string, unknown>;
-        const id =
-          typeof o.id === 'string'
-            ? o.id.trim()
-            : typeof o.id === 'number' && Number.isFinite(o.id)
-              ? String(o.id)
-              : '';
-        const durationMin =
-          typeof o.duration_min === 'number' ? o.duration_min : Number(o.duration_min) || 60;
-        if (!id) return [];
-        return [{ id, durationMin }];
+    if (
+      slotsCall &&
+      !handoff &&
+      !collectOrder &&
+      !createLocalOrder &&
+      !bookAppointment &&
+      !searchServicesCall &&
+      !crmHistoryCall
+    ) {
+      const toolResultContent = await executeGetAvailableSlotsTool({
+        args: slotsCall.args,
+        branchCrmExternalId: conversation.branch?.crmExternalId,
       });
-
-      let toolResultContent: string;
-      if (!date || services.length === 0) {
-        toolResultContent = '[get_available_slots] ПОМИЛКА: потрібні date та services';
-      } else {
-        const branchCrmId = await resolveBookingBranchCrmId(
-          conversation.branch?.crmExternalId,
-        );
-        if (!branchCrmId) {
-          toolResultContent =
-            '[get_available_slots] ПОМИЛКА: немає філії/локації CRM. Обери філію через set_conversation_branch або налаштуй default location.';
-        } else {
-          try {
-            const masterIdRaw = slotsCall.args.master_id;
-            const masterId =
-              typeof masterIdRaw === 'string'
-                ? masterIdRaw.trim()
-                : typeof masterIdRaw === 'number' && Number.isFinite(masterIdRaw)
-                  ? String(masterIdRaw)
-                  : undefined;
-            const slotsText = await getAvailableSlotsForContext({
-              date,
-              branchCrmId,
-              services,
-              fullMonth: slotsCall.args.full_month === true,
-              masterId: masterId || undefined,
-            });
-            toolResultContent = `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
-          } catch (err) {
-            log.error({ err, date }, 'get_available_slots failed');
-            const detail = err instanceof Error ? err.message : String(err);
-            toolResultContent = `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`;
-          }
-        }
-      }
       recordTurnTool(debug, 'get_available_slots', slotsCall.args, toolResultContent);
+      const date =
+        typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
 
       const response2 = await askClaude(
         {
@@ -1100,7 +1168,198 @@ async function handleIncomingMessageImpl(
     }
   }
 
-  // Recover once when the model promised a catalog/schedule lookup without tools.
+  const slotsExecuted = debug.tools.some((t) => t.name === 'get_available_slots');
+  const canGetSlots = tools.some((t) => t.name === 'get_available_slots');
+  const canSearchServices = tools.some((t) => t.name === 'search_services');
+  const canSearchCatalog = tools.some((t) => t.name === 'search_catalog');
+
+  // Recover when the model promised free slots but never ran get_available_slots.
+  if (
+    !agentFallback &&
+    canGetSlots &&
+    !slotsExecuted &&
+    looksLikeDeferredSlotsPromise(responseText)
+  ) {
+    const nudge = buildDeferredLookupNudge('get_available_slots');
+    log.warn(
+      { conversationId, stallPreview: responseText.slice(0, 200) },
+      'Deferred slots promise without get_available_slots — forcing recovery',
+    );
+    debug.stallRecovery = true;
+
+    const recovery = await askClaude(
+      {
+        systemPrompt: prompt,
+        conversationHistory: [
+          ...history,
+          { role: 'user' as const, content: enrichedMessageText },
+          { role: 'assistant' as const, content: responseText },
+        ],
+        userMessage: nudge,
+        tools,
+      },
+      {
+        channel: conversation.channel,
+        conversationId,
+        clientId: client.id,
+        model: agentCfg.claudeModel,
+      },
+    );
+
+    responseText = recovery.text;
+    agentFallback = recovery.fallback ?? agentFallback;
+    if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+    recordTurnRound(debug, {
+      label: 'slots_stall_recovery',
+      toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+      textPreview: recovery.text,
+      fallback: recovery.fallback ?? null,
+    });
+
+    if (recovery.toolCalls?.length) {
+      await runSideEffectToolCalls(recovery.toolCalls, client.id, conversationId, mediaAttachments, debug);
+      if (
+        await tryTerminalToolCalls(recovery.toolCalls, {
+          conversationId,
+          client,
+          agentMode: agentCfg.mode,
+          clientMessage: stripMarkdownForInstagram(recovery.text),
+          turnStartedAt,
+          turnDebug: debug,
+        })
+      ) {
+        return 'completed';
+      }
+
+      const recoverySlots = recovery.toolCalls.find((tc) => tc.name === 'get_available_slots');
+      const recoverySearch = recovery.toolCalls.find((tc) => tc.name === 'search_services');
+
+      if (recoverySlots) {
+        const slotsResult = await executeGetAvailableSlotsTool({
+          args: recoverySlots.args,
+          branchCrmExternalId: conversation.branch?.crmExternalId,
+        });
+        recordTurnTool(debug, 'get_available_slots', recoverySlots.args, slotsResult);
+        const afterSlots = await askClaude(
+          {
+            systemPrompt: prompt,
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              { role: 'assistant' as const, content: recovery.text || '[Перевіряю слоти]' },
+            ],
+            userMessage: slotsResult,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = afterSlots.text;
+        agentFallback = afterSlots.fallback ?? agentFallback;
+        if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
+        recordTurnRound(debug, {
+          label: 'after_slots_recovery',
+          toolCalls: (afterSlots.toolCalls ?? []).map((tc) => tc.name),
+          textPreview: afterSlots.text,
+          fallback: afterSlots.fallback ?? null,
+        });
+      } else if (recoverySearch && canSearchServices) {
+        const q =
+          typeof recoverySearch.args.query === 'string' ? recoverySearch.args.query.trim() : '';
+        let searchResult: string;
+        if (!q) {
+          searchResult = '[search_services] ПОМИЛКА: порожній запит';
+        } else {
+          try {
+            const found = await searchServicesWithFallback(q);
+            searchResult = formatSearchServicesToolResult({
+              query: q,
+              matchCount: found.matchCount,
+              contextBlock: found.contextBlock,
+              usedQuery: found.usedQuery,
+              broadenedFrom: found.broadenedFrom,
+            });
+          } catch (err) {
+            log.error({ err, query: q }, 'search_services failed (slots recovery)');
+            searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
+          }
+        }
+        recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
+        const afterSearch = await askClaude(
+          {
+            systemPrompt: prompt,
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              { role: 'assistant' as const, content: recovery.text || '[Шукаю послуги]' },
+            ],
+            userMessage: searchResult,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = afterSearch.text;
+        agentFallback = afterSearch.fallback ?? agentFallback;
+        if (afterSearch.errorDetail) agentErrorDetail = afterSearch.errorDetail;
+        recordTurnRound(debug, {
+          label: 'after_search_in_slots_recovery',
+          toolCalls: (afterSearch.toolCalls ?? []).map((tc) => tc.name),
+          textPreview: afterSearch.text,
+          fallback: afterSearch.fallback ?? null,
+        });
+
+        const chainedSlots = afterSearch.toolCalls?.find((tc) => tc.name === 'get_available_slots');
+        if (chainedSlots) {
+          const slotsResult = await executeGetAvailableSlotsTool({
+            args: chainedSlots.args,
+            branchCrmExternalId: conversation.branch?.crmExternalId,
+          });
+          recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
+          const afterSlots = await askClaude(
+            {
+              systemPrompt: prompt,
+              conversationHistory: [
+                ...history,
+                { role: 'user' as const, content: enrichedMessageText },
+                {
+                  role: 'assistant' as const,
+                  content: afterSearch.text || '[Перевіряю слоти]',
+                },
+              ],
+              userMessage: slotsResult,
+              tools,
+            },
+            {
+              channel: conversation.channel,
+              conversationId,
+              clientId: client.id,
+              model: agentCfg.claudeModel,
+            },
+          );
+          responseText = afterSlots.text;
+          agentFallback = afterSlots.fallback ?? agentFallback;
+          if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
+          recordTurnRound(debug, {
+            label: 'after_slots_chained',
+            toolCalls: (afterSlots.toolCalls ?? []).map((tc) => tc.name),
+            textPreview: afterSlots.text,
+            fallback: afterSlots.fallback ?? null,
+          });
+        }
+      }
+    }
+  }
+
+  // Recover once when the model promised a catalog lookup without any lookup tools.
   const hadLookupToolCall =
     response.toolCalls?.some(
       (tc) =>
@@ -1108,12 +1367,11 @@ async function handleIncomingMessageImpl(
         tc.name === 'search_catalog' ||
         tc.name === 'get_available_slots',
     ) ?? false;
-  const canSearchServices = tools.some((t) => t.name === 'search_services');
-  const canSearchCatalog = tools.some((t) => t.name === 'search_catalog');
 
   if (
     !agentFallback &&
     !hadLookupToolCall &&
+    !debug.stallRecovery &&
     looksLikeDeferredLookupPromise(responseText) &&
     (canSearchServices || canSearchCatalog)
   ) {
@@ -1171,7 +1429,7 @@ async function handleIncomingMessageImpl(
 
       const recoverySearchServices = recovery.toolCalls.find((tc) => tc.name === 'search_services');
       const recoverySearchCatalog = recovery.toolCalls.find((tc) => tc.name === 'search_catalog');
-      const recoverySlots = recovery.toolCalls.find((tc) => tc.name === 'get_available_slots');
+      const recoverySlotsCall = recovery.toolCalls.find((tc) => tc.name === 'get_available_slots');
 
       if (recoverySearchServices && canSearchServices) {
         const query =
@@ -1183,11 +1441,14 @@ async function handleIncomingMessageImpl(
           toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
         } else {
           try {
-            const { contextBlock, matchCount } = await searchServicesForContext(query);
-            toolResultContent =
-              matchCount > 0
-                ? `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}`
-                : `[search_services] Нічого не знайдено за «${query}».`;
+            const found = await searchServicesWithFallback(query);
+            toolResultContent = formatSearchServicesToolResult({
+              query,
+              matchCount: found.matchCount,
+              contextBlock: found.contextBlock,
+              usedQuery: found.usedQuery,
+              broadenedFrom: found.broadenedFrom,
+            });
           } catch (err) {
             log.error({ err, query }, 'search_services failed (stall recovery)');
             toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
@@ -1238,6 +1499,39 @@ async function handleIncomingMessageImpl(
             })
           ) {
             return 'completed';
+          }
+
+          const chainedSlots = afterSearch.toolCalls.find((tc) => tc.name === 'get_available_slots');
+          if (chainedSlots) {
+            const slotsResult = await executeGetAvailableSlotsTool({
+              args: chainedSlots.args,
+              branchCrmExternalId: conversation.branch?.crmExternalId,
+            });
+            recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
+            const afterSlots = await askClaude(
+              {
+                systemPrompt: prompt,
+                conversationHistory: [
+                  ...history,
+                  { role: 'user' as const, content: enrichedMessageText },
+                  {
+                    role: 'assistant' as const,
+                    content: afterSearch.text || '[Перевіряю слоти]',
+                  },
+                ],
+                userMessage: slotsResult,
+                tools,
+              },
+              {
+                channel: conversation.channel,
+                conversationId,
+                clientId: client.id,
+                model: agentCfg.claudeModel,
+              },
+            );
+            responseText = afterSlots.text;
+            agentFallback = afterSlots.fallback ?? agentFallback;
+            if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
           }
         }
       } else if (recoverySearchCatalog && canSearchCatalog) {
@@ -1314,13 +1608,33 @@ async function handleIncomingMessageImpl(
             return 'completed';
           }
         }
-      } else if (recoverySlots && canSearchServices) {
-        // Slots-only recovery: reuse the same date/services parsing path lightly via nudge text.
-        // Full slot handling stays in the primary tool block; here we at least surface the attempt.
-        log.info(
-          { conversationId },
-          'Stall recovery returned get_available_slots — primary path already skipped; answering from recovery text',
+      } else if (recoverySlotsCall && canGetSlots) {
+        const slotsResult = await executeGetAvailableSlotsTool({
+          args: recoverySlotsCall.args,
+          branchCrmExternalId: conversation.branch?.crmExternalId,
+        });
+        recordTurnTool(debug, 'get_available_slots', recoverySlotsCall.args, slotsResult);
+        const afterSlots = await askClaude(
+          {
+            systemPrompt: prompt,
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              { role: 'assistant' as const, content: recovery.text || '[Перевіряю слоти]' },
+            ],
+            userMessage: slotsResult,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
         );
+        responseText = afterSlots.text;
+        agentFallback = afterSlots.fallback ?? agentFallback;
+        if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
       }
     }
   }
