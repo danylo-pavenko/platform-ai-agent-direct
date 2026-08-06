@@ -107,9 +107,6 @@ const MAX_PROMPT_CHARS = 120_000; // generous ceiling - Claude handles it
 /** Combined products + services + masters injection from CRM sync files. */
 const MAX_CATALOG_CHARS = 12_000;
 
-const FALLBACK_PROMPT =
-  'Ти — AI-асистент бізнесу в Instagram Direct. Відповідай коротко, спирайся на факти з системного промпту та живого каталогу/tools, не вигадуй ціни й умови.';
-
 const DEFAULT_WORKING_HOURS: WorkingHours = {
   mon: { start: '09:00', end: '18:00', enabled: true },
   tue: { start: '09:00', end: '18:00', enabled: true },
@@ -442,23 +439,10 @@ ${orderFlowLine}
 // getActivePrompt
 // ---------------------------------------------------------------------------
 
-/**
- * Fetches the active system prompt from the database.
- * Falls back to a generic prompt if none is found.
- */
-export async function getActivePrompt(): Promise<string> {
-  try {
-    const prompt = await prisma.systemPrompt.findFirst({
-      where: { isActive: true },
-      select: { content: true },
-    });
-
-    return prompt?.content ?? FALLBACK_PROMPT;
-  } catch (err) {
-    log.error({ err }, 'Failed to fetch active system prompt');
-    return FALLBACK_PROMPT;
-  }
-}
+export {
+  getActiveSystemPrompt,
+  getActivePromptContent as getActivePrompt,
+} from './prompt-runtime.js';
 
 // ---------------------------------------------------------------------------
 // getWorkingHours

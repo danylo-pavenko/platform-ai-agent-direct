@@ -462,9 +462,14 @@ async function activatePrompt(id: string) {
   activatingId.value = id;
   error.value = '';
   try {
-    await api.post(`/prompts/${id}/activate`);
+    const { data } = await api.post(`/prompts/${id}/activate`);
     await fetchPrompts();
-    showSnack('Промпт активовано');
+    const version = data?.version != null ? `v${data.version}` : 'промпт';
+    const gen =
+      data?.runtimeGeneration != null ? ` (gen ${data.runtimeGeneration})` : '';
+    showSnack(
+      `${version} активовано${gen} — наступні повідомлення клієнтів використовуватимуть цю версію`,
+    );
   } catch {
     error.value = 'Не вдалося активувати промпт';
   } finally {

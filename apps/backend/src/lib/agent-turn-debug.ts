@@ -31,6 +31,13 @@ export type AgentTurnDebugCollector = {
   clientMessage?: string;
   finalReplyPreview?: string;
   agentMode?: string;
+  /** Active system_prompts.id at turn start (or after mid-turn refresh). */
+  promptId?: string | null;
+  promptVersion?: number | null;
+  /** Monotonic activate counter from settings.prompt_runtime_generation. */
+  runtimeGeneration?: number;
+  /** True when Admin activated a new prompt during this turn's tool rounds. */
+  promptRefreshedMidTurn?: boolean;
 };
 
 const PREVIEW_MAX = 500;
@@ -88,6 +95,7 @@ export function shouldPersistAgentTurnDebug(collector: AgentTurnDebugCollector):
     collector.stallRecovery ||
     Boolean(collector.agentFallback) ||
     Boolean(collector.redactedInternals) ||
+    Boolean(collector.promptRefreshedMidTurn) ||
     (collector.gateReason != null && collector.gateReason !== 'ok')
   );
 }
@@ -112,6 +120,14 @@ export function formatAgentTurnDebugNote(
 
   if (collector.agentMode) {
     lines.push(`• Режим: ${collector.agentMode}`);
+  }
+  if (collector.promptVersion != null || collector.runtimeGeneration != null) {
+    const ver =
+      collector.promptVersion != null ? `v${collector.promptVersion}` : 'fallback';
+    const gen =
+      collector.runtimeGeneration != null ? `, gen ${collector.runtimeGeneration}` : '';
+    const mid = collector.promptRefreshedMidTurn ? ' (оновлено mid-turn)' : '';
+    lines.push(`• Промпт: ${ver}${gen}${mid}`);
   }
   if (opts?.durationMs != null && Number.isFinite(opts.durationMs)) {
     lines.push(`• Тривалість: ${(opts.durationMs / 1000).toFixed(1)}с`);

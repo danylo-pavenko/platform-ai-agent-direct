@@ -21,6 +21,9 @@ describe('agent-turn-debug', () => {
     c.clientMessage = 'Хочу манікюр';
     c.stallRecovery = true;
     c.gateReason = 'ok';
+    c.promptVersion = 12;
+    c.runtimeGeneration = 4;
+    c.promptRefreshedMidTurn = true;
     recordTurnRound(c, {
       label: 'first',
       toolCalls: [],
@@ -35,6 +38,13 @@ describe('agent-turn-debug', () => {
     expect(note).toContain('search_services');
     expect(note).toContain('манікюр покриття');
     expect(note).toContain('850 грн');
+    expect(note).toContain('Промпт: v12, gen 4 (оновлено mid-turn)');
+    expect(shouldPersistAgentTurnDebug(c)).toBe(true);
+  });
+
+  it('persists when only mid-turn prompt refresh happened', () => {
+    const c = createAgentTurnDebugCollector();
+    c.promptRefreshedMidTurn = true;
     expect(shouldPersistAgentTurnDebug(c)).toBe(true);
   });
 

@@ -862,7 +862,7 @@ async function activateExistingDraft(promptId: string) {
   if (activatingPromptId.value) return;
   activatingPromptId.value = promptId;
   try {
-    await api.post(`/prompts/${promptId}/activate`);
+    const { data } = await api.post(`/prompts/${promptId}/activate`);
     const next = new Map(appliedResults.value);
     for (const [idx, r] of next.entries()) {
       if (r.promptId === promptId) {
@@ -873,7 +873,11 @@ async function activateExistingDraft(promptId: string) {
     activeBasePromptId.value = promptId;
     const justActivated = [...appliedResults.value.values()].find((r) => r.promptId === promptId);
     if (justActivated) activeBaseVersion.value = justActivated.version;
-    showSnackbar('Версію активовано');
+    else if (data?.version != null) activeBaseVersion.value = data.version;
+    const version = data?.version != null ? `v${data.version}` : 'Версію';
+    showSnackbar(
+      `${version} активовано — наступні повідомлення клієнтів використовуватимуть цю версію`,
+    );
   } catch (e: any) {
     showSnackbar(e.response?.data?.error || 'Не вдалося активувати', 'error');
   } finally {

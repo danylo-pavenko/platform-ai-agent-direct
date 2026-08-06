@@ -15,6 +15,7 @@ import {
   parseMetaAgentResponse,
   type SuggestedDiff,
 } from '../lib/meta-agent-diff.js';
+import { bumpPromptRuntimeGeneration } from '../services/prompt-runtime.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -203,6 +204,11 @@ async function createPromptVersion(params: {
       },
     });
 
+    let runtimeGeneration: number | undefined;
+    if (shouldActivate) {
+      runtimeGeneration = await bumpPromptRuntimeGeneration(tx);
+    }
+
     await tx.auditLog.create({
       data: {
         actor: actorUsername,
@@ -216,6 +222,7 @@ async function createPromptVersion(params: {
           version: created.version,
           basedOn: activePrompt.id,
           basedOnVersion: activePrompt.version,
+          ...(runtimeGeneration != null ? { runtimeGeneration } : {}),
         },
       },
     });

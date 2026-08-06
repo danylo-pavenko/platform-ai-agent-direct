@@ -2,17 +2,21 @@ import pino from 'pino';
 import { config } from '../config.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
-import { askClaude } from './claude.js';
+import { askClaude, type ClaudeCallContext, type ClaudeRequest } from './claude.js';
 import { sendText } from './instagram.js';
 import { beginIgTypingIndicator } from './ig-typing-indicator.js';
 import {
   buildRuntimePrompt,
-  getActivePrompt,
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
   type ClientProfile,
 } from './prompt-builder.js';
+import {
+  createRuntimePromptSession,
+  getActiveSystemPrompt,
+  getPromptRuntimeGeneration,
+} from './prompt-runtime.js';
 import { resolveVisualMediaPathsForClaude } from './media.js';
 import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
@@ -455,7 +459,10 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 5. Build prompt ───────────────────────────────────────────────
-  const activePrompt = await getActivePrompt();
+  const [activeSystemPrompt, runtimeGeneration] = await Promise.all([
+    getActiveSystemPrompt(),
+    getPromptRuntimeGeneration(),
+  ]);
   const catalog = await loadCatalogSnippet();
 
   // Per-tenant CRM field mappings — shapes both the prompt (extra-fields
@@ -486,36 +493,51 @@ async function handleIncomingMessageImpl(
   const { telegram: telegramCfg } = await getIntegrationConfig();
   const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
 
-  const prompt = buildRuntimePrompt({
-    activePromptContent: activePrompt,
-    catalogSnippet: catalog,
-    currentTime: now,
-    workingHours: hours,
-    conversationState: conversation.state as 'bot' | 'handoff',
-    clientIgUserId: client.igUserId,
-    clientProfile,
-    conversationIdShort: conversation.id.slice(0, 8),
-    isOutOfHours: outOfHours,
-    customFieldHints: crmMappings?.buyer.map((m) => ({
-      localKey: m.localKey,
-      label: m.label,
-      promptHint: m.promptHint,
-    })),
-    agentMode: agentCfg.mode,
-    outOfHoursStrategy: agentCfg.outOfHoursStrategy,
-    managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
-    previousBriefSummary,
-    branchesList,
-    telegramBotsBlock,
-    selectedBranch: conversation.branch
-      ? {
-          slug: conversation.branch.slug,
-          displayName: conversation.branch.displayName,
-          address: conversation.branch.address,
-          crmExternalId: conversation.branch.crmExternalId,
-        }
-      : undefined,
+  const promptSession = createRuntimePromptSession({
+    initial: activeSystemPrompt,
+    generation: runtimeGeneration,
+    rebuild: (content) =>
+      buildRuntimePrompt({
+        activePromptContent: content,
+        catalogSnippet: catalog,
+        currentTime: now,
+        workingHours: hours,
+        conversationState: conversation.state as 'bot' | 'handoff',
+        clientIgUserId: client.igUserId ?? undefined,
+        clientProfile,
+        conversationIdShort: conversation.id.slice(0, 8),
+        isOutOfHours: outOfHours,
+        customFieldHints: crmMappings?.buyer.map((m) => ({
+          localKey: m.localKey,
+          label: m.label,
+          promptHint: m.promptHint,
+        })),
+        agentMode: agentCfg.mode,
+        outOfHoursStrategy: agentCfg.outOfHoursStrategy,
+        managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
+        previousBriefSummary,
+        branchesList,
+        telegramBotsBlock,
+        selectedBranch: conversation.branch
+          ? {
+              slug: conversation.branch.slug,
+              displayName: conversation.branch.displayName,
+              address: conversation.branch.address,
+              crmExternalId: conversation.branch.crmExternalId,
+            }
+          : undefined,
+      }),
   });
+
+  log.info(
+    {
+      conversationId,
+      promptId: promptSession.getMeta().id,
+      promptVersion: promptSession.getMeta().version,
+      runtimeGeneration: promptSession.getMeta().generation,
+    },
+    'Turn using active system prompt',
+  );
 
   const tools = buildAgentTools(agentCfg.mode, {
     buyerScopeMappings: crmMappings?.buyer ?? [],
@@ -659,10 +681,36 @@ async function handleIncomingMessageImpl(
   const debug = turnDebug;
   debug.agentMode = agentCfg.mode;
   debug.clientMessage = messageText;
+  debug.promptId = promptSession.getMeta().id;
+  debug.promptVersion = promptSession.getMeta().version;
+  debug.runtimeGeneration = promptSession.getMeta().generation;
 
-  const response = await askClaude(
+  /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
+  async function askTurnClaude(
+    req: Omit<ClaudeRequest, 'systemPrompt'>,
+    ctx: ClaudeCallContext,
+  ) {
+    const { prompt: systemPrompt, refreshed, meta } = await promptSession.refreshIfStale();
+    if (refreshed) {
+      debug.promptRefreshedMidTurn = true;
+      debug.promptId = meta.id;
+      debug.promptVersion = meta.version;
+      debug.runtimeGeneration = meta.generation;
+      log.info(
+        {
+          conversationId,
+          promptId: meta.id,
+          promptVersion: meta.version,
+          runtimeGeneration: meta.generation,
+        },
+        'Rebuilt system prompt mid-turn after activate',
+      );
+    }
+    return askClaude({ ...req, systemPrompt }, ctx);
+  }
+
+  const response = await askTurnClaude(
     {
-      systemPrompt: prompt,
       conversationHistory: history,
       userMessage: enrichedMessageText,
       images: localPaths.length > 0 ? localPaths : undefined,
@@ -782,9 +830,8 @@ async function handleIncomingMessageImpl(
         },
       ];
 
-      const response2 = await askClaude(
+      const response2 = await askTurnClaude(
         {
-          systemPrompt: prompt,
           conversationHistory: historyWithResult,
           userMessage: toolResultContent,
           tools,
@@ -853,9 +900,8 @@ async function handleIncomingMessageImpl(
         { role: 'assistant' as const, content: response.text || `[Перевіряю вартість доставки до ${city}]` },
       ];
 
-      const response2 = await askClaude(
+      const response2 = await askTurnClaude(
         {
-          systemPrompt: prompt,
           conversationHistory: historyWithResult,
           userMessage: toolResultContent,
           tools,
@@ -904,9 +950,8 @@ async function handleIncomingMessageImpl(
       }
       recordTurnTool(debug, 'get_client_crm_history', crmHistoryCall.args, toolResultContent);
 
-      const response2 = await askClaude(
+      const response2 = await askTurnClaude(
         {
-          systemPrompt: prompt,
           conversationHistory: [
             ...history,
             { role: 'user' as const, content: enrichedMessageText },
@@ -971,9 +1016,8 @@ async function handleIncomingMessageImpl(
       }
       recordTurnTool(debug, 'search_services', searchServicesCall.args, toolResultContent);
 
-      const response2 = await askClaude(
+      const response2 = await askTurnClaude(
         {
-          systemPrompt: prompt,
           conversationHistory: [
             ...history,
             { role: 'user' as const, content: enrichedMessageText },
@@ -1021,9 +1065,8 @@ async function handleIncomingMessageImpl(
             branchCrmExternalId: conversation.branch?.crmExternalId,
           });
           recordTurnTool(debug, 'get_available_slots', nextSlots.args, slotsResult);
-          const afterSlots = await askClaude(
+          const afterSlots = await askTurnClaude(
             {
-              systemPrompt: prompt,
               conversationHistory: [
                 ...history,
                 { role: 'user' as const, content: enrichedMessageText },
@@ -1075,9 +1118,8 @@ async function handleIncomingMessageImpl(
             }
           }
           recordTurnTool(debug, 'search_services', nextSearch.args, searchResult);
-          const afterSearch = await askClaude(
+          const afterSearch = await askTurnClaude(
             {
-              systemPrompt: prompt,
               conversationHistory: [
                 ...history,
                 { role: 'user' as const, content: enrichedMessageText },
@@ -1128,9 +1170,8 @@ async function handleIncomingMessageImpl(
       const date =
         typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
 
-      const response2 = await askClaude(
+      const response2 = await askTurnClaude(
         {
-          systemPrompt: prompt,
           conversationHistory: [
             ...history,
             { role: 'user' as const, content: enrichedMessageText },
@@ -1187,9 +1228,8 @@ async function handleIncomingMessageImpl(
     );
     debug.stallRecovery = true;
 
-    const recovery = await askClaude(
+    const recovery = await askTurnClaude(
       {
-        systemPrompt: prompt,
         conversationHistory: [
           ...history,
           { role: 'user' as const, content: enrichedMessageText },
@@ -1240,9 +1280,8 @@ async function handleIncomingMessageImpl(
           branchCrmExternalId: conversation.branch?.crmExternalId,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlots.args, slotsResult);
-        const afterSlots = await askClaude(
+        const afterSlots = await askTurnClaude(
           {
-            systemPrompt: prompt,
             conversationHistory: [
               ...history,
               { role: 'user' as const, content: enrichedMessageText },
@@ -1289,9 +1328,8 @@ async function handleIncomingMessageImpl(
           }
         }
         recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
-        const afterSearch = await askClaude(
+        const afterSearch = await askTurnClaude(
           {
-            systemPrompt: prompt,
             conversationHistory: [
               ...history,
               { role: 'user' as const, content: enrichedMessageText },
@@ -1324,9 +1362,8 @@ async function handleIncomingMessageImpl(
             branchCrmExternalId: conversation.branch?.crmExternalId,
           });
           recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
-          const afterSlots = await askClaude(
+          const afterSlots = await askTurnClaude(
             {
-              systemPrompt: prompt,
               conversationHistory: [
                 ...history,
                 { role: 'user' as const, content: enrichedMessageText },
@@ -1383,9 +1420,8 @@ async function handleIncomingMessageImpl(
     );
     debug.stallRecovery = true;
 
-    const recovery = await askClaude(
+    const recovery = await askTurnClaude(
       {
-        systemPrompt: prompt,
         conversationHistory: [
           ...history,
           { role: 'user' as const, content: enrichedMessageText },
@@ -1456,9 +1492,8 @@ async function handleIncomingMessageImpl(
         }
         recordTurnTool(debug, 'search_services', recoverySearchServices.args, toolResultContent);
 
-        const afterSearch = await askClaude(
+        const afterSearch = await askTurnClaude(
           {
-            systemPrompt: prompt,
             conversationHistory: [
               ...history,
               { role: 'user' as const, content: enrichedMessageText },
@@ -1508,9 +1543,8 @@ async function handleIncomingMessageImpl(
               branchCrmExternalId: conversation.branch?.crmExternalId,
             });
             recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
-            const afterSlots = await askClaude(
+            const afterSlots = await askTurnClaude(
               {
-                systemPrompt: prompt,
                 conversationHistory: [
                   ...history,
                   { role: 'user' as const, content: enrichedMessageText },
@@ -1563,9 +1597,8 @@ async function handleIncomingMessageImpl(
         }
         recordTurnTool(debug, 'search_catalog', recoverySearchCatalog.args, toolResultContent);
 
-        const afterSearch = await askClaude(
+        const afterSearch = await askTurnClaude(
           {
-            systemPrompt: prompt,
             conversationHistory: [
               ...history,
               { role: 'user' as const, content: enrichedMessageText },
@@ -1614,9 +1647,8 @@ async function handleIncomingMessageImpl(
           branchCrmExternalId: conversation.branch?.crmExternalId,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlotsCall.args, slotsResult);
-        const afterSlots = await askClaude(
+        const afterSlots = await askTurnClaude(
           {
-            systemPrompt: prompt,
             conversationHistory: [
               ...history,
               { role: 'user' as const, content: enrichedMessageText },

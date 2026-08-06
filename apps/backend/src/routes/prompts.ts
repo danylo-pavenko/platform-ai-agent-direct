@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { bumpPromptRuntimeGeneration } from '../services/prompt-runtime.js';
 
 export async function promptRoutes(app: FastifyInstance): Promise<void> {
   // GET / - List all prompt versions
@@ -73,19 +74,44 @@ export async function promptRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Prompt not found' });
     }
 
-    const activated = await prisma.$transaction(async (tx) => {
-      // Deactivate all prompts
+    const previouslyActive = await prisma.systemPrompt.findFirst({
+      where: { isActive: true },
+      select: { id: true, version: true },
+    });
+
+    const { activated, runtimeGeneration } = await prisma.$transaction(async (tx) => {
       await tx.systemPrompt.updateMany({
         data: { isActive: false },
       });
 
-      // Activate the selected one
-      return tx.systemPrompt.update({
+      const activatedRow = await tx.systemPrompt.update({
         where: { id: request.params.id },
         data: { isActive: true },
       });
+
+      const generation = await bumpPromptRuntimeGeneration(tx);
+
+      await tx.auditLog.create({
+        data: {
+          actor: request.user.username,
+          action: 'prompt_activated',
+          entityType: 'system_prompt',
+          entityId: activatedRow.id,
+          payload: {
+            version: activatedRow.version,
+            runtimeGeneration: generation,
+            previousId: previouslyActive?.id ?? null,
+            previousVersion: previouslyActive?.version ?? null,
+          },
+        },
+      });
+
+      return { activated: activatedRow, runtimeGeneration: generation };
     });
 
-    return activated;
+    return {
+      ...activated,
+      runtimeGeneration,
+    };
   });
 }

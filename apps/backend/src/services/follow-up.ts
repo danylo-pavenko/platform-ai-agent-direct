@@ -28,12 +28,15 @@ import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
 import {
   buildRuntimePrompt,
-  getActivePrompt,
   getWorkingHours,
   isWithinWorkingHours,
   loadCatalogSnippet,
   type ClientProfile,
 } from './prompt-builder.js';
+import {
+  getActiveSystemPrompt,
+  getPromptRuntimeGeneration,
+} from './prompt-runtime.js';
 import { formatBranchesForPrompt } from './branches.js';
 import { fetchClientCrmHistory } from './client-crm-link.js';
 
@@ -308,7 +311,10 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const now = new Date();
       const outOfHours = !isWithinWorkingHours(now, hours);
 
-      const activePrompt = await getActivePrompt();
+      const [activeSystemPrompt, runtimeGeneration] = await Promise.all([
+        getActiveSystemPrompt(),
+        getPromptRuntimeGeneration(),
+      ]);
       const catalog = await loadCatalogSnippet();
       const crmWritesEnabled = await isCrmWriteEnabled();
       const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
@@ -316,8 +322,18 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const { telegram: telegramCfg } = await getIntegrationConfig();
       const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
 
+      log.info(
+        {
+          conversationId,
+          promptId: activeSystemPrompt.id,
+          promptVersion: activeSystemPrompt.version,
+          runtimeGeneration,
+        },
+        'Follow-up using active system prompt',
+      );
+
       const prompt = buildRuntimePrompt({
-        activePromptContent: activePrompt,
+        activePromptContent: activeSystemPrompt.content,
         catalogSnippet: catalog,
         currentTime: now,
         workingHours: hours,
