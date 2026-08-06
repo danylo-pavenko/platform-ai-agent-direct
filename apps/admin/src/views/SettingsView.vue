@@ -1039,6 +1039,61 @@
         </v-card-text>
       </v-card>
 
+      <!-- Fallback messages (busy / timeout) per language -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="orange-darken-2">mdi-message-alert-outline</v-icon>
+          Fallback-повідомлення
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Надсилається клієнту, коли Claude busy або timeout. Мова береться з профілю клієнта
+          (автодетект uk/en з повідомлень). Порожнє поле → дефолт.
+        </v-card-subtitle>
+        <v-card-text>
+          <div class="text-subtitle-2 mb-2">Timeout (агент не встиг)</div>
+          <v-textarea
+            v-model="agentConfig.fallbackMessages.timeout.uk"
+            label="Українською (uk)"
+            variant="outlined"
+            density="compact"
+            rows="2"
+            auto-grow
+            class="mb-2"
+            hide-details
+          />
+          <v-textarea
+            v-model="agentConfig.fallbackMessages.timeout.en"
+            label="English (en)"
+            variant="outlined"
+            density="compact"
+            rows="2"
+            auto-grow
+            class="mb-4"
+            hide-details
+          />
+          <div class="text-subtitle-2 mb-2">Busy (черга перевантажена)</div>
+          <v-textarea
+            v-model="agentConfig.fallbackMessages.busy.uk"
+            label="Українською (uk)"
+            variant="outlined"
+            density="compact"
+            rows="2"
+            auto-grow
+            class="mb-2"
+            hide-details
+          />
+          <v-textarea
+            v-model="agentConfig.fallbackMessages.busy.en"
+            label="English (en)"
+            variant="outlined"
+            density="compact"
+            rows="2"
+            auto-grow
+            hide-details
+          />
+        </v-card-text>
+      </v-card>
+
       <!-- Smart-trigger: agent remarketing after client silence -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -3689,6 +3744,48 @@ function scheduleScheduleSave() {
 type AgentModeValue = 'sales' | 'leadgen' | 'booking';
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
 
+interface FallbackLocaleMap {
+  uk: string;
+  en: string;
+}
+
+interface FallbackMessagesShape {
+  busy: FallbackLocaleMap;
+  timeout: FallbackLocaleMap;
+}
+
+const DEFAULT_FALLBACK_MESSAGES: FallbackMessagesShape = {
+  busy: {
+    uk: 'Дякуємо за повідомлення! Менеджер відпише трохи пізніше.',
+    en: 'Thanks for your message! A manager will reply a bit later.',
+  },
+  timeout: {
+    uk: 'Одну хвилинку, менеджер відпише трохи пізніше.',
+    en: 'One moment — a manager will get back to you shortly.',
+  },
+};
+
+function normalizeFallbackMessagesShape(raw: unknown): FallbackMessagesShape {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const busy = obj.busy && typeof obj.busy === 'object' ? (obj.busy as Record<string, unknown>) : {};
+  const timeout =
+    obj.timeout && typeof obj.timeout === 'object'
+      ? (obj.timeout as Record<string, unknown>)
+      : {};
+  const pick = (v: unknown, fallback: string) =>
+    typeof v === 'string' && v.trim() ? v : fallback;
+  return {
+    busy: {
+      uk: pick(busy.uk, DEFAULT_FALLBACK_MESSAGES.busy.uk),
+      en: pick(busy.en, DEFAULT_FALLBACK_MESSAGES.busy.en),
+    },
+    timeout: {
+      uk: pick(timeout.uk, DEFAULT_FALLBACK_MESSAGES.timeout.uk),
+      en: pick(timeout.en, DEFAULT_FALLBACK_MESSAGES.timeout.en),
+    },
+  };
+}
+
 interface AgentConfigShape {
   mode: AgentModeValue;
   outOfHoursStrategy: OutOfHoursStrategyValue;
@@ -3697,6 +3794,7 @@ interface AgentConfigShape {
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
   claudeModel: 'haiku' | 'sonnet' | 'opus';
+  fallbackMessages: FallbackMessagesShape;
 }
 
 const agentConfig = ref<AgentConfigShape>({
@@ -3707,6 +3805,7 @@ const agentConfig = ref<AgentConfigShape>({
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
+  fallbackMessages: { ...DEFAULT_FALLBACK_MESSAGES, busy: { ...DEFAULT_FALLBACK_MESSAGES.busy }, timeout: { ...DEFAULT_FALLBACK_MESSAGES.timeout } },
 });
 
 interface FollowUpConfigShape {
@@ -3876,6 +3975,9 @@ async function fetchSettings() {
           raw.claudeModel === 'haiku' || raw.claudeModel === 'opus' || raw.claudeModel === 'sonnet'
             ? raw.claudeModel
             : 'sonnet',
+        fallbackMessages: normalizeFallbackMessagesShape(
+          (raw as { fallbackMessages?: unknown }).fallbackMessages,
+        ),
       };
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {
         agentConfig.value.responseDelayMaxSeconds = agentConfig.value.responseDelayMinSeconds;
@@ -4001,6 +4103,7 @@ async function saveSettings() {
           );
           return Math.max(min, max);
         })(),
+        fallbackMessages: normalizeFallbackMessagesShape(agentConfig.value.fallbackMessages),
       },
       follow_up_config: {
         enabled: followUpConfig.value.enabled === true,

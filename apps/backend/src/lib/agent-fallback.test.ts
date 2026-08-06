@@ -4,6 +4,7 @@ import {
   AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveFallbacksFromNewest,
   CUSTOMER_FALLBACK_TIMEOUT,
+  CUSTOMER_FALLBACK_TIMEOUT_EN,
   formatBotFailureDetail,
   isAgentFallbackReply,
   isCustomerVisibleFallbackReply,
@@ -13,8 +14,9 @@ import {
 } from './agent-fallback.js';
 
 describe('isAgentFallbackReply', () => {
-  it('matches canned fallback texts', () => {
+  it('matches canned fallback texts including English defaults', () => {
     expect(isAgentFallbackReply(CUSTOMER_FALLBACK_TIMEOUT)).toBe(true);
+    expect(isAgentFallbackReply(CUSTOMER_FALLBACK_TIMEOUT_EN)).toBe(true);
   });
 
   it('matches suppressed retry notes', () => {
@@ -63,6 +65,20 @@ describe('shouldSuppressDuplicateCustomerFallback', () => {
         botOutboundsAfterInboundNewestFirst: [CUSTOMER_FALLBACK_TIMEOUT],
       }),
     ).toBe(false);
+  });
+
+  it('recognizes custom configured fallback text', () => {
+    const messages = {
+      busy: { uk: 'busy-uk', en: 'busy-en' },
+      timeout: { uk: 'wait-uk', en: 'wait-en' },
+    };
+    expect(
+      shouldSuppressDuplicateCustomerFallback({
+        candidateText: 'wait-en',
+        botOutboundsAfterInboundNewestFirst: ['wait-en'],
+        messages,
+      }),
+    ).toBe(true);
   });
 });
 

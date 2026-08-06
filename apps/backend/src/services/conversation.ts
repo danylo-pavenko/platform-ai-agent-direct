@@ -87,9 +87,12 @@ import {
 import {
   AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveBotFallbacks,
+  detectClientLanguage,
   formatBotFailureDetail,
   isAgentFallbackReply,
   isCustomerVisibleFallbackReply,
+  normalizeClientLanguage,
+  resolveCustomerFallback,
   shouldHandoffAfterAgentFallback,
   shouldSuppressDuplicateCustomerFallback,
   type BotFailureCode,
@@ -303,6 +306,22 @@ async function handleIncomingMessageImpl(
   }
 
   const { client } = conversation;
+
+  // Remember conversation language once (heuristic from inbound text).
+  if (!client.preferredLanguage && messageText.trim()) {
+    const detected = detectClientLanguage(messageText);
+    if (detected) {
+      try {
+        await prisma.client.update({
+          where: { id: client.id },
+          data: { preferredLanguage: detected },
+        });
+        client.preferredLanguage = detected;
+      } catch (err) {
+        log.warn({ err, clientId: client.id }, 'Failed to persist preferredLanguage');
+      }
+    }
+  }
 
   if (!client.igUserId) {
     log.error({ conversationId, clientId: client.id }, 'Client has no igUserId');
@@ -1680,6 +1699,24 @@ async function handleIncomingMessageImpl(
   // Single contract: scrub meta/JSON/IDs; replace only when nothing client-facing remains.
   const gated = gateCustomerFacingReply(responseText);
   let clientFacingText = stripMarkdownForInstagram(gated.text);
+
+  // Localize canned busy/timeout for the customer's preferred language.
+  if (
+    agentFallback &&
+    (agentFallback === 'busy' || agentFallback === 'timeout') &&
+    CUSTOMER_CHANNELS.has(conversation.channel)
+  ) {
+    const lang =
+      normalizeClientLanguage(client.preferredLanguage) ??
+      detectClientLanguage(messageText) ??
+      'uk';
+    clientFacingText = resolveCustomerFallback(
+      agentFallback,
+      lang,
+      agentCfg.fallbackMessages,
+    );
+  }
+
   debug.gateReason = gated.reason;
   debug.redactedInternals = gated.redactedInternals;
   debug.agentFallback = agentFallback ?? null;
@@ -1801,7 +1838,10 @@ async function handleIncomingMessageImpl(
       agentText: responseText,
       gateReason: gated.reason,
     });
-  } else if (agentFallback && isCustomerVisibleFallbackReply(clientFacingText)) {
+  } else if (
+    agentFallback &&
+    isCustomerVisibleFallbackReply(clientFacingText, agentCfg.fallbackMessages)
+  ) {
     botFailureCode = agentFallback;
     botFailureDetail = formatBotFailureDetail({
       code: agentFallback,
@@ -1815,7 +1855,7 @@ async function handleIncomingMessageImpl(
   // canned "manager will reply" line to the customer again for this inbound.
   if (
     CUSTOMER_CHANNELS.has(conversation.channel) &&
-    isCustomerVisibleFallbackReply(clientFacingText)
+    isCustomerVisibleFallbackReply(clientFacingText, agentCfg.fallbackMessages)
   ) {
     const lastInbound = await prisma.message.findFirst({
       where: { conversationId, direction: 'in', sender: 'client' },
@@ -1838,6 +1878,7 @@ async function handleIncomingMessageImpl(
         shouldSuppressDuplicateCustomerFallback({
           candidateText: clientFacingText,
           botOutboundsAfterInboundNewestFirst: priorBotOuts.map((m) => m.text ?? ''),
+          messages: agentCfg.fallbackMessages,
         })
       ) {
         suppressCustomerSend = true;
@@ -1920,7 +1961,7 @@ async function handleIncomingMessageImpl(
     }).catch((err) =>
       log.warn({ err, conversationId }, 'notifyAgentFailure failed (non-fatal)'),
     );
-  } else if (!isAgentFallbackReply(clientFacingText)) {
+  } else if (!isAgentFallbackReply(clientFacingText, agentCfg.fallbackMessages)) {
     // Schedule silence remarketing — Claude runs only when runAt is due.
     scheduleFollowUpAfterBotOutboundSafe(conversationId);
   }

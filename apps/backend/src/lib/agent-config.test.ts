@@ -10,8 +10,10 @@ vi.mock('./prisma.js', () => ({ prisma: {} }));
 
 import {
   normalizeClaudeModel,
+  normalizeFallbackMessages,
   normalizeResponseDelayBounds,
   resolveResponseDelayMs,
+  DEFAULT_FALLBACK_MESSAGES,
   RESPONSE_DELAY_SEC_MAX,
 } from './agent-config.js';
 
@@ -66,5 +68,18 @@ describe('resolveResponseDelayMs', () => {
       () => 0.5,
     );
     expect(ms).toBe(3000);
+  });
+});
+
+describe('normalizeFallbackMessages', () => {
+  it('fills defaults for missing or empty strings', () => {
+    const normalized = normalizeFallbackMessages({
+      timeout: { uk: 'Custom UK', en: '' },
+      busy: {},
+    });
+    expect(normalized.timeout.uk).toBe('Custom UK');
+    expect(normalized.timeout.en).toBe(DEFAULT_FALLBACK_MESSAGES.timeout.en);
+    expect(normalized.busy.uk).toBe(DEFAULT_FALLBACK_MESSAGES.busy.uk);
+    expect(normalized.busy.en).toBe(DEFAULT_FALLBACK_MESSAGES.busy.en);
   });
 });

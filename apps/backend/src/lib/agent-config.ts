@@ -17,11 +17,18 @@
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
  *     claudeModel: 'haiku' | 'sonnet' | 'opus',  // CLI --model; falls back to CLAUDE_MODEL env
+ *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
  *   }
  */
 import { config } from '../config.js';
 import { prisma } from './prisma.js';
 import type { AgentMode } from './tool-definitions.js';
+import {
+  CUSTOMER_FALLBACK_BUSY,
+  CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_TIMEOUT,
+  CUSTOMER_FALLBACK_TIMEOUT_EN,
+} from './agent-fallback-defaults.js';
 
 export type OutOfHoursStrategy = 'warn_early' | 'defer_to_end';
 
@@ -30,6 +37,16 @@ export type ClaudeModelId = 'haiku' | 'sonnet' | 'opus';
 export const CLAUDE_MODEL_IDS: readonly ClaudeModelId[] = ['haiku', 'sonnet', 'opus'] as const;
 
 export const RESPONSE_DELAY_SEC_MAX = 60;
+
+export type FallbackLocaleMap = {
+  uk: string;
+  en: string;
+};
+
+export type FallbackMessages = {
+  busy: FallbackLocaleMap;
+  timeout: FallbackLocaleMap;
+};
 
 export interface AgentConfig {
   mode: AgentMode;
@@ -42,12 +59,25 @@ export interface AgentConfig {
   responseDelayMaxSeconds: number;
   /** Claude Code CLI `--model` for agent turns. */
   claudeModel: ClaudeModelId;
+  /** Canned customer replies when Claude is busy / times out (per language). */
+  fallbackMessages: FallbackMessages;
 }
 
 function envClaudeModelFallback(): ClaudeModelId {
   const m = config.CLAUDE_MODEL;
   return m === 'haiku' || m === 'opus' || m === 'sonnet' ? m : 'sonnet';
 }
+
+export const DEFAULT_FALLBACK_MESSAGES: FallbackMessages = {
+  busy: {
+    uk: CUSTOMER_FALLBACK_BUSY,
+    en: CUSTOMER_FALLBACK_BUSY_EN,
+  },
+  timeout: {
+    uk: CUSTOMER_FALLBACK_TIMEOUT,
+    en: CUSTOMER_FALLBACK_TIMEOUT_EN,
+  },
+};
 
 const DEFAULTS: AgentConfig = {
   mode: 'sales',
@@ -57,6 +87,7 @@ const DEFAULTS: AgentConfig = {
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
+  fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
 };
 
 let _cache: AgentConfig | null = null;
@@ -86,6 +117,33 @@ export function normalizeClaudeModel(
 ): ClaudeModelId {
   if (value === 'haiku' || value === 'sonnet' || value === 'opus') return value;
   return fallback;
+}
+
+function pickLocaleText(raw: unknown, fallback: string): string {
+  if (typeof raw !== 'string') return fallback;
+  const t = raw.trim();
+  return t.length > 0 ? t : fallback;
+}
+
+/** Merge saved fallbackMessages with defaults (empty string → default). */
+export function normalizeFallbackMessages(raw: unknown): FallbackMessages {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const busy = obj.busy && typeof obj.busy === 'object' ? (obj.busy as Record<string, unknown>) : {};
+  const timeout =
+    obj.timeout && typeof obj.timeout === 'object'
+      ? (obj.timeout as Record<string, unknown>)
+      : {};
+
+  return {
+    busy: {
+      uk: pickLocaleText(busy.uk, DEFAULT_FALLBACK_MESSAGES.busy.uk),
+      en: pickLocaleText(busy.en, DEFAULT_FALLBACK_MESSAGES.busy.en),
+    },
+    timeout: {
+      uk: pickLocaleText(timeout.uk, DEFAULT_FALLBACK_MESSAGES.timeout.uk),
+      en: pickLocaleText(timeout.en, DEFAULT_FALLBACK_MESSAGES.timeout.en),
+    },
+  };
 }
 
 /**
@@ -142,6 +200,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     responseDelayMinSeconds: delay.min,
     responseDelayMaxSeconds: delay.max,
     claudeModel: normalizeClaudeModel(raw.claudeModel, envFallback),
+    fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
   };
   _cacheAt = Date.now();
   return _cache;

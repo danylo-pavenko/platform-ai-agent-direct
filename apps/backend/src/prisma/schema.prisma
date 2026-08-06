@@ -30,6 +30,9 @@ model Client {
   notes            String?                               // Free-text notes about the client
   tags             String[]       @default([]) @map("tags") // e.g. ["vip", "print", "repeat"]
 
+  /** Client conversation language for canned fallbacks (uk | en). Auto-detected from inbound. */
+  preferredLanguage String?       @map("preferred_language")
+
   // Cross-reference to the matching buyer/client record in the CRM.
   // Populated on phone match, booking, or manual admin attach.
   crmBuyerId       String?        @unique @map("crm_buyer_id")
