@@ -9,11 +9,12 @@ import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { asCrmId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
-import { getBranchById } from './branches.js';
+import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder } from './telegram-notify.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import { sendText } from './instagram.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import { parseAgentDate, toIsoDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
 
 const log = pino({ name: 'appointment' });
@@ -27,6 +28,11 @@ export type BookAppointmentOptions = {
   skipClientMessage?: boolean;
 };
 
+function normalizeBookingDate(raw: string): string {
+  const parts = parseAgentDate(raw);
+  return parts ? toIsoDate(parts) : raw.trim();
+}
+
 export async function handleBookAppointment(
   conversationId: string,
   clientId: string,
@@ -36,7 +42,7 @@ export async function handleBookAppointment(
   const customerName =
     typeof args.customer_name === 'string' ? args.customer_name.trim() : '';
   const phone = typeof args.phone === 'string' ? args.phone.trim() : '';
-  const date = typeof args.date === 'string' ? args.date.trim() : '';
+  const rawDate = typeof args.date === 'string' ? args.date.trim() : '';
   const time = typeof args.time === 'string' ? args.time.trim() : '';
   const comment = typeof args.comment === 'string' ? args.comment.trim() : undefined;
   const masterId = asCrmId(args.master_id) ?? undefined;
@@ -58,23 +64,52 @@ export async function handleBookAppointment(
     return [{ id, durationMin, name, price, masterId }];
   });
 
-  if (!customerName || !phone || !date || !time || services.length === 0) {
+  if (!customerName || !phone || !rawDate || !time || services.length === 0) {
     log.warn({ conversationId }, 'book_appointment missing required fields');
     return null;
   }
+
+  const date = normalizeBookingDate(rawDate);
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
     select: { branchId: true },
   });
 
-  const branch = conversation?.branchId
-    ? await getBranchById(conversation.branchId)
-    : null;
+  const resolved = await resolveBookingBranchForAppointment({
+    conversationBranchId: conversation?.branchId,
+  });
 
-  if (!branch?.crmExternalId) {
-    log.warn({ conversationId, branchId: conversation?.branchId }, 'book_appointment: branch without CRM id');
+  if (!resolved?.crmExternalId) {
+    log.warn(
+      { conversationId, branchId: conversation?.branchId },
+      'book_appointment: no CRM location (conversation / default / BeautyPro)',
+    );
     return null;
+  }
+
+  if (resolved.source !== 'conversation') {
+    log.info(
+      {
+        conversationId,
+        source: resolved.source,
+        crmExternalId: resolved.crmExternalId,
+        branchId: resolved.branchId,
+      },
+      'book_appointment: using branch fallback (same cascade as slots)',
+    );
+  }
+
+  // Pin resolved local branch on the conversation for later turns.
+  if (resolved.branchId && resolved.branchId !== conversation?.branchId) {
+    await prisma.conversation
+      .update({
+        where: { id: conversationId },
+        data: { branchId: resolved.branchId },
+      })
+      .catch((err) => {
+        log.warn({ err, conversationId }, 'Failed to pin conversation branch (non-fatal)');
+      });
   }
 
   const crmProvider = await resolveCrmProvider('booking', {
@@ -86,7 +121,7 @@ export async function handleBookAppointment(
     data: {
       conversationId,
       clientId,
-      branchId: branch.id,
+      branchId: resolved.branchId,
       services,
       scheduledDate: date,
       scheduledTime: time,
@@ -108,7 +143,7 @@ export async function handleBookAppointment(
     phone,
     date,
     time,
-    branchName: branch.displayName,
+    branchName: resolved.displayName,
     services: services.map((s) => ({
       name: s.name,
       price: s.price,
@@ -139,13 +174,21 @@ export async function handleBookAppointment(
         log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
       );
     } catch (err) {
-      log.error({ err, conversationId, appointmentId: appointment.id }, 'Failed to send booking confirmation to IG');
+      log.error(
+        { err, conversationId, appointmentId: appointment.id },
+        'Failed to send booking confirmation to IG',
+      );
     }
   }
 
-  mirrorAppointmentToCrm(appointment.id).catch((err) => {
+  // Await CRM so sync status / crm_fallback are decided before the turn ends.
+  try {
+    await mirrorAppointmentToCrm(appointment.id, {
+      fallbackCrmExternalId: resolved.crmExternalId,
+    });
+  } catch (err) {
     log.error({ err, appointmentId: appointment.id }, 'Appointment CRM mirror failed');
-  });
+  }
 
   return appointment.id;
 }
@@ -267,7 +310,10 @@ async function createBookingOrderMirror(params: {
   return order.id;
 }
 
-export async function mirrorAppointmentToCrm(appointmentId: string): Promise<void> {
+export async function mirrorAppointmentToCrm(
+  appointmentId: string,
+  opts?: { fallbackCrmExternalId?: string | null },
+): Promise<void> {
   if (!(await isCrmWriteEnabled())) return;
 
   const appointment = await prisma.appointment.findUnique({
@@ -294,7 +340,16 @@ export async function mirrorAppointmentToCrm(appointmentId: string): Promise<voi
     return;
   }
 
-  const branchCrmId = appointment.branch?.crmExternalId?.trim();
+  let branchCrmId =
+    appointment.branch?.crmExternalId?.trim() ||
+    opts?.fallbackCrmExternalId?.trim() ||
+    '';
+  if (!branchCrmId) {
+    const resolved = await resolveBookingBranchForAppointment({
+      conversationBranchId: appointment.branchId,
+    });
+    branchCrmId = resolved?.crmExternalId?.trim() || '';
+  }
   if (!branchCrmId) {
     throw new Error('Branch CRM external id missing');
   }

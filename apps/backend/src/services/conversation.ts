@@ -2408,13 +2408,15 @@ async function tryTerminalToolCalls(
         clientMessage: ctx.clientMessage,
       },
     );
-    if (appointmentId) {
-      if (turnDebug) {
-        const last = turnDebug.tools[turnDebug.tools.length - 1];
-        if (last?.name === 'book_appointment') {
-          last.resultPreview = `[book_appointment] ok id=${appointmentId}`;
-        }
+    if (turnDebug) {
+      const last = turnDebug.tools[turnDebug.tools.length - 1];
+      if (last?.name === 'book_appointment') {
+        last.resultPreview = appointmentId
+          ? `[book_appointment] ok id=${appointmentId}`
+          : '[book_appointment] failed (no CRM location or missing fields)';
       }
+    }
+    if (appointmentId) {
       return true;
     }
   }

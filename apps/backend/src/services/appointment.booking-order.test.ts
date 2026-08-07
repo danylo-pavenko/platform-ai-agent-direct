@@ -2,20 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   prismaMock,
-  getBranchById,
+  resolveBookingBranchForAppointment,
   resolveCrmProvider,
   notifyOrder,
   sendText,
   mirrorCreateBooking,
 } = vi.hoisted(() => ({
   prismaMock: {
-    conversation: { findUnique: vi.fn() },
+    conversation: { findUnique: vi.fn(), update: vi.fn() },
     appointment: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), create: vi.fn() },
     message: { create: vi.fn() },
     clientReferencePhoto: { findMany: vi.fn() },
   },
-  getBranchById: vi.fn(),
+  resolveBookingBranchForAppointment: vi.fn(),
   resolveCrmProvider: vi.fn(),
   notifyOrder: vi.fn(),
   sendText: vi.fn(),
@@ -41,8 +41,9 @@ vi.mock('../lib/crm-routing.js', () => ({
   resolveCrmProvider,
 }));
 
-vi.mock('./branches.js', () => ({
-  getBranchById,
+vi.mock('./booking-branch.js', () => ({
+  resolveBookingBranchForAppointment,
+  resolveBookingBranchCrmId: vi.fn(),
 }));
 
 vi.mock('./crm/index.js', () => ({
@@ -76,10 +77,12 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     vi.clearAllMocks();
     resolveCrmProvider.mockResolvedValue('beautypro');
     prismaMock.conversation.findUnique.mockResolvedValue({ branchId: 'branch-1' });
-    getBranchById.mockResolvedValue({
-      id: 'branch-1',
+    prismaMock.conversation.update.mockResolvedValue({});
+    resolveBookingBranchForAppointment.mockResolvedValue({
+      branchId: 'branch-1',
       crmExternalId: 'loc-1',
       displayName: 'Центр',
+      source: 'conversation',
     });
     prismaMock.appointment.create.mockResolvedValue({ id: 'appt-1' });
     prismaMock.order.findFirst.mockResolvedValue(null);
@@ -137,6 +140,55 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       'ig-angela',
       '820 грн. Чекаємо тебе завтра о 11:00!',
     );
+  });
+
+  it('falls back to default CRM location when conversation has no branch', async () => {
+    prismaMock.conversation.findUnique.mockResolvedValue({ branchId: null });
+    resolveBookingBranchForAppointment.mockResolvedValue({
+      branchId: 'branch-default',
+      crmExternalId: 'bp-loc',
+      displayName: 'Moxito',
+      source: 'default',
+    });
+
+    const id = await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Данило',
+        phone: '380958959421',
+        date: '08.08.2026',
+        time: '13:30',
+        services: [
+          {
+            id: '88dc2f9d-9e3d-b93a-2c65-995c1eeca95b',
+            name: 'Гігієнічна чистка + японський манікюр',
+            duration_min: 60,
+            price: 500,
+          },
+        ],
+        master_id: '88de0aea-4b21-cc54-452f-f5687b3b1ec6',
+      },
+      { clientIgUserId: 'ig-danylo', skipClientMessage: true },
+    );
+
+    expect(id).toBe('appt-1');
+    expect(prismaMock.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          branchId: 'branch-default',
+          scheduledDate: '2026-08-08',
+          scheduledTime: '13:30',
+        }),
+      }),
+    );
+    expect(prismaMock.conversation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'conv-1' },
+        data: { branchId: 'branch-default' },
+      }),
+    );
+    expect(prismaMock.order.create).toHaveBeenCalled();
   });
 
   it('dedupes booking Order within window', async () => {
