@@ -25,6 +25,8 @@ export type AgentTurnDebugCollector = {
   tools: AgentTurnToolDebug[];
   rounds: AgentTurnRoundDebug[];
   stallRecovery: boolean;
+  /** True when we recovered a false "you're booked" claim without book_appointment. */
+  falseBookingRecovery: boolean;
   gateReason?: string;
   redactedInternals?: boolean;
   agentFallback?: string | null;
@@ -47,6 +49,7 @@ export function createAgentTurnDebugCollector(): AgentTurnDebugCollector {
     tools: [],
     rounds: [],
     stallRecovery: false,
+    falseBookingRecovery: false,
   };
 }
 
@@ -93,6 +96,7 @@ export function shouldPersistAgentTurnDebug(collector: AgentTurnDebugCollector):
     collector.rounds.length > 0 ||
     collector.tools.length > 0 ||
     collector.stallRecovery ||
+    collector.falseBookingRecovery ||
     Boolean(collector.agentFallback) ||
     Boolean(collector.redactedInternals) ||
     Boolean(collector.promptRefreshedMidTurn) ||
@@ -134,6 +138,9 @@ export function formatAgentTurnDebugNote(
   }
   if (collector.stallRecovery) {
     lines.push('• Stall recovery: так (обіцянка пошуку без tool → повторний хід)');
+  }
+  if (collector.falseBookingRecovery) {
+    lines.push('• False booking recovery: так (підтвердження без book_appointment)');
   }
   if (collector.agentFallback) {
     lines.push(`• Claude fallback: ${collector.agentFallback}`);

@@ -6,6 +6,7 @@ describe('parseOrderKind', () => {
     expect(parseOrderKind('product')).toBe('product');
     expect(parseOrderKind('SERVICE')).toBe('service');
     expect(parseOrderKind('callback')).toBe('callback');
+    expect(parseOrderKind('booking')).toBe('booking');
   });
 
   it('rejects unknown', () => {

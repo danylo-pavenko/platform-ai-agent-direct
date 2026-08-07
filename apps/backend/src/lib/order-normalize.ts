@@ -1,6 +1,6 @@
 /** Pure helpers for order line items / soft local orders (no I/O). */
 
-const VALID_ORDER_KINDS = ['product', 'service', 'callback', 'other'] as const;
+const VALID_ORDER_KINDS = ['product', 'service', 'callback', 'other', 'booking'] as const;
 export type LocalOrderKind = (typeof VALID_ORDER_KINDS)[number];
 
 export interface OrderLineItem {

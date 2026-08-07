@@ -1,23 +1,37 @@
 /**
  * Salon appointment persistence + CRM mirror (CleverBOX / BeautyPro booking).
+ * Also mirrors a local Order(kind=booking) + Telegram notify for managers.
  */
 
 import pino from 'pino';
-import { prisma } from '../lib/prisma.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { asCrmId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { getBranchById } from './branches.js';
-import { notifyCrmFallback } from './telegram-notify.js';
+import { notifyCrmFallback, notifyOrder } from './telegram-notify.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
+import { sendText } from './instagram.js';
+import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import type { OrderLineItem } from '../lib/order-normalize.js';
 
 const log = pino({ name: 'appointment' });
+
+const BOOKING_ORDER_DEDUPE_MS = 2 * 60 * 1000;
+
+export type BookAppointmentOptions = {
+  clientIgUserId?: string | null;
+  /** Prefer the model's reply as the IG confirmation text. */
+  clientMessage?: string | null;
+  skipClientMessage?: boolean;
+};
 
 export async function handleBookAppointment(
   conversationId: string,
   clientId: string,
   args: Record<string, unknown>,
+  options?: BookAppointmentOptions,
 ): Promise<string | null> {
   const customerName =
     typeof args.customer_name === 'string' ? args.customer_name.trim() : '';
@@ -85,11 +99,172 @@ export async function handleBookAppointment(
     },
   });
 
+  await createBookingOrderMirror({
+    appointmentId: appointment.id,
+    conversationId,
+    clientId,
+    clientIgUserId: options?.clientIgUserId ?? null,
+    customerName,
+    phone,
+    date,
+    time,
+    branchName: branch.displayName,
+    services: services.map((s) => ({
+      name: s.name,
+      price: s.price,
+      qty: 1,
+    })),
+    masterId,
+    comment,
+  }).catch((err) => {
+    log.error({ err, appointmentId: appointment.id }, 'Booking Order mirror failed (non-fatal)');
+  });
+
+  const igUserId = options?.clientIgUserId?.trim();
+  if (igUserId && !options?.skipClientMessage) {
+    const confirmationText =
+      options?.clientMessage?.trim() ||
+      `Запис підтверджено: ${date} о ${time}. Чекаємо тебе!`;
+    try {
+      await sendText(igUserId, confirmationText);
+      await prisma.message.create({
+        data: {
+          conversationId,
+          direction: 'out',
+          sender: 'bot',
+          text: confirmationText,
+        },
+      });
+      markFirstOutboundAt(conversationId).catch((err) =>
+        log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+      );
+    } catch (err) {
+      log.error({ err, conversationId, appointmentId: appointment.id }, 'Failed to send booking confirmation to IG');
+    }
+  }
+
   mirrorAppointmentToCrm(appointment.id).catch((err) => {
     log.error({ err, appointmentId: appointment.id }, 'Appointment CRM mirror failed');
   });
 
   return appointment.id;
+}
+
+async function createBookingOrderMirror(params: {
+  appointmentId: string;
+  conversationId: string;
+  clientId: string;
+  clientIgUserId: string | null;
+  customerName: string;
+  phone: string;
+  date: string;
+  time: string;
+  branchName?: string | null;
+  services: OrderLineItem[];
+  masterId?: string;
+  comment?: string;
+}): Promise<string | null> {
+  const {
+    appointmentId,
+    conversationId,
+    clientId,
+    clientIgUserId,
+    customerName,
+    phone,
+    date,
+    time,
+    branchName,
+    services,
+    masterId,
+    comment,
+  } = params;
+
+  const appointmentMarker = `appointmentId=${appointmentId}`;
+  const since = new Date(Date.now() - BOOKING_ORDER_DEDUPE_MS);
+  const recent = await prisma.order.findFirst({
+    where: {
+      conversationId,
+      kind: 'booking',
+      isArchived: false,
+      status: { notIn: ['cancelled'] },
+      createdAt: { gte: since },
+      OR: [
+        { note: { contains: appointmentMarker } },
+        { note: { contains: `${date} ${time}` } },
+      ],
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
+  if (recent) {
+    log.info(
+      { conversationId, orderId: recent.id, appointmentId },
+      'booking Order deduped — recent matching order',
+    );
+    return recent.id;
+  }
+
+  const serviceNames = services.map((s) => s.name).filter(Boolean).join(', ') || 'Запис';
+  const summary = `Запис: ${serviceNames} · ${date} ${time}`;
+  const noteParts = [
+    summary,
+    branchName ? `Філія: ${branchName}` : null,
+    masterId ? `master_id=${masterId}` : null,
+    comment ? `Коментар: ${comment}` : null,
+    appointmentMarker,
+  ].filter(Boolean) as string[];
+
+  const items: OrderLineItem[] =
+    services.length > 0
+      ? services.map((s) => ({
+          name: s.name || 'Послуга',
+          price: Number(s.price) || 0,
+          qty: 1,
+        }))
+      : [{ name: summary, price: 0, qty: 1 }];
+
+  const order = await prisma.order.create({
+    data: {
+      conversationId,
+      clientId,
+      kind: 'booking',
+      items: toInputJsonValue(items)!,
+      customerName,
+      phone,
+      note: noteParts.join('\n'),
+      status: 'submitted',
+      submittedToManagerAt: new Date(),
+      crmSyncStatus: 'skipped',
+    },
+  });
+
+  if (clientIgUserId) {
+    notifyOrder({
+      orderId: order.id,
+      conversationId,
+      clientIgUserId,
+      kind: 'booking',
+      summary,
+      items,
+      customerName,
+      phone,
+      city: branchName ?? null,
+      npBranch: `${date} ${time}`,
+      paymentMethod: null,
+    }).catch((err) => {
+      log.error(
+        { err, orderId: order.id, conversationId },
+        'Failed to send booking Telegram notification',
+      );
+    });
+  }
+
+  log.info(
+    { orderId: order.id, appointmentId, conversationId },
+    'Booking Order mirror created (CRM skipped — Appointment owns CRM)',
+  );
+
+  return order.id;
 }
 
 export async function mirrorAppointmentToCrm(appointmentId: string): Promise<void> {

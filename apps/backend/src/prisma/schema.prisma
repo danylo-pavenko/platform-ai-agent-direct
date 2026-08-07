@@ -207,12 +207,13 @@ enum PaymentMethod {
   @@map("payment_method")
 }
 
-/// Why the local order row was created (soft agreement vs full e-com).
+/// Why the local order row was created (soft agreement vs full e-com / salon booking).
 enum OrderKind {
   product
   service
   callback
   other
+  booking
 
   @@map("order_kind")
 }

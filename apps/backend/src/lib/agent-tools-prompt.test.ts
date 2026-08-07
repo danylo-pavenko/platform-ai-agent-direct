@@ -56,4 +56,11 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/get_available_slots/);
     expect(prompt).toMatch(/НЕ вигадуй ціну/);
   });
+
+  it('forbids confirming a visit without book_appointment', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/book_appointment/);
+    expect(prompt).toMatch(/ОБОВʼЯЗКОВО виклич book_appointment|ОБОВ'ЯЗКОВО виклич book_appointment/);
+    expect(prompt).toMatch(/чекаємо тебе/);
+  });
 });

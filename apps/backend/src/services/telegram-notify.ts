@@ -277,9 +277,11 @@ export async function notifyOrder(params: {
         ? 'дзвінок'
         : kind === 'other'
           ? 'інше'
-          : kind === 'product'
-            ? 'товар'
-            : null;
+          : kind === 'booking'
+            ? 'запис'
+            : kind === 'product'
+              ? 'товар'
+              : null;
 
   const title =
     kind && kind !== 'product'

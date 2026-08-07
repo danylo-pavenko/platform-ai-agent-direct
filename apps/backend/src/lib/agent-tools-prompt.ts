@@ -43,7 +43,8 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
   }
   if (names.has('book_appointment')) {
     rules.push(
-      'book_appointment — коли клієнт підтвердив слот запису (дата/час/послуга/філія за потреби). Передай master_id з get_available_slots або історії, якщо клієнт йде до конкретного майстра.',
+      'Коли клієнт підтвердив слот (дата/час/послуга/філія за потреби) — у ТІЙ САМІЙ відповіді ОБОВʼЯЗКОВО виклич book_appointment (ПІБ, телефон, дата, час, services[{id,duration_min}], master_id якщо є). Передай master_id з get_available_slots або історії, якщо клієнт йде до конкретного майстра.',
+      'Заборонено писати клієнту «записала / записав / чекаємо тебе / бачимось о HH:MM / запис підтверджено» без <tool_call> book_appointment у ТІЙ САМІЙ відповіді. Відповідь лише про ціну/тривалість — БЕЗ підтвердження візиту, якщо book_appointment не викликано.',
     );
   }
   if (names.has('search_services')) {

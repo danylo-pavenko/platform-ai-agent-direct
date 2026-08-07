@@ -356,6 +356,7 @@ function kindLabel(kind: string | null | undefined): string {
     service: 'Послуга',
     callback: 'Дзвінок',
     other: 'Інше',
+    booking: 'Запис',
   };
   return labels[kind ?? 'product'] ?? kind ?? 'Товар';
 }
@@ -366,6 +367,7 @@ function kindColor(kind: string | null | undefined): string {
     service: 'teal',
     callback: 'orange',
     other: 'grey',
+    booking: 'pink-darken-2',
   };
   return colors[kind ?? 'product'] ?? 'grey';
 }

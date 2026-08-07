@@ -62,6 +62,11 @@ import {
   looksLikeDeferredSlotsPromise,
 } from '../lib/deferred-lookup.js';
 import {
+  buildFalseBookingConfirmNudge,
+  looksLikeBookingConfirmation,
+  sanitizeFalseBookingConfirmReply,
+} from '../lib/false-booking-confirm.js';
+import {
   createAgentTurnDebugCollector,
   formatAgentTurnDebugNote,
   recordTurnRound,
@@ -1717,6 +1722,86 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  // Recover once when the model claimed a booking without book_appointment.
+  const canBookAppointment = tools.some((t) => t.name === 'book_appointment');
+  const bookSucceeded = debug.tools.some(
+    (t) => t.name === 'book_appointment' && /\[book_appointment\]\s*ok\b/i.test(t.resultPreview),
+  );
+
+  if (
+    !agentFallback &&
+    agentCfg.mode === 'booking' &&
+    canBookAppointment &&
+    !bookSucceeded &&
+    !debug.falseBookingRecovery &&
+    looksLikeBookingConfirmation(responseText)
+  ) {
+    const nudge = buildFalseBookingConfirmNudge();
+    log.warn(
+      { conversationId, stallPreview: responseText.slice(0, 200) },
+      'False booking confirmation without book_appointment — forcing recovery',
+    );
+    debug.falseBookingRecovery = true;
+
+    const recovery = await askTurnClaude(
+      {
+        conversationHistory: [
+          ...history,
+          { role: 'user' as const, content: enrichedMessageText },
+          { role: 'assistant' as const, content: responseText },
+        ],
+        userMessage: nudge,
+        tools,
+      },
+      {
+        channel: conversation.channel,
+        conversationId,
+        clientId: client.id,
+        model: agentCfg.claudeModel,
+      },
+    );
+
+    responseText = recovery.text;
+    agentFallback = recovery.fallback ?? agentFallback;
+    if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+    recordTurnRound(debug, {
+      label: 'false_booking_confirm_recovery',
+      toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+      textPreview: recovery.text,
+      fallback: recovery.fallback ?? null,
+    });
+
+    if (recovery.toolCalls?.length) {
+      await runSideEffectToolCalls(recovery.toolCalls, client.id, conversationId, mediaAttachments, debug);
+      if (
+        await tryTerminalToolCalls(recovery.toolCalls, {
+          conversationId,
+          client,
+          agentMode: agentCfg.mode,
+          clientMessage: stripMarkdownForInstagram(recovery.text),
+          turnStartedAt,
+          turnDebug: debug,
+        })
+      ) {
+        return 'completed';
+      }
+    }
+
+    const bookedAfterRecovery = debug.tools.some(
+      (t) => t.name === 'book_appointment' && /\[book_appointment\]\s*ok\b/i.test(t.resultPreview),
+    );
+    if (
+      !bookedAfterRecovery &&
+      looksLikeBookingConfirmation(responseText)
+    ) {
+      responseText = sanitizeFalseBookingConfirmReply(responseText);
+      log.warn(
+        { conversationId, sanitizedPreview: responseText.slice(0, 200) },
+        'False booking confirmation still present after recovery — sanitized outbound',
+      );
+    }
+  }
+
   // ── 10. Validate output (customer-facing gate) ─────────────────────
 
   let outputValidationFailure = false;
@@ -2318,6 +2403,10 @@ async function tryTerminalToolCalls(
       conversationId,
       client.id,
       bookAppointment.args,
+      {
+        clientIgUserId: client.igUserId,
+        clientMessage: ctx.clientMessage,
+      },
     );
     if (appointmentId) {
       if (turnDebug) {
