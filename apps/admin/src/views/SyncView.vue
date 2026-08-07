@@ -138,6 +138,102 @@
         </template>
       </v-data-table>
     </v-card>
+
+    <v-card class="mt-4">
+      <v-card-title class="d-flex flex-wrap align-center ga-2 py-3">
+        <span>Послуги та ціни</span>
+        <v-chip v-if="servicesCount > 0" size="small" variant="tonal">
+          {{ servicesCount }}
+        </v-chip>
+        <v-spacer />
+        <span v-if="servicesSyncedAt" class="text-caption text-medium-emphasis font-weight-regular">
+          Знімок sync · {{ formatDate(servicesSyncedAt) }}
+        </span>
+      </v-card-title>
+      <v-card-subtitle class="pb-2">
+        Те, що бачить агент після синхронізації (services.json), не live CRM.
+      </v-card-subtitle>
+
+      <v-card-text v-if="servicesCount > 0 || servicesSearch" class="pt-0">
+        <v-text-field
+          v-model="servicesSearch"
+          density="compact"
+          variant="outlined"
+          hide-details
+          clearable
+          prepend-inner-icon="mdi-magnify"
+          placeholder="Пошук за назвою, категорією або ID"
+          class="mb-3"
+          style="max-width: 420px"
+        />
+        <v-data-table
+          :headers="serviceHeaders"
+          :items="filteredServices"
+          :loading="servicesLoading"
+          :items-per-page="25"
+          hover
+          density="compact"
+        >
+          <template #item.provider="{ item }">
+            <v-chip size="x-small" variant="tonal" :color="providerColor(item.provider)">
+              {{ providerLabel(item.provider) }}
+            </v-chip>
+          </template>
+          <template #item.durationMin="{ item }">
+            {{ item.durationMin }} хв
+          </template>
+          <template #item.price="{ item }">
+            {{ formatPrice(item.price) }}
+            <span
+              v-if="item.branchPrices?.length"
+              class="text-medium-emphasis text-caption"
+            >
+              ({{ item.branchPrices.length }} філ.)
+            </span>
+          </template>
+          <template #item.categoryName="{ item }">
+            {{ item.categoryName || '—' }}
+          </template>
+          <template #item.id="{ item }">
+            <div class="d-flex align-center ga-1">
+              <code class="text-caption">{{ item.id }}</code>
+              <v-btn
+                size="x-small"
+                variant="text"
+                icon="mdi-content-copy"
+                @click="copyText(item.id)"
+              />
+            </div>
+          </template>
+          <template #no-data>
+            <div class="text-medium-emphasis py-4">
+              Нічого не знайдено за запитом «{{ servicesSearch }}».
+            </div>
+          </template>
+        </v-data-table>
+      </v-card-text>
+
+      <v-card-text v-else-if="servicesLoading" class="d-flex align-center ga-2 py-6">
+        <v-progress-circular indeterminate size="20" width="2" />
+        <span class="text-body-2 text-medium-emphasis">Завантаження знімка послуг…</span>
+      </v-card-text>
+
+      <v-card-text v-else>
+        <div class="text-body-2 text-medium-emphasis mb-3">
+          Ще немає знімка послуг — запустіть синхронізацію після підключення BeautyPro або CleverBOX.
+        </div>
+        <v-btn
+          color="primary"
+          variant="tonal"
+          prepend-icon="mdi-sync"
+          :loading="triggering"
+          :disabled="isRunning"
+          @click="triggerSync"
+        >
+          Синхронізувати зараз
+        </v-btn>
+      </v-card-text>
+    </v-card>
   </v-container>
 </template>
 
@@ -172,11 +268,27 @@ interface SyncRun {
   errorMessage?: string | null;
 }
 
+interface SyncedService {
+  id: string;
+  name: string;
+  price: number;
+  durationMin: number;
+  categoryName?: string;
+  provider: string;
+  branchPrices?: Array<{ branchId: string; branchName: string; price: number }>;
+}
+
 const runs = ref<SyncRun[]>([]);
 const loading = ref(false);
 const triggering = ref(false);
 const error = ref('');
 const triggerSuccess = ref('');
+
+const services = ref<SyncedService[]>([]);
+const servicesCount = ref(0);
+const servicesSyncedAt = ref<string | null>(null);
+const servicesLoading = ref(false);
+const servicesSearch = ref('');
 
 const POLL_INTERVAL_MS = 3_000;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -193,9 +305,27 @@ const headers = [
   { title: 'Помилка', key: 'errorMessage', sortable: false },
 ];
 
+const serviceHeaders = [
+  { title: 'Назва', key: 'name', sortable: true },
+  { title: 'Категорія', key: 'categoryName', sortable: true },
+  { title: 'Тривалість', key: 'durationMin', width: '110px', sortable: true },
+  { title: 'Ціна', key: 'price', width: '140px', sortable: true },
+  { title: 'CRM', key: 'provider', width: '120px', sortable: true },
+  { title: 'ID', key: 'id', width: '200px', sortable: false },
+];
+
 const latestRun = computed<SyncRun | null>(() => runs.value[0] ?? null);
 const isRunning = computed(() => latestRun.value?.status === 'running');
 const latestOkRun = computed(() => runs.value.find((r) => r.status === 'ok') ?? null);
+
+const filteredServices = computed(() => {
+  const q = servicesSearch.value.trim().toLowerCase();
+  if (!q) return services.value;
+  return services.value.filter((s) => {
+    const hay = [s.name, s.categoryName ?? '', s.id, s.provider].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+});
 
 const latestSourceChips = computed(() => {
   const run = latestOkRun.value;
@@ -313,6 +443,33 @@ async function fetchSyncStatus(showLoader = true) {
   }
 }
 
+async function fetchServices(showLoader = true) {
+  if (showLoader) servicesLoading.value = true;
+  try {
+    const { data } = await api.get('/sync/services');
+    services.value = Array.isArray(data?.services) ? data.services : [];
+    servicesCount.value = typeof data?.count === 'number' ? data.count : services.value.length;
+    servicesSyncedAt.value = typeof data?.syncedAt === 'string' ? data.syncedAt : null;
+  } catch {
+    // Keep previous snapshot visible; status error is more important on this page.
+  } finally {
+    if (showLoader) servicesLoading.value = false;
+  }
+}
+
+function formatPrice(price: number): string {
+  if (!Number.isFinite(price)) return '—';
+  return `${price} ₴`;
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    /* ignore */
+  }
+}
+
 async function triggerSync() {
   triggering.value = true;
   error.value = '';
@@ -346,13 +503,18 @@ function stopPolling() {
   pollTimer = null;
 }
 
-watch(isRunning, (running) => {
+watch(isRunning, (running, wasRunning) => {
   if (running) startPolling();
-  else stopPolling();
+  else {
+    stopPolling();
+    // Reload services once when a run finishes (running → idle).
+    if (wasRunning) fetchServices(false);
+  }
 });
 
-onMounted(() => {
-  fetchSyncStatus();
+onMounted(async () => {
+  await Promise.all([fetchSyncStatus(), fetchServices()]);
+  if (isRunning.value) startPolling();
 });
 
 onUnmounted(() => {

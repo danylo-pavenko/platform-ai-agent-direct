@@ -1,6 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
+import { loadSyncedServices } from '../lib/synced-services.js';
 import { runSync, SyncInProgressError } from '../sync-worker.js';
+
+function servicesSyncedAt(counts: unknown, finishedAt: Date | null): string | null {
+  if (!finishedAt || !counts || typeof counts !== 'object') return null;
+  const services = (counts as { services?: unknown }).services;
+  if (services == null) return null;
+  return finishedAt.toISOString();
+}
 
 export async function syncRoutes(app: FastifyInstance): Promise<void> {
   // POST /sync/trigger — run sync in background (async, don't await)
@@ -48,5 +56,27 @@ export async function syncRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { runs };
+  });
+
+  // GET /sync/services — salon services + prices from last sync snapshot
+  app.get('/services', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
+    const services = await loadSyncedServices();
+
+    const recentOk = await prisma.crmSyncRun.findMany({
+      where: { status: 'ok' },
+      orderBy: { finishedAt: 'desc' },
+      take: 20,
+      select: { counts: true, finishedAt: true },
+    });
+    const syncedAt =
+      recentOk.map((run) => servicesSyncedAt(run.counts, run.finishedAt)).find((v) => v != null) ??
+      null;
+
+    return {
+      services,
+      count: services.length,
+      syncedAt,
+      source: 'snapshot' as const,
+    };
   });
 }
