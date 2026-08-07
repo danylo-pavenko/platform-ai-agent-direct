@@ -56,18 +56,20 @@ export function formatSearchServicesToolResult(params: {
   contextBlock: string;
   usedQuery: string;
   broadenedFrom?: string;
+  intentNote?: string;
 }): string {
-  const { query, matchCount, contextBlock, usedQuery, broadenedFrom } = params;
+  const { query, matchCount, contextBlock, usedQuery, broadenedFrom, intentNote } = params;
+  const note = intentNote ?? '';
   if (matchCount > 0) {
     if (broadenedFrom && usedQuery !== broadenedFrom) {
       return (
         `[search_services] За «${broadenedFrom}» точних збігів не було; знайдено за «${usedQuery}»:\n` +
-        `${contextBlock}\n\n` +
+        `${contextBlock}${note}\n\n` +
         `Якщо клієнт просив дату/час — одразу виклич get_available_slots з service id + duration_min з цього результату.`
       );
     }
     return (
-      `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}\n\n` +
+      `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}${note}\n\n` +
       `Якщо клієнт просив дату/час — одразу виклич get_available_slots з service id + duration_min з цього результату.`
     );
   }

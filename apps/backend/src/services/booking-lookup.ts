@@ -23,13 +23,16 @@ export {
 export async function searchServicesWithFallback(
   query: string,
   limit?: number,
+  opts?: { clientMessage?: string },
 ): Promise<{
   contextBlock: string;
   matchCount: number;
   usedQuery: string;
   broadenedFrom?: string;
+  clientIntentQuery?: string;
+  intentNote?: string;
 }> {
-  return searchServicesForContext(query, clampServiceSearchLimit(limit));
+  return searchServicesForContext(query, clampServiceSearchLimit(limit), opts);
 }
 
 export async function executeGetAvailableSlotsTool(params: {

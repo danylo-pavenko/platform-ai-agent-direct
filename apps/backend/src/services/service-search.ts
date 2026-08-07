@@ -10,7 +10,14 @@ import {
   expandServiceQueries,
   formatServiceLine,
   rankAcrossQueries,
+  rankServices,
 } from '../lib/service-search-rank.js';
+import {
+  extractGenderedServiceIntent,
+  formatClientIntentNote,
+  preferIntentFirst,
+  queryDropsClientGender,
+} from '../lib/service-search-intent.js';
 import {
   formatResolvedPrice,
   resolveServicePrice,
@@ -25,6 +32,9 @@ export type ServiceSearchResult = {
   matchCount: number;
   usedQuery: string;
   broadenedFrom?: string;
+  /** Client gendered intent was used to re-order hits. */
+  clientIntentQuery?: string;
+  intentNote?: string;
 };
 
 function toContext(items: CrmServiceItem[]): string {
@@ -35,6 +45,7 @@ function rankList(
   items: CrmServiceItem[],
   query: string,
   limit: number,
+  clientMessage?: string,
 ): ServiceSearchResult {
   const variants = expandServiceQueries(query);
   if (variants.length === 0 || items.length === 0) {
@@ -46,11 +57,29 @@ function rankList(
   }
 
   const ranked = rankAcrossQueries(items, variants, limit);
+  let itemsOut = ranked.items;
+  let clientIntentQuery: string | undefined;
+  let intentNote: string | undefined;
+
+  const intent = clientMessage ? extractGenderedServiceIntent(clientMessage) : null;
+  if (intent && (queryDropsClientGender(query, clientMessage!) || intent !== ranked.usedQuery)) {
+    const intentHits = rankServices(items, intent, limit);
+    if (intentHits.length > 0) {
+      itemsOut = preferIntentFirst(ranked.items, intentHits, limit);
+      clientIntentQuery = intent;
+      if (queryDropsClientGender(query, clientMessage!)) {
+        intentNote = formatClientIntentNote(intent);
+      }
+    }
+  }
+
   return {
-    contextBlock: toContext(ranked.items),
-    matchCount: ranked.items.length,
+    contextBlock: toContext(itemsOut),
+    matchCount: itemsOut.length,
     usedQuery: ranked.usedQuery,
     broadenedFrom: ranked.broadenedFrom,
+    clientIntentQuery,
+    intentNote,
   };
 }
 
@@ -79,10 +108,12 @@ async function loadLiveServices(query: string): Promise<CrmServiceItem[]> {
 /**
  * Search salon services: prefer synced snapshot (fast), then live CRM if no hits.
  * One list load + in-memory ranking across query variants (no N HTTP broaden loops).
+ * Optional clientMessage re-ranks when the model drops gendered intent (e.g. «чоловічий»).
  */
 export async function searchServicesForContext(
   query: string,
   limit: number = DEFAULT_SERVICE_SEARCH_LIMIT,
+  opts?: { clientMessage?: string },
 ): Promise<ServiceSearchResult> {
   const cap = clampServiceSearchLimit(limit);
   const q = query.trim();
@@ -90,9 +121,11 @@ export async function searchServicesForContext(
     return { contextBlock: '', matchCount: 0, usedQuery: '' };
   }
 
+  const clientMessage = opts?.clientMessage;
+
   const snapshot = await loadSnapshotForProvider();
   if (snapshot.length > 0) {
-    const fromSnap = rankList(snapshot, q, cap);
+    const fromSnap = rankList(snapshot, q, cap, clientMessage);
     if (fromSnap.matchCount > 0) {
       return fromSnap;
     }
@@ -103,7 +136,7 @@ export async function searchServicesForContext(
     return { contextBlock: '', matchCount: 0, usedQuery: q };
   }
 
-  return rankList(live, q, cap);
+  return rankList(live, q, cap, clientMessage);
 }
 
 /** Format slot masters for the agent (ids for tools; names for client copy). */

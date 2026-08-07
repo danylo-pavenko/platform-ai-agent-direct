@@ -38,6 +38,43 @@ describe('scoreServiceMatch', () => {
     expect(scoreServiceMatch(male, q)).toBeGreaterThan(scoreServiceMatch(generic, q));
   });
 
+  it('ranks Манікюр чоловічий above гігієнічна чистка for men’s query', () => {
+    const catalog = [
+      svc({
+        id: 'hyg',
+        name: 'Гігієнічна чистка + японський манікюр',
+        categoryName: 'Манікюр',
+        price: 850,
+        durationMin: 60,
+      }),
+      svc({
+        id: 'male',
+        name: 'Манікюр чоловічий',
+        categoryName: 'Манікюр',
+        price: 500,
+        durationMin: 45,
+      }),
+      svc({
+        id: 'coat',
+        name: 'Гігієнічний манікюр + однотонне покриття (Без попереднього зняття)',
+        categoryName: 'Манікюр',
+        price: 700,
+        durationMin: 90,
+      }),
+    ];
+    const top = rankServices(catalog, 'чоловічий манікюр', 3);
+    expect(top[0]?.id).toBe('male');
+    expect(top[0]?.name).toBe('Манікюр чоловічий');
+  });
+
+  it('penalizes non-gendered names when query has чоловічий', () => {
+    const male = svc({ id: '1', name: 'Манікюр чоловічий', price: 500 });
+    const hyg = svc({ id: '2', name: 'Гігієнічна чистка + японський манікюр', price: 850 });
+    const q = 'чоловічий манікюр';
+    expect(scoreServiceMatch(male, q)).toBeGreaterThan(scoreServiceMatch(hyg, q));
+    expect(scoreServiceMatch(hyg, q)).toBeLessThan(1);
+  });
+
   it('penalizes category-only matches', () => {
     const onlyCat = svc({ id: '1', name: 'Масаж спини', categoryName: 'Манікюр', price: 400 });
     const nameHit = svc({ id: '2', name: 'Манікюр класичний', categoryName: 'Нігті', price: 500 });

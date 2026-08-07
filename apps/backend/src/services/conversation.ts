@@ -62,6 +62,10 @@ import {
   looksLikeDeferredSlotsPromise,
 } from '../lib/deferred-lookup.js';
 import {
+  buildServiceCorrectionNudge,
+  looksLikeServiceCorrection,
+} from '../lib/service-search-intent.js';
+import {
   buildFalseBookingConfirmNudge,
   looksLikeBookingConfirmation,
   sanitizeFalseBookingConfirmReply,
@@ -1043,6 +1047,7 @@ async function handleIncomingMessageImpl(
           const found = await searchServicesWithFallback(
             query,
             parseSearchServicesLimit(searchServicesCall.args),
+            { clientMessage: messageText },
           );
           toolResultContent = formatSearchServicesToolResult({
             query,
@@ -1050,6 +1055,7 @@ async function handleIncomingMessageImpl(
             contextBlock: found.contextBlock,
             usedQuery: found.usedQuery,
             broadenedFrom: found.broadenedFrom,
+            intentNote: found.intentNote,
           });
         } catch (err) {
           log.error({ err, query }, 'search_services failed');
@@ -1149,6 +1155,7 @@ async function handleIncomingMessageImpl(
               const found = await searchServicesWithFallback(
                 q2,
                 parseSearchServicesLimit(nextSearch.args),
+                { clientMessage: messageText },
               );
               searchResult = formatSearchServicesToolResult({
                 query: q2,
@@ -1156,6 +1163,7 @@ async function handleIncomingMessageImpl(
                 contextBlock: found.contextBlock,
                 usedQuery: found.usedQuery,
                 broadenedFrom: found.broadenedFrom,
+                intentNote: found.intentNote,
               });
             } catch (err) {
               log.error({ err, query: q2 }, 'search_services follow-up failed');
@@ -1362,6 +1370,7 @@ async function handleIncomingMessageImpl(
             const found = await searchServicesWithFallback(
               q,
               parseSearchServicesLimit(recoverySearch.args),
+              { clientMessage: messageText },
             );
             searchResult = formatSearchServicesToolResult({
               query: q,
@@ -1369,6 +1378,7 @@ async function handleIncomingMessageImpl(
               contextBlock: found.contextBlock,
               usedQuery: found.usedQuery,
               broadenedFrom: found.broadenedFrom,
+              intentNote: found.intentNote,
             });
           } catch (err) {
             log.error({ err, query: q }, 'search_services failed (slots recovery)');
@@ -1528,6 +1538,7 @@ async function handleIncomingMessageImpl(
             const found = await searchServicesWithFallback(
               query,
               parseSearchServicesLimit(recoverySearchServices.args),
+              { clientMessage: messageText },
             );
             toolResultContent = formatSearchServicesToolResult({
               query,
@@ -1535,6 +1546,7 @@ async function handleIncomingMessageImpl(
               contextBlock: found.contextBlock,
               usedQuery: found.usedQuery,
               broadenedFrom: found.broadenedFrom,
+              intentNote: found.intentNote,
             });
           } catch (err) {
             log.error({ err, query }, 'search_services failed (stall recovery)');
@@ -1719,6 +1731,120 @@ async function handleIncomingMessageImpl(
         agentFallback = afterSlots.fallback ?? agentFallback;
         if (afterSlots.errorDetail) agentErrorDetail = afterSlots.errorDetail;
       }
+    }
+  }
+
+  // Recover when the client corrects the service and the model insists without re-search.
+  const searchExecutedThisTurn = debug.tools.some((t) => t.name === 'search_services');
+  if (
+    !agentFallback &&
+    canSearchServices &&
+    !searchExecutedThisTurn &&
+    !debug.stallRecovery &&
+    looksLikeServiceCorrection(messageText)
+  ) {
+    const nudge = buildServiceCorrectionNudge(messageText);
+    log.warn(
+      { conversationId, clientPreview: messageText.slice(0, 160) },
+      'Service correction without search_services — forcing recovery',
+    );
+    debug.stallRecovery = true;
+
+    const recovery = await askTurnClaude(
+      {
+        conversationHistory: [
+          ...history,
+          { role: 'user' as const, content: enrichedMessageText },
+          { role: 'assistant' as const, content: responseText },
+        ],
+        userMessage: nudge,
+        tools,
+      },
+      {
+        channel: conversation.channel,
+        conversationId,
+        clientId: client.id,
+        model: agentCfg.claudeModel,
+      },
+    );
+
+    responseText = recovery.text;
+    agentFallback = recovery.fallback ?? agentFallback;
+    if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+    recordTurnRound(debug, {
+      label: 'service_correction_recovery',
+      toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+      textPreview: recovery.text,
+      fallback: recovery.fallback ?? null,
+    });
+
+    const recoverySearch = recovery.toolCalls?.find((tc) => tc.name === 'search_services');
+    if (recoverySearch) {
+      await runSideEffectToolCalls(recovery.toolCalls ?? [], client.id, conversationId, mediaAttachments, debug);
+      if (
+        await tryTerminalToolCalls(recovery.toolCalls ?? [], {
+          conversationId,
+          client,
+          agentMode: agentCfg.mode,
+          clientMessage: stripMarkdownForInstagram(recovery.text),
+          turnStartedAt,
+          turnDebug: debug,
+        })
+      ) {
+        return 'completed';
+      }
+
+      const q =
+        typeof recoverySearch.args.query === 'string' ? recoverySearch.args.query.trim() : '';
+      let searchResult: string;
+      if (!q) {
+        searchResult = '[search_services] ПОМИЛКА: порожній запит';
+      } else {
+        try {
+          const found = await searchServicesWithFallback(q, parseSearchServicesLimit(recoverySearch.args), {
+            clientMessage: messageText,
+          });
+          searchResult = formatSearchServicesToolResult({
+            query: q,
+            matchCount: found.matchCount,
+            contextBlock: found.contextBlock,
+            usedQuery: found.usedQuery,
+            broadenedFrom: found.broadenedFrom,
+            intentNote: found.intentNote,
+          });
+        } catch (err) {
+          log.error({ err, query: q }, 'search_services failed (service correction recovery)');
+          searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
+        }
+      }
+      recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
+
+      const afterSearch = await askTurnClaude(
+        {
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            { role: 'assistant' as const, content: recovery.text || '[Шукаю послуги]' },
+          ],
+          userMessage: searchResult,
+          tools,
+        },
+        {
+          channel: conversation.channel,
+          conversationId,
+          clientId: client.id,
+          model: agentCfg.claudeModel,
+        },
+      );
+      responseText = afterSearch.text;
+      agentFallback = afterSearch.fallback ?? agentFallback;
+      if (afterSearch.errorDetail) agentErrorDetail = afterSearch.errorDetail;
+      recordTurnRound(debug, {
+        label: 'after_service_correction_search',
+        toolCalls: (afterSearch.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: afterSearch.text,
+        fallback: afterSearch.fallback ?? null,
+      });
     }
   }
 

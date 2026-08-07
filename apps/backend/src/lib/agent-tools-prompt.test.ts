@@ -57,6 +57,13 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/НЕ вигадуй ціну/);
   });
 
+  it('requires re-search when client corrects the service name', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/виправляє|уточнює послугу/);
+    expect(prompt).toMatch(/це та сама послуга/);
+    expect(prompt).toMatch(/словами клієнта|слів клієнта/);
+  });
+
   it('teaches grade-aware pricing from tool results in booking', () => {
     const tools = buildAgentTools('booking');
     const search = tools.find((t) => t.name === 'search_services');

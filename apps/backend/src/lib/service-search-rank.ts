@@ -71,6 +71,9 @@ export function scoreServiceMatch(item: CrmServiceItem, query: string): number {
     const stem = token.slice(0, Math.min(6, token.length));
     if (name.includes(token) || (stem.length >= 4 && name.includes(stem))) {
       score += 0.15;
+    } else {
+      // Query asked for a gendered service; this name is a different SKU.
+      score -= 0.45;
     }
   }
 
