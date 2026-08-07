@@ -147,14 +147,20 @@ export async function getAvailableSlotsForContext(args: {
     if (daySlots.length === 0) continue;
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
-      const masters = formatSlotMastersLine(slot.masterIds, masterMap);
-      lines.push(`- ${slot.time}${masters ? ` · ${masters}` : ''}`);
+      const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
+      lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
     }
   }
 
   if (lines.length === 0) {
-    return 'Вільних слотів не знайдено на цю дату.';
+    return args.masterId
+      ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
+      : 'Вільних слотів на обрану дату не знайдено.';
   }
 
+  lines.push(
+    '',
+    'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
+  );
   return lines.join('\n');
 }
