@@ -73,6 +73,7 @@ import {
   executeGetAvailableSlotsTool,
   formatSearchServicesToolResult,
   searchServicesWithFallback,
+  parseSearchServicesLimit,
 } from './booking-lookup.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
@@ -1034,7 +1035,10 @@ async function handleIncomingMessageImpl(
         toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
       } else {
         try {
-          const found = await searchServicesWithFallback(query);
+          const found = await searchServicesWithFallback(
+            query,
+            parseSearchServicesLimit(searchServicesCall.args),
+          );
           toolResultContent = formatSearchServicesToolResult({
             query,
             matchCount: found.matchCount,
@@ -1137,7 +1141,10 @@ async function handleIncomingMessageImpl(
             searchResult = '[search_services] ПОМИЛКА: порожній запит';
           } else {
             try {
-              const found = await searchServicesWithFallback(q2);
+              const found = await searchServicesWithFallback(
+                q2,
+                parseSearchServicesLimit(nextSearch.args),
+              );
               searchResult = formatSearchServicesToolResult({
                 query: q2,
                 matchCount: found.matchCount,
@@ -1347,7 +1354,10 @@ async function handleIncomingMessageImpl(
           searchResult = '[search_services] ПОМИЛКА: порожній запит';
         } else {
           try {
-            const found = await searchServicesWithFallback(q);
+            const found = await searchServicesWithFallback(
+              q,
+              parseSearchServicesLimit(recoverySearch.args),
+            );
             searchResult = formatSearchServicesToolResult({
               query: q,
               matchCount: found.matchCount,
@@ -1510,7 +1520,10 @@ async function handleIncomingMessageImpl(
           toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
         } else {
           try {
-            const found = await searchServicesWithFallback(query);
+            const found = await searchServicesWithFallback(
+              query,
+              parseSearchServicesLimit(recoverySearchServices.args),
+            );
             toolResultContent = formatSearchServicesToolResult({
               query,
               matchCount: found.matchCount,

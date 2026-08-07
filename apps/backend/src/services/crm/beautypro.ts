@@ -27,6 +27,12 @@ import type {
   ProductSearchParams,
 } from './types.js';
 import { filterSlotsByMasterId } from './slot-filter.js';
+import { createTtlCache } from '../../lib/ttl-cache.js';
+import {
+  clampServiceSearchLimit,
+  DEFAULT_SERVICE_SEARCH_LIMIT,
+  rankServices,
+} from '../../lib/service-search-rank.js';
 import {
   assertFreeTimePayload,
   buildFreeTimeQueryParams,
@@ -403,7 +409,12 @@ function mapService(raw: RawService, categories: Map<string, string>): CrmServic
   };
 }
 
+const servicesListCache = createTtlCache<CrmServiceItem[]>(3 * 60 * 1000);
+
 async function fetchAllServices(): Promise<CrmServiceItem[]> {
+  const cached = servicesListCache.get();
+  if (cached) return cached;
+
   const [raw, categories] = await Promise.all([
     bpFetch<RawService[]>('GET', '/services', {
       query: {
@@ -418,9 +429,11 @@ async function fetchAllServices(): Promise<CrmServiceItem[]> {
     fetchCategoryMap(),
   ]);
 
-  return (raw ?? [])
+  const items = (raw ?? [])
     .filter((s) => s.archive !== true)
     .map((s) => mapService(s, categories));
+  servicesListCache.set(items);
+  return items;
 }
 
 async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTimeResponse> {
@@ -564,17 +577,12 @@ export const beautyproAdapter: CrmAdapter = {
       }));
   },
 
-  async searchServices(query: string, limit = 8): Promise<CrmServiceItem[]> {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+  async searchServices(
+    query: string,
+    limit = DEFAULT_SERVICE_SEARCH_LIMIT,
+  ): Promise<CrmServiceItem[]> {
     const all = await fetchAllServices();
-    return all
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.categoryName?.toLowerCase().includes(q),
-      )
-      .slice(0, limit);
+    return rankServices(all, query, clampServiceSearchLimit(limit));
   },
 
   async getAvailableSlots(query: CrmSlotQuery) {

@@ -147,6 +147,10 @@ const SEARCH_SERVICES: ToolDefinition = {
     type: 'object',
     properties: {
       query: { type: 'string', description: 'Ключові слова з запиту клієнта' },
+      limit: {
+        type: 'number',
+        description: 'Скільки варіантів повернути (1–20, за замовчуванням 12)',
+      },
       crm_provider: {
         type: 'string',
         enum: ['cleverbox', 'beautypro', 'keycrm'],

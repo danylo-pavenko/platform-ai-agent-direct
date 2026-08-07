@@ -19,6 +19,12 @@ import type {
   ProductSearchParams,
 } from './types.js';
 import { filterSlotsByMasterId } from './slot-filter.js';
+import { createTtlCache } from '../../lib/ttl-cache.js';
+import {
+  clampServiceSearchLimit,
+  DEFAULT_SERVICE_SEARCH_LIMIT,
+  rankServices,
+} from '../../lib/service-search-rank.js';
 
 const log = pino({ name: 'crm:cleverbox' });
 
@@ -122,7 +128,12 @@ function toCboxNumericId(id: string): number {
   return n;
 }
 
+const servicesListCache = createTtlCache<CrmServiceItem[]>(3 * 60 * 1000);
+
 async function fetchAllServices(): Promise<CrmServiceItem[]> {
+  const cached = servicesListCache.get();
+  if (cached) return cached;
+
   const items: CrmServiceItem[] = [];
   let offset = 0;
   const limit = 100;
@@ -136,6 +147,7 @@ async function fetchAllServices(): Promise<CrmServiceItem[]> {
     if (offset > 10_000) break;
   }
 
+  servicesListCache.set(items);
   return items;
 }
 
@@ -181,13 +193,12 @@ export const cleverboxAdapter: CrmAdapter = {
     return fetchAllServices();
   },
 
-  async searchServices(query: string, limit = 8): Promise<CrmServiceItem[]> {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+  async searchServices(
+    query: string,
+    limit = DEFAULT_SERVICE_SEARCH_LIMIT,
+  ): Promise<CrmServiceItem[]> {
     const all = await fetchAllServices();
-    return all
-      .filter((s) => s.name.toLowerCase().includes(q) || s.categoryName?.toLowerCase().includes(q))
-      .slice(0, limit);
+    return rankServices(all, query, clampServiceSearchLimit(limit));
   },
 
   async getAvailableSlots(query: CrmSlotQuery) {

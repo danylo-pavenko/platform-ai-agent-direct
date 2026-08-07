@@ -36,6 +36,7 @@ import { retryPendingCrmMirrors } from './services/crm-mirror-retry.js';
 import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
 import { invalidateCatalogIndexCache } from './lib/catalog-index.js';
+import { formatServicePrice } from './lib/service-search-rank.js';
 import type {
   CrmCategory,
   CrmEmployee,
@@ -465,7 +466,17 @@ function buildServicesCatalog(
     '',
   ];
   for (const s of services) {
-    const price = s.price > 0 ? `від ${s.price} ₴` : 'ціна за запитом';
+    const price = formatServicePrice({
+      id: String(s.id),
+      name: s.name,
+      price: s.price,
+      durationMin: s.durationMin,
+      branchPrices: s.branchPrices?.map((p) => ({
+        branchId: p.branchId,
+        branchName: p.branchId,
+        price: p.price,
+      })),
+    });
     const cat = s.categoryName ? ` | ${s.categoryName}` : '';
     const prov = s.provider ? ` | crm=${s.provider}` : '';
     const locPrices =

@@ -7,6 +7,8 @@ import {
   getAvailableSlotsForContext,
   searchServicesForContext,
 } from './service-search.js';
+import { parseSearchServicesLimit } from './booking-lookup.js';
+import { formatSearchServicesToolResult } from '../lib/booking-lookup-format.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 
@@ -43,12 +45,18 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
       const query = asString(tc.args.query);
       if (!query) return { content: '[search_services] ПОМИЛКА: порожній запит' };
       try {
-        const { contextBlock, matchCount } = await searchServicesForContext(query);
+        const found = await searchServicesForContext(
+          query,
+          parseSearchServicesLimit(tc.args),
+        );
         return {
-          content:
-            matchCount > 0
-              ? `[search_services] РЕЗУЛЬТАТ:\n${contextBlock}`
-              : `[search_services] Нічого не знайдено за «${query}».`,
+          content: formatSearchServicesToolResult({
+            query,
+            matchCount: found.matchCount,
+            contextBlock: found.contextBlock,
+            usedQuery: found.usedQuery,
+            broadenedFrom: found.broadenedFrom,
+          }),
         };
       } catch (err) {
         log.error({ err, query }, 'sandbox search_services failed');

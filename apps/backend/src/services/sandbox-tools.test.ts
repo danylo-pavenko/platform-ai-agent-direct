@@ -4,6 +4,7 @@ vi.mock('./service-search.js', () => ({
   searchServicesForContext: vi.fn(async () => ({
     matchCount: 1,
     contextBlock: '[service_id=1] Чоловічий манікюр | 60 хв | від 500 ₴',
+    usedQuery: 'чоловічий манікюр',
   })),
   getAvailableSlotsForContext: vi.fn(async () =>
     [
@@ -14,6 +15,13 @@ vi.mock('./service-search.js', () => ({
     ].join('\n'),
   ),
 }));
+
+vi.mock('./booking-lookup.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./booking-lookup.js')>();
+  return {
+    ...actual,
+  };
+});
 
 vi.mock('./product-search.js', () => ({
   searchActiveProductsForContext: vi.fn(async () => ({

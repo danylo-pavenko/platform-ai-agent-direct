@@ -1,37 +1,105 @@
 /**
- * Live service search for booking-mode agents (CleverBOX, BeautyPro, and future providers).
+ * Live + synced service search for booking-mode agents (CleverBOX, BeautyPro, …).
  */
 
 import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { loadSyncedServices } from '../lib/synced-services.js';
+import {
+  clampServiceSearchLimit,
+  DEFAULT_SERVICE_SEARCH_LIMIT,
+  expandServiceQueries,
+  formatServiceLine,
+  rankAcrossQueries,
+} from '../lib/service-search-rank.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmServiceItem } from './crm/types.js';
 
-function formatServiceLine(s: CrmServiceItem): string {
-  const price = s.price > 0 ? `від ${s.price} ₴` : 'ціна за запитом';
-  const cat = s.categoryName ? ` | ${s.categoryName}` : '';
-  return `[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${cat}`;
+export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
+
+export type ServiceSearchResult = {
+  contextBlock: string;
+  matchCount: number;
+  usedQuery: string;
+  broadenedFrom?: string;
+};
+
+function toContext(items: CrmServiceItem[]): string {
+  return items.map(formatServiceLine).join('\n');
 }
 
-export async function searchServicesForContext(
+function rankList(
+  items: CrmServiceItem[],
   query: string,
-  limit = 8,
-): Promise<{ contextBlock: string; matchCount: number }> {
+  limit: number,
+): ServiceSearchResult {
+  const variants = expandServiceQueries(query);
+  if (variants.length === 0 || items.length === 0) {
+    return {
+      contextBlock: '',
+      matchCount: 0,
+      usedQuery: query.trim(),
+    };
+  }
+
+  const ranked = rankAcrossQueries(items, variants, limit);
+  return {
+    contextBlock: toContext(ranked.items),
+    matchCount: ranked.items.length,
+    usedQuery: ranked.usedQuery,
+    broadenedFrom: ranked.broadenedFrom,
+  };
+}
+
+async function loadSnapshotForProvider(): Promise<CrmServiceItem[]> {
+  const provider = await resolveCrmProvider('services');
+  const synced = await loadSyncedServices();
+  if (synced.length === 0) return [];
+  const forProvider = synced.filter((s) => s.provider === provider);
+  return forProvider.length > 0 ? forProvider : synced;
+}
+
+async function loadLiveServices(query: string): Promise<CrmServiceItem[]> {
   const provider = await resolveCrmProvider('services');
   const crm = getCrmAdapter(provider);
 
-  if (!crm.searchServices) {
-    return { contextBlock: '', matchCount: 0 };
+  if (crm.fetchServices) {
+    return crm.fetchServices();
+  }
+  if (crm.searchServices) {
+    // Adapters without fetchServices: ask for a wide slice, then re-rank locally.
+    return crm.searchServices(query, 50);
+  }
+  return [];
+}
+
+/**
+ * Search salon services: prefer synced snapshot (fast), then live CRM if no hits.
+ * One list load + in-memory ranking across query variants (no N HTTP broaden loops).
+ */
+export async function searchServicesForContext(
+  query: string,
+  limit: number = DEFAULT_SERVICE_SEARCH_LIMIT,
+): Promise<ServiceSearchResult> {
+  const cap = clampServiceSearchLimit(limit);
+  const q = query.trim();
+  if (!q) {
+    return { contextBlock: '', matchCount: 0, usedQuery: '' };
   }
 
-  const items = await crm.searchServices(query, limit);
-  if (items.length === 0) {
-    return { contextBlock: '', matchCount: 0 };
+  const snapshot = await loadSnapshotForProvider();
+  if (snapshot.length > 0) {
+    const fromSnap = rankList(snapshot, q, cap);
+    if (fromSnap.matchCount > 0) {
+      return fromSnap;
+    }
   }
 
-  return {
-    matchCount: items.length,
-    contextBlock: items.map(formatServiceLine).join('\n'),
-  };
+  const live = await loadLiveServices(q);
+  if (live.length === 0) {
+    return { contextBlock: '', matchCount: 0, usedQuery: q };
+  }
+
+  return rankList(live, q, cap);
 }
 
 /** Format slot masters for the agent (ids for tools; names for client copy). */
@@ -79,20 +147,14 @@ export async function getAvailableSlotsForContext(args: {
     if (daySlots.length === 0) continue;
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
-      const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
-      lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
+      const masters = formatSlotMastersLine(slot.masterIds, masterMap);
+      lines.push(`- ${slot.time}${masters ? ` · ${masters}` : ''}`);
     }
   }
 
   if (lines.length === 0) {
-    return args.masterId
-      ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
-      : 'Вільних слотів на обрану дату не знайдено.';
+    return 'Вільних слотів не знайдено на цю дату.';
   }
 
-  lines.push(
-    '',
-    'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
-  );
   return lines.join('\n');
 }

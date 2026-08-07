@@ -1,12 +1,12 @@
 /**
- * Booking lookup helpers: broaden empty service queries and execute slots tool.
+ * Booking lookup helpers: service search with ranking + slots tool execution.
  */
 
 import {
-  broadenServiceQueries,
   formatSearchServicesToolResult,
   parseGetAvailableSlotsArgs,
 } from '../lib/booking-lookup-format.js';
+import { clampServiceSearchLimit } from '../lib/service-search-rank.js';
 import { getAvailableSlotsForContext, searchServicesForContext } from './service-search.js';
 import { resolveBookingBranchCrmId } from './booking-branch.js';
 
@@ -16,38 +16,20 @@ export {
   parseGetAvailableSlotsArgs,
 } from '../lib/booking-lookup-format.js';
 
-export async function searchServicesWithFallback(query: string): Promise<{
+/**
+ * Ranked service search (snapshot → live). Query variants are expanded inside
+ * searchServicesForContext — no extra CRM round-trips for broaden.
+ */
+export async function searchServicesWithFallback(
+  query: string,
+  limit?: number,
+): Promise<{
   contextBlock: string;
   matchCount: number;
   usedQuery: string;
   broadenedFrom?: string;
 }> {
-  const primary = await searchServicesForContext(query);
-  if (primary.matchCount > 0) {
-    return {
-      contextBlock: primary.contextBlock,
-      matchCount: primary.matchCount,
-      usedQuery: query,
-    };
-  }
-
-  for (const alt of broadenServiceQueries(query)) {
-    const retry = await searchServicesForContext(alt);
-    if (retry.matchCount > 0) {
-      return {
-        contextBlock: retry.contextBlock,
-        matchCount: retry.matchCount,
-        usedQuery: alt,
-        broadenedFrom: query,
-      };
-    }
-  }
-
-  return {
-    contextBlock: '',
-    matchCount: 0,
-    usedQuery: query,
-  };
+  return searchServicesForContext(query, clampServiceSearchLimit(limit));
 }
 
 export async function executeGetAvailableSlotsTool(params: {
@@ -78,4 +60,12 @@ export async function executeGetAvailableSlotsTool(params: {
     const detail = err instanceof Error ? err.message : String(err);
     return `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`;
   }
+}
+
+/** Parse optional search_services.limit from tool args. */
+export function parseSearchServicesLimit(args: Record<string, unknown>): number | undefined {
+  const raw = args.limit;
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return clampServiceSearchLimit(n);
 }
