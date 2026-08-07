@@ -151,7 +151,7 @@
         </span>
       </v-card-title>
       <v-card-subtitle class="pb-2">
-        Те, що бачить агент після синхронізації (services.json), не live CRM.
+        Знімок після синхронізації (services.json): ціни по рівнях майстрів з CRM (positions), не live API.
       </v-card-subtitle>
 
       <v-card-text v-if="servicesCount > 0 || servicesSearch" class="pt-0">
@@ -162,7 +162,7 @@
           hide-details
           clearable
           prepend-inner-icon="mdi-magnify"
-          placeholder="Пошук за назвою, категорією або ID"
+          placeholder="Пошук за назвою, категорією, грейдом або ID"
           class="mb-3"
           style="max-width: 420px"
         />
@@ -183,13 +183,27 @@
             {{ item.durationMin }} хв
           </template>
           <template #item.price="{ item }">
-            {{ formatPrice(item.price) }}
-            <span
-              v-if="item.branchPrices?.length"
-              class="text-medium-emphasis text-caption"
-            >
-              ({{ item.branchPrices.length }} філ.)
-            </span>
+            <div>
+              <div>{{ formatServicePriceDisplay(item) }}</div>
+              <div
+                v-if="formatServiceGradeBreakdown(item)"
+                class="text-caption text-medium-emphasis"
+              >
+                {{ formatServiceGradeBreakdown(item) }}
+              </div>
+              <div
+                v-else-if="!item.priceRows?.length"
+                class="text-caption text-medium-emphasis"
+              >
+                Пересинхронізуйте, щоб побачити грейди
+              </div>
+              <div
+                v-if="uniqueBranchCount(item) > 0"
+                class="text-caption text-medium-emphasis"
+              >
+                ({{ uniqueBranchCount(item) }} філ.)
+              </div>
+            </div>
           </template>
           <template #item.categoryName="{ item }">
             {{ item.categoryName || '—' }}
@@ -276,6 +290,12 @@ interface SyncedService {
   categoryName?: string;
   provider: string;
   branchPrices?: Array<{ branchId: string; branchName: string; price: number }>;
+  priceRows?: Array<{
+    branchId: string;
+    positionId?: string;
+    positionName?: string;
+    price: number;
+  }>;
 }
 
 const runs = ref<SyncRun[]>([]);
@@ -309,7 +329,7 @@ const serviceHeaders = [
   { title: 'Назва', key: 'name', sortable: true },
   { title: 'Категорія', key: 'categoryName', sortable: true },
   { title: 'Тривалість', key: 'durationMin', width: '110px', sortable: true },
-  { title: 'Ціна', key: 'price', width: '140px', sortable: true },
+  { title: 'Ціна', key: 'price', width: '280px', sortable: true },
   { title: 'CRM', key: 'provider', width: '120px', sortable: true },
   { title: 'ID', key: 'id', width: '200px', sortable: false },
 ];
@@ -322,7 +342,12 @@ const filteredServices = computed(() => {
   const q = servicesSearch.value.trim().toLowerCase();
   if (!q) return services.value;
   return services.value.filter((s) => {
-    const hay = [s.name, s.categoryName ?? '', s.id, s.provider].join(' ').toLowerCase();
+    const grades = (s.priceRows ?? [])
+      .map((r) => r.positionName ?? '')
+      .join(' ');
+    const hay = [s.name, s.categoryName ?? '', s.id, s.provider, grades]
+      .join(' ')
+      .toLowerCase();
     return hay.includes(q);
   });
 });
@@ -460,6 +485,45 @@ async function fetchServices(showLoader = true) {
 function formatPrice(price: number): string {
   if (!Number.isFinite(price)) return '—';
   return `${price} ₴`;
+}
+
+function uniqueBranchCount(item: SyncedService): number {
+  const ids = new Set<string>();
+  for (const row of item.priceRows ?? []) {
+    if (row.branchId) ids.add(row.branchId);
+  }
+  if (ids.size > 0) return ids.size;
+  for (const b of item.branchPrices ?? []) {
+    if (b.branchId) ids.add(b.branchId);
+  }
+  return ids.size;
+}
+
+function formatServicePriceDisplay(item: SyncedService): string {
+  const fromRows = (item.priceRows ?? [])
+    .map((r) => r.price)
+    .filter((p) => typeof p === 'number' && p > 0);
+  if (fromRows.length > 0) {
+    const min = Math.min(...fromRows);
+    const max = Math.max(...fromRows);
+    return min === max ? formatPrice(min) : `${min}–${max} ₴`;
+  }
+  return formatPrice(item.price);
+}
+
+function formatServiceGradeBreakdown(item: SyncedService): string {
+  const byName = new Map<string, number>();
+  for (const row of item.priceRows ?? []) {
+    const name = row.positionName?.trim();
+    if (!name || !(row.price > 0)) continue;
+    const prev = byName.get(name);
+    if (prev == null || row.price > prev) byName.set(name, row.price);
+  }
+  if (byName.size === 0) return '';
+  return [...byName.entries()]
+    .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0], 'uk'))
+    .map(([name, price]) => `${name}: ${price}`)
+    .join('; ');
 }
 
 async function copyText(text: string) {

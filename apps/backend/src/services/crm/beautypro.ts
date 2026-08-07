@@ -89,6 +89,8 @@ interface RawService {
   archive?: boolean;
   location_prices?: Array<{
     location: string;
+    /** Professional grade / position UUID (client price per master level). */
+    position?: string | null;
     price?: number | null;
     staff_price?: number | null;
   }>;
@@ -100,12 +102,19 @@ interface RawCategory {
   name: string;
 }
 
+interface RawPosition {
+  id: string;
+  name: string;
+}
+
 interface RawEmployee {
   id: string;
   name: string;
   archive?: boolean;
   public?: boolean;
   roles?: string | string[];
+  positions?: string | string[] | null;
+  position_names?: string | string[] | null;
 }
 
 interface RawClient {
@@ -377,23 +386,73 @@ async function fetchCategoryMap(): Promise<Map<string, string>> {
   }
 }
 
-function mapService(raw: RawService, categories: Map<string, string>): CrmServiceItem {
+async function fetchPositionMap(): Promise<Map<string, string>> {
+  try {
+    const rows = await bpFetch<RawPosition[]>('GET', '/positions', {
+      query: { fields: 'name', role: 'professional' },
+    });
+    const map = new Map<string, string>();
+    for (const p of rows ?? []) {
+      if (p.id && p.name) map.set(p.id, p.name);
+    }
+    return map;
+  } catch (err) {
+    log.warn({ err }, 'BeautyPro positions fetch failed');
+    return new Map();
+  }
+}
+
+function asIdList(value: string | string[] | null | undefined): string[] {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const s = String(value).trim();
+  return s ? [s] : [];
+}
+
+/**
+ * Map BeautyPro service + location_prices into CrmServiceItem with full grade matrix.
+ * Exported for unit tests.
+ */
+export function mapBeautyproService(
+  raw: RawService,
+  categories: Map<string, string>,
+  positions: Map<string, string>,
+): CrmServiceItem {
   const prices = raw.location_prices ?? [];
-  const priceFromLocations = prices
-    .map((p) => (typeof p.price === 'number' ? p.price : 0))
-    .filter((p) => p > 0);
-  // Optional field — some API scopes omit it; do not request it in `fields`
-  // (live GET /services returns 400 Unknown parameter 'no_professional_price').
+  const priceRows = prices
+    .map((p) => {
+      const price = typeof p.price === 'number' ? p.price : 0;
+      if (!(price > 0) || !p.location) return null;
+      const positionId = p.position ? String(p.position) : undefined;
+      return {
+        branchId: p.location,
+        positionId,
+        positionName: positionId ? positions.get(positionId) : undefined,
+        price,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null);
+
   const noProPrice =
     typeof raw.no_professional_price === 'number' && raw.no_professional_price > 0
       ? raw.no_professional_price
       : 0;
+
+  const clientPrices = priceRows.map((r) => r.price);
   const basePrice =
     noProPrice > 0
       ? noProPrice
-      : priceFromLocations.length > 0
-        ? Math.min(...priceFromLocations)
+      : clientPrices.length > 0
+        ? Math.min(...clientPrices)
         : 0;
+
+  // Aggregate per location (min–max collapsed to min for branchPrices.price;
+  // Sync UI uses unique branch count from priceRows).
+  const byBranch = new Map<string, number>();
+  for (const row of priceRows) {
+    const prev = byBranch.get(row.branchId);
+    if (prev == null || row.price < prev) byBranch.set(row.branchId, row.price);
+  }
 
   return {
     id: raw.id,
@@ -401,21 +460,39 @@ function mapService(raw: RawService, categories: Map<string, string>): CrmServic
     price: basePrice,
     durationMin: raw.duration ?? 60,
     categoryName: raw.category ? categories.get(raw.category) : undefined,
-    branchPrices: prices.map((p) => ({
-      branchId: p.location,
-      branchName: p.location,
-      price: typeof p.price === 'number' ? p.price : 0,
+    branchPrices: [...byBranch.entries()].map(([branchId, price]) => ({
+      branchId,
+      branchName: branchId,
+      price,
     })),
+    priceRows: priceRows.length > 0 ? priceRows : undefined,
   };
 }
 
+function mapService(
+  raw: RawService,
+  categories: Map<string, string>,
+  positions: Map<string, string>,
+): CrmServiceItem {
+  return mapBeautyproService(raw, categories, positions);
+}
+
 const servicesListCache = createTtlCache<CrmServiceItem[]>(3 * 60 * 1000);
+const employeesListCache = createTtlCache<
+  Array<{
+    id: string;
+    name: string;
+    public?: boolean;
+    positionIds?: string[];
+    positionNames?: string[];
+  }>
+>(3 * 60 * 1000);
 
 async function fetchAllServices(): Promise<CrmServiceItem[]> {
   const cached = servicesListCache.get();
   if (cached) return cached;
 
-  const [raw, categories] = await Promise.all([
+  const [raw, categories, positions] = await Promise.all([
     bpFetch<RawService[]>('GET', '/services', {
       query: {
         // Live API rejects `no_professional_price` in fields ("Unknown parameter")
@@ -427,12 +504,42 @@ async function fetchAllServices(): Promise<CrmServiceItem[]> {
       },
     }),
     fetchCategoryMap(),
+    fetchPositionMap(),
   ]);
 
   const items = (raw ?? [])
     .filter((s) => s.archive !== true)
-    .map((s) => mapService(s, categories));
+    .map((s) => mapService(s, categories, positions));
   servicesListCache.set(items);
+  return items;
+}
+
+async function fetchAllEmployees() {
+  const cached = employeesListCache.get();
+  if (cached) return cached;
+
+  const rows = await bpFetch<RawEmployee[]>('GET', '/employees', {
+    query: {
+      fields: 'name,archive,public,roles,positions,position_names',
+      role: 'professional',
+      archive: false,
+    },
+  });
+
+  const items = (rows ?? [])
+    .filter((e) => e.archive !== true)
+    .map((e) => {
+      const positionIds = asIdList(e.positions);
+      const positionNames = asIdList(e.position_names);
+      return {
+        id: e.id,
+        name: e.name,
+        public: e.public,
+        positionIds: positionIds.length > 0 ? positionIds : undefined,
+        positionNames: positionNames.length > 0 ? positionNames : undefined,
+      };
+    });
+  employeesListCache.set(items);
   return items;
 }
 
@@ -561,20 +668,7 @@ export const beautyproAdapter: CrmAdapter = {
   },
 
   async fetchEmployees() {
-    const rows = await bpFetch<RawEmployee[]>('GET', '/employees', {
-      query: {
-        fields: 'name,archive,public,roles',
-        role: 'professional',
-        archive: false,
-      },
-    });
-    return (rows ?? [])
-      .filter((e) => e.archive !== true)
-      .map((e) => ({
-        id: e.id,
-        name: e.name,
-        public: e.public,
-      }));
+    return fetchAllEmployees();
   },
 
   async searchServices(
@@ -1545,7 +1639,7 @@ export async function probeBeautyproDatasets(opts: {
 
     if (datasets.includes('services')) {
       const t0 = Date.now();
-      const [raw, categories] = await Promise.all([
+      const [raw, categories, positions] = await Promise.all([
         bpFetch<RawService[]>('GET', '/services', {
           query: {
             fields:
@@ -1555,11 +1649,12 @@ export async function probeBeautyproDatasets(opts: {
           },
         }),
         fetchCategoryMap(),
+        fetchPositionMap(),
       ]);
       const mapped = (raw ?? [])
         .filter((s) => s.archive !== true)
         .map((s) => {
-          const item = mapService(s, categories);
+          const item = mapService(s, categories, positions);
           return {
             id: item.id,
             name: item.name,

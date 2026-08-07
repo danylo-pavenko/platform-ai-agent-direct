@@ -5,6 +5,11 @@
 
 import { broadenServiceQueries } from './booking-lookup-format.js';
 import type { CrmServiceItem } from '../services/crm/types.js';
+import {
+  formatGradeBreakdown,
+  formatResolvedPrice,
+  resolveServicePrice,
+} from './service-price-resolve.js';
 
 export const DEFAULT_SERVICE_SEARCH_LIMIT = 12;
 export const MAX_SERVICE_SEARCH_LIMIT = 20;
@@ -170,23 +175,17 @@ export function rankAcrossQueries(
   };
 }
 
-/** Format price for tool results: range when branch prices differ. */
+/** Format price for tool results: range + optional grade breakdown. */
 export function formatServicePrice(item: CrmServiceItem): string {
-  const fromBranches = (item.branchPrices ?? [])
-    .map((p) => p.price)
-    .filter((p) => typeof p === 'number' && p > 0);
-  const prices = [...fromBranches];
-  if (typeof item.price === 'number' && item.price > 0) {
-    prices.push(item.price);
-  }
-  if (prices.length === 0) return 'ціна за запитом';
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  if (min === max) return `від ${min} ₴`;
-  return `${min}–${max} ₴`;
+  const resolved = resolveServicePrice(item);
+  const base = formatResolvedPrice(resolved);
+  if (resolved.kind === 'unavailable' || resolved.kind === 'unknown') return base;
+  return base;
 }
 
 export function formatServiceLine(item: CrmServiceItem): string {
   const cat = item.categoryName ? ` | ${item.categoryName}` : '';
-  return `[service_id=${item.id}] ${item.name} | ${item.durationMin} хв | ${formatServicePrice(item)}${cat}`;
+  const grades = formatGradeBreakdown(item);
+  const gradePart = grades ? ` | ${grades}` : '';
+  return `[service_id=${item.id}] ${item.name} | ${item.durationMin} хв | ${formatServicePrice(item)}${gradePart}${cat}`;
 }

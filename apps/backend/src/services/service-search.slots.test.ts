@@ -1,13 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolveCrmProvider, getCrmAdapter, getAvailableSlots } = vi.hoisted(() => ({
-  resolveCrmProvider: vi.fn(),
-  getCrmAdapter: vi.fn(),
-  getAvailableSlots: vi.fn(),
-}));
+const { resolveCrmProvider, getCrmAdapter, getAvailableSlots, loadSyncedServices } = vi.hoisted(
+  () => ({
+    resolveCrmProvider: vi.fn(),
+    getCrmAdapter: vi.fn(),
+    getAvailableSlots: vi.fn(),
+    loadSyncedServices: vi.fn(async () => []),
+  }),
+);
 
 vi.mock('../lib/crm-routing.js', () => ({ resolveCrmProvider }));
 vi.mock('./crm/index.js', () => ({ getCrmAdapter }));
+vi.mock('../lib/synced-services.js', () => ({ loadSyncedServices }));
 
 import { getAvailableSlotsForContext } from './service-search.js';
 
@@ -16,6 +20,8 @@ describe('getAvailableSlotsForContext preferred master', () => {
     resolveCrmProvider.mockReset();
     getCrmAdapter.mockReset();
     getAvailableSlots.mockReset();
+    loadSyncedServices.mockReset();
+    loadSyncedServices.mockResolvedValue([]);
     resolveCrmProvider.mockResolvedValue('beautypro');
     getCrmAdapter.mockReturnValue({ getAvailableSlots });
   });
@@ -30,6 +36,25 @@ describe('getAvailableSlotsForContext preferred master', () => {
       },
       masters: [{ id: 'pro-1', name: 'Анна' }],
     });
+    getCrmAdapter.mockReturnValue({
+      getAvailableSlots,
+      fetchEmployees: vi.fn(async () => [
+        { id: 'pro-1', name: 'Анна', positionIds: ['top'], positionNames: ['Топ майстер'] },
+      ]),
+    });
+    loadSyncedServices.mockResolvedValue([
+      {
+        id: 'svc-1',
+        name: 'Манікюр',
+        price: 500,
+        durationMin: 60,
+        provider: 'beautypro',
+        priceRows: [
+          { branchId: 'loc-1', positionId: 'top', positionName: 'Топ майстер', price: 550 },
+          { branchId: 'loc-1', positionId: 'junior', positionName: 'Молодший майстер', price: 400 },
+        ],
+      },
+    ]);
 
     const text = await getAvailableSlotsForContext({
       date: '04.08.2026',
@@ -49,6 +74,8 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).toContain('10:00');
     expect(text).toMatch(/book_appointment/);
     expect(text).toMatch(/лише ім/);
+    expect(text).toContain('Ціни для обраного майстра');
+    expect(text).toContain('від 550 ₴');
   });
 
   it('returns a clear empty message when filtered master has no slots', async () => {

@@ -23,6 +23,14 @@ describe('parseServicesSnapshot', () => {
         durationMin: 45,
         categoryName: 'Волосся',
         provider: 'beautypro',
+        priceRows: [
+          {
+            branchId: 'loc',
+            positionId: 'top',
+            positionName: 'Топ майстер',
+            price: 640,
+          },
+        ],
       },
       { id: 1, name: 'bad' },
       {
@@ -43,6 +51,14 @@ describe('parseServicesSnapshot', () => {
         durationMin: 45,
         categoryName: 'Волосся',
         provider: 'beautypro',
+        priceRows: [
+          {
+            branchId: 'loc',
+            positionId: 'top',
+            positionName: 'Топ майстер',
+            price: 640,
+          },
+        ],
       },
       {
         id: 'svc-2',

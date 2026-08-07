@@ -178,20 +178,37 @@ export interface CrmLeadInput {
 
 // ── Booking / salon types (CleverBOX, future providers) ─────────────────
 
+export interface CrmServicePriceRow {
+  branchId: string;
+  /** BeautyPro professional position (grade) UUID. */
+  positionId?: string;
+  /** Tenant-specific grade name from GET /positions (e.g. «Топ майстер»). */
+  positionName?: string;
+  price: number;
+}
+
 export interface CrmServiceItem {
   /** CRM service id — numeric string for CleverBOX, UUID for BeautyPro. */
   id: string;
   name: string;
+  /** Display / fallback: min client price across price rows. */
   price: number;
   durationMin: number;
   categoryName?: string;
+  /** CleverBOX salon rows, or BeautyPro aggregated per location. */
   branchPrices?: Array<{ branchId: string; branchName: string; price: number }>;
+  /** BeautyPro full location × position client price matrix. */
+  priceRows?: CrmServicePriceRow[];
 }
 
 export interface CrmEmployee {
   id: string;
   name: string;
   public?: boolean;
+  /** BeautyPro professional position UUIDs. */
+  positionIds?: string[];
+  /** Matching position names from CRM (tenant-specific grades). */
+  positionNames?: string[];
 }
 
 export interface CrmSlotQuery {

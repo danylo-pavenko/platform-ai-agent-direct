@@ -37,6 +37,7 @@ import { syncOrderArchiveFlags } from './services/sync-order-archive.js';
 import { activeCatalogSets } from './lib/catalog-active-filter.js';
 import { invalidateCatalogIndexCache } from './lib/catalog-index.js';
 import { formatServicePrice } from './lib/service-search-rank.js';
+import { formatGradeBreakdown } from './lib/service-price-resolve.js';
 import type {
   CrmCategory,
   CrmEmployee,
@@ -458,6 +459,12 @@ function buildServicesCatalog(
     categoryName?: string;
     provider?: string;
     branchPrices?: Array<{ branchId: string; price: number }>;
+    priceRows?: Array<{
+      branchId: string;
+      positionId?: string;
+      positionName?: string;
+      price: number;
+    }>;
   }>,
 ): string {
   const lines = [
@@ -466,7 +473,7 @@ function buildServicesCatalog(
     '',
   ];
   for (const s of services) {
-    const price = formatServicePrice({
+    const item = {
       id: String(s.id),
       name: s.name,
       price: s.price,
@@ -476,22 +483,27 @@ function buildServicesCatalog(
         branchName: p.branchId,
         price: p.price,
       })),
-    });
+      priceRows: s.priceRows,
+    };
+    const price = formatServicePrice(item);
+    const grades = formatGradeBreakdown(item);
+    const gradePart = grades ? ` | grades=${grades}` : '';
     const cat = s.categoryName ? ` | ${s.categoryName}` : '';
     const prov = s.provider ? ` | crm=${s.provider}` : '';
-    const locPrices =
-      s.branchPrices && s.branchPrices.length > 0
-        ? ` | prices=${s.branchPrices.map((p) => `${p.branchId}:${p.price}`).join(',')}`
-        : '';
     lines.push(
-      `[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${cat}${prov}${locPrices}`,
+      `[service_id=${s.id}] ${s.name} | ${s.durationMin} хв | ${price}${gradePart}${cat}${prov}`,
     );
   }
   return lines.join('\n');
 }
 
 function buildMastersCatalog(
-  masters: Array<{ id: string; name: string; provider?: string }>,
+  masters: Array<{
+    id: string;
+    name: string;
+    provider?: string;
+    positionNames?: string[];
+  }>,
 ): string {
   const lines = [
     '# Masters / professionals (synced from CRM)',
@@ -500,7 +512,11 @@ function buildMastersCatalog(
   ];
   for (const m of masters) {
     const prov = m.provider ? ` | crm=${m.provider}` : '';
-    lines.push(`[master_id=${m.id}] ${m.name}${prov}`);
+    const positions =
+      m.positionNames && m.positionNames.length > 0
+        ? ` | positions=${m.positionNames.join(',')}`
+        : '';
+    lines.push(`[master_id=${m.id}] ${m.name}${positions}${prov}`);
   }
   return lines.join('\n');
 }

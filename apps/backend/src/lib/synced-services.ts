@@ -22,13 +22,24 @@ export function getServicesSnapshotPath(): string {
 function isSyncedServiceRow(value: unknown): value is SyncedServiceRow {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
-  return (
-    typeof row.id === 'string' &&
-    typeof row.name === 'string' &&
-    typeof row.price === 'number' &&
-    typeof row.durationMin === 'number' &&
-    typeof row.provider === 'string'
-  );
+  if (
+    typeof row.id !== 'string' ||
+    typeof row.name !== 'string' ||
+    typeof row.price !== 'number' ||
+    typeof row.durationMin !== 'number' ||
+    typeof row.provider !== 'string'
+  ) {
+    return false;
+  }
+  if (row.priceRows != null) {
+    if (!Array.isArray(row.priceRows)) return false;
+    for (const pr of row.priceRows) {
+      if (!pr || typeof pr !== 'object') return false;
+      const p = pr as Record<string, unknown>;
+      if (typeof p.branchId !== 'string' || typeof p.price !== 'number') return false;
+    }
+  }
+  return true;
 }
 
 /** Parse and validate services.json contents. Invalid rows are skipped. */

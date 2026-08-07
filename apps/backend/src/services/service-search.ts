@@ -11,6 +11,10 @@ import {
   formatServiceLine,
   rankAcrossQueries,
 } from '../lib/service-search-rank.js';
+import {
+  formatResolvedPrice,
+  resolveServicePrice,
+} from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmServiceItem } from './crm/types.js';
 
@@ -158,9 +162,67 @@ export async function getAvailableSlotsForContext(args: {
       : 'Вільних слотів на обрану дату не знайдено.';
   }
 
+  if (args.masterId && args.services.length > 0) {
+    try {
+      const priceLines = await formatMasterServicePrices({
+        masterId: args.masterId,
+        branchId: args.branchCrmId,
+        serviceIds: args.services.map((s) => s.id),
+      });
+      if (priceLines.length > 0) {
+        lines.push('', 'Ціни для обраного майстра:', ...priceLines);
+      }
+    } catch (err) {
+      // Non-fatal — slots still useful without grade quote.
+    }
+  }
+
   lines.push(
     '',
     'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
   );
   return lines.join('\n');
+}
+
+async function formatMasterServicePrices(params: {
+  masterId: string;
+  branchId: string;
+  serviceIds: string[];
+}): Promise<string[]> {
+  const provider = await resolveCrmProvider('services');
+  const crm = getCrmAdapter(provider);
+
+  let masterPositionIds: string[] = [];
+  if (crm.fetchEmployees) {
+    const employees = await crm.fetchEmployees();
+    const master = employees.find((e) => e.id === params.masterId);
+    masterPositionIds = master?.positionIds ?? [];
+  }
+
+  const synced = await loadSyncedServices();
+  const byProvider = synced.filter((s) => s.provider === provider);
+  const catalog = byProvider.length > 0 ? byProvider : synced;
+
+  let live: CrmServiceItem[] = [];
+  if (catalog.length === 0 && crm.fetchServices) {
+    live = await crm.fetchServices();
+  }
+  const list = catalog.length > 0 ? catalog : live;
+
+  const lines: string[] = [];
+  for (const sid of params.serviceIds) {
+    const svc = list.find((s) => s.id === sid);
+    if (!svc) continue;
+    const resolved = resolveServicePrice(svc, {
+      branchId: params.branchId,
+      masterPositionIds,
+    });
+    const label = formatResolvedPrice(resolved);
+    const grade =
+      resolved.kind === 'fixed' && resolved.positionName
+        ? ` (${resolved.positionName})`
+        : '';
+    lines.push(`- ${svc.name}: ${label}${grade}`);
+  }
+  return lines;
 }

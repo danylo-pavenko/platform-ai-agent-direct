@@ -145,6 +145,21 @@ describe('formatServicePrice / formatServiceLine', () => {
     expect(formatServiceLine(item)).toContain('[service_id=1]');
   });
 
+  it('includes grade breakdown from priceRows', () => {
+    const item = svc({
+      id: '1',
+      name: 'Манікюр чоловічий',
+      price: 400,
+      priceRows: [
+        { branchId: 'a', positionId: 'j', positionName: 'Молодший майстер', price: 400 },
+        { branchId: 'a', positionId: 'p', positionName: 'Преміум майстер', price: 650 },
+      ],
+    });
+    expect(formatServicePrice(item)).toBe('400–650 ₴');
+    expect(formatServiceLine(item)).toContain('Молодший майстер: 400');
+    expect(formatServiceLine(item)).toContain('Преміум майстер: 650');
+  });
+
   it('handles missing price', () => {
     expect(formatServicePrice(svc({ id: '1', name: 'X', price: 0 }))).toBe('ціна за запитом');
   });
