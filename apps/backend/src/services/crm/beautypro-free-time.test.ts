@@ -3,9 +3,11 @@ import {
   assertFreeTimePayload,
   buildFreeTimeQueryParams,
   invertFreeTime,
+  normalizeToUaDate,
   parseAgentDate,
   resolveFreeTimeDurationMin,
   resolveFreeTimeStep,
+  toUaDate,
 } from './beautypro-free-time.js';
 
 describe('beautypro free_time helpers', () => {
@@ -13,6 +15,12 @@ describe('beautypro free_time helpers', () => {
     expect(parseAgentDate('05.08.2026')).toEqual({ d: 5, m: 8, y: 2026 });
     expect(parseAgentDate('2026-08-05')).toEqual({ y: 2026, m: 8, d: 5 });
     expect(parseAgentDate('nope')).toBeNull();
+  });
+
+  it('normalizes any accepted date to DD.MM.YYYY', () => {
+    expect(normalizeToUaDate('2026-08-08')).toBe('08.08.2026');
+    expect(normalizeToUaDate('8.8.2026')).toBe('08.08.2026');
+    expect(toUaDate({ y: 2026, m: 8, d: 8 })).toBe('08.08.2026');
   });
 
   it('maps duration to allowed step values (not auto)', () => {

@@ -14,7 +14,7 @@ import { notifyCrmFallback, notifyOrder } from './telegram-notify.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import { sendText } from './instagram.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
-import { parseAgentDate, toIsoDate } from './crm/beautypro-free-time.js';
+import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
 
 const log = pino({ name: 'appointment' });
@@ -27,11 +27,6 @@ export type BookAppointmentOptions = {
   clientMessage?: string | null;
   skipClientMessage?: boolean;
 };
-
-function normalizeBookingDate(raw: string): string {
-  const parts = parseAgentDate(raw);
-  return parts ? toIsoDate(parts) : raw.trim();
-}
 
 export async function handleBookAppointment(
   conversationId: string,
@@ -69,7 +64,11 @@ export async function handleBookAppointment(
     return null;
   }
 
-  const date = normalizeBookingDate(rawDate);
+  const date = normalizeToUaDate(rawDate);
+  if (!parseAgentDate(date)) {
+    log.warn({ conversationId, rawDate }, 'book_appointment invalid date (need DD.MM.YYYY)');
+    return null;
+  }
 
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },

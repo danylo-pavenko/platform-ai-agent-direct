@@ -2,6 +2,8 @@
  * Pure booking lookup helpers (no CRM / env side effects — safe for unit tests).
  */
 
+import { normalizeToUaDate, parseAgentDate } from '../services/crm/beautypro-free-time.js';
+
 const SERVICE_KEYWORDS = [
   'манікюр',
   'педикюр',
@@ -108,6 +110,14 @@ export function parseGetAvailableSlotsArgs(
     return { error: '[get_available_slots] ПОМИЛКА: потрібні date та services (id + duration_min)' };
   }
 
+  const normalizedDate = normalizeToUaDate(date);
+  if (!parseAgentDate(normalizedDate)) {
+    return {
+      error:
+        '[get_available_slots] ПОМИЛКА: дата має бути ДД.ММ.РРРР (напр. 08.08.2026)',
+    };
+  }
+
   const masterIdRaw = args.master_id;
   const masterId =
     typeof masterIdRaw === 'string'
@@ -117,7 +127,7 @@ export function parseGetAvailableSlotsArgs(
         : undefined;
 
   return {
-    date,
+    date: normalizedDate,
     services,
     fullMonth: args.full_month === true,
     masterId: masterId || undefined,

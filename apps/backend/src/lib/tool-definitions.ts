@@ -168,7 +168,10 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
   parameters: {
     type: 'object',
     properties: {
-      date: { type: 'string', description: 'Дата ДД.ММ.РРРР' },
+      date: {
+        type: 'string',
+        description: 'Дата обовʼязково ДД.ММ.РРРР (напр. 08.08.2026), не YYYY-MM-DD',
+      },
       services: {
         type: 'array',
         items: {
@@ -203,7 +206,10 @@ const BOOK_APPOINTMENT: ToolDefinition = {
     properties: {
       customer_name: { type: 'string' },
       phone: { type: 'string' },
-      date: { type: 'string', description: 'ДД.ММ.РРРР' },
+      date: {
+        type: 'string',
+        description: 'Дата запису обовʼязково ДД.ММ.РРРР (напр. 08.08.2026), не YYYY-MM-DD',
+      },
       time: { type: 'string', description: 'ГГ:ХХ' },
       services: {
         type: 'array',

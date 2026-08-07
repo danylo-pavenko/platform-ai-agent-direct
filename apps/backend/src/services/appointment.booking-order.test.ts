@@ -177,7 +177,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           branchId: 'branch-default',
-          scheduledDate: '2026-08-08',
+          scheduledDate: '08.08.2026',
           scheduledTime: '13:30',
         }),
       }),

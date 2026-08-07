@@ -19,7 +19,7 @@ export type FreeTimeQueryOpts = {
   includeServices?: boolean;
 };
 
-/** Agent dates are DD.MM.YYYY (CleverBOX style) or ISO YYYY-MM-DD. */
+/** Canonical date for agent / DB / admin: DD.MM.YYYY. ISO accepted as input only. */
 export function parseAgentDate(date: string): { y: number; m: number; d: number } | null {
   const trimmed = date.trim();
   const dmy = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(trimmed);
@@ -33,6 +33,18 @@ export function parseAgentDate(date: string): { y: number; m: number; d: number 
   return null;
 }
 
+/** Ukrainian display / storage: DD.MM.YYYY */
+export function toUaDate(parts: { y: number; m: number; d: number }): string {
+  return `${String(parts.d).padStart(2, '0')}.${String(parts.m).padStart(2, '0')}.${parts.y}`;
+}
+
+/** Normalize any accepted agent date to DD.MM.YYYY. */
+export function normalizeToUaDate(raw: string): string {
+  const parts = parseAgentDate(raw);
+  return parts ? toUaDate(parts) : raw.trim();
+}
+
+/** BeautyPro HTTP API expects YYYY-MM-DD. */
 export function toIsoDate(parts: { y: number; m: number; d: number }): string {
   return `${parts.y}-${String(parts.m).padStart(2, '0')}-${String(parts.d).padStart(2, '0')}`;
 }
@@ -92,7 +104,7 @@ export function buildFreeTimeQueryParams(
 ): Record<string, string | number | boolean | undefined> {
   const parts = parseAgentDate(query.date);
   if (!parts) {
-    throw new Error(`BeautyPro: invalid date "${query.date}" (use DD.MM.YYYY or YYYY-MM-DD)`);
+    throw new Error(`BeautyPro: invalid date "${query.date}" (use DD.MM.YYYY)`);
   }
 
   const fullMonth = query.fullMonth === true;
