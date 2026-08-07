@@ -34,6 +34,13 @@ describe('booking preferred-master tools and docs', () => {
     expect(block).toContain('Новий клієнт');
   });
 
+  it('documents grade pricing for booking tools in platform capabilities', () => {
+    const block = buildPlatformCapabilitiesBlock();
+    expect(block).toContain('Booking prices by master grade');
+    expect(block).toContain('Ціни для обраного майстра');
+    expect(block).toMatch(/недоступно/);
+  });
+
   it('seed booking prompt covers returning and first-time master flows', () => {
     const seed = readFileSync(
       resolve(process.cwd(), '../workspace/templates/prompts/booking-agent.txt'),
@@ -44,5 +51,7 @@ describe('booking preferred-master tools and docs', () => {
     expect(seed).toContain('get_available_slots');
     expect(seed).toContain('master_id');
     expect(seed).toMatch(/не показуй/i);
+    expect(seed).toContain('Ціни за рівнем майстра');
+    expect(seed).toMatch(/недоступно для цього майстра/);
   });
 });

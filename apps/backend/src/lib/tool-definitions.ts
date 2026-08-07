@@ -142,7 +142,7 @@ const SET_CONVERSATION_BRANCH: ToolDefinition = {
 const SEARCH_SERVICES: ToolDefinition = {
   name: 'search_services',
   description:
-    'Пошук послуг у CRM (назва, ціна, тривалість). Викликай у тій самій відповіді, коли клієнт питає про послугу, ціну або вже назвав процедуру. Не пиши «зараз пошукаю» без цього виклику.',
+    'Пошук послуг у CRM: назва, тривалість, ціна. Результат може містити діапазон (напр. 400–800 ₴) і розбивку по рівнях майстрів (назви грейдів — як у CRM, напр. Молодший майстер / Майстер / Топ / Преміум). Без обраного майстра цитуй діапазон або «від …»; точну ціну рівня — лише з рядка грейду в результаті або з get_available_slots після master_id. Не вигадуй грейди й ціни. Викликай у тій самій відповіді, коли клієнт питає про послугу/ціну або назвав процедуру; не пиши «зараз пошукаю» без виклику.',
   parameters: {
     type: 'object',
     properties: {
@@ -164,7 +164,7 @@ const SEARCH_SERVICES: ToolDefinition = {
 const GET_AVAILABLE_SLOTS: ToolDefinition = {
   name: 'get_available_slots',
   description:
-    'Вільні слоти для запису на обрану дату. Потрібна філія (set_conversation_branch) та список послуг з id і тривалістю. Для повторного клієнта передай master_id з історії візитів, щоб показати лише цього майстра.',
+    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id — лише цей майстер; у результаті може бути блок «Ціни для обраного майстра» (фіксована сума або «недоступно для цього майстра»). Без master_id — найближчі вікна різних майстрів; ціну клієнту тоді тримай як діапазон з search_services, доки не обрано майстра. Повторний клієнт: передай master_id з історії.',
   parameters: {
     type: 'object',
     properties: {
@@ -187,7 +187,7 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
       master_id: {
         type: 'string',
         description:
-          'ID майстра з CRM історії / masters-live / попередніх слотів — фільтр слотів лише для цього майстра',
+          'ID майстра з CRM історії / masters-live / попередніх слотів — фільтр слотів і точна ціна за рівнем цього майстра',
       },
     },
     required: ['date', 'services'],
@@ -197,7 +197,7 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
 const BOOK_APPOINTMENT: ToolDefinition = {
   name: 'book_appointment',
   description:
-    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch).',
+    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Якщо відома точна ціна для обраного майстра (з get_available_slots) — передай services[].price; CRM сам може перерахувати, поле для локального запису/клієнта. master_id обовʼязковий, якщо клієнт іде до конкретного майстра.',
   parameters: {
     type: 'object',
     properties: {
@@ -215,7 +215,11 @@ const BOOK_APPOINTMENT: ToolDefinition = {
               description: 'ID послуги з search_services (число або UUID)',
             },
             name: { type: 'string' },
-            price: { type: 'number' },
+            price: {
+              type: 'number',
+              description:
+                'Ціна для клієнта: з блоку «Ціни для обраного майстра» або з розбивки грейдів search_services для обраного рівня; не мінімум чужого грейду',
+            },
             duration_min: { type: 'number' },
           },
           required: ['id', 'name', 'duration_min'],

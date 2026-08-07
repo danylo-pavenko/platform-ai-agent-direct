@@ -27,7 +27,7 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 
 1. Активний системний промпт у БД (бренд, контакти, доставка, FAQ, правила).
 2. Runtime-блок бекенду (профіль клієнта, години, філії, знімок catalog/services).
-3. Живі tools: `search_catalog` / `search_services` — не вигадуй ціни з голови.
+3. Живі tools: `search_catalog` / `search_services` — не вигадуй ціни з голови. У booking ціна може бути діапазоном по грейдах майстрів; точна сума — після `get_available_slots` з `master_id`.
 
 ## Заборони
 

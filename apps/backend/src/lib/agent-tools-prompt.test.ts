@@ -57,6 +57,21 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/НЕ вигадуй ціну/);
   });
 
+  it('teaches grade-aware pricing from tool results in booking', () => {
+    const tools = buildAgentTools('booking');
+    const search = tools.find((t) => t.name === 'search_services');
+    const slots = tools.find((t) => t.name === 'get_available_slots');
+    const book = tools.find((t) => t.name === 'book_appointment');
+    expect(search!.description).toMatch(/діапазон|грейд/i);
+    expect(slots!.description).toMatch(/Ціни для обраного майстра/);
+    expect(book!.description).toMatch(/services\[\]\.price|price/);
+
+    const prompt = formatAgentToolsPrompt(tools);
+    expect(prompt).toMatch(/діапазон/);
+    expect(prompt).toMatch(/Ціни для обраного майстра/);
+    expect(prompt).toMatch(/недоступно для цього майстра/);
+  });
+
   it('forbids confirming a visit without book_appointment', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/book_appointment/);

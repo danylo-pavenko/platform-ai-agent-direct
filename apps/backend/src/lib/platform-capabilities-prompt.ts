@@ -52,6 +52,14 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 - Заборонено filler «зараз пошукаю/перевірю» без search_services / get_available_slots у тій самій відповіді. Платформа один раз форсить recovery, якщо агент пообіцяв пошук без tool_call.
 - Після search_services платформа виконує follow-up get_available_slots з наступного ходу Claude (ланцюг search → slots), щоб клієнт не лишався на «зараз перевірю вікна».
 
+## Booking prices by master grade (BeautyPro positions)
+
+- Live ціни — з tool results / services-live (після sync), не хардкод у промпті tenant.
+- search_services: діапазон + розбивка грейдів (назви з CRM positions). Без майстра — цитуй range / «від».
+- get_available_slots + master_id: блок «Ціни для обраного майстра» = точна цитата; «недоступно» = цей рівень не робить послугу → інший майстер.
+- book_appointment: можна передати services[].price з цитати слотів; CRM BeautyPro рахує ціну сам — поле для локального запису/клієнта.
+- Не хардкодь UUID позицій і не вигадуй назви грейдів поза tool/catalog.
+
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.
 
