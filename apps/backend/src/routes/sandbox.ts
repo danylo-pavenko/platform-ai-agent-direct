@@ -5,7 +5,10 @@ import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
-import { getAgentConfig } from '../lib/agent-config.js';
+import { getAgentConfig,
+  CLAUDE_ROUTER_MODEL,
+  normalizeClaudeReplyModel,
+} from '../lib/agent-config.js';
 import { buildAgentTools } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
@@ -211,23 +214,75 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         let userMessage = lastMessage.content;
         let conversationHistory = [...history];
         let finalText = '';
+        let claudeSessionId: string | undefined;
+        let sessionModel: string | undefined;
+        const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-          const response = await askClaude(
+          const purpose = round === 0 ? 'reply' : 'router';
+          let model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
+          if (sessionModel && sessionModel !== model) {
+            claudeSessionId = undefined;
+          }
+
+          let response = await askClaude(
             {
               systemPrompt,
               conversationHistory,
               userMessage,
               tools,
+              ...(claudeSessionId ? { resumeSessionId: claudeSessionId } : {}),
             },
             {
               channel: 'sandbox',
-              model: agentCfg.claudeModel,
+              model,
               // Multi-round CRM tools need the long teach budget (default 10m),
               // not CLAUDE_ADMIN_TIMEOUT_MS (2m) — otherwise nginx/proxy look like "connection error".
               timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
             },
           );
+
+          if (response.sessionId && !response.fallback) {
+            claudeSessionId = response.sessionId;
+            sessionModel = model;
+          } else if (response.fallback) {
+            claudeSessionId = undefined;
+            sessionModel = undefined;
+          } else {
+            sessionModel = model;
+          }
+
+          // After tool results: if Haiku produced final prose (no tools), rewrite with reply model.
+          if (
+            round > 0 &&
+            !response.fallback &&
+            !(response.toolCalls && response.toolCalls.length > 0)
+          ) {
+            claudeSessionId = undefined;
+            model = replyModel;
+            response = await askClaude(
+              {
+                systemPrompt,
+                conversationHistory,
+                userMessage,
+                tools,
+              },
+              {
+                channel: 'sandbox',
+                model,
+                timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
+              },
+            );
+            if (response.sessionId && !response.fallback) {
+              claudeSessionId = response.sessionId;
+              sessionModel = model;
+            } else if (response.fallback) {
+              claudeSessionId = undefined;
+              sessionModel = undefined;
+            } else {
+              sessionModel = model;
+            }
+          }
 
           finalText = response.text;
           const toolCall = pickSandboxToolCall(response.toolCalls ?? []);

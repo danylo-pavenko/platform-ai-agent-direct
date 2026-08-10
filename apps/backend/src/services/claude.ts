@@ -38,6 +38,11 @@ export interface ClaudeRequest {
   userMessage: string;
   images?: string[];
   tools?: ToolDefinition[];
+  /**
+   * When set, spawn with `claude -p --resume <id>` and send only the new
+   * user message (tool result). Session already holds system + prior turns.
+   */
+  resumeSessionId?: string;
 }
 
 export interface ToolDefinition {
@@ -61,6 +66,8 @@ export interface ClaudeResponse {
    * field used for logging — callers should not surface this to end users.
    */
   errorDetail?: string;
+  /** Claude Code session id from stream-json — pass as `resumeSessionId` on the next round. */
+  sessionId?: string;
 }
 
 export interface ClaudeCallContext {
@@ -69,7 +76,7 @@ export interface ClaudeCallContext {
   clientId?: string;
   /** Per-call override (e.g. voice turns after STT). */
   timeoutMs?: number;
-  /** Claude Code CLI `--model` (haiku/sonnet/opus). Falls back to agent_config. */
+  /** Claude Code CLI `--model` (haiku router / sonnet|opus reply). Falls back to agent_config. */
   model?: string;
 }
 
@@ -137,7 +144,13 @@ const MAX_PENDING = 10;
 // ---------------------------------------------------------------------------
 
 /** Build the plain-text prompt that is piped to Claude's stdin. */
-function buildPrompt(req: ClaudeRequest): string {
+function buildPrompt(req: ClaudeRequest, opts?: { resume?: boolean }): string {
+  // Resume rounds: session transcript already has system + history + tools.
+  // Re-sending them doubles tokens and can confuse the model.
+  if (opts?.resume) {
+    return `Human: ${req.userMessage}`;
+  }
+
   const parts: string[] = [];
 
   parts.push(`<system>\n${req.systemPrompt}\n</system>`);
@@ -156,18 +169,29 @@ function buildPrompt(req: ClaudeRequest): string {
   return parts.join('\n\n');
 }
 
+export interface BuildClaudeCliArgsOptions {
+  useStreamJsonInput?: boolean;
+  model?: string;
+  resumeSessionId?: string;
+}
+
 /** Build the CLI argument list (prompt / images go via stdin). */
-function buildArgs(useStreamJsonInput = false, model: string = config.CLAUDE_MODEL): string[] {
+function buildArgs(opts: BuildClaudeCliArgsOptions = {}): string[] {
+  const model = normalizeClaudeModel(opts.model ?? config.CLAUDE_MODEL);
   const args: string[] = [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', normalizeClaudeModel(model),
+    '--model', model,
   ];
+
+  if (opts.resumeSessionId) {
+    args.push('--resume', opts.resumeSessionId);
+  }
 
   // Claude Code has no `--image` flag. Vision uses Anthropic image content
   // blocks on stdin with `--input-format stream-json`.
-  if (useStreamJsonInput) {
+  if (opts.useStreamJsonInput) {
     args.push('--input-format', 'stream-json');
   }
 
@@ -178,8 +202,21 @@ function buildArgs(useStreamJsonInput = false, model: string = config.CLAUDE_MOD
 export function buildClaudeCliArgsForTest(
   useStreamJsonInput = false,
   model?: string,
+  resumeSessionId?: string,
 ): string[] {
-  return buildArgs(useStreamJsonInput, model ?? config.CLAUDE_MODEL);
+  return buildArgs({
+    useStreamJsonInput,
+    model: model ?? config.CLAUDE_MODEL,
+    resumeSessionId,
+  });
+}
+
+/** Exported for unit tests. */
+export function buildClaudePromptForTest(
+  req: ClaudeRequest,
+  opts?: { resume?: boolean },
+): string {
+  return buildPrompt(req, opts);
 }
 
 async function resolveClaudeModel(context?: ClaudeCallContext): Promise<ClaudeModelId> {
@@ -221,6 +258,7 @@ function parseResponse(raw: string): ClaudeResponse {
     text: parsed.text,
     ...(parsed.toolCalls?.length ? { toolCalls: parsed.toolCalls } : {}),
     ...(parsed.errorDetail ? { errorDetail: parsed.errorDetail } : {}),
+    ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}),
   };
 }
 
@@ -527,29 +565,16 @@ function recordInvocation(row: {
  * - Returns a fallback message on overload, timeout, or error (never throws).
  * - If `context` is provided, one row is recorded in `agent_invocations`
  *   with measured latency and success/fallback state (fire-and-forget).
+ * - Tool follow-ups may pass `resumeSessionId` to reuse the Claude Code
+ *   session (`--resume`) with a slim prompt; on resume failure we retry once
+ *   with a full cold prompt.
  */
 export async function askClaude(
   req: ClaudeRequest,
   context?: ClaudeCallContext,
 ): Promise<ClaudeResponse> {
-  const prompt = buildPrompt(req);
-  const vision = await buildClaudeVisionStdin(prompt, req.images);
-  const model = await resolveClaudeModel(context);
-  const args = buildArgs(vision.useStreamJsonInput, model);
   const startMs = Date.now();
-
-  if (req.images && req.images.length > 0) {
-    log.info(
-      {
-        requested: req.images.length,
-        attached: vision.attachedImages.length,
-        skipped: vision.skippedPaths.length,
-        streamJsonInput: vision.useStreamJsonInput,
-        channel: context?.channel ?? null,
-      },
-      'Claude vision stdin prepared',
-    );
-  }
+  const model = await resolveClaudeModel(context);
 
   /**
    * Emit a dedicated warn-level log whenever the user actually receives a
@@ -557,7 +582,11 @@ export async function askClaude(
    * from the site-specific error logs in spawnClaude so ops can grep a single
    * `event=agent_fallback` across all failure modes.
    */
-  const logFallback = (response: ClaudeResponse, durationMs: number) => {
+  const logFallback = (
+    response: ClaudeResponse,
+    durationMs: number,
+    inputChars: number,
+  ) => {
     if (!response.fallback) return;
     log.warn(
       {
@@ -570,14 +599,19 @@ export async function askClaude(
         clientId: context?.clientId ?? null,
         durationMs,
         historyLength: req.conversationHistory.length,
-        inputChars: prompt.length,
+        inputChars,
+        resumeSessionId: req.resumeSessionId ?? null,
         userMessagePreview: req.userMessage.slice(0, 200),
       },
       'Agent fallback — user received canned manager-handoff reply',
     );
   };
 
-  const record = (response: ClaudeResponse, errorMessage: string | null = null) => {
+  const record = (
+    response: ClaudeResponse,
+    inputChars: number,
+    errorMessage: string | null = null,
+  ) => {
     if (!context) return;
     recordInvocation({
       channel: context.channel,
@@ -587,7 +621,7 @@ export async function askClaude(
       success: !response.fallback,
       fallbackReason: response.fallback ?? null,
       errorMessage: errorMessage ?? response.errorDetail ?? null,
-      inputChars: prompt.length,
+      inputChars,
       outputChars: response.text.length,
     });
   };
@@ -605,43 +639,99 @@ export async function askClaude(
       context,
       `queue overloaded (pending=${gate.pending}, active=${gate.active})`,
     );
-    logFallback(busy, Date.now() - startMs);
-    record(busy);
+    logFallback(busy, Date.now() - startMs, 0);
+    record(busy, 0);
     return busy;
   }
 
   let release: (() => void) | undefined;
 
+  const spawnOnce = async (resumeSessionId: string | undefined) => {
+    const resume = Boolean(resumeSessionId);
+    const prompt = buildPrompt(req, { resume });
+    // Vision only on cold starts — resume rounds are tool-result text.
+    const images = resume ? undefined : req.images;
+    const vision = await buildClaudeVisionStdin(prompt, images);
+    const args = buildArgs({
+      useStreamJsonInput: vision.useStreamJsonInput,
+      model,
+      resumeSessionId,
+    });
+
+    if (images && images.length > 0) {
+      log.info(
+        {
+          requested: images.length,
+          attached: vision.attachedImages.length,
+          skipped: vision.skippedPaths.length,
+          streamJsonInput: vision.useStreamJsonInput,
+          channel: context?.channel ?? null,
+        },
+        'Claude vision stdin prepared',
+      );
+    }
+
+    if (resume) {
+      log.info(
+        {
+          resumeSessionId,
+          inputChars: prompt.length,
+          channel: context?.channel ?? null,
+        },
+        'Claude CLI --resume follow-up (slim prompt)',
+      );
+    }
+
+    const response = await spawnClaude(vision.stdin, args, timeoutFor(context), context);
+    return { response, promptChars: prompt.length, visionAttached: vision.attachedImages.length };
+  };
+
   try {
     release = await gate.acquire();
 
-    const response = await spawnClaude(vision.stdin, args, timeoutFor(context), context);
+    let { response, promptChars, visionAttached } = await spawnOnce(req.resumeSessionId);
+    let usedResume = Boolean(req.resumeSessionId) && !response.fallback;
+
+    if (req.resumeSessionId && response.fallback) {
+      log.warn(
+        {
+          resumeSessionId: req.resumeSessionId,
+          errorDetail: response.errorDetail ?? null,
+          channel: context?.channel ?? null,
+        },
+        'Claude --resume failed — retrying with full cold prompt',
+      );
+      ({ response, promptChars, visionAttached } = await spawnOnce(undefined));
+      usedResume = false;
+    }
 
     const durationMs = Date.now() - startMs;
     log.info(
       {
         durationMs,
-        inputChars: prompt.length,
+        inputChars: promptChars,
         outputChars: response.text.length,
         toolCalls: response.toolCalls?.length ?? 0,
         fallback: response.fallback ?? null,
         channel: context?.channel ?? null,
         timeoutMs: timeoutFor(context),
-        visionAttached: vision.attachedImages.length,
+        visionAttached,
         model,
+        sessionId: response.sessionId ?? null,
+        resumed: usedResume,
       },
       'Claude invocation complete',
     );
 
-    logFallback(response, durationMs);
-    record(response);
+    logFallback(response, durationMs, promptChars);
+    record(response, promptChars);
     return response;
   } catch (err) {
     log.error({ err }, 'Unexpected error in askClaude');
     const message = err instanceof Error ? err.message : String(err);
     const fallback = fallbackFor('timeout', context, `askClaude unexpected error: ${message}`);
-    logFallback(fallback, Date.now() - startMs);
-    record(fallback, message);
+    logFallback(fallback, Date.now() - startMs, 0);
+    record(fallback, 0, message);
     return fallback;
   } finally {
     release?.();
@@ -663,11 +753,8 @@ export async function askClaudeStream(
   context?: ClaudeCallContext,
   signal?: AbortSignal,
 ): Promise<ClaudeResponse> {
-  const prompt = buildPrompt(req);
-  const vision = await buildClaudeVisionStdin(prompt, req.images);
-  const model = await resolveClaudeModel(context);
-  const args = buildArgs(vision.useStreamJsonInput, model);
   const startMs = Date.now();
+  const model = await resolveClaudeModel(context);
   const gate = semaphoreFor(context);
 
   const emitDone = (response: ClaudeResponse) => {
@@ -684,6 +771,27 @@ export async function askClaudeStream(
     return busy;
   }
 
+  const spawnOnce = async (resumeSessionId: string | undefined) => {
+    const resume = Boolean(resumeSessionId);
+    const prompt = buildPrompt(req, { resume });
+    const images = resume ? undefined : req.images;
+    const vision = await buildClaudeVisionStdin(prompt, images);
+    const args = buildArgs({
+      useStreamJsonInput: vision.useStreamJsonInput,
+      model,
+      resumeSessionId,
+    });
+    const response = await spawnClaude(vision.stdin, args, {
+      timeoutMs: timeoutFor(context),
+      context,
+      signal,
+      onDelta: (text) => {
+        if (text) onEvent({ type: 'delta', text });
+      },
+    });
+    return { response, promptChars: prompt.length };
+  };
+
   let release: (() => void) | undefined;
   try {
     release = await gate.acquire();
@@ -693,24 +801,30 @@ export async function askClaudeStream(
       return aborted;
     }
 
-    const response = await spawnClaude(vision.stdin, args, {
-      timeoutMs: timeoutFor(context),
-      context,
-      signal,
-      onDelta: (text) => {
-        if (text) onEvent({ type: 'delta', text });
-      },
-    });
+    let { response, promptChars } = await spawnOnce(req.resumeSessionId);
+    if (req.resumeSessionId && response.fallback && !signal?.aborted) {
+      log.warn(
+        {
+          resumeSessionId: req.resumeSessionId,
+          errorDetail: response.errorDetail ?? null,
+          channel: context?.channel ?? null,
+        },
+        'Claude stream --resume failed — retrying with full cold prompt',
+      );
+      ({ response, promptChars } = await spawnOnce(undefined));
+    }
 
     const durationMs = Date.now() - startMs;
     log.info(
       {
         durationMs,
-        inputChars: prompt.length,
+        inputChars: promptChars,
         outputChars: response.text.length,
         fallback: response.fallback ?? null,
         channel: context?.channel ?? null,
         streamed: true,
+        sessionId: response.sessionId ?? null,
+        resumed: Boolean(req.resumeSessionId) && !response.fallback,
       },
       'Claude stream invocation complete',
     );
@@ -724,7 +838,7 @@ export async function askClaudeStream(
         success: !response.fallback,
         fallbackReason: response.fallback ?? null,
         errorMessage: response.errorDetail ?? null,
-        inputChars: prompt.length,
+        inputChars: promptChars,
         outputChars: response.text.length,
       });
     }

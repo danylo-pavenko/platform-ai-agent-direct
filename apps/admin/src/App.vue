@@ -16,6 +16,7 @@
       v-if="authStore.isAuthenticated && route.name !== 'login'"
       v-model="drawer"
       :permanent="!mobile"
+      :temporary="mobile"
       :width="240"
       app
     >
@@ -159,7 +160,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -168,9 +169,14 @@ import { formatPlatformVersion } from '@/lib/platform-version';
 const authStore = useAuthStore();
 const { mobile } = useDisplay();
 const route = useRoute();
-const drawer = ref(true);
+/** Closed on mobile so the hamburger owns nav; open permanently on desktop. */
+const drawer = ref(!mobile.value);
 const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent';
 const versionLabel = formatPlatformVersion();
+
+watch(mobile, (isMobile) => {
+  drawer.value = !isMobile;
+});
 
 function onNavClick() {
   if (mobile.value) drawer.value = false;

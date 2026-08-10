@@ -407,19 +407,20 @@
           Claude — модель агента
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Яку модель Claude Code використовує для відповідей у Direct (і sandbox / follow-up).
+          Модель для фінальних відповідей клієнту в Direct (та sandbox / follow-up).
+          Проміжні tool-rounds (пошук / слоти) йдуть через швидкий внутрішній router (Haiku) —
+          його не можна обрати тут, бо Haiku гірше тримає українську.
         </v-card-subtitle>
         <v-card-text>
           <v-select
             v-model="agentConfig.claudeModel"
             :items="[
-              { title: 'Haiku — швидше, дешевше (менше таймаутів)', value: 'haiku' },
               { title: 'Sonnet — баланс якості й швидкості', value: 'sonnet' },
               { title: 'Opus — якісніше, повільніше', value: 'opus' },
             ]"
             item-title="title"
             item-value="value"
-            label="Модель агента"
+            label="Модель відповідей"
             variant="outlined"
             density="compact"
             :loading="claudeModelSaving"
@@ -3024,8 +3025,7 @@ const claudeModelSavedOk = ref(false);
 let claudeModelSavedTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function onClaudeModelChange(value: unknown) {
-  const model =
-    value === 'haiku' || value === 'opus' || value === 'sonnet' ? value : 'sonnet';
+  const model = value === 'opus' || value === 'sonnet' ? value : 'sonnet';
   agentConfig.value.claudeModel = model;
   claudeModelSaving.value = true;
   claudeModelSaveError.value = '';
@@ -3793,7 +3793,7 @@ interface AgentConfigShape {
   sessionFreshnessDays: number;
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
-  claudeModel: 'haiku' | 'sonnet' | 'opus';
+  claudeModel: 'sonnet' | 'opus';
   fallbackMessages: FallbackMessagesShape;
 }
 
@@ -3972,7 +3972,7 @@ async function fetchSettings() {
           return Math.min(60, Math.floor(n));
         })(),
         claudeModel:
-          raw.claudeModel === 'haiku' || raw.claudeModel === 'opus' || raw.claudeModel === 'sonnet'
+          raw.claudeModel === 'opus' || raw.claudeModel === 'sonnet'
             ? raw.claudeModel
             : 'sonnet',
         fallbackMessages: normalizeFallbackMessagesShape(
@@ -4083,7 +4083,6 @@ async function saveSettings() {
       agent_config: {
         ...agentConfig.value,
         claudeModel:
-          agentConfig.value.claudeModel === 'haiku' ||
           agentConfig.value.claudeModel === 'opus' ||
           agentConfig.value.claudeModel === 'sonnet'
             ? agentConfig.value.claudeModel

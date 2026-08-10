@@ -10,11 +10,13 @@ vi.mock('./prisma.js', () => ({ prisma: {} }));
 
 import {
   normalizeClaudeModel,
+  normalizeClaudeReplyModel,
   normalizeFallbackMessages,
   normalizeResponseDelayBounds,
   resolveResponseDelayMs,
   DEFAULT_FALLBACK_MESSAGES,
   RESPONSE_DELAY_SEC_MAX,
+  CLAUDE_ROUTER_MODEL,
 } from './agent-config.js';
 
 describe('normalizeResponseDelayBounds', () => {
@@ -46,6 +48,27 @@ describe('normalizeClaudeModel', () => {
 
   it('uses CLAUDE_MODEL env when fallback omitted', () => {
     expect(normalizeClaudeModel('invalid')).toBe('sonnet');
+  });
+});
+
+describe('normalizeClaudeReplyModel', () => {
+  it('accepts only sonnet and opus', () => {
+    expect(normalizeClaudeReplyModel('sonnet')).toBe('sonnet');
+    expect(normalizeClaudeReplyModel('opus')).toBe('opus');
+  });
+
+  it('coerces legacy haiku to sonnet', () => {
+    expect(normalizeClaudeReplyModel('haiku')).toBe('sonnet');
+    expect(normalizeClaudeReplyModel('haiku', 'opus')).toBe('opus');
+  });
+
+  it('falls back for unknown values', () => {
+    expect(normalizeClaudeReplyModel('gpt-4')).toBe('sonnet');
+    expect(normalizeClaudeReplyModel(undefined, 'opus')).toBe('opus');
+  });
+
+  it('exposes haiku as internal router constant', () => {
+    expect(CLAUDE_ROUTER_MODEL).toBe('haiku');
   });
 });
 

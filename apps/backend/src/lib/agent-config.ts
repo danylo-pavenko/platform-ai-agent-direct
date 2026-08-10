@@ -16,7 +16,7 @@
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
- *     claudeModel: 'haiku' | 'sonnet' | 'opus',  // CLI --model; falls back to CLAUDE_MODEL env
+ *     claudeModel: 'sonnet' | 'opus',  // customer-facing reply model (Haiku only used internally for tool routing)
  *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
  *   }
  */
@@ -32,9 +32,21 @@ import {
 
 export type OutOfHoursStrategy = 'warn_early' | 'defer_to_end';
 
-export type ClaudeModelId = 'haiku' | 'sonnet' | 'opus';
+/** Models the tenant may pick for customer-facing replies (Ukrainian quality). */
+export type ClaudeReplyModelId = 'sonnet' | 'opus';
+
+/** All CLI `--model` ids we may spawn (includes internal router). */
+export type ClaudeModelId = 'haiku' | ClaudeReplyModelId;
+
+export const CLAUDE_REPLY_MODEL_IDS: readonly ClaudeReplyModelId[] = ['sonnet', 'opus'] as const;
 
 export const CLAUDE_MODEL_IDS: readonly ClaudeModelId[] = ['haiku', 'sonnet', 'opus'] as const;
+
+/**
+ * Fast model for tool-routing rounds after tool results.
+ * Not offered in admin — Haiku is weak on Ukrainian customer copy.
+ */
+export const CLAUDE_ROUTER_MODEL: ClaudeModelId = 'haiku';
 
 export const RESPONSE_DELAY_SEC_MAX = 60;
 
@@ -57,8 +69,8 @@ export interface AgentConfig {
   responseDelayMinSeconds: number;
   /** Inclusive upper bound; reply waits a random time in [min, max]. */
   responseDelayMaxSeconds: number;
-  /** Claude Code CLI `--model` for agent turns. */
-  claudeModel: ClaudeModelId;
+  /** Claude Code CLI `--model` for customer-facing replies (sonnet | opus). */
+  claudeModel: ClaudeReplyModelId;
   /** Canned customer replies when Claude is busy / times out (per language). */
   fallbackMessages: FallbackMessages;
 }
@@ -66,6 +78,12 @@ export interface AgentConfig {
 function envClaudeModelFallback(): ClaudeModelId {
   const m = config.CLAUDE_MODEL;
   return m === 'haiku' || m === 'opus' || m === 'sonnet' ? m : 'sonnet';
+}
+
+/** Reply-model fallback: never Haiku (poor Ukrainian). */
+function envClaudeReplyModelFallback(): ClaudeReplyModelId {
+  const m = envClaudeModelFallback();
+  return m === 'opus' ? 'opus' : 'sonnet';
 }
 
 export const DEFAULT_FALLBACK_MESSAGES: FallbackMessages = {
@@ -116,6 +134,18 @@ export function normalizeClaudeModel(
   fallback: ClaudeModelId = envClaudeModelFallback(),
 ): ClaudeModelId {
   if (value === 'haiku' || value === 'sonnet' || value === 'opus') return value;
+  return fallback;
+}
+
+/**
+ * Tenant reply model only (sonnet | opus).
+ * Legacy `haiku` in settings/env is coerced to sonnet.
+ */
+export function normalizeClaudeReplyModel(
+  value: unknown,
+  fallback: ClaudeReplyModelId = envClaudeReplyModelFallback(),
+): ClaudeReplyModelId {
+  if (value === 'sonnet' || value === 'opus') return value;
   return fallback;
 }
 
@@ -178,7 +208,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     raw.responseDelayMinSeconds,
     raw.responseDelayMaxSeconds,
   );
-  const envFallback = envClaudeModelFallback();
+  const envFallback = envClaudeReplyModelFallback();
 
   _cache = {
     mode:
@@ -199,7 +229,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
         : DEFAULTS.sessionFreshnessDays,
     responseDelayMinSeconds: delay.min,
     responseDelayMaxSeconds: delay.max,
-    claudeModel: normalizeClaudeModel(raw.claudeModel, envFallback),
+    claudeModel: normalizeClaudeReplyModel(raw.claudeModel, envFallback),
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
   };
   _cacheAt = Date.now();

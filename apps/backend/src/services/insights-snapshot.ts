@@ -66,6 +66,47 @@ export function truncateInsightText(text: string, limit = SAMPLE_TEXT_LIMIT): st
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
+/** In-memory TTL so AI-помічник chat turns reuse one snapshot within a short window. */
+export const INSIGHTS_SNAPSHOT_TTL_MS = 45_000;
+
+type InsightsSnapshotCacheEntry = {
+  period: InsightsPeriod;
+  at: number;
+  snapshot: InsightsSnapshot;
+};
+
+let insightsSnapshotCache: InsightsSnapshotCacheEntry | null = null;
+
+export function clearInsightsSnapshotCache(): void {
+  insightsSnapshotCache = null;
+}
+
+/** @internal exported for unit tests */
+export function getCachedInsightsSnapshotForTest(
+  period: InsightsPeriod,
+): InsightsSnapshot | null {
+  return getCachedInsightsSnapshot(period);
+}
+
+/** @internal exported for unit tests */
+export function setCachedInsightsSnapshotForTest(
+  period: InsightsPeriod,
+  snapshot: InsightsSnapshot,
+): void {
+  setCachedInsightsSnapshot(period, snapshot);
+}
+
+function getCachedInsightsSnapshot(period: InsightsPeriod): InsightsSnapshot | null {
+  if (!insightsSnapshotCache) return null;
+  if (insightsSnapshotCache.period !== period) return null;
+  if (Date.now() - insightsSnapshotCache.at >= INSIGHTS_SNAPSHOT_TTL_MS) return null;
+  return insightsSnapshotCache.snapshot;
+}
+
+function setCachedInsightsSnapshot(period: InsightsPeriod, snapshot: InsightsSnapshot): void {
+  insightsSnapshotCache = { period, at: Date.now(), snapshot };
+}
+
 export interface SafeIntegrationSummary {
   instagramConfigured: boolean;
   instagramUsername: string | null;
@@ -287,6 +328,21 @@ export interface InsightsSnapshot {
 }
 
 export async function buildInsightsSnapshot(
+  period: InsightsPeriod,
+  opts?: { bypassCache?: boolean },
+): Promise<InsightsSnapshot> {
+  if (!opts?.bypassCache) {
+    const cached = getCachedInsightsSnapshot(period);
+    if (cached) return cached;
+  }
+
+  const snapshot = await buildInsightsSnapshotFresh(period);
+  setCachedInsightsSnapshot(period, snapshot);
+  return snapshot;
+}
+
+/** @internal — uncached builder (also used by tests). */
+export async function buildInsightsSnapshotFresh(
   period: InsightsPeriod,
 ): Promise<InsightsSnapshot> {
   const now = new Date();

@@ -43,6 +43,8 @@ server
 └────────────────────────────────────────────────────┘
 ```
 
+**Agent internals (spawn, prompts, tools, multi-CRM, admin assistants):** see [`docs/AGENT_RUNTIME.md`](docs/AGENT_RUNTIME.md).
+
 ### Isolation model
 
 | Resource | Shared | Per-client |
@@ -96,7 +98,7 @@ server
 ### Admin Panel (per-client)
 - **Conversations** — IG-aware list, search (name / @username / IGSID), filters; detail with full history, manual reply, lead-quality rating, client profile (phone, email, NP branch, CRM link, tags)
 - **Live view** — poll `GET /conversations/:id/live` (~2.5s) for new messages and tool-updated client fields without refresh
-- **Insights** — tenant AI assistant for business / CRM guidance over conversation analytics
+- **AI-помічник (Insights)** — owner chat over conversation analytics, CRM/integration health, agent config, and **platform capabilities** (sales / leadgen / booking modes, tools, multi-CRM); read-only (see `docs/AGENT_RUNTIME.md`)
 - **System Prompts** — versioned prompts, activate / rollback; modes: sales / leadgen / booking
 - **Meta-Agent (Teach Chat)** — natural-language prompt edits with streaming, lean context, and batch apply
 - **Sandbox** — Instagram DM-style test chat, saved cases, step-by-step replay
@@ -260,6 +262,7 @@ platform-ai-agent-direct/
 #   prompts/{sales|leadgen|booking}-agent.txt
 │
 ├── docs/
+│   ├── AGENT_RUNTIME.md               # Claude CLI spawn, prompts, tools, CRM, admin assistants
 │   ├── TENANT-DOMAINS-AND-SCALING.md   # platform subdomains + multi-VPS notes
 │   ├── MULTI_CRM_INTEGRATION_GUIDE.md
 │   ├── BEAUTYPRO_CRM_INTEGRATION.md

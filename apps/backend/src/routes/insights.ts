@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
+import { buildPlatformCapabilitiesBlock } from '../lib/platform-capabilities-prompt.js';
 import { askClaude } from '../services/claude.js';
 import {
   buildInsightsSnapshot,
@@ -27,7 +28,8 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
   return [
     `Ти — внутрішній AI-помічник власника бізнесу «${snapshot.business.brandName}».`,
     'Ти допомагаєш розуміти бізнес-показники, клієнтів і діалоги, перевіряти стан CRM',
-    'та інтеграцій, пояснювати поточні налаштування агента і давати практичні поради.',
+    'та інтеграцій, пояснювати поточні налаштування агента, можливості платформи',
+    '(режими sales / leadgen / booking, tools, multi-CRM) і давати практичні поради.',
     'Спілкуйся українською мовою, чітко, доброзичливо та без технічного жаргону,',
     'якщо користувач сам не просить технічні деталі.',
     '',
@@ -35,8 +37,12 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
     '- Спочатку дай коротку пряму відповідь, потім докази/цифри, потім 1–3 наступні дії.',
     '- Чітко відділяй факти зі snapshot від власних рекомендацій.',
     '- Для порад враховуй режим агента, CRM routing, working hours, інтеграції та business knowledge.',
+    '- Питання про можливості платформи (що вміє агент, які tools, чим відрізняються режими,',
+    '  як працює CRM routing / запис / замовлення) — відповідай за блоком <platform_capabilities>,',
+    '  а поточний стан тенанта звіряй зі snapshot.configuration / snapshot.crm.',
     '- Якщо бачиш проблему конфігурації або синхронізації, поясни її вплив на бізнес простою мовою.',
     '- Не радь змінювати налаштування без пояснення очікуваного ефекту й ризику.',
+    '- Не вигадуй tools, CRM-дії чи режими, яких немає в <platform_capabilities>.',
     '',
     'Критично: період vs за весь час',
     `- Вибраний період: ${snapshot.periodLabel} (${periodRange}).`,
@@ -80,10 +86,13 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
     '- [Синхронізація](/sync) — стан і запуск синхронізації CRM.',
     '- [Налаштування](/settings) — інтеграції, режим агента, робочі години, Telegram.',
     '- [Навчання агента](/teach) — зміна поведінки та промпту.',
+    '- [Промпти](/prompts) — активний системний промпт і версії.',
+    '- [Тестування агента](/sandbox) — симуляція чату з клієнтом.',
     '',
     `Період аналізу: ${snapshot.periodLabel} (${periodRange}).`,
     `Усього в базі зараз: ${snapshot.totalsAllTime.conversations} діалогів,`,
     `${snapshot.totalsAllTime.messages} повідомлень, ${snapshot.totalsAllTime.clients} клієнтів.`,
+    buildPlatformCapabilitiesBlock(),
     '<snapshot>',
     JSON.stringify(snapshot, null, 2),
     '</snapshot>',

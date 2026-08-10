@@ -14,6 +14,37 @@ export interface ParsedClaudeStream {
   /** True when stdout only contained API/auth/rate-limit stubs. */
   unusable?: boolean;
   errorDetail?: string;
+  /**
+   * Claude Code stream-json `session_id` (init / assistant / result).
+   * Used to `--resume` follow-up tool rounds without re-sending the full prompt.
+   */
+  sessionId?: string;
+}
+
+/** Last non-empty `session_id` in NDJSON stdout (Claude Code stream-json). */
+export function extractClaudeSessionId(raw: string): string | undefined {
+  let found: string | undefined;
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    try {
+      const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      if (typeof obj.session_id === 'string') {
+        const id = obj.session_id.trim();
+        if (id) found = id;
+      }
+    } catch {
+      /* skip */
+    }
+  }
+  return found;
+}
+
+function withSessionId(
+  parsed: Omit<ParsedClaudeStream, 'sessionId'>,
+  sessionId: string | undefined,
+): ParsedClaudeStream {
+  return sessionId ? { ...parsed, sessionId } : parsed;
 }
 
 type ContentBlock = {
@@ -80,6 +111,7 @@ export function looksLikeClaudeStreamJsonDump(text: string): boolean {
  * Walk stream-json lines (newest first) and pick the last usable assistant result.
  */
 export function parseClaudeStreamJson(raw: string): ParsedClaudeStream {
+  const sessionId = extractClaudeSessionId(raw);
   const lines = raw.split('\n').filter((l) => l.trim().length > 0);
   let sawErrorResult = false;
   let errorDetail: string | undefined;
@@ -101,7 +133,7 @@ export function parseClaudeStreamJson(raw: string): ParsedClaudeStream {
               : obj.result;
           continue;
         }
-        return { text: obj.result };
+        return withSessionId({ text: obj.result }, sessionId);
       }
 
       if (obj.type === 'rate_limit_event') {
@@ -148,10 +180,13 @@ export function parseClaudeStreamJson(raw: string): ParsedClaudeStream {
         }
 
         if (textParts.length > 0 || toolCalls.length > 0) {
-          return {
-            text: joined,
-            ...(toolCalls.length > 0 ? { toolCalls } : {}),
-          };
+          return withSessionId(
+            {
+              text: joined,
+              ...(toolCalls.length > 0 ? { toolCalls } : {}),
+            },
+            sessionId,
+          );
         }
       }
 
@@ -160,7 +195,7 @@ export function parseClaudeStreamJson(raw: string): ParsedClaudeStream {
           sawErrorResult = true;
           continue;
         }
-        return { text: obj.text };
+        return withSessionId({ text: obj.text }, sessionId);
       }
     } catch {
       // Not valid JSON — skip
@@ -169,21 +204,30 @@ export function parseClaudeStreamJson(raw: string): ParsedClaudeStream {
 
   const trimmed = raw.trim();
   if (!trimmed) {
-    return { text: '', unusable: true, errorDetail: errorDetail ?? 'empty stdout' };
+    return withSessionId(
+      { text: '', unusable: true, errorDetail: errorDetail ?? 'empty stdout' },
+      sessionId,
+    );
   }
 
   // Never ship NDJSON / stream envelopes to Instagram.
   if (looksLikeClaudeStreamJsonDump(trimmed) || sawErrorResult) {
-    return {
-      text: '',
-      unusable: true,
-      errorDetail: errorDetail ?? 'unusable stream-json (rate limit or parse miss)',
-    };
+    return withSessionId(
+      {
+        text: '',
+        unusable: true,
+        errorDetail: errorDetail ?? 'unusable stream-json (rate limit or parse miss)',
+      },
+      sessionId,
+    );
   }
 
   if (isUnusableClaudeResultText(trimmed)) {
-    return { text: '', unusable: true, errorDetail: trimmed };
+    return withSessionId(
+      { text: '', unusable: true, errorDetail: trimmed },
+      sessionId,
+    );
   }
 
-  return { text: trimmed };
+  return withSessionId({ text: trimmed }, sessionId);
 }

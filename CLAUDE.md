@@ -12,11 +12,13 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking). Кожен t
 
 | Область | Де |
 |---------|-----|
+| **Agent runtime (повна карта)** | `docs/AGENT_RUNTIME.md`, `.cursor/rules/agent-runtime.mdc` |
 | Agent modes + tools | `apps/backend/src/lib/tool-definitions.ts`, `agent-tools-prompt.ts` |
 | Multi-CRM | `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, `services/crm/{keycrm,cleverbox,beautypro}.ts` |
 | BeautyPro specifics | `.cursor/rules/beautypro-crm.mdc`, `docs/BEAUTYPRO_CRM_INTEGRATION.md` |
 | Meta OAuth / IG DM | `.cursor/rules/meta-oauth-scopes.mdc` |
 | Meta-agent (редактор промптів) | `routes/meta-agent.ts` + `lib/platform-capabilities-prompt.ts` |
+| AI-помічник (insights) | `routes/insights.ts` — snapshot + той самий `platform_capabilities` |
 | Tenant seed knowledge | `apps/workspace/templates/` → bootstrap у `$TENANT_KNOWLEDGE_DIR` |
 | IG webhook routing case | `.cursor/rules/instagram-webhook-routing-case.mdc` |
 
@@ -28,12 +30,13 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking). Кожен t
 |------|----------|
 | **Цей** `CLAUDE.md` (корінь репо) | Розробник / coding agent у репозиторії |
 | `apps/workspace/templates/CLAUDE.md` | Орієнтир у tenant knowledge (режими/tools); seed, не перезаписує існуючий |
+| `docs/AGENT_RUNTIME.md` | Що агент «бачить» і вміє всередині платформи (spawn, prompts, tools, CRM, admin assistants) |
 
-Мета-агент **не читає** файли з диска як єдине джерело — йому вшивається `<platform_capabilities>` з коду. Оновлюючи tools/CRM — синхронно оновлюй `platform-capabilities-prompt.ts` і template `CLAUDE.md`.
+Мета-агент і AI-помічник **не** покладаються лише на файли з диска — їм вшивається `<platform_capabilities>` з коду. Оновлюючи tools/CRM — синхронно оновлюй `platform-capabilities-prompt.ts`, `docs/AGENT_RUNTIME.md` і template `CLAUDE.md`.
 
 ## Документація в репо
 
-- `README.md`, `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, `docs/BEAUTYPRO_CRM_INTEGRATION.md`
+- `README.md`, `docs/AGENT_RUNTIME.md`, `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, `docs/BEAUTYPRO_CRM_INTEGRATION.md`
 - Seed prompts: `apps/workspace/templates/prompts/{sales,leadgen,booking}-agent.txt`
 - Батьківські `../IMPLEMENTATION.md` / `../PLAN.md` — історичний контекст MVP; **поточна правда — код + docs/ у цьому репо**.
 

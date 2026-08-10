@@ -16,13 +16,15 @@ describe('parseClaudeStreamJson', () => {
     expect(parsed.text).toBe('');
     expect(parsed.unusable).toBe(true);
     expect(parsed.errorDetail).toMatch(/429|session limit/i);
+    expect(parsed.sessionId).toBe('a74d2edb-d7df-475f-ad7f-2c89def2ca88');
   });
 
   it('parses nested message.content assistant replies', () => {
     const raw = [
-      '{"type":"system","subtype":"init"}',
+      '{"type":"system","subtype":"init","session_id":"sess-abc"}',
       JSON.stringify({
         type: 'assistant',
+        session_id: 'sess-abc',
         message: {
           content: [{ type: 'text', text: 'Привіт! Чим допомогти?' }],
         },
@@ -31,11 +33,13 @@ describe('parseClaudeStreamJson', () => {
         type: 'result',
         result: 'Привіт! Чим допомогти?',
         is_error: false,
+        session_id: 'sess-abc',
       }),
     ].join('\n');
 
     expect(parseClaudeStreamJson(raw)).toEqual({
       text: 'Привіт! Чим допомогти?',
+      sessionId: 'sess-abc',
     });
   });
 

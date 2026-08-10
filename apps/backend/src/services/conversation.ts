@@ -27,7 +27,10 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
-import { getAgentConfig, resolveResponseDelayMs } from '../lib/agent-config.js';
+import { getAgentConfig, resolveResponseDelayMs,
+  CLAUDE_ROUTER_MODEL,
+  normalizeClaudeReplyModel,
+} from '../lib/agent-config.js';
 import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
 import { handleBookAppointment } from './appointment.js';
 import { saveClientReferencePhoto } from './reference-photos.js';
@@ -729,12 +732,23 @@ async function handleIncomingMessageImpl(
   debug.runtimeGeneration = promptSession.getMeta().generation;
 
   /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
+  let claudeSessionId: string | undefined;
+  let sessionModel: string | undefined;
+  const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
+
   async function askTurnClaude(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
     ctx: ClaudeCallContext,
+    opts?: { purpose?: 'reply' | 'router' },
   ) {
+    const purpose = opts?.purpose ?? 'reply';
+    const model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
+
     const { prompt: systemPrompt, refreshed, meta } = await promptSession.refreshIfStale();
     if (refreshed) {
+      // New system prompt must start a fresh Claude Code session.
+      claudeSessionId = undefined;
+      sessionModel = undefined;
       debug.promptRefreshedMidTurn = true;
       debug.promptId = meta.id;
       debug.promptVersion = meta.version;
@@ -749,7 +763,44 @@ async function handleIncomingMessageImpl(
         'Rebuilt system prompt mid-turn after activate',
       );
     }
-    return askClaude({ ...req, systemPrompt }, ctx);
+
+    // --resume is model-bound; switching router↔reply requires a cold spawn.
+    if (sessionModel && sessionModel !== model) {
+      claudeSessionId = undefined;
+    }
+
+    const response = await askClaude(
+      {
+        ...req,
+        systemPrompt,
+        ...(claudeSessionId ? { resumeSessionId: claudeSessionId } : {}),
+      },
+      { ...ctx, model },
+    );
+    if (response.sessionId && !response.fallback) {
+      claudeSessionId = response.sessionId;
+      sessionModel = model;
+    } else if (response.fallback) {
+      claudeSessionId = undefined;
+      sessionModel = undefined;
+    } else {
+      sessionModel = model;
+    }
+    return response;
+  }
+
+  /**
+   * Tool follow-up: Haiku decides whether to call more tools; customer-facing
+   * prose is always regenerated with the tenant reply model (sonnet/opus).
+   */
+  async function askTurnClaudeFollowUp(
+    req: Omit<ClaudeRequest, 'systemPrompt'>,
+    ctx: ClaudeCallContext,
+  ) {
+    const routed = await askTurnClaude(req, ctx, { purpose: 'router' });
+    if (routed.fallback) return routed;
+    if (routed.toolCalls && routed.toolCalls.length > 0) return routed;
+    return askTurnClaude(req, ctx, { purpose: 'reply' });
   }
 
   const response = await askTurnClaude(
@@ -764,7 +815,6 @@ async function handleIncomingMessageImpl(
       conversationId,
       clientId: client.id,
       timeoutMs: claudeTimeoutMs,
-      model: agentCfg.claudeModel,
     },
   );
 
@@ -873,7 +923,7 @@ async function handleIncomingMessageImpl(
         },
       ];
 
-      const response2 = await askTurnClaude(
+      const response2 = await askTurnClaudeFollowUp(
         {
           conversationHistory: historyWithResult,
           userMessage: toolResultContent,
@@ -943,7 +993,7 @@ async function handleIncomingMessageImpl(
         { role: 'assistant' as const, content: response.text || `[Перевіряю вартість доставки до ${city}]` },
       ];
 
-      const response2 = await askTurnClaude(
+      const response2 = await askTurnClaudeFollowUp(
         {
           conversationHistory: historyWithResult,
           userMessage: toolResultContent,
@@ -993,7 +1043,7 @@ async function handleIncomingMessageImpl(
       }
       recordTurnTool(debug, 'get_client_crm_history', crmHistoryCall.args, toolResultContent);
 
-      const response2 = await askTurnClaude(
+      const response2 = await askTurnClaudeFollowUp(
         {
           conversationHistory: [
             ...history,
@@ -1064,7 +1114,7 @@ async function handleIncomingMessageImpl(
       }
       recordTurnTool(debug, 'search_services', searchServicesCall.args, toolResultContent);
 
-      const response2 = await askTurnClaude(
+      const response2 = await askTurnClaudeFollowUp(
         {
           conversationHistory: [
             ...history,
@@ -1113,7 +1163,7 @@ async function handleIncomingMessageImpl(
             branchCrmExternalId: conversation.branch?.crmExternalId,
           });
           recordTurnTool(debug, 'get_available_slots', nextSlots.args, slotsResult);
-          const afterSlots = await askTurnClaude(
+          const afterSlots = await askTurnClaudeFollowUp(
             {
               conversationHistory: [
                 ...history,
@@ -1171,7 +1221,7 @@ async function handleIncomingMessageImpl(
             }
           }
           recordTurnTool(debug, 'search_services', nextSearch.args, searchResult);
-          const afterSearch = await askTurnClaude(
+          const afterSearch = await askTurnClaudeFollowUp(
             {
               conversationHistory: [
                 ...history,
@@ -1223,7 +1273,7 @@ async function handleIncomingMessageImpl(
       const date =
         typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
 
-      const response2 = await askTurnClaude(
+      const response2 = await askTurnClaudeFollowUp(
         {
           conversationHistory: [
             ...history,
@@ -1281,7 +1331,7 @@ async function handleIncomingMessageImpl(
     );
     debug.stallRecovery = true;
 
-    const recovery = await askTurnClaude(
+    const recovery = await askTurnClaudeFollowUp(
       {
         conversationHistory: [
           ...history,
@@ -1333,7 +1383,7 @@ async function handleIncomingMessageImpl(
           branchCrmExternalId: conversation.branch?.crmExternalId,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlots.args, slotsResult);
-        const afterSlots = await askTurnClaude(
+        const afterSlots = await askTurnClaudeFollowUp(
           {
             conversationHistory: [
               ...history,
@@ -1386,7 +1436,7 @@ async function handleIncomingMessageImpl(
           }
         }
         recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
-        const afterSearch = await askTurnClaude(
+        const afterSearch = await askTurnClaudeFollowUp(
           {
             conversationHistory: [
               ...history,
@@ -1420,7 +1470,7 @@ async function handleIncomingMessageImpl(
             branchCrmExternalId: conversation.branch?.crmExternalId,
           });
           recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
-          const afterSlots = await askTurnClaude(
+          const afterSlots = await askTurnClaudeFollowUp(
             {
               conversationHistory: [
                 ...history,
@@ -1478,7 +1528,7 @@ async function handleIncomingMessageImpl(
     );
     debug.stallRecovery = true;
 
-    const recovery = await askTurnClaude(
+    const recovery = await askTurnClaudeFollowUp(
       {
         conversationHistory: [
           ...history,
@@ -1555,7 +1605,7 @@ async function handleIncomingMessageImpl(
         }
         recordTurnTool(debug, 'search_services', recoverySearchServices.args, toolResultContent);
 
-        const afterSearch = await askTurnClaude(
+        const afterSearch = await askTurnClaudeFollowUp(
           {
             conversationHistory: [
               ...history,
@@ -1606,7 +1656,7 @@ async function handleIncomingMessageImpl(
               branchCrmExternalId: conversation.branch?.crmExternalId,
             });
             recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
-            const afterSlots = await askTurnClaude(
+            const afterSlots = await askTurnClaudeFollowUp(
               {
                 conversationHistory: [
                   ...history,
@@ -1660,7 +1710,7 @@ async function handleIncomingMessageImpl(
         }
         recordTurnTool(debug, 'search_catalog', recoverySearchCatalog.args, toolResultContent);
 
-        const afterSearch = await askTurnClaude(
+        const afterSearch = await askTurnClaudeFollowUp(
           {
             conversationHistory: [
               ...history,
@@ -1710,7 +1760,7 @@ async function handleIncomingMessageImpl(
           branchCrmExternalId: conversation.branch?.crmExternalId,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlotsCall.args, slotsResult);
-        const afterSlots = await askTurnClaude(
+        const afterSlots = await askTurnClaudeFollowUp(
           {
             conversationHistory: [
               ...history,
@@ -1750,7 +1800,7 @@ async function handleIncomingMessageImpl(
     );
     debug.stallRecovery = true;
 
-    const recovery = await askTurnClaude(
+    const recovery = await askTurnClaudeFollowUp(
       {
         conversationHistory: [
           ...history,
@@ -1819,7 +1869,7 @@ async function handleIncomingMessageImpl(
       }
       recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
 
-      const afterSearch = await askTurnClaude(
+      const afterSearch = await askTurnClaudeFollowUp(
         {
           conversationHistory: [
             ...history,
@@ -1869,7 +1919,7 @@ async function handleIncomingMessageImpl(
     );
     debug.falseBookingRecovery = true;
 
-    const recovery = await askTurnClaude(
+    const recovery = await askTurnClaudeFollowUp(
       {
         conversationHistory: [
           ...history,

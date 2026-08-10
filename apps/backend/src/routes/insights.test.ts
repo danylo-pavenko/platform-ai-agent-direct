@@ -178,5 +178,10 @@ describe('insights routes', () => {
     expect(prompt).toContain('totalsAllTime');
     expect(prompt).toContain('recentAll');
     expect(prompt).toContain('Усього в базі зараз: 3 діалогів');
+    expect(prompt).toContain('<platform_capabilities>');
+    expect(prompt).toContain('sales');
+    expect(prompt).toContain('leadgen');
+    expect(prompt).toContain('booking');
+    expect(prompt).toContain('Не вигадуй tools');
   });
 });

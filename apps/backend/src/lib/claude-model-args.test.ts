@@ -51,6 +51,12 @@ describe('buildClaudeCliArgsForTest', () => {
     expect(args[args.indexOf('--model') + 1]).toBe('haiku');
   });
 
+  it('adds --resume when session id provided', () => {
+    const args = buildClaudeCliArgsForTest(false, 'sonnet', 'sess-123');
+    expect(args).toContain('--resume');
+    expect(args[args.indexOf('--resume') + 1]).toBe('sess-123');
+  });
+
   it('normalizes invalid model to env fallback', () => {
     const args = buildClaudeCliArgsForTest(false, 'not-a-model');
     expect(args[args.indexOf('--model') + 1]).toBe('sonnet');

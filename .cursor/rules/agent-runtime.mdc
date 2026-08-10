@@ -1,0 +1,29 @@
+---
+description: Agent runtime — Claude CLI spawn, prompts, tools, CRM, admin AI assistants
+alwaysApply: true
+---
+
+# Agent runtime (platform)
+
+Full map: **`docs/AGENT_RUNTIME.md`**.
+
+## Non-negotiables
+
+- Claude = **headless CLI** (`askClaude` / `services/claude.ts`), not Anthropic Messages API.
+- Customer tools = text `<tool_call>` + backend execution (`tool-definitions.ts`, `agent-tools-prompt.ts`).
+- Within a turn, tool follow-ups pass `resumeSessionId` (stream-json) for `--resume` + slim prompt when the **same** model continues; mid-turn prompt activate or router↔reply model switch clears the session.
+- Tenant reply model = **sonnet \| opus** only (`normalizeClaudeReplyModel`). Internal tool-routing uses `CLAUDE_ROUTER_MODEL` (haiku); final customer prose always uses the reply model.
+- CRM only via `getCrmAdapter` + `resolveCrmProvider(action)` — never HTTP in `conversation.ts`.
+- Platform capability map lives in `lib/platform-capabilities-prompt.ts` — inject into **meta-agent** and **insights (AI-помічник)**. Keep in sync when changing modes/tools/CRM.
+- Spawn CWD is isolated (`claude-spawn-cwd`) — tenant disk `CLAUDE.md` is **not** the customer system prompt; DB `system_prompts` + runtime injections are.
+- Telegram manager alerts are **side effects**, not a customer-facing tool.
+
+## Admin assistants
+
+| Nav | Purpose |
+|-----|---------|
+| AI-помічник (`/insights`) | Metrics + config + platform capabilities (read-only) |
+| Навчання агента (`/teach`) | Prompt editor (diffs) |
+| Тестування (`/sandbox`) | Customer simulation |
+
+When editing agent surface: update code + `platform-capabilities-prompt.ts` + `docs/AGENT_RUNTIME.md` + template `apps/workspace/templates/CLAUDE.md`.

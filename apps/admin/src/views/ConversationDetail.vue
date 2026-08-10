@@ -552,6 +552,13 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
+/** Desktop: profile column open by default. Mobile: closed — open via account button only. */
+const showProfile = ref(!mobile.value);
+
+watch(mobile, (isMobile) => {
+  showProfile.value = !isMobile;
+});
+
 /** Opt-in debug UI: /conversations/:id?debug_enabled=true (same as sandbox). */
 const debugEnabled = computed(() => {
   const q = route.query.debug_enabled;
@@ -651,7 +658,6 @@ const replyText = ref('');
 const sending = ref(false);
 const sendError = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
-const showProfile = ref(true);
 
 const CLEAR_CHAT_CONFIRM = 'ОЧИСТИТИ ЧАТ';
 const clearChatDialog = ref(false);
