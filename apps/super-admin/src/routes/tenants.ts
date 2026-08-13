@@ -793,4 +793,48 @@ export async function tenantsRoutes(app: FastifyInstance) {
       return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
     }
   });
+
+  // ── Restart this tenant's PM2 apps (api/bot/sync by default) ─────────────
+  app.post('/api/tenants/:id/pm2-restart', { preHandler: requireAuth }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const tenant = await prisma.tenant.findUnique({ where: { id } });
+    if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+    if (!tenant.apiPublicUrl) {
+      return reply.status(400).send({ error: 'Tenant has no API URL configured' });
+    }
+
+    const secret = process.env.SUPERVISOR_SHARED_SECRET;
+    if (!secret) {
+      return reply.status(503).send({ error: 'SUPERVISOR_SHARED_SECRET not configured' });
+    }
+
+    const body = (req.body ?? {}) as { targets?: string[] };
+    const apiBase = resolveTenantApiUrl(tenant.apiPublicUrl);
+
+    try {
+      const res = await fetch(`${apiBase}/supervisor/pm2-restart`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Supervisor-Token': secret,
+        },
+        body: JSON.stringify({
+          ...(Array.isArray(body.targets) ? { targets: body.targets } : {}),
+        }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return reply.status(res.status).send({
+          error: data?.error || `Tenant returned ${res.status}`,
+          code: data?.code,
+          cooldownMsRemaining: data?.cooldownMsRemaining,
+          detail: data,
+        });
+      }
+      return data;
+    } catch (err: any) {
+      return reply.status(502).send({ error: 'Tenant unreachable', detail: err.message });
+    }
+  });
 }

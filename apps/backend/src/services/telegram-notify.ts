@@ -510,7 +510,7 @@ export async function notifyTokenExpiry(daysLeft: number): Promise<void> {
     `⏰ <b>IG Token Expiry Warning</b>`,
     ``,
     `Токен Instagram закінчується через <b>${daysLeft}</b> днів.`,
-    `Оновіть токен у .env та перезапустіть сервер.`,
+    `Перепідключіть Instagram у Налаштуваннях адмінки або оновіть токен і перезапустіть додатки.`,
   ].join('\n');
 
   await sendToManagerGroup(text, undefined, 'auth');

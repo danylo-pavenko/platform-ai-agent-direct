@@ -87,10 +87,40 @@
             >
               Запустити перевірку
             </v-btn>
+            <v-btn
+              color="orange-darken-2"
+              variant="tonal"
+              prepend-icon="mdi-restart"
+              :loading="pm2RestartLoading"
+              :disabled="pm2RestartLoading"
+              @click="confirmPm2Restart"
+            >
+              Перезапустити додатки
+            </v-btn>
             <span v-if="healthCheckResult" class="text-caption text-medium-emphasis">
               Остання перевірка: {{ formatHealthCheckTime(healthCheckResult.checkedAt) }}
             </span>
           </div>
+
+          <v-alert
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            Перезапуск PM2 (api / bot / sync) підхоплює зміни з бази та `.env`
+            (Telegram-боти, CRM-токени тощо). Короткий cooldown ~30 с між запусками.
+          </v-alert>
+
+          <v-alert
+            v-if="pm2RestartError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+          >
+            {{ pm2RestartError }}
+          </v-alert>
 
           <v-alert
             v-if="healthCheckError"
@@ -1674,7 +1704,9 @@
       <IntegrationsSaveBar
         :saving="savingIntegrations"
         :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
         @save="saveIntegrations"
+        @restart="confirmPm2Restart"
       />
       </div>
 
@@ -1726,6 +1758,17 @@
             :to="{ name: 'sandbox' }"
           >
             Тестувати діалог → Пісочниця
+          </v-btn>
+          <v-btn
+            color="orange-darken-2"
+            variant="tonal"
+            size="small"
+            prepend-icon="mdi-restart"
+            :loading="pm2RestartLoading"
+            :disabled="pm2RestartLoading"
+            @click="confirmPm2Restart"
+          >
+            Перезапустити додатки
           </v-btn>
         </template>
       </TelegramBotsCard>
@@ -1898,7 +1941,9 @@
       <IntegrationsSaveBar
         :saving="savingIntegrations"
         :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
         @save="saveIntegrations"
+        @restart="confirmPm2Restart"
       />
       </div>
 
@@ -1908,7 +1953,9 @@
       <IntegrationsSaveBar
         :saving="savingIntegrations"
         :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
         @save="saveIntegrations"
+        @restart="confirmPm2Restart"
       />
       </div>
 
@@ -1918,7 +1965,9 @@
       <IntegrationsSaveBar
         :saving="savingIntegrations"
         :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
         @save="saveIntegrations"
+        @restart="confirmPm2Restart"
       />
       </div>
 
@@ -1989,7 +2038,9 @@
       <IntegrationsSaveBar
         :saving="savingIntegrations"
         :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
         @save="saveIntegrations"
+        @restart="confirmPm2Restart"
       />
       </div>
 
@@ -2138,6 +2189,38 @@
       <v-snackbar v-model="oauthSnackbar" :color="oauthSnackbarColor" :timeout="4000">
         {{ oauthSnackbarText }}
       </v-snackbar>
+      <v-snackbar v-model="pm2RestartSuccess" color="success" :timeout="5000">
+        {{ pm2RestartSuccessText }}
+      </v-snackbar>
+
+      <v-dialog v-model="pm2RestartDialog" max-width="480" persistent>
+        <v-card>
+          <v-card-title>Перезапустити додатки?</v-card-title>
+          <v-card-text>
+            <p class="text-body-2 mb-2">
+              Буде виконано <code>pm2 restart</code> для api, bot і sync цього інстансу
+              з <code>--update-env</code>. Підхопляться зміни з бази та env-файлів.
+            </p>
+            <p class="text-caption text-medium-emphasis mb-0">
+              Відповіді клієнтам на кілька секунд можуть перерватись. Між перезапусками є пауза ~30 с.
+            </p>
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn variant="text" :disabled="pm2RestartLoading" @click="pm2RestartDialog = false">
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="orange-darken-2"
+              variant="flat"
+              :loading="pm2RestartLoading"
+              @click="runPm2Restart"
+            >
+              Перезапустити
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
 
       <v-dialog v-model="claudeLogoutDialog" max-width="480" persistent>
         <v-card>
@@ -2673,6 +2756,12 @@ const healthCheckLoading = ref(false);
 const healthCheckError = ref('');
 const healthCheckResult = ref<HealthCheckResult | null>(null);
 
+const pm2RestartLoading = ref(false);
+const pm2RestartError = ref('');
+const pm2RestartSuccess = ref(false);
+const pm2RestartSuccessText = ref('');
+const pm2RestartDialog = ref(false);
+
 interface ClaudeAuthStatus {
   binaryOk: boolean;
   binaryPath: string;
@@ -3151,6 +3240,49 @@ async function runHealthCheck() {
     healthCheckResult.value = null;
   } finally {
     healthCheckLoading.value = false;
+  }
+}
+
+function confirmPm2Restart() {
+  pm2RestartError.value = '';
+  pm2RestartDialog.value = true;
+}
+
+async function runPm2Restart() {
+  pm2RestartDialog.value = false;
+  pm2RestartLoading.value = true;
+  pm2RestartError.value = '';
+  try {
+    const { data } = await api.post<{
+      ok: boolean;
+      prefix: string;
+      restarted: string[];
+      deferred: string[];
+      error?: string;
+      code?: string;
+      cooldownMsRemaining?: number;
+    }>('/settings/pm2-restart', {});
+    const parts = [
+      data.prefix ? `${data.prefix}` : null,
+      data.restarted?.length ? `перезапущено: ${data.restarted.join(', ')}` : null,
+      data.deferred?.length ? `скоро: ${data.deferred.join(', ')}` : null,
+    ].filter(Boolean);
+    pm2RestartSuccessText.value = parts.length
+      ? `Додатки перезапускаються (${parts.join(' · ')})`
+      : 'Додатки перезапускаються';
+    pm2RestartSuccess.value = true;
+  } catch (e: any) {
+    const payload = e.response?.data;
+    if (payload?.code === 'COOLDOWN' && payload?.cooldownMsRemaining) {
+      const sec = Math.ceil(payload.cooldownMsRemaining / 1000);
+      pm2RestartError.value =
+        payload.error ?? `Зачекайте ще ~${sec} с перед наступним перезапуском.`;
+    } else {
+      pm2RestartError.value =
+        payload?.error ?? e.message ?? 'Не вдалося перезапустити додатки';
+    }
+  } finally {
+    pm2RestartLoading.value = false;
   }
 }
 

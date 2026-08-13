@@ -18,6 +18,7 @@ import { createLeads } from './composables/leads.js';
 import { createAccess } from './composables/access.js';
 import { createChat } from './composables/chat.js';
 import { createTenantUsers } from './composables/tenant-users.js';
+import { createPm2Restart } from './composables/pm2-restart.js';
 import { createWorkers } from './composables/workers.js';
 
 /** Vue setup() — wires shared state + domain composables. */
@@ -46,6 +47,7 @@ export function setup() {
     tick: 0,
   });
   const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
+  const pm2Restart = reactive({ loading: null });
   const tenantUsersModal = reactive({
     open: false,
     loading: false,
@@ -220,6 +222,11 @@ export function setup() {
     authHeaders,
   });
 
+  const pm2RestartApi = createPm2Restart({
+    pm2Restart,
+    authHeaders,
+  });
+
   function goPage(p) {
     if (!VALID_PAGES.includes(p)) return;
     page.value = p;
@@ -272,7 +279,7 @@ export function setup() {
   return {
     auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
     deployLogElapsed: deployApi.deployLogElapsed,
-    chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, tenantUsersModal, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
+    chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, pm2Restart, tenantUsersModal, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
     tenantModalOverlay, slugInputEl,
     fieldHints, portDefaults,
     portRegistryRows: tenantsApi.portRegistryRows,
@@ -300,6 +307,7 @@ export function setup() {
     setTenantUserRole: tenantUsersApi.setTenantUserRole,
     setTenantUserActive: tenantUsersApi.setTenantUserActive,
     isLastActiveOwner: tenantUsersApi.isLastActiveOwner,
+    restartTenantPm2: pm2RestartApi.restartTenantPm2,
     accessLabel: accessApi.accessLabel,
     accessClass: accessApi.accessClass,
     openAccessModal: accessApi.openAccessModal,

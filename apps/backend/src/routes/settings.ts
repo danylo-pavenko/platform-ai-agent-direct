@@ -12,6 +12,10 @@ import { onFollowUpConfigSaved } from '../lib/follow-up-schedule.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
 import { resolveCityRef } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
+import {
+  parsePm2Targets,
+  restartTenantPm2Apps,
+} from '../lib/pm2-restart.js';
 import { loadClaudeUsageSnapshot, runClaudeUsageCheck } from '../services/claude-usage-monitor.js';
 import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
@@ -320,6 +324,34 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   app.post('/health-check', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     return runTenantHealthCheck();
   });
+
+  /**
+   * POST /settings/pm2-restart
+   * Restart this tenant's PM2 apps (default: api+bot+sync) so DB/env changes
+   * are fully reloaded. Owner-only. Self-restart of -api is deferred.
+   */
+  app.post<{ Body: { targets?: unknown; updateEnv?: boolean } }>(
+    '/pm2-restart',
+    { onRequest: [app.authenticate, app.requireOwner] },
+    async (request, reply) => {
+      const targets = parsePm2Targets(request.body?.targets);
+      if (!targets) {
+        return reply.code(400).send({
+          error: 'Invalid targets. Allowed: api, bot, sync, admin, whisper',
+          code: 'INVALID_TARGETS',
+        });
+      }
+      const result = await restartTenantPm2Apps({
+        targets,
+        updateEnv: request.body?.updateEnv !== false,
+      });
+      if (!result.ok) {
+        const status = result.code === 'COOLDOWN' ? 429 : 500;
+        return reply.code(status).send(result);
+      }
+      return result;
+    },
+  );
 
   /** GET /settings/claude-auth — Claude CLI binary + session status. */
   app.get<{ Querystring: { fresh?: string } }>(

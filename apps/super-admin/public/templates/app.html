@@ -135,6 +135,14 @@
                       <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
                       </button>
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        @click="restartTenantPm2(t)"
+                        :disabled="pm2Restart.loading===t.id || tenantNeedsProvision(t)"
+                        title="Перезапустити PM2 (api/bot/sync) — підхопить БД і .env"
+                      >
+                        {{ pm2Restart.loading===t.id ? '⏳ ...' : '🔄 Restart PM2' }}
+                      </button>
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>
                       <button
@@ -214,6 +222,14 @@
                       <button class="btn btn-ghost btn-sm" @click="openTenantUsersModal(t)" title="Користувачі панелі тенанта (ролі)">👥 Users</button>
                       <button class="btn btn-ghost btn-sm" @click="checkClaudeHealth(t)" :disabled="claudeHealth.loading===t.id" title="Перевірити Claude CLI">
                         {{ claudeHealth.loading===t.id ? '...' : '🤖 Claude' }}
+                      </button>
+                      <button
+                        class="btn btn-ghost btn-sm"
+                        @click="restartTenantPm2(t)"
+                        :disabled="pm2Restart.loading===t.id || tenantNeedsProvision(t)"
+                        title="Перезапустити PM2 (api/bot/sync) — підхопить БД і .env"
+                      >
+                        {{ pm2Restart.loading===t.id ? '⏳ ...' : '🔄 Restart PM2' }}
                       </button>
                       <button class="btn btn-ghost btn-sm" @click="openAccessModal(t)" title="Регулювання доступу (підписка)">🗓 Доступ</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditModal(t)">✏️ Edit</button>

@@ -28,6 +28,7 @@ import { getClaudeAuthStatus } from '../services/claude-auth.js';
 import { config } from '../config.js';
 import { toAdminUserPublic } from '../lib/admin-user.js';
 import { assertNotRemovingLastActiveOwner } from '../lib/admin-user-guards.js';
+import { parsePm2Targets, restartTenantPm2Apps } from '../lib/pm2-restart.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -420,6 +421,32 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return { user: toAdminUserPublic(updated) };
+    },
+  );
+
+  // POST /pm2-restart — Super Admin can bounce this tenant's PM2 apps
+  app.post<{ Body: { targets?: unknown; updateEnv?: boolean } }>(
+    '/pm2-restart',
+    async (request, reply) => {
+      if (!requireSupervisorToken(request, reply)) return;
+
+      const targets = parsePm2Targets(request.body?.targets);
+      if (!targets) {
+        return reply.code(400).send({
+          error: 'Invalid targets. Allowed: api, bot, sync, admin, whisper',
+          code: 'INVALID_TARGETS',
+        });
+      }
+
+      const result = await restartTenantPm2Apps({
+        targets,
+        updateEnv: request.body?.updateEnv !== false,
+      });
+      if (!result.ok) {
+        const status = result.code === 'COOLDOWN' ? 429 : 500;
+        return reply.code(status).send(result);
+      }
+      return result;
     },
   );
 }
