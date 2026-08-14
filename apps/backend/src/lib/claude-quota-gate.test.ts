@@ -59,6 +59,74 @@ describe('claude-quota-gate', () => {
         }),
       );
     });
+
+    it('parses hour-only weekly reset Aug 16, 6pm (Europe/Berlin)', () => {
+      const now = Date.parse('2026-08-15T00:00:00.000Z');
+      const ms = parseClaudeResetToMs(
+        "You've hit your weekly limit · resets Aug 16, 6pm (Europe/Berlin)",
+        now,
+      );
+      expect(ms).toBe(
+        zonedWallTimeToUtcMs({
+          year: 2026,
+          month: 8,
+          day: 16,
+          hour: 18,
+          minute: 0,
+          timeZone: 'Europe/Berlin',
+        }),
+      );
+    });
+
+    it('parses clock-only 6pm without minutes', () => {
+      const now = Date.parse('2026-08-15T10:00:00.000Z'); // afternoon UTC → evening Berlin
+      const ms = parseClaudeResetToMs('resets 6pm (Europe/Berlin)', now);
+      expect(ms).toBe(
+        zonedWallTimeToUtcMs({
+          year: 2026,
+          month: 8,
+          day: 15,
+          hour: 18,
+          minute: 0,
+          timeZone: 'Europe/Berlin',
+        }),
+      );
+    });
+  });
+
+  it('opens weekly circuit until Aug 16 6pm Berlin, not 5h fallback', () => {
+    const now = Date.parse('2026-08-15T00:00:00.000Z');
+    noteClaudeRateLimit(
+      "api_error 429: You've hit your weekly limit · resets Aug 16, 6pm (Europe/Berlin)",
+      now,
+    );
+    const until = zonedWallTimeToUtcMs({
+      year: 2026,
+      month: 8,
+      day: 16,
+      hour: 18,
+      minute: 0,
+      timeZone: 'Europe/Berlin',
+    });
+    expect(getClaudeQuotaCircuitState(now).blockedUntilMs).toBe(until);
+    expect(getClaudeQuotaCircuitState(now).blockedUntilMs).toBeGreaterThan(
+      now + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS,
+    );
+    // Idempotent: skip reasons must not shrink/reopen
+    noteClaudeRateLimit(`hard_block_until:${new Date(until).toISOString()}`, now);
+    expect(getClaudeQuotaCircuitState(now).blockedUntilMs).toBe(until);
+  });
+
+  it('soft-budget blocks background on weekly percent too', () => {
+    _setClaudeQuotaMemoryForTests({
+      blockedUntilMs: 0,
+      sessionPercent: 10,
+      weeklyPercent: 93,
+      reason: null,
+    });
+    expect(evaluateClaudeSpawn('customer_dm').allowed).toBe(true);
+    expect(evaluateClaudeSpawn('usage_refresh').allowed).toBe(false);
+    expect(evaluateClaudeSpawn('auth_probe').softBudget).toBe(true);
   });
 
   it('opens circuit until parsed reset time', () => {

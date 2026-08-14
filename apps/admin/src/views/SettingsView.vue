@@ -499,6 +499,7 @@
           <code>claude -p /usage</code> (Haiku), щоб оновити кеш Claude Code і snapshot у БД.
           Якщо CLI не відповів — показуємо останній відомий кеш
           (<code>~/.claude.json</code>) і попереджаємо, якщо він застарів.
+          При вичерпаному ліміті (session/week) live-перевірка блокується до reset — без спаму «не авторизовано».
           Telegram при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
         </v-card-subtitle>
         <v-card-text>
@@ -2861,6 +2862,8 @@ const claudeLoginSubmitting = ref(false);
 const claudeLoginCodeSubmitted = ref(false);
 const claudeLoginError = ref('');
 let claudeLoginPollTimer: ReturnType<typeof setInterval> | null = null;
+let claudeLoginPollInFlight = false;
+let claudeLoginUsageRefreshed = false;
 
 const claudeLoginActive = computed(() => !!claudeLoginSessionId.value);
 
@@ -2916,6 +2919,8 @@ function stopClaudeLoginPoll() {
 
 function resetClaudeLoginUi() {
   stopClaudeLoginPoll();
+  claudeLoginPollInFlight = false;
+  claudeLoginUsageRefreshed = false;
   claudeLoginSessionId.value = '';
   claudeLoginAuthUrl.value = null;
   claudeLoginCode.value = '';
@@ -2930,6 +2935,8 @@ function resetClaudeLoginUi() {
 
 async function pollClaudeLoginStatus(): Promise<ClaudeLoginStatusResult | null> {
   if (!claudeLoginSessionId.value) return null;
+  if (claudeLoginPollInFlight) return null;
+  claudeLoginPollInFlight = true;
   try {
     const { data } = await api.get<ClaudeLoginStatusResult>('/settings/claude-auth/login/status', {
       params: { sessionId: claudeLoginSessionId.value },
@@ -2948,7 +2955,10 @@ async function pollClaudeLoginStatus(): Promise<ClaudeLoginStatusResult | null> 
       claudeLoginSubmitting.value = false;
       claudeLoginCodeSubmitted.value = false;
       claudeAuth.value = data.auth;
-      void refreshClaudeUsage(true);
+      if (!claudeLoginUsageRefreshed) {
+        claudeLoginUsageRefreshed = true;
+        void refreshClaudeUsage(true);
+      }
       setTimeout(() => resetClaudeLoginUi(), 2500);
       return data;
     }
@@ -2979,6 +2989,8 @@ async function pollClaudeLoginStatus(): Promise<ClaudeLoginStatusResult | null> 
       resetClaudeLoginUi();
     }
     return null;
+  } finally {
+    claudeLoginPollInFlight = false;
   }
 }
 
@@ -3201,7 +3213,13 @@ async function refreshClaudeUsage(live = false) {
     claudeUsageCheckIntervalMin.value = data.checkIntervalMin;
     claudeUsageWarningPercent.value = data.warningPercent;
     // Live check may return previous buckets + error when CLI timed out.
-    if (live && data.snapshot?.error && data.snapshot.error !== 'not_authenticated') {
+    // Quota-gate exhausted snapshots are intentional — do not surface as refresh errors.
+    if (
+      live &&
+      data.snapshot?.error &&
+      data.snapshot.error !== 'not_authenticated' &&
+      data.snapshot.status !== 'exhausted'
+    ) {
       claudeUsageError.value = `Оновлення лімітів: ${data.snapshot.error}`;
     }
   } catch (e: any) {

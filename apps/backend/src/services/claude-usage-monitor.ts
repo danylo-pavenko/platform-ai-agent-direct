@@ -11,7 +11,7 @@ import {
   type ClaudeUsageSnapshot,
   type ClaudeUsageStatus,
 } from './claude-usage.js';
-import { applyUsageSnapshotToQuota, recordClaudeRateLimit } from './claude-quota.js';
+import { applyUsageSnapshotToQuota, buildQuotaBlockedUsageSnapshot } from './claude-quota.js';
 import { notifyClaudeUsageLimit } from './telegram-notify.js';
 
 const log = pino({ name: 'claude-usage-monitor' });
@@ -78,113 +78,121 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
 }
 
 /** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram. */
+let usageCheckInFlight: Promise<ClaudeUsageSnapshot> | null = null;
+
 export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
-  const prevSnap = await loadClaudeUsageSnapshot();
-  const gate = evaluateClaudeSpawn('usage_refresh', {
-    usage: prevSnap,
-    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
-  });
-  if (!gate.allowed && prevSnap) {
-    await recordClaudeRateLimit(gate.reason ?? 'usage_monitor_skip');
-    const kept: ClaudeUsageSnapshot = {
-      ...prevSnap,
-      checkedAt: new Date().toISOString(),
-      message: `${prevSnap.message} (live /usage пропущено — ${gate.reason})`,
-    };
+  if (usageCheckInFlight) return usageCheckInFlight;
+
+  usageCheckInFlight = (async () => {
+    const prevSnap = await loadClaudeUsageSnapshot();
+    const gate = evaluateClaudeSpawn('usage_refresh', {
+      usage: prevSnap,
+      softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+    });
+    if (!gate.allowed) {
+      const kept = buildQuotaBlockedUsageSnapshot(prevSnap);
+      log.info(
+        {
+          status: kept.status,
+          worstPercent: kept.worstPercent,
+          skippedLive: true,
+          reason: gate.reason,
+          previousCheckedAt: prevSnap?.checkedAt ?? null,
+        },
+        'Skipping live /usage — quota gate',
+      );
+      await persistSnapshot(kept);
+      // Do not re-record gate.reason (hard_block_…) — circuit already open.
+      return kept;
+    }
+
+    const snapshot = await fetchClaudeUsageSnapshot({ forceLive: true });
+
+    // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
+    const transientFailure =
+      snapshot.status === 'unavailable' &&
+      snapshot.error != null &&
+      snapshot.error !== 'not_authenticated' &&
+      snapshot.buckets.length === 0;
+
+    if (transientFailure) {
+      const prev = prevSnap ?? (await loadClaudeUsageSnapshot());
+      if (prev && prev.buckets.length > 0) {
+        const merged: ClaudeUsageSnapshot = {
+          ...prev,
+          checkedAt: snapshot.checkedAt,
+          error: snapshot.error,
+          message: `Останні відомі ліміти (оновлення не вдалось: ${snapshot.error}). ${prev.message}`,
+        };
+        log.warn(
+          { error: snapshot.error, keptBuckets: prev.buckets.length },
+          'Claude usage live check failed — keeping previous snapshot',
+        );
+        await persistSnapshot(merged);
+        await applyUsageSnapshotToQuota(merged);
+        return merged;
+      }
+    }
+
+    await persistSnapshot(snapshot);
+    await applyUsageSnapshotToQuota(snapshot);
+
     log.info(
       {
-        status: kept.status,
-        worstPercent: kept.worstPercent,
-        skippedLive: true,
-        reason: gate.reason,
-        previousCheckedAt: prevSnap.checkedAt,
+        status: snapshot.status,
+        worstPercent: snapshot.worstPercent,
+        buckets: snapshot.buckets.length,
+        subscriptionType: snapshot.subscriptionType,
       },
-      'Skipping live /usage — quota gate',
+      'Claude usage check completed',
     );
-    await persistSnapshot(kept);
-    await applyUsageSnapshotToQuota(kept);
-    return kept;
-  }
 
-  const snapshot = await fetchClaudeUsageSnapshot({ forceLive: true });
-
-  // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
-  const transientFailure =
-    snapshot.status === 'unavailable' &&
-    snapshot.error != null &&
-    snapshot.error !== 'not_authenticated' &&
-    snapshot.buckets.length === 0;
-
-  if (transientFailure) {
-    const prev = prevSnap ?? (await loadClaudeUsageSnapshot());
-    if (prev && prev.buckets.length > 0) {
-      const merged: ClaudeUsageSnapshot = {
-        ...prev,
-        checkedAt: snapshot.checkedAt,
-        error: snapshot.error,
-        message: `Останні відомі ліміти (оновлення не вдалось: ${snapshot.error}). ${prev.message}`,
-      };
-      log.warn(
-        { error: snapshot.error, keptBuckets: prev.buckets.length },
-        'Claude usage live check failed — keeping previous snapshot',
-      );
-      await persistSnapshot(merged);
-      await applyUsageSnapshotToQuota(merged);
-      return merged;
-    }
-  }
-
-  await persistSnapshot(snapshot);
-  await applyUsageSnapshotToQuota(snapshot);
-
-  log.info(
-    {
-      status: snapshot.status,
-      worstPercent: snapshot.worstPercent,
-      buckets: snapshot.buckets.length,
-      subscriptionType: snapshot.subscriptionType,
-    },
-    'Claude usage check completed',
-  );
-
-  if (snapshot.status === 'warning' || snapshot.status === 'exhausted') {
-    const prev = await loadNotifyState();
-    if (shouldNotifyTelegram(prev, snapshot)) {
-      log.warn(
-        {
-          event: 'claude_usage_limit',
+    if (snapshot.status === 'warning' || snapshot.status === 'exhausted') {
+      const prev = await loadNotifyState();
+      if (shouldNotifyTelegram(prev, snapshot)) {
+        log.warn(
+          {
+            event: 'claude_usage_limit',
+            status: snapshot.status,
+            worstPercent: snapshot.worstPercent,
+            buckets: snapshot.buckets,
+          },
+          'Claude usage limit threshold reached — notifying managers',
+        );
+        await notifyClaudeUsageLimit({
           status: snapshot.status,
           worstPercent: snapshot.worstPercent,
           buckets: snapshot.buckets,
-        },
-        'Claude usage limit threshold reached — notifying managers',
-      );
-      await notifyClaudeUsageLimit({
-        status: snapshot.status,
-        worstPercent: snapshot.worstPercent,
-        buckets: snapshot.buckets,
-        subscriptionType: snapshot.subscriptionType,
-        message: snapshot.message,
-      });
+          subscriptionType: snapshot.subscriptionType,
+          message: snapshot.message,
+        });
+        await saveNotifyState({
+          status: snapshot.status,
+          worstPercent: snapshot.worstPercent,
+          notifiedAt: new Date().toISOString(),
+        });
+      }
+    } else if (snapshot.status === 'ok') {
+      const prev = await loadNotifyState();
+      if (prev && (prev.status === 'warning' || prev.status === 'exhausted')) {
+        log.info({ previousStatus: prev.status }, 'Claude usage recovered to ok');
+      }
       await saveNotifyState({
-        status: snapshot.status,
+        status: 'ok',
         worstPercent: snapshot.worstPercent,
         notifiedAt: new Date().toISOString(),
       });
     }
-  } else if (snapshot.status === 'ok') {
-    const prev = await loadNotifyState();
-    if (prev && (prev.status === 'warning' || prev.status === 'exhausted')) {
-      log.info({ previousStatus: prev.status }, 'Claude usage recovered to ok');
-    }
-    await saveNotifyState({
-      status: 'ok',
-      worstPercent: snapshot.worstPercent,
-      notifiedAt: new Date().toISOString(),
-    });
-  }
 
-  return snapshot;
+    return snapshot;
+  })();
+
+  const pending = usageCheckInFlight;
+  try {
+    return await pending;
+  } finally {
+    if (usageCheckInFlight === pending) usageCheckInFlight = null;
+  }
 }
 
 let monitorTimer: ReturnType<typeof setInterval> | null = null;

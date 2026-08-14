@@ -16,6 +16,7 @@ import {
   type ClaudeSpawnPurpose,
   type ClaudeUsageExhaustedHint,
 } from '../lib/claude-quota-gate.js';
+import type { ClaudeUsageBucket, ClaudeUsageSnapshot } from './claude-usage.js';
 
 const log = pino({ name: 'claude-quota' });
 
@@ -27,11 +28,26 @@ interface PersistedQuotaCircuit {
   sessionPercent: number | null;
   weeklyPercent: number | null;
   sessionResetsAtIso: string | null;
+  limitKind: 'session' | 'weekly' | 'unknown' | null;
   updatedAt: string;
 }
 
 function softPercent(): number {
   return config.CLAUDE_QUOTA_SOFT_PERCENT;
+}
+
+function formatResetUk(ms: number): string {
+  try {
+    return new Date(ms).toLocaleString('uk-UA', {
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
+  } catch {
+    return new Date(ms).toISOString();
+  }
 }
 
 export async function loadClaudeQuotaCircuit(): Promise<void> {
@@ -45,6 +61,10 @@ export async function loadClaudeQuotaCircuit(): Promise<void> {
     const v = row.value as Record<string, unknown>;
     const blockedUntilMs =
       typeof v.blockedUntilMs === 'number' ? v.blockedUntilMs : 0;
+    const limitKind =
+      v.limitKind === 'session' || v.limitKind === 'weekly' || v.limitKind === 'unknown'
+        ? v.limitKind
+        : null;
     hydrateClaudeQuotaMemory({
       blockedUntilMs,
       reason: typeof v.reason === 'string' ? v.reason : null,
@@ -52,6 +72,7 @@ export async function loadClaudeQuotaCircuit(): Promise<void> {
       weeklyPercent: typeof v.weeklyPercent === 'number' ? v.weeklyPercent : null,
       sessionResetsAtIso:
         typeof v.sessionResetsAtIso === 'string' ? v.sessionResetsAtIso : null,
+      limitKind,
       updatedAtMs: typeof v.updatedAt === 'string' ? Date.parse(v.updatedAt) : Date.now(),
     });
     const mem = getClaudeQuotaMemoryState();
@@ -61,6 +82,8 @@ export async function loadClaudeQuotaCircuit(): Promise<void> {
           blockedUntil: new Date(mem.blockedUntilMs).toISOString(),
           reason: mem.reason,
           sessionPercent: mem.sessionPercent,
+          weeklyPercent: mem.weeklyPercent,
+          limitKind: mem.limitKind,
         },
         'Claude quota circuit restored from DB',
       );
@@ -78,6 +101,7 @@ export async function persistClaudeQuotaCircuit(): Promise<void> {
     sessionPercent: mem.sessionPercent,
     weeklyPercent: mem.weeklyPercent,
     sessionResetsAtIso: mem.sessionResetsAtIso,
+    limitKind: mem.limitKind,
     updatedAt: new Date(mem.updatedAtMs || Date.now()).toISOString(),
   };
   try {
@@ -110,6 +134,85 @@ export async function applyUsageSnapshotToQuota(
     log.info('Claude quota circuit cleared — usage recovered to ok');
   }
   await persistClaudeQuotaCircuit();
+}
+
+/**
+ * Clean admin snapshot while the quota circuit is open — never claim
+ * "not authenticated" and never append repeated skip lines.
+ */
+export function buildQuotaBlockedUsageSnapshot(
+  prev: ClaudeUsageSnapshot | null | undefined,
+): ClaudeUsageSnapshot {
+  const mem = getClaudeQuotaMemoryState();
+  const now = Date.now();
+  const untilMs = mem.blockedUntilMs > now ? mem.blockedUntilMs : now;
+  const resetsLabel = formatResetUk(untilMs);
+  const isWeekly =
+    mem.limitKind === 'weekly' || /weekly/i.test(mem.reason ?? '');
+
+  const sessionPct = Math.max(mem.sessionPercent ?? 0, isWeekly ? 0 : 100);
+  const weeklyPct = Math.max(mem.weeklyPercent ?? 0, isWeekly ? 100 : 0);
+
+  const prevBuckets = prev?.buckets?.filter((b) => b.percentUsed >= 0) ?? [];
+  let buckets: ClaudeUsageBucket[] = prevBuckets.map((b) => {
+    if (/week/i.test(b.id) || /week/i.test(b.label)) {
+      return {
+        ...b,
+        percentUsed: Math.max(b.percentUsed, weeklyPct || b.percentUsed),
+        resetsAt: isWeekly ? resetsLabel : b.resetsAt,
+      };
+    }
+    if (/session/i.test(b.id) || /session/i.test(b.label)) {
+      return {
+        ...b,
+        percentUsed: Math.max(b.percentUsed, sessionPct || b.percentUsed),
+        resetsAt: !isWeekly ? resetsLabel : b.resetsAt,
+      };
+    }
+    return b;
+  });
+
+  if (buckets.length === 0) {
+    buckets = [
+      {
+        id: 'current_session',
+        label: 'Current session',
+        percentUsed: sessionPct || (isWeekly ? 0 : 100),
+        resetsAt: isWeekly ? '—' : resetsLabel,
+      },
+      {
+        id: 'current_week_all_models',
+        label: 'Current week (all models)',
+        percentUsed: weeklyPct || (isWeekly ? 100 : 0),
+        resetsAt: isWeekly ? resetsLabel : '—',
+      },
+    ];
+  }
+
+  const worstPercent = Math.max(
+    100,
+    ...buckets.map((b) => b.percentUsed),
+    sessionPct,
+    weeklyPct,
+  );
+
+  const message = isWeekly
+    ? `Тижневий ліміт Claude вичерпано. Скидається ${resetsLabel}. Live /usage не запускаємо, щоб не витрачати квоту. Авторизація в порядку — це ліміт підписки, не logout.`
+    : `Ліміт сесії Claude вичерпано до ${resetsLabel}. Live /usage пропущено (quota gate). Авторизація в порядку.`;
+
+  return {
+    checkedAt: new Date().toISOString(),
+    status: 'exhausted',
+    subscriptionType: prev?.subscriptionType ?? null,
+    authEmail: prev?.authEmail ?? null,
+    buckets,
+    worstPercent,
+    message,
+    rawText: null,
+    error: null,
+    cacheFetchedAt: prev?.cacheFetchedAt ?? null,
+    cacheStale: false,
+  };
 }
 
 export function assertClaudeSpawnAllowed(

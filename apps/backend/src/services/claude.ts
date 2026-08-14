@@ -358,7 +358,7 @@ function spawnClaude(
       { purpose, reason: gate.reason, channel: callContext?.channel ?? null },
       'Claude spawn blocked by quota gate',
     );
-    void recordClaudeRateLimit(gate.reason);
+    // Do not recordClaudeRateLimit(gate.reason) — hard_block_/soft_budget are not 429 events.
     return Promise.resolve(
       fallbackFor('timeout', callContext, `quota_gate: ${gate.reason}`),
     );
@@ -1060,8 +1060,13 @@ export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealt
  * Uses a minimal haiku ping (same path as runtime askClaude).
  *
  * Rate-limit (429) means credentials are valid — do not treat as session expired.
+ * Concurrent polls (login wizard) share one in-flight probe.
  */
+let authLiveProbeInFlight: Promise<ClaudeAuthHealth> | null = null;
+
 export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAuthHealth> {
+  if (authLiveProbeInFlight) return authLiveProbeInFlight;
+
   const gate = evaluateClaudeSpawn('auth_probe', {
     softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
   });
@@ -1074,24 +1079,33 @@ export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAut
     return { ok: true, error: null };
   }
 
-  const prompt = buildPrompt({
-    systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
-    conversationHistory: [],
-    userMessage: AGENT_LATENCY_PROBE_USER,
-  });
-  const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'];
-  const response = await spawnClaude(prompt, args, {
-    timeoutMs,
-    purpose: 'auth_probe',
-  });
-  if (isClaudeRateLimitSignal(response.errorDetail ?? response.text)) {
-    void recordClaudeRateLimit(response.errorDetail ?? response.text);
+  authLiveProbeInFlight = (async () => {
+    const prompt = buildPrompt({
+      systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
+      conversationHistory: [],
+      userMessage: AGENT_LATENCY_PROBE_USER,
+    });
+    const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'];
+    const response = await spawnClaude(prompt, args, {
+      timeoutMs,
+      purpose: 'auth_probe',
+    });
+    if (isClaudeRateLimitSignal(response.errorDetail ?? response.text)) {
+      void recordClaudeRateLimit(response.errorDetail ?? response.text);
+    }
+    return classifyClaudeLiveProbe({
+      text: response.text,
+      errorDetail: response.errorDetail,
+      fallback: response.fallback,
+    });
+  })();
+
+  const pending = authLiveProbeInFlight;
+  try {
+    return await pending;
+  } finally {
+    if (authLiveProbeInFlight === pending) authLiveProbeInFlight = null;
   }
-  return classifyClaudeLiveProbe({
-    text: response.text,
-    errorDetail: response.errorDetail,
-    fallback: response.fallback,
-  });
 }
 
 export interface AgentLatencyProbe {

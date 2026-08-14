@@ -55,6 +55,8 @@ export interface ClaudeQuotaMemoryState {
   sessionPercent: number | null;
   weeklyPercent: number | null;
   sessionResetsAtIso: string | null;
+  /** session | weekly | unknown — drives admin copy */
+  limitKind: 'session' | 'weekly' | 'unknown' | null;
   updatedAtMs: number;
 }
 
@@ -83,6 +85,7 @@ function emptyState(): ClaudeQuotaMemoryState {
     sessionPercent: null,
     weeklyPercent: null,
     sessionResetsAtIso: null,
+    limitKind: null,
     updatedAtMs: 0,
   };
 }
@@ -183,8 +186,8 @@ const MONTHS: Record<string, number> = {
  * Parse Claude reset hints:
  * - ISO timestamps
  * - `resets 7:40pm (Europe/Berlin)`
- * - `resets Aug 14, 2:40pm (Europe/Berlin)`
- * - Display strings like `Aug 14, 2:40pm (Europe/Berlin)`
+ * - `resets 6pm (Europe/Berlin)` (hour + am/pm, no minutes)
+ * - `resets Aug 16, 6pm (Europe/Berlin)` / `Aug 14, 2:40pm (Europe/Berlin)`
  */
 export function parseClaudeResetToMs(
   text: string | null | undefined,
@@ -201,27 +204,55 @@ export function parseClaudeResetToMs(
   const zoneMatch = raw.match(/\(([^)]+\/[^)]+)\)\s*$/);
   const timeZone = zoneMatch?.[1]?.trim() || 'UTC';
 
-  // Optional date + time: Aug 14, 2:40pm  |  14 Aug 2026, 14:40  |  2:40pm
-  const re =
-    /(?:resets?\s+)?(?:([A-Za-z]{3,9})\s+(\d{1,2})(?:,?\s*(\d{4}))?[, ]+)?(\d{1,2}):(\d{2})\s*(am|pm)?/i;
-  const m = raw.match(re);
-  if (!m) return null;
+  // Date prefix optional: Aug 16, 2026 | Aug 16,
+  const datePrefix =
+    /(?:resets?\s+)?(?:([A-Za-z]{3,9})\s+(\d{1,2})(?:,?\s*(\d{4}))?[, ]+)?/i;
 
-  const monthName = m[1];
-  const dayNum = m[2] ? Number(m[2]) : null;
-  const yearNum = m[3] ? Number(m[3]) : null;
-  let hour = Number(m[4]);
-  const minute = Number(m[5]);
-  const ampm = m[6]?.toLowerCase();
+  // 2:40pm / 14:40 / 2:40
+  const withMinutes = new RegExp(
+    `${datePrefix.source}(\\d{1,2}):(\\d{2})\\s*(am|pm)?`,
+    'i',
+  );
+  // 6pm / 6 am (Claude weekly messages often omit :00)
+  const hourOnly = new RegExp(
+    `${datePrefix.source}(\\d{1,2})\\s*(am|pm)\\b`,
+    'i',
+  );
+
+  let monthName: string | undefined;
+  let dayNum: number | null = null;
+  let yearNum: number | null = null;
+  let hour: number;
+  let minute: number;
+  let ampm: string | undefined;
+
+  const mMin = raw.match(withMinutes);
+  if (mMin) {
+    monthName = mMin[1];
+    dayNum = mMin[2] ? Number(mMin[2]) : null;
+    yearNum = mMin[3] ? Number(mMin[3]) : null;
+    hour = Number(mMin[4]);
+    minute = Number(mMin[5]);
+    ampm = mMin[6]?.toLowerCase();
+  } else {
+    const mHour = raw.match(hourOnly);
+    if (!mHour) return null;
+    monthName = mHour[1];
+    dayNum = mHour[2] ? Number(mHour[2]) : null;
+    yearNum = mHour[3] ? Number(mHour[3]) : null;
+    hour = Number(mHour[4]);
+    minute = 0;
+    ampm = mHour[5]?.toLowerCase();
+  }
 
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   if (ampm === 'pm' && hour < 12) hour += 12;
   if (ampm === 'am' && hour === 12) hour = 0;
 
   const nowParts = getZonedParts(new Date(nowMs), timeZone);
-  let year = yearNum ?? nowParts.year;
-  let month = monthName ? MONTHS[monthName.toLowerCase()] : nowParts.month;
-  let day = dayNum ?? nowParts.day;
+  const year = yearNum ?? nowParts.year;
+  const month = monthName ? MONTHS[monthName.toLowerCase()] : nowParts.month;
+  const day = dayNum ?? nowParts.day;
   if (!month) return null;
 
   let ms = zonedWallTimeToUtcMs({ year, month, day, hour, minute, timeZone });
@@ -233,6 +264,17 @@ export function parseClaudeResetToMs(
       year: tp.year,
       month: tp.month,
       day: tp.day,
+      hour,
+      minute,
+      timeZone,
+    });
+  }
+  // Dated reset already in the past (wrong year) → try next year
+  if (monthName && dayNum && ms <= nowMs && yearNum == null) {
+    ms = zonedWallTimeToUtcMs({
+      year: year + 1,
+      month,
+      day,
       hour,
       minute,
       timeZone,
@@ -280,17 +322,32 @@ export function evaluateClaudeSpawn(
   const mem = opts.state ?? state;
 
   let sessionPercent = mem.sessionPercent;
+  let weeklyPercent = mem.weeklyPercent;
   let blockedUntilMs = mem.blockedUntilMs;
 
   if (opts.usage) {
     const session = sessionBucketFromHint(opts.usage);
+    const week = weekBucketFromHint(opts.usage);
     if (session) sessionPercent = session.percentUsed;
+    if (week) weeklyPercent = week.percentUsed;
     if (opts.usage.status === 'exhausted') {
-      const fromIso = parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs);
-      const fromDisplay = parseClaudeResetToMs(session?.resetsAt ?? null, nowMs);
-      const until = fromIso ?? fromDisplay;
+      const weekBucket = opts.usage.buckets?.find(
+        (b) => /week/i.test(b.id) || /week/i.test(b.label),
+      );
+      const preferWeek = week != null && week.percentUsed >= 100;
+      const fromIso = preferWeek
+        ? parseClaudeResetToMs(weekBucket?.resetsAtIso ?? null, nowMs)
+        : parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs);
+      const fromDisplay = preferWeek
+        ? parseClaudeResetToMs(weekBucket?.resetsAt ?? null, nowMs)
+        : parseClaudeResetToMs(session?.resetsAt ?? null, nowMs);
+      const until =
+        fromIso ??
+        fromDisplay ??
+        parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs) ??
+        parseClaudeResetToMs(session?.resetsAt ?? null, nowMs);
       if (until != null && until > blockedUntilMs) blockedUntilMs = until;
-      // Exhausted without parseable reset → keep blocking background at least
+      // Exhausted without parseable reset → keep blocking at least one session window
       if (until == null && blockedUntilMs <= nowMs) {
         blockedUntilMs = nowMs + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS;
       }
@@ -307,23 +364,30 @@ export function evaluateClaudeSpawn(
     };
   }
 
-  const soft =
+  const softSession =
     sessionPercent != null && sessionPercent >= softPercent && sessionPercent < 100;
+  const softWeek =
+    weeklyPercent != null && weeklyPercent >= softPercent && weeklyPercent < 100;
   const hardSession = sessionPercent != null && sessionPercent >= 100;
+  const hardWeek = weeklyPercent != null && weeklyPercent >= 100;
 
-  if (hardSession) {
+  if (hardSession || hardWeek) {
     return {
       allowed: false,
-      reason: `session_exhausted:${sessionPercent}`,
+      reason: hardWeek
+        ? `week_exhausted:${weeklyPercent}`
+        : `session_exhausted:${sessionPercent}`,
       softBudget: false,
       hardBlock: true,
     };
   }
 
-  if (soft && BACKGROUND_PURPOSES.has(purpose)) {
+  if ((softSession || softWeek) && BACKGROUND_PURPOSES.has(purpose)) {
     return {
       allowed: false,
-      reason: `soft_budget:session_${sessionPercent}>=${softPercent}`,
+      reason: softWeek
+        ? `soft_budget:week_${weeklyPercent}>=${softPercent}`
+        : `soft_budget:session_${sessionPercent}>=${softPercent}`,
       softBudget: true,
       hardBlock: false,
     };
@@ -352,10 +416,19 @@ export function getClaudeQuotaCircuitState(nowMs = Date.now()): {
 
 /**
  * Open/extend hard circuit from a live 429 (or internal monitor reason).
- * Prefers parseable reset time; falls back to 5h session window.
+ * Prefers parseable reset time; falls back to 5h (session) or 7d (weekly).
  */
 export function noteClaudeRateLimit(detail?: string | null, nowMs = Date.now()): void {
   const text = (detail ?? '').trim();
+  // Idempotent skip reasons — do not re-open / shorten the circuit.
+  if (
+    text.startsWith('hard_block_') ||
+    text.startsWith('soft_budget:') ||
+    text.startsWith('session_exhausted:') ||
+    text.startsWith('week_exhausted:')
+  ) {
+    return;
+  }
   if (
     text &&
     !isClaudeRateLimitSignal(text) &&
@@ -366,16 +439,26 @@ export function noteClaudeRateLimit(detail?: string | null, nowMs = Date.now()):
     return;
   }
 
+  const isWeekly = /weekly limit|current week/i.test(text);
   const parsed = parseClaudeResetToMs(text, nowMs);
+  const fallbackMs = isWeekly
+    ? 7 * 24 * 60 * 60 * 1000
+    : CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS;
   const until =
-    parsed ??
-    Math.max(state.blockedUntilMs, nowMs + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS);
+    parsed ?? Math.max(state.blockedUntilMs, nowMs + fallbackMs);
 
   state = {
     ...state,
     blockedUntilMs: Math.max(state.blockedUntilMs, until),
     reason: text || state.reason || 'rate_limit',
-    sessionPercent: state.sessionPercent == null ? 100 : Math.max(state.sessionPercent, 100),
+    limitKind: isWeekly ? 'weekly' : /session limit/i.test(text) ? 'session' : state.limitKind ?? 'unknown',
+    sessionPercent: isWeekly
+      ? state.sessionPercent
+      : Math.max(state.sessionPercent ?? 100, 100),
+    weeklyPercent: isWeekly
+      ? 100
+      : state.weeklyPercent,
+    sessionResetsAtIso: parsed != null ? new Date(parsed).toISOString() : state.sessionResetsAtIso,
     updatedAtMs: nowMs,
   };
 }
@@ -392,14 +475,21 @@ export function syncClaudeQuotaFromUsage(
   let blockedUntilMs = state.blockedUntilMs;
   let reason = state.reason;
 
-  if (snap.status === 'exhausted' || (session && session.percentUsed >= 100)) {
+  if (snap.status === 'exhausted' || (session && session.percentUsed >= 100) || (week && week.percentUsed >= 100)) {
+    const weekBucket = snap.buckets?.find(
+      (b) => /week/i.test(b.id) || /week/i.test(b.label),
+    );
     const until =
+      parseClaudeResetToMs(weekBucket?.resetsAtIso ?? null, nowMs) ??
+      parseClaudeResetToMs(weekBucket?.resetsAt ?? null, nowMs) ??
       parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs) ??
       parseClaudeResetToMs(session?.resetsAt ?? null, nowMs) ??
       nowMs + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS;
     if (until > blockedUntilMs) {
       blockedUntilMs = until;
-      reason = reason ?? `usage_exhausted:${session?.label ?? snap.status}`;
+      reason =
+        reason ??
+        `usage_exhausted:${week && week.percentUsed >= 100 ? weekBucket?.label ?? 'week' : session?.label ?? snap.status}`;
     }
   }
 
@@ -417,6 +507,12 @@ export function syncClaudeQuotaFromUsage(
     sessionPercent: session?.percentUsed ?? state.sessionPercent,
     weeklyPercent: week?.percentUsed ?? state.weeklyPercent,
     sessionResetsAtIso: session?.resetsAtIso ?? state.sessionResetsAtIso,
+    limitKind:
+      week && week.percentUsed >= 100
+        ? 'weekly'
+        : session && session.percentUsed >= 100
+          ? 'session'
+          : state.limitKind,
     updatedAtMs: nowMs,
   };
 }

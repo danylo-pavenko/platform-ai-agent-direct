@@ -24,6 +24,7 @@ import { evaluateClaudeSpawn } from '../lib/claude-quota-gate.js';
 import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
 import {
   applyUsageSnapshotToQuota,
+  buildQuotaBlockedUsageSnapshot,
   recordClaudeRateLimit,
 } from './claude-quota.js';
 
@@ -581,34 +582,39 @@ export async function fetchClaudeUsageSnapshot(
         }
       : null;
 
-    // Hard/soft quota gate — never spawn /usage while session window is blocked.
-    const usageGate = evaluateClaudeSpawn('usage_refresh', { usage: cachedHint });
+    // Hard/soft quota gate — never spawn /usage while circuit / soft budget blocks it.
+    const usageGate = evaluateClaudeSpawn('usage_refresh', {
+      usage: cachedHint,
+      softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+    });
     if (opts.forceLive === true && !usageGate.allowed) {
-      await recordClaudeRateLimit(usageGate.reason ?? 'skip_force_live_usage');
-      if (cachedBefore) {
-        log.info(
-          {
-            status: cachedBefore.status,
-            worstPercent: cachedBefore.worstPercent,
-            reason: usageGate.reason,
-          },
-          'Skipping live /usage — quota gate',
-        );
-        return snapshotFromCachedUtilization(cachedBefore, checkedAt, auth);
-      }
-      return {
-        checkedAt,
-        status: 'exhausted',
-        subscriptionType: auth.subscriptionType,
-        authEmail: auth.authEmail,
-        buckets: [],
-        worstPercent: 100,
-        message: `Live /usage пропущено (${usageGate.reason}).`,
-        rawText: null,
-        error: usageGate.reason,
-        cacheFetchedAt: null,
-        cacheStale: false,
-      };
+      // Do not re-record hard_block_/soft_budget reasons — circuit already set.
+      const blocked = buildQuotaBlockedUsageSnapshot(
+        cachedBefore
+          ? snapshotFromCachedUtilization(cachedBefore, checkedAt, auth)
+          : {
+              checkedAt,
+              status: 'exhausted',
+              subscriptionType: auth.subscriptionType,
+              authEmail: auth.authEmail,
+              buckets: [],
+              worstPercent: 100,
+              message: '',
+              rawText: null,
+              error: null,
+              cacheFetchedAt: null,
+              cacheStale: false,
+            },
+      );
+      log.info(
+        {
+          status: blocked.status,
+          worstPercent: blocked.worstPercent,
+          reason: usageGate.reason,
+        },
+        'Skipping live /usage — quota gate',
+      );
+      return blocked;
     }
 
     // Live refresh: haiku /usage nudges Claude Code to rewrite utilization cache.
