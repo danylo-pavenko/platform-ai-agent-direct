@@ -123,6 +123,8 @@ try {
   );
 
   const { startClaudeUsageMonitor } = await import('./services/claude-usage-monitor.js');
+  const { loadClaudeQuotaCircuit } = await import('./services/claude-quota.js');
+  await loadClaudeQuotaCircuit();
   startClaudeUsageMonitor(app.log);
 
   const { startClaudeAuthMonitor } = await import('./services/claude-auth-monitor.js');

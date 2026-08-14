@@ -125,6 +125,8 @@ const envSchema = z.object({
     .transform((v) => v.toLowerCase() === 'true'),
   CLAUDE_USAGE_CHECK_INTERVAL_MIN: z.coerce.number().default(30),
   CLAUDE_USAGE_WARNING_PERCENT: z.coerce.number().min(50).max(100).default(90),
+  /** Soft budget: block background Claude spawns at/above this session %. */
+  CLAUDE_QUOTA_SOFT_PERCENT: envCoerceNumber({ default: 90, min: 50, max: 99 }),
   // `/usage` CLI can be slow on a busy VPS (same class of cold start as agent turns).
   CLAUDE_USAGE_TIMEOUT_MS: z.coerce.number().default(90_000),
   // Daily Claude auth probe + Telegram alert when session expired (tenant has TG bot).

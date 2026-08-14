@@ -3,6 +3,7 @@ import pino from 'pino';
 import { Prisma } from '../generated/prisma/client.js';
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
+import { evaluateClaudeSpawn } from '../lib/claude-quota-gate.js';
 import {
   CLAUDE_USAGE_NOTIFY_KEY,
   CLAUDE_USAGE_SNAPSHOT_KEY,
@@ -10,12 +11,8 @@ import {
   type ClaudeUsageSnapshot,
   type ClaudeUsageStatus,
 } from './claude-usage.js';
+import { applyUsageSnapshotToQuota, recordClaudeRateLimit } from './claude-quota.js';
 import { notifyClaudeUsageLimit } from './telegram-notify.js';
-import {
-  clearClaudeQuotaCircuit,
-  noteClaudeRateLimit,
-  shouldSkipForceLiveUsageRefresh,
-} from '../lib/claude-quota-gate.js';
 
 const log = pino({ name: 'claude-usage-monitor' });
 
@@ -83,23 +80,29 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
 /** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram. */
 export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
   const prevSnap = await loadClaudeUsageSnapshot();
-  if (shouldSkipForceLiveUsageRefresh(prevSnap)) {
-    noteClaudeRateLimit('usage_monitor_skip: snapshot exhausted');
+  const gate = evaluateClaudeSpawn('usage_refresh', {
+    usage: prevSnap,
+    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+  });
+  if (!gate.allowed && prevSnap) {
+    await recordClaudeRateLimit(gate.reason ?? 'usage_monitor_skip');
     const kept: ClaudeUsageSnapshot = {
-      ...prevSnap!,
+      ...prevSnap,
       checkedAt: new Date().toISOString(),
-      message: `${prevSnap!.message} (live /usage пропущено — ліміт ще вичерпано)`,
+      message: `${prevSnap.message} (live /usage пропущено — ${gate.reason})`,
     };
     log.info(
       {
         status: kept.status,
         worstPercent: kept.worstPercent,
         skippedLive: true,
-        previousCheckedAt: prevSnap!.checkedAt,
+        reason: gate.reason,
+        previousCheckedAt: prevSnap.checkedAt,
       },
-      'Skipping live /usage — persisted snapshot still exhausted',
+      'Skipping live /usage — quota gate',
     );
     await persistSnapshot(kept);
+    await applyUsageSnapshotToQuota(kept);
     return kept;
   }
 
@@ -126,17 +129,13 @@ export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
         'Claude usage live check failed — keeping previous snapshot',
       );
       await persistSnapshot(merged);
+      await applyUsageSnapshotToQuota(merged);
       return merged;
     }
   }
 
   await persistSnapshot(snapshot);
-
-  if (snapshot.status === 'ok') {
-    clearClaudeQuotaCircuit();
-  } else if (snapshot.status === 'exhausted') {
-    noteClaudeRateLimit('usage_snapshot_exhausted');
-  }
+  await applyUsageSnapshotToQuota(snapshot);
 
   log.info(
     {

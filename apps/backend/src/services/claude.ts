@@ -15,9 +15,12 @@ import {
   type ClaudeAuthHealth,
 } from '../lib/claude-auth-probe.js';
 import {
+  evaluateClaudeSpawn,
   isClaudeBackgroundSpawnBlocked,
   isClaudeQuotaCircuitOpen,
   noteClaudeRateLimit,
+  purposeFromAgentChannel,
+  type ClaudeSpawnPurpose,
 } from '../lib/claude-quota-gate.js';
 import { getClaudeBinaryPath } from '../lib/claude-binary.js';
 import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
@@ -30,6 +33,7 @@ import {
 import { getAgentConfig, normalizeClaudeModel, type ClaudeModelId } from '../lib/agent-config.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
+import { recordClaudeRateLimit } from './claude-quota.js';
 
 export { getClaudeBinaryPath, resolveClaudeSpawnCwd };
 
@@ -85,6 +89,8 @@ export interface ClaudeCallContext {
   timeoutMs?: number;
   /** Claude Code CLI `--model` (haiku router / sonnet|opus reply). Falls back to agent_config. */
   model?: string;
+  /** Override quota-gate purpose (e.g. follow_up vs customer_dm). */
+  spawnPurpose?: ClaudeSpawnPurpose;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +284,8 @@ interface SpawnClaudeOptions {
   onDelta?: ClaudeStreamDeltaHandler;
   /** Abort in-flight CLI (e.g. client disconnected). */
   signal?: AbortSignal;
+  /** Quota-gate purpose — defaults from context.channel. */
+  purpose?: ClaudeSpawnPurpose;
 }
 
 function extractAssistantTextFromStreamLine(line: string): string | null {
@@ -337,6 +345,24 @@ function spawnClaude(
       : timeoutMsOrOpts;
   const timeoutMs = opts.timeoutMs;
   const callContext = opts.context ?? context;
+  const purpose =
+    opts.purpose ??
+    callContext?.spawnPurpose ??
+    purposeFromAgentChannel(callContext?.channel ?? null);
+
+  const gate = evaluateClaudeSpawn(purpose, {
+    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+  });
+  if (!gate.allowed) {
+    log.warn(
+      { purpose, reason: gate.reason, channel: callContext?.channel ?? null },
+      'Claude spawn blocked by quota gate',
+    );
+    void recordClaudeRateLimit(gate.reason);
+    return Promise.resolve(
+      fallbackFor('timeout', callContext, `quota_gate: ${gate.reason}`),
+    );
+  }
 
   return new Promise<ClaudeResponse>((resolve) => {
     let child: ChildProcess;
@@ -347,6 +373,7 @@ function spawnClaude(
         {
           cwd,
           channel: callContext?.channel ?? null,
+          purpose,
           argsPreview: args.filter((a) => a !== '-p').slice(0, 8),
         },
         'Spawning Claude CLI',
@@ -484,6 +511,7 @@ function spawnClaude(
           `unusable reply (exit ${code})${stderrPreview ? `: ${stderrPreview}` : ''}`;
         if (isClaudeRateLimitSignal(detail) || isClaudeRateLimitSignal(stdout)) {
           noteClaudeRateLimit(parsed.errorDetail ?? detail);
+          void recordClaudeRateLimit(parsed.errorDetail ?? detail);
         }
         log.error(
           {
@@ -634,16 +662,22 @@ export async function askClaude(
 
   const gate = semaphoreFor(context);
 
-  // Circuit breaker: after live 429 / session limit, skip CLI until window cools down.
-  if (isClaudeQuotaCircuitOpen()) {
+  // Circuit breaker: after live 429 / session limit, skip CLI until window resets.
+  const askPurpose =
+    context?.spawnPurpose ?? purposeFromAgentChannel(context?.channel ?? null);
+  const askGate = evaluateClaudeSpawn(askPurpose, {
+    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+  });
+  // Soft budget still allows customer_dm / admin; hard block denies all.
+  if (!askGate.allowed && askGate.hardBlock) {
     const circuit = fallbackFor(
       'timeout',
       context,
-      'quota_circuit_open: session/usage limit (skipping Claude spawn)',
+      `quota_circuit_open: ${askGate.reason}`,
     );
     log.warn(
-      { channel: context?.channel ?? null },
-      'Claude quota circuit open — returning timeout fallback without spawn',
+      { channel: context?.channel ?? null, reason: askGate.reason },
+      'Claude quota hard block — returning timeout fallback without spawn',
     );
     logFallback(circuit, Date.now() - startMs, 0);
     record(circuit, 0);
@@ -704,7 +738,11 @@ export async function askClaude(
       );
     }
 
-    const response = await spawnClaude(vision.stdin, args, timeoutFor(context), context);
+    const response = await spawnClaude(vision.stdin, args, {
+      timeoutMs: timeoutFor(context),
+      context,
+      purpose: askPurpose,
+    });
     return { response, promptChars: prompt.length, visionAttached: vision.attachedImages.length };
   };
 
@@ -802,15 +840,20 @@ export async function askClaudeStream(
     onEvent({ type: response.fallback ? 'error' : 'done', response });
   };
 
-  if (isClaudeQuotaCircuitOpen()) {
+  const streamPurpose =
+    context?.spawnPurpose ?? purposeFromAgentChannel(context?.channel ?? null);
+  const streamGate = evaluateClaudeSpawn(streamPurpose, {
+    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+  });
+  if (!streamGate.allowed && streamGate.hardBlock) {
     const circuit = fallbackFor(
       'timeout',
       context,
-      'quota_circuit_open: session/usage limit (skipping Claude spawn)',
+      `quota_circuit_open: ${streamGate.reason}`,
     );
     log.warn(
-      { channel: context?.channel ?? null },
-      'Claude quota circuit open — stream fallback without spawn',
+      { channel: context?.channel ?? null, reason: streamGate.reason },
+      'Claude quota hard block — stream fallback without spawn',
     );
     emitDone(circuit);
     return circuit;
@@ -839,6 +882,7 @@ export async function askClaudeStream(
     const response = await spawnClaude(vision.stdin, args, {
       timeoutMs: timeoutFor(context),
       context,
+      purpose: streamPurpose,
       signal,
       onDelta: (text) => {
         if (text) onEvent({ type: 'delta', text });
@@ -1018,13 +1062,31 @@ export async function claudeAuthCheck(timeoutMs = 8000): Promise<ClaudeAuthHealt
  * Rate-limit (429) means credentials are valid — do not treat as session expired.
  */
 export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAuthHealth> {
+  const gate = evaluateClaudeSpawn('auth_probe', {
+    softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+  });
+  if (!gate.allowed) {
+    log.info(
+      { reason: gate.reason },
+      'Claude auth live probe skipped — quota gate (credentials assumed OK from auth status)',
+    );
+    // Rate-limit / soft budget: OAuth is fine; do not burn another haiku ping.
+    return { ok: true, error: null };
+  }
+
   const prompt = buildPrompt({
     systemPrompt: AGENT_LATENCY_PROBE_SYSTEM,
     conversationHistory: [],
     userMessage: AGENT_LATENCY_PROBE_USER,
   });
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--model', 'haiku'];
-  const response = await spawnClaude(prompt, args, timeoutMs);
+  const response = await spawnClaude(prompt, args, {
+    timeoutMs,
+    purpose: 'auth_probe',
+  });
+  if (isClaudeRateLimitSignal(response.errorDetail ?? response.text)) {
+    void recordClaudeRateLimit(response.errorDetail ?? response.text);
+  }
   return classifyClaudeLiveProbe({
     text: response.text,
     errorDetail: response.errorDetail,
@@ -1063,6 +1125,7 @@ export async function probeAgentLatency(
   return runLatencyProbe({
     timeoutMs: maxLatencyMs,
     model: config.CLAUDE_MODEL,
+    purpose: 'latency_probe',
   });
 }
 
@@ -1088,12 +1151,13 @@ export async function warmUpClaudeCli(): Promise<AgentLatencyProbe> {
     };
   }
   log.info({ timeoutMs, model: 'haiku' }, 'Claude CLI warmup starting');
-  const result = await runLatencyProbe({ timeoutMs, model: 'haiku' });
+  const result = await runLatencyProbe({ timeoutMs, model: 'haiku', purpose: 'warmup' });
   if (result.ok) {
     log.info({ latencyMs: result.latencyMs }, 'Claude CLI warmup OK');
   } else {
     if (result.error && isClaudeRateLimitSignal(result.error)) {
       noteClaudeRateLimit(result.error);
+      void recordClaudeRateLimit(result.error);
     }
     log.warn(
       { latencyMs: result.latencyMs, error: result.error, fallback: result.fallback ?? null },
@@ -1106,6 +1170,7 @@ export async function warmUpClaudeCli(): Promise<AgentLatencyProbe> {
 async function runLatencyProbe(opts: {
   timeoutMs: number;
   model: string;
+  purpose?: ClaudeSpawnPurpose;
 }): Promise<AgentLatencyProbe> {
   const startMs = Date.now();
   const prompt = buildPrompt({
@@ -1120,7 +1185,10 @@ async function runLatencyProbe(opts: {
     '--model', opts.model,
   ];
 
-  const response = await spawnClaude(prompt, args, opts.timeoutMs);
+  const response = await spawnClaude(prompt, args, {
+    timeoutMs: opts.timeoutMs,
+    purpose: opts.purpose ?? 'latency_probe',
+  });
   const latencyMs = Date.now() - startMs;
 
   if (response.fallback) {

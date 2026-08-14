@@ -20,8 +20,12 @@ import pino from 'pino';
 import { config } from '../config.js';
 import { isClaudeRateLimitSignal } from '../lib/claude-auth-probe.js';
 import { getClaudeBinaryPath } from '../lib/claude-binary.js';
-import { noteClaudeRateLimit, shouldSkipForceLiveUsageRefresh } from '../lib/claude-quota-gate.js';
+import { evaluateClaudeSpawn } from '../lib/claude-quota-gate.js';
 import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
+import {
+  applyUsageSnapshotToQuota,
+  recordClaudeRateLimit,
+} from './claude-quota.js';
 
 const execFileAsync = promisify(execFile);
 const log = pino({ name: 'claude-usage' });
@@ -39,6 +43,8 @@ export interface ClaudeUsageBucket {
   label: string;
   percentUsed: number;
   resetsAt: string;
+  /** Original ISO `resets_at` from Claude Code cache when present. */
+  resetsAtIso?: string | null;
 }
 
 export interface ClaudeUsageSnapshot {
@@ -187,6 +193,7 @@ export function parseCachedUsageUtilization(
       label,
       percentUsed,
       resetsAt: formatResetsAt(typeof limit.resets_at === 'string' ? limit.resets_at : null),
+      resetsAtIso: typeof limit.resets_at === 'string' ? limit.resets_at : null,
     });
   }
 
@@ -208,6 +215,7 @@ export function parseCachedUsageUtilization(
         label: w.label,
         percentUsed,
         resetsAt: formatResetsAt(typeof rec.resets_at === 'string' ? rec.resets_at : null),
+        resetsAtIso: typeof rec.resets_at === 'string' ? rec.resets_at : null,
       });
     }
   }
@@ -561,25 +569,46 @@ export async function fetchClaudeUsageSnapshot(
       return snapshotFromCachedUtilization(cachedBefore, checkedAt, auth);
     }
 
-    // Do not spawn /usage while a fresh file cache already says exhausted —
-    // the CLI call itself hits 429 and burns the same session window.
-    if (
-      opts.forceLive === true &&
-      cachedBefore &&
-      shouldSkipForceLiveUsageRefresh({
-        status: cachedBefore.status,
-        checkedAt:
-          cachedBefore.fetchedAtMs != null
-            ? new Date(cachedBefore.fetchedAtMs).toISOString()
-            : checkedAt,
-      })
-    ) {
-      noteClaudeRateLimit('skip_force_live_usage: cache exhausted');
-      log.info(
-        { status: cachedBefore.status, worstPercent: cachedBefore.worstPercent },
-        'Skipping live /usage — local cache still exhausted',
-      );
-      return snapshotFromCachedUtilization(cachedBefore, checkedAt, auth);
+    const cachedHint = cachedBefore
+      ? {
+          status: cachedBefore.status,
+          checkedAt:
+            cachedBefore.fetchedAtMs != null
+              ? new Date(cachedBefore.fetchedAtMs).toISOString()
+              : checkedAt,
+          buckets: cachedBefore.buckets,
+          worstPercent: cachedBefore.worstPercent,
+        }
+      : null;
+
+    // Hard/soft quota gate — never spawn /usage while session window is blocked.
+    const usageGate = evaluateClaudeSpawn('usage_refresh', { usage: cachedHint });
+    if (opts.forceLive === true && !usageGate.allowed) {
+      await recordClaudeRateLimit(usageGate.reason ?? 'skip_force_live_usage');
+      if (cachedBefore) {
+        log.info(
+          {
+            status: cachedBefore.status,
+            worstPercent: cachedBefore.worstPercent,
+            reason: usageGate.reason,
+          },
+          'Skipping live /usage — quota gate',
+        );
+        return snapshotFromCachedUtilization(cachedBefore, checkedAt, auth);
+      }
+      return {
+        checkedAt,
+        status: 'exhausted',
+        subscriptionType: auth.subscriptionType,
+        authEmail: auth.authEmail,
+        buckets: [],
+        worstPercent: 100,
+        message: `Live /usage пропущено (${usageGate.reason}).`,
+        rawText: null,
+        error: usageGate.reason,
+        cacheFetchedAt: null,
+        cacheStale: false,
+      };
     }
 
     // Live refresh: haiku /usage nudges Claude Code to rewrite utilization cache.
@@ -590,14 +619,11 @@ export async function fetchClaudeUsageSnapshot(
       );
       const usageText = await fetchClaudeUsageText();
       if (isClaudeRateLimitSignal(usageText)) {
-        noteClaudeRateLimit(usageText);
+        await recordClaudeRateLimit(usageText);
       }
       const parsed = parseClaudeUsageText(usageText, warningAt);
       if (parsed.buckets.length > 0) {
-        if (parsed.status === 'exhausted') {
-          noteClaudeRateLimit('usage_snapshot_exhausted');
-        }
-        return {
+        const snap = {
           checkedAt,
           subscriptionType: auth.subscriptionType,
           authEmail: auth.authEmail,
@@ -605,15 +631,16 @@ export async function fetchClaudeUsageSnapshot(
           cacheFetchedAt: checkedAt,
           cacheStale: false,
         };
+        await applyUsageSnapshotToQuota(snap);
+        return snap;
       }
 
       // Modern CLI often prints breakdown without "% used" but still refreshes ~/.claude.json.
       const refreshed = readCachedUsageFromClaudeJson(warningAt);
       if (refreshed) {
-        if (refreshed.status === 'exhausted') {
-          noteClaudeRateLimit('usage_snapshot_exhausted');
-        }
-        return snapshotFromCachedUtilization(refreshed, checkedAt, auth);
+        const snap = snapshotFromCachedUtilization(refreshed, checkedAt, auth);
+        await applyUsageSnapshotToQuota(snap);
+        return snap;
       }
 
       return {
@@ -634,7 +661,7 @@ export async function fetchClaudeUsageSnapshot(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (isClaudeRateLimitSignal(message)) {
-        noteClaudeRateLimit(message);
+        await recordClaudeRateLimit(message);
       }
       log.warn({ err, message }, 'claude /usage CLI failed — falling back to local cache');
 

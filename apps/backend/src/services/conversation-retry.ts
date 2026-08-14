@@ -240,21 +240,26 @@ export async function runConversationRetryPass(): Promise<ConversationRetryStats
     return stats;
   }
 
+  const usageSnap = await loadClaudeUsageSnapshot().catch(() => null);
+  const blocked = isClaudeBackgroundSpawnBlocked(
+    usageSnap,
+    Date.now(),
+    config.CLAUDE_QUOTA_SOFT_PERCENT,
+  );
+  if (blocked.blocked) {
+    log.info(
+      { reason: blocked.reason },
+      'Skipping conversation retry pass — Claude quota circuit / soft budget',
+    );
+    return stats;
+  }
+
+  // Auth status may live-probe — only after quota says background is allowed.
   const auth = await getClaudeAuthStatus();
   if (!auth.loggedIn || !auth.binaryOk) {
     log.debug(
       { loggedIn: auth.loggedIn, binaryOk: auth.binaryOk, error: auth.error },
       'Skipping conversation retry pass — Claude unavailable',
-    );
-    return stats;
-  }
-
-  const usageSnap = await loadClaudeUsageSnapshot().catch(() => null);
-  const blocked = isClaudeBackgroundSpawnBlocked(usageSnap);
-  if (blocked.blocked) {
-    log.info(
-      { reason: blocked.reason },
-      'Skipping conversation retry pass — Claude quota circuit / exhausted',
     );
     return stats;
   }

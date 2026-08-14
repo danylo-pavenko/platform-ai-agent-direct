@@ -27,6 +27,8 @@ import { sendText } from './instagram.js';
 import { beginIgTypingIndicator } from './ig-typing-indicator.js';
 import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
+import { isClaudeBackgroundSpawnBlocked } from '../lib/claude-quota-gate.js';
+import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import {
   buildRuntimePrompt,
   getWorkingHours,
@@ -395,6 +397,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
           conversationId,
           clientId: client.id,
           model: agentCfg.claudeModel,
+          spawnPurpose: 'follow_up',
         },
       );
 
@@ -555,6 +558,20 @@ export async function runFollowUpDuePass(): Promise<FollowUpStats> {
   };
 
   if (!config.FOLLOW_UP_JOB_ENABLED) {
+    return stats;
+  }
+
+  const usageSnap = await loadClaudeUsageSnapshot().catch(() => null);
+  const quota = isClaudeBackgroundSpawnBlocked(
+    usageSnap,
+    Date.now(),
+    config.CLAUDE_QUOTA_SOFT_PERCENT,
+  );
+  if (quota.blocked) {
+    log.info(
+      { reason: quota.reason },
+      'Skipping follow-up pass — Claude quota circuit / soft budget',
+    );
     return stats;
   }
 
