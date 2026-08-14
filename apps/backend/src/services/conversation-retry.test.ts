@@ -97,6 +97,32 @@ describe('evaluateConversationRetryNeed', () => {
     expect(result).toEqual({ needed: true, reason: 'ok', inboundAt });
   });
 
+  it('still marks rate-limit fallbacks as needed (catch-up after quota reset)', () => {
+    const inboundAt = at(0);
+    const result = evaluateConversationRetryNeed(
+      [
+        {
+          direction: 'out',
+          sender: 'bot',
+          text: CUSTOMER_FALLBACK_TIMEOUT,
+          createdAt: at(60_000),
+          botFailureDetail:
+            "Ліміт сесії Claude (429). You've hit your session limit · resets 2:40pm",
+        },
+        {
+          direction: 'in',
+          sender: 'client',
+          text: 'Привіт',
+          createdAt: inboundAt,
+        },
+      ],
+      at(300_000).getTime(),
+      baseOpts,
+    );
+    // Pass-level quota gate blocks retries while exhausted; after reset we catch up.
+    expect(result).toEqual({ needed: true, reason: 'ok', inboundAt });
+  });
+
   it('needs retry when suppressed retry notes follow the first fallback', () => {
     const inboundAt = at(0);
     const result = evaluateConversationRetryNeed(

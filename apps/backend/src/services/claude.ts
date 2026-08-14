@@ -14,6 +14,11 @@ import {
   isClaudeRateLimitSignal,
   type ClaudeAuthHealth,
 } from '../lib/claude-auth-probe.js';
+import {
+  isClaudeBackgroundSpawnBlocked,
+  isClaudeQuotaCircuitOpen,
+  noteClaudeRateLimit,
+} from '../lib/claude-quota-gate.js';
 import { getClaudeBinaryPath } from '../lib/claude-binary.js';
 import { resolveClaudeSpawnCwd } from '../lib/claude-spawn-cwd.js';
 import { Semaphore } from '../lib/queue.js';
@@ -24,6 +29,7 @@ import {
 } from '../lib/agent-fallback.js';
 import { getAgentConfig, normalizeClaudeModel, type ClaudeModelId } from '../lib/agent-config.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
+import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 
 export { getClaudeBinaryPath, resolveClaudeSpawnCwd };
 
@@ -473,6 +479,12 @@ function spawnClaude(
       // Never settle empty / unusable / raw stream dumps as a customer reply.
       if (!usable) {
         const stderrPreview = stderr.slice(0, 500);
+        const detail =
+          parsed.errorDetail ??
+          `unusable reply (exit ${code})${stderrPreview ? `: ${stderrPreview}` : ''}`;
+        if (isClaudeRateLimitSignal(detail) || isClaudeRateLimitSignal(stdout)) {
+          noteClaudeRateLimit(parsed.errorDetail ?? detail);
+        }
         log.error(
           {
             code,
@@ -486,14 +498,7 @@ function spawnClaude(
             ? 'Claude CLI exited with non-zero code'
             : 'Claude CLI returned unusable stdout (rate limit / auth / empty)',
         );
-        settle(
-          fallbackFor(
-            'timeout',
-            callContext,
-            parsed.errorDetail ??
-              `unusable reply (exit ${code})${stderrPreview ? `: ${stderrPreview}` : ''}`,
-          ),
-        );
+        settle(fallbackFor('timeout', callContext, detail));
         return;
       }
 
@@ -628,6 +633,22 @@ export async function askClaude(
   };
 
   const gate = semaphoreFor(context);
+
+  // Circuit breaker: after live 429 / session limit, skip CLI until window cools down.
+  if (isClaudeQuotaCircuitOpen()) {
+    const circuit = fallbackFor(
+      'timeout',
+      context,
+      'quota_circuit_open: session/usage limit (skipping Claude spawn)',
+    );
+    log.warn(
+      { channel: context?.channel ?? null },
+      'Claude quota circuit open — returning timeout fallback without spawn',
+    );
+    logFallback(circuit, Date.now() - startMs, 0);
+    record(circuit, 0);
+    return circuit;
+  }
 
   // Back-pressure: reject early if too many requests are already queued
   if (gate.pending > MAX_PENDING) {
@@ -780,6 +801,20 @@ export async function askClaudeStream(
   const emitDone = (response: ClaudeResponse) => {
     onEvent({ type: response.fallback ? 'error' : 'done', response });
   };
+
+  if (isClaudeQuotaCircuitOpen()) {
+    const circuit = fallbackFor(
+      'timeout',
+      context,
+      'quota_circuit_open: session/usage limit (skipping Claude spawn)',
+    );
+    log.warn(
+      { channel: context?.channel ?? null },
+      'Claude quota circuit open — stream fallback without spawn',
+    );
+    emitDone(circuit);
+    return circuit;
+  }
 
   if (gate.pending > MAX_PENDING) {
     const busy = fallbackFor(
@@ -1015,6 +1050,16 @@ const AGENT_LATENCY_PROBE_USER = 'ping';
 export async function probeAgentLatency(
   maxLatencyMs = config.CLAUDE_TIMEOUT_MS,
 ): Promise<AgentLatencyProbe> {
+  const snap = await loadClaudeUsageSnapshot().catch(() => null);
+  const blocked = isClaudeBackgroundSpawnBlocked(snap);
+  if (blocked.blocked) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      error: `Пропущено — ліміт Claude вичерпано (${blocked.reason})`,
+      fallback: 'timeout',
+    };
+  }
   return runLatencyProbe({
     timeoutMs: maxLatencyMs,
     model: config.CLAUDE_MODEL,
@@ -1028,11 +1073,28 @@ export async function probeAgentLatency(
  */
 export async function warmUpClaudeCli(): Promise<AgentLatencyProbe> {
   const timeoutMs = config.CLAUDE_TIMEOUT_MS;
+  const snap = await loadClaudeUsageSnapshot().catch(() => null);
+  const blocked = isClaudeBackgroundSpawnBlocked(snap);
+  if (blocked.blocked) {
+    log.info(
+      { reason: blocked.reason, timeoutMs },
+      'Claude CLI warmup skipped — quota circuit / exhausted usage',
+    );
+    return {
+      ok: false,
+      latencyMs: 0,
+      error: `skipped: ${blocked.reason}`,
+      fallback: 'timeout',
+    };
+  }
   log.info({ timeoutMs, model: 'haiku' }, 'Claude CLI warmup starting');
   const result = await runLatencyProbe({ timeoutMs, model: 'haiku' });
   if (result.ok) {
     log.info({ latencyMs: result.latencyMs }, 'Claude CLI warmup OK');
   } else {
+    if (result.error && isClaudeRateLimitSignal(result.error)) {
+      noteClaudeRateLimit(result.error);
+    }
     log.warn(
       { latencyMs: result.latencyMs, error: result.error, fallback: result.fallback ?? null },
       'Claude CLI warmup failed (API stays up; first DM may still be cold)',

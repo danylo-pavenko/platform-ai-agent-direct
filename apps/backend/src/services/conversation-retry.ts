@@ -7,7 +7,11 @@ import {
   clearInboundClaims,
   flushInboundBotTurnNow,
 } from '../lib/inbound-coalesce.js';
+import {
+  isClaudeBackgroundSpawnBlocked,
+} from '../lib/claude-quota-gate.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
+import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 
 const log = pino({ name: 'conversation-retry' });
 
@@ -27,13 +31,15 @@ export type RetrySkipReason =
   | 'too_old'
   | 'max_attempts'
   | 'wrong_state'
-  | 'claude_unavailable';
+  | 'claude_unavailable'
+  | 'claude_rate_limited';
 
 export interface MessageForRetryEval {
   direction: string;
   sender: string;
   text: string | null;
   createdAt: Date;
+  botFailureDetail?: string | null;
 }
 
 export interface RetryEvalResult {
@@ -85,6 +91,10 @@ export function evaluateConversationRetryNeed(
   if (botReplies.some((m) => m.text && !isAgentFallbackReply(m.text))) {
     return { needed: false, reason: 'real_bot_reply', inboundAt };
   }
+
+  // Note: 429 / session-limit fallbacks are still "needed" so that after the
+  // quota window resets, conversation-retry can catch up. While the circuit is
+  // open, runConversationRetryPass skips the whole pass (see quota gate).
 
   if (botReplies.length >= opts.maxBotAttemptsAfterInbound) {
     return { needed: false, reason: 'max_attempts', inboundAt };
@@ -239,6 +249,16 @@ export async function runConversationRetryPass(): Promise<ConversationRetryStats
     return stats;
   }
 
+  const usageSnap = await loadClaudeUsageSnapshot().catch(() => null);
+  const blocked = isClaudeBackgroundSpawnBlocked(usageSnap);
+  if (blocked.blocked) {
+    log.info(
+      { reason: blocked.reason },
+      'Skipping conversation retry pass — Claude quota circuit / exhausted',
+    );
+    return stats;
+  }
+
   const cutoff = new Date(Date.now() - config.CONVERSATION_RETRY_MAX_AGE_MS);
   const conversations = await prisma.conversation.findMany({
     where: {
@@ -275,6 +295,15 @@ export async function runConversationRetryPass(): Promise<ConversationRetryStats
     if (!evalResult.needed) {
       stats.skipped += 1;
       continue;
+    }
+
+    // Re-check circuit between conversations — a 429 mid-batch should stop the rest.
+    if (isClaudeBackgroundSpawnBlocked().blocked) {
+      log.info(
+        { conversationId: id, answered: stats.answered, attempted: stats.attempted },
+        'Stopping conversation retry batch — quota circuit opened mid-pass',
+      );
+      break;
     }
 
     stats.attempted += 1;

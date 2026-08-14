@@ -11,6 +11,11 @@ import {
   type ClaudeUsageStatus,
 } from './claude-usage.js';
 import { notifyClaudeUsageLimit } from './telegram-notify.js';
+import {
+  clearClaudeQuotaCircuit,
+  noteClaudeRateLimit,
+  shouldSkipForceLiveUsageRefresh,
+} from '../lib/claude-quota-gate.js';
 
 const log = pino({ name: 'claude-usage-monitor' });
 
@@ -77,6 +82,27 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
 
 /** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram. */
 export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
+  const prevSnap = await loadClaudeUsageSnapshot();
+  if (shouldSkipForceLiveUsageRefresh(prevSnap)) {
+    noteClaudeRateLimit('usage_monitor_skip: snapshot exhausted');
+    const kept: ClaudeUsageSnapshot = {
+      ...prevSnap!,
+      checkedAt: new Date().toISOString(),
+      message: `${prevSnap!.message} (live /usage пропущено — ліміт ще вичерпано)`,
+    };
+    log.info(
+      {
+        status: kept.status,
+        worstPercent: kept.worstPercent,
+        skippedLive: true,
+        previousCheckedAt: prevSnap!.checkedAt,
+      },
+      'Skipping live /usage — persisted snapshot still exhausted',
+    );
+    await persistSnapshot(kept);
+    return kept;
+  }
+
   const snapshot = await fetchClaudeUsageSnapshot({ forceLive: true });
 
   // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
@@ -87,7 +113,7 @@ export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
     snapshot.buckets.length === 0;
 
   if (transientFailure) {
-    const prev = await loadClaudeUsageSnapshot();
+    const prev = prevSnap ?? (await loadClaudeUsageSnapshot());
     if (prev && prev.buckets.length > 0) {
       const merged: ClaudeUsageSnapshot = {
         ...prev,
@@ -105,6 +131,12 @@ export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
   }
 
   await persistSnapshot(snapshot);
+
+  if (snapshot.status === 'ok') {
+    clearClaudeQuotaCircuit();
+  } else if (snapshot.status === 'exhausted') {
+    noteClaudeRateLimit('usage_snapshot_exhausted');
+  }
 
   log.info(
     {
