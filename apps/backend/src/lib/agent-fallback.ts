@@ -225,6 +225,13 @@ export function formatBotFailureDetail(params: {
 
   const tech = errorDetail?.trim();
   if (tech) {
+    if (/429|session limit|rate[_ ]?limit|hit your (session|weekly|usage) limit/i.test(tech)) {
+      return (
+        `Claude відхилив запит через session/usage limit (429), а не через таймаут CLI: ${tech}.` +
+        ` Адмінські % у Налаштуваннях можуть бути з застарілого кешу ~/.claude.json.` +
+        `${clientPart}${agentPart}`
+      );
+    }
     return `Claude не зміг відповісти: ${tech}.${clientPart}${agentPart}`;
   }
   return `Claude не встиг відповісти за відведений час (таймаут CLI).${clientPart}${agentPart}`;

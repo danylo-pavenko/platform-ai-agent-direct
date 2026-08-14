@@ -29,6 +29,9 @@ export const DEFAULT_USAGE_WARNING_PERCENT = 90;
 
 export type ClaudeUsageStatus = 'ok' | 'warning' | 'exhausted' | 'unavailable';
 
+/** Prefer live truth over ancient ~/.claude.json utilization. */
+export const CLAUDE_USAGE_CACHE_STALE_MS = 2 * 60 * 60 * 1000;
+
 export interface ClaudeUsageBucket {
   id: string;
   label: string;
@@ -46,6 +49,10 @@ export interface ClaudeUsageSnapshot {
   message: string;
   rawText: string | null;
   error: string | null;
+  /** When snapshot came from Claude Code local cache (`fetchedAtMs`). */
+  cacheFetchedAt?: string | null;
+  /** True when cache is older than CLAUDE_USAGE_CACHE_STALE_MS — bars may disagree with live 429. */
+  cacheStale?: boolean;
 }
 
 export const CLAUDE_USAGE_SNAPSHOT_KEY = 'claude_usage_snapshot';
@@ -215,14 +222,29 @@ export function parseCachedUsageUtilization(
       ? ` (кеш Claude Code, ${formatResetsAt(new Date(fetchedAtMs).toISOString())})`
       : ' (кеш Claude Code)';
 
+  const cacheAgeMs = fetchedAtMs != null ? Date.now() - fetchedAtMs : null;
+  const cacheStale =
+    cacheAgeMs != null && cacheAgeMs > CLAUDE_USAGE_CACHE_STALE_MS;
+
+  // Stale cache must not show green "OK" — live session (5h) 429 can disagree.
+  let message = `${buildUsageMessage(status, buckets, worstPercent, warningAt)}${ageNote}`;
+  if (cacheStale) {
+    status = 'unavailable';
+    message =
+      `Кеш лімітів Claude Code застарів${ageNote}. ` +
+      `Відсотки нижче можуть не збігатися з live session limit (429 «You've hit your session limit»). ` +
+      `«Оновити зараз» лише перечитує той самий файл — дані оновлює Claude Code після rate-limit відповідей.`;
+  }
+
   return {
     status,
     buckets,
     worstPercent,
-    message: `${buildUsageMessage(status, buckets, worstPercent, warningAt)}${ageNote}`,
+    message,
     rawText: null,
     error: null,
     fetchedAtMs,
+    cacheStale,
   };
 }
 
@@ -468,8 +490,44 @@ async function fetchClaudeAuthMeta(): Promise<{
   }
 }
 
-/** Live fetch: prefer Claude Code local cache; CLI `/usage` only as legacy fallback. */
-export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
+type ClaudeAuthMeta = Awaited<ReturnType<typeof fetchClaudeAuthMeta>>;
+
+type CachedUsageParsed = NonNullable<ReturnType<typeof parseCachedUsageUtilization>>;
+
+function snapshotFromCachedUtilization(
+  fromCache: CachedUsageParsed,
+  checkedAt: string,
+  auth: ClaudeAuthMeta,
+): ClaudeUsageSnapshot {
+  const { fetchedAtMs, ...snap } = fromCache;
+  return {
+    checkedAt,
+    subscriptionType: auth.subscriptionType,
+    authEmail: auth.authEmail,
+    ...snap,
+    cacheFetchedAt: fetchedAtMs != null ? new Date(fetchedAtMs).toISOString() : null,
+    cacheStale: snap.cacheStale === true,
+  };
+}
+
+export type FetchClaudeUsageOptions = {
+  /**
+   * Spawn `claude -p /usage` (haiku, 1 turn) so Claude Code refreshes
+   * `cachedUsageUtilization` in ~/.claude.json. Used by the 30-min monitor
+   * and Settings → «Оновити зараз».
+   */
+  forceLive?: boolean;
+};
+
+/**
+ * Build a usage snapshot for admin / monitor.
+ *
+ * - Default: prefer fresh local cache (cheap).
+ * - `forceLive` or stale/missing cache: spawn `/usage`, then re-read cache.
+ */
+export async function fetchClaudeUsageSnapshot(
+  opts: FetchClaudeUsageOptions = {},
+): Promise<ClaudeUsageSnapshot> {
   const checkedAt = new Date().toISOString();
   const warningAt = config.CLAUDE_USAGE_WARNING_PERCENT;
 
@@ -488,25 +546,25 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
           'Claude ще не авторизовано — спочатку увійдіть у Налаштування → Claude.',
         rawText: null,
         error: 'not_authenticated',
+        cacheFetchedAt: null,
+        cacheStale: false,
       };
     }
 
-    // Primary: ~/.claude.json cachedUsageUtilization (instant; updated by Claude Code
-    // on subscription rate-limit responses). Modern `claude -p /usage` often has no
-    // "% used" lines and only times out on a busy VPS.
-    const fromCache = readCachedUsageFromClaudeJson(warningAt);
-    if (fromCache) {
-      const { fetchedAtMs: _fetchedAtMs, ...snap } = fromCache;
-      return {
-        checkedAt,
-        subscriptionType: auth.subscriptionType,
-        authEmail: auth.authEmail,
-        ...snap,
-      };
+    const cachedBefore = readCachedUsageFromClaudeJson(warningAt);
+    const needLive =
+      opts.forceLive === true || !cachedBefore || cachedBefore.cacheStale === true;
+
+    if (!needLive && cachedBefore) {
+      return snapshotFromCachedUtilization(cachedBefore, checkedAt, auth);
     }
 
-    // Legacy fallback: parse "% used" text from CLI when local cache is empty.
+    // Live refresh: haiku /usage nudges Claude Code to rewrite utilization cache.
     try {
+      log.info(
+        { forceLive: opts.forceLive === true, hadCache: Boolean(cachedBefore) },
+        'Refreshing Claude usage via claude -p /usage',
+      );
       const usageText = await fetchClaudeUsageText();
       const parsed = parseClaudeUsageText(usageText, warningAt);
       if (parsed.buckets.length > 0) {
@@ -515,19 +573,15 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
           subscriptionType: auth.subscriptionType,
           authEmail: auth.authEmail,
           ...parsed,
+          cacheFetchedAt: checkedAt,
+          cacheStale: false,
         };
       }
 
-      // CLI may have refreshed cache even when text has no buckets.
+      // Modern CLI often prints breakdown without "% used" but still refreshes ~/.claude.json.
       const refreshed = readCachedUsageFromClaudeJson(warningAt);
       if (refreshed) {
-        const { fetchedAtMs: _f, ...snap } = refreshed;
-        return {
-          checkedAt,
-          subscriptionType: auth.subscriptionType,
-          authEmail: auth.authEmail,
-          ...snap,
-        };
+        return snapshotFromCachedUtilization(refreshed, checkedAt, auth);
       }
 
       return {
@@ -542,10 +596,23 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
           'Ліміти Claude недоступні (немає кешу в ~/.claude.json і /usage без % used).',
         rawText: parsed.rawText,
         error: parsed.error ?? 'no_usage_data',
+        cacheFetchedAt: null,
+        cacheStale: false,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.warn({ err, message }, 'claude /usage CLI failed and no local cache');
+      log.warn({ err, message }, 'claude /usage CLI failed — falling back to local cache');
+
+      const fallbackCache = readCachedUsageFromClaudeJson(warningAt) ?? cachedBefore;
+      if (fallbackCache) {
+        const snap = snapshotFromCachedUtilization(fallbackCache, checkedAt, auth);
+        return {
+          ...snap,
+          error: message,
+          message: `Live /usage не вдався (${message}). ${snap.message}`,
+        };
+      }
+
       return {
         checkedAt,
         status: 'unavailable',
@@ -556,6 +623,8 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
         message: `Не вдалося перевірити ліміти Claude: ${message}`,
         rawText: null,
         error: message,
+        cacheFetchedAt: null,
+        cacheStale: false,
       };
     }
   } catch (err) {
@@ -571,6 +640,8 @@ export async function fetchClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
       message: `Не вдалося перевірити ліміти Claude: ${message}`,
       rawText: null,
       error: message,
+      cacheFetchedAt: null,
+      cacheStale: false,
     };
   }
 }

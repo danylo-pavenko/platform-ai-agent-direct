@@ -75,9 +75,9 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
   return row.value as unknown as ClaudeUsageSnapshot;
 }
 
-/** Fetch live usage, persist, and optionally alert managers via Telegram. */
+/** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram. */
 export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
-  const snapshot = await fetchClaudeUsageSnapshot();
+  const snapshot = await fetchClaudeUsageSnapshot({ forceLive: true });
 
   // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
   const transientFailure =
@@ -175,8 +175,12 @@ export function startClaudeUsageMonitor(appLog?: FastifyBaseLogger): void {
   run();
   monitorTimer = setInterval(run, intervalMs);
   (appLog ?? log).info(
-    { intervalMin: config.CLAUDE_USAGE_CHECK_INTERVAL_MIN, warningPercent: config.CLAUDE_USAGE_WARNING_PERCENT },
-    'Claude usage monitor started',
+    {
+      intervalMin: config.CLAUDE_USAGE_CHECK_INTERVAL_MIN,
+      warningPercent: config.CLAUDE_USAGE_WARNING_PERCENT,
+      mode: 'forceLive_/usage',
+    },
+    'Claude usage monitor started (live /usage every interval)',
   );
 }
 

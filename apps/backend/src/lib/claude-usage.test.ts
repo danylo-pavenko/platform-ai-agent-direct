@@ -152,7 +152,30 @@ describe('parseCachedUsageUtilization', () => {
     ]);
     expect(snap!.worstPercent).toBe(29);
     expect(snap!.status).toBe('ok');
+    expect(snap!.cacheStale).toBe(false);
     expect(snap!.message).toMatch(/кеш Claude Code/);
+  });
+
+  it('marks status unavailable when cachedUtilization is stale', () => {
+    const snap = parseCachedUsageUtilization({
+      fetchedAtMs: Date.now() - 3 * 60 * 60 * 1000,
+      utilization: {
+        limits: [
+          {
+            group: 'session',
+            kind: 'session',
+            percent: 7,
+            resets_at: '2026-07-30T09:19:00.000Z',
+            severity: 'normal',
+          },
+        ],
+      },
+    });
+    expect(snap).not.toBeNull();
+    expect(snap!.status).toBe('unavailable');
+    expect(snap!.cacheStale).toBe(true);
+    expect(snap!.buckets[0]!.percentUsed).toBe(7);
+    expect(snap!.message).toMatch(/застарів|live session limit/i);
   });
 
   it('falls back to five_hour / seven_day when limits[] missing', () => {

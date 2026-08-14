@@ -495,10 +495,11 @@
           </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Читаємо ліміти з кешу Claude Code (<code>~/.claude.json</code>),
-          автоперевірка кожні {{ claudeUsageCheckIntervalMin }} хв
-          (лише коли Claude авторизовано).
-          Telegram-сповіщення при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
+          Кожні {{ claudeUsageCheckIntervalMin }} хв (і кнопка «Оновити зараз») запускаємо live
+          <code>claude -p /usage</code> (Haiku), щоб оновити кеш Claude Code і snapshot у БД.
+          Якщо CLI не відповів — показуємо останній відомий кеш
+          (<code>~/.claude.json</code>) і попереджаємо, якщо він застарів.
+          Telegram при ≥{{ claudeUsageWarningPercent }}% або вичерпаному ліміті.
         </v-card-subtitle>
         <v-card-text>
           <v-alert
@@ -526,6 +527,10 @@
             </v-btn>
             <span v-if="claudeUsageSnapshot" class="text-caption text-medium-emphasis">
               Остання перевірка: {{ formatHealthCheckTime(claudeUsageSnapshot.checkedAt) }}
+              <template v-if="claudeUsageSnapshot.cacheFetchedAt">
+                · дані кешу:
+                {{ formatHealthCheckTime(claudeUsageSnapshot.cacheFetchedAt) }}
+              </template>
             </span>
           </div>
 
@@ -3100,6 +3105,8 @@ interface ClaudeUsageSnapshot {
   message: string;
   rawText?: string | null;
   error?: string | null;
+  cacheFetchedAt?: string | null;
+  cacheStale?: boolean;
 }
 
 const claudeUsageLoading = ref(false);
@@ -3145,6 +3152,7 @@ async function onClaudeModelChange(value: unknown) {
 
 const claudeUsageStatusColor = computed(() => {
   const s = claudeUsageSnapshot.value?.status;
+  if (claudeUsageSnapshot.value?.cacheStale) return 'warning';
   if (s === 'exhausted') return 'error';
   if (s === 'warning') return 'warning';
   if (s === 'unavailable') return 'grey';
@@ -3153,6 +3161,7 @@ const claudeUsageStatusColor = computed(() => {
 
 const claudeUsageStatusLabel = computed(() => {
   const s = claudeUsageSnapshot.value?.status;
+  if (claudeUsageSnapshot.value?.cacheStale) return 'Кеш застарів';
   if (s === 'exhausted') return 'Вичерпано';
   if (s === 'warning') return 'Майже ліміт';
   if (s === 'unavailable') return 'Недоступно';
@@ -3161,6 +3170,7 @@ const claudeUsageStatusLabel = computed(() => {
 
 const claudeUsageAlertType = computed(() => {
   const s = claudeUsageSnapshot.value?.status;
+  if (claudeUsageSnapshot.value?.cacheStale) return 'warning';
   if (s === 'exhausted') return 'error';
   if (s === 'warning') return 'warning';
   return 'info';

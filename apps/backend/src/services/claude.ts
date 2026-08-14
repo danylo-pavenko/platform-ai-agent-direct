@@ -11,6 +11,7 @@ import { parseClaudeStreamJson } from '../lib/claude-stream-parse.js';
 import {
   classifyClaudeLiveProbe,
   isClaudeAuthFailure,
+  isClaudeRateLimitSignal,
   type ClaudeAuthHealth,
 } from '../lib/claude-auth-probe.js';
 import { getClaudeBinaryPath } from '../lib/claude-binary.js';
@@ -692,7 +693,13 @@ export async function askClaude(
     let { response, promptChars, visionAttached } = await spawnOnce(req.resumeSessionId);
     let usedResume = Boolean(req.resumeSessionId) && !response.fallback;
 
-    if (req.resumeSessionId && response.fallback) {
+    // Cold retry after --resume helps for dead sessions — but NOT for 429/quota.
+    // A second Opus/Sonnet spawn only burns more of the same exhausted window.
+    if (
+      req.resumeSessionId &&
+      response.fallback &&
+      !isClaudeRateLimitSignal(response.errorDetail ?? response.text)
+    ) {
       log.warn(
         {
           resumeSessionId: req.resumeSessionId,
@@ -703,6 +710,19 @@ export async function askClaude(
       );
       ({ response, promptChars, visionAttached } = await spawnOnce(undefined));
       usedResume = false;
+    } else if (
+      req.resumeSessionId &&
+      response.fallback &&
+      isClaudeRateLimitSignal(response.errorDetail ?? response.text)
+    ) {
+      log.warn(
+        {
+          resumeSessionId: req.resumeSessionId,
+          errorDetail: response.errorDetail ?? null,
+          channel: context?.channel ?? null,
+        },
+        'Claude --resume hit rate/session limit — skipping cold retry',
+      );
     }
 
     const durationMs = Date.now() - startMs;
@@ -802,7 +822,12 @@ export async function askClaudeStream(
     }
 
     let { response, promptChars } = await spawnOnce(req.resumeSessionId);
-    if (req.resumeSessionId && response.fallback && !signal?.aborted) {
+    if (
+      req.resumeSessionId &&
+      response.fallback &&
+      !signal?.aborted &&
+      !isClaudeRateLimitSignal(response.errorDetail ?? response.text)
+    ) {
       log.warn(
         {
           resumeSessionId: req.resumeSessionId,
@@ -812,6 +837,19 @@ export async function askClaudeStream(
         'Claude stream --resume failed — retrying with full cold prompt',
       );
       ({ response, promptChars } = await spawnOnce(undefined));
+    } else if (
+      req.resumeSessionId &&
+      response.fallback &&
+      isClaudeRateLimitSignal(response.errorDetail ?? response.text)
+    ) {
+      log.warn(
+        {
+          resumeSessionId: req.resumeSessionId,
+          errorDetail: response.errorDetail ?? null,
+          channel: context?.channel ?? null,
+        },
+        'Claude stream --resume hit rate/session limit — skipping cold retry',
+      );
     }
 
     const durationMs = Date.now() - startMs;
