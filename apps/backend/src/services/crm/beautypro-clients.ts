@@ -1,14 +1,18 @@
 /**
  * BeautyPro client lookup/upsert helpers (phone variants, IG note marker).
  * GET /clients filters (docs): phone, email, card_number, name, location, archive.
- * There is NO instagram/username filter — we store `IG:@handle` in comments and
+ * There is NO instagram/username filter — we store `IG:@handle` in `comment` and
  * fall back to `name` search + local comment match.
+ *
+ * Live API 400s unknown `fields` names (`Unknown parameter 'X'`). Official GET/POST
+ * client fields list has `comment` (singular), not `comments` — and no `id`
+ * (id is always returned).
  */
 
 import { normalizeUaPhone } from '../../lib/client-contact-heuristics.js';
 
 export const BP_CLIENT_LIST_FIELDS =
-  'name,firstname,lastname,phone,email,comments,archive';
+  'name,firstname,lastname,phone,email,comment,archive';
 
 export const BP_IG_COMMENT_PREFIX = 'IG:@';
 
@@ -85,8 +89,25 @@ export type RawClientLike = {
   lastname?: string;
   phone?: string[] | string | null;
   email?: string[] | string | null;
+  comment?: string | null;
+  /** Legacy / mistaken key — prefer `comment`. */
   comments?: string | null;
 };
+
+export function clientNoteFromBeautyproRow(
+  row: Pick<RawClientLike, 'comment' | 'comments'>,
+): string | null {
+  const v = row.comment ?? row.comments;
+  return v?.trim() ? v : null;
+}
+
+/** POST/PUT /clients body uses `comment`, not `comments`. */
+export function beautyproClientCommentBody(
+  note: string | undefined,
+): { comment: string } | Record<string, never> {
+  const v = note?.trim();
+  return v ? { comment: v } : {};
+}
 
 export function pickClientMatchingIg(
   rows: RawClientLike[] | null | undefined,
@@ -95,7 +116,7 @@ export function pickClientMatchingIg(
   const u = normalizeIgUsername(username);
   if (!u || !rows?.length) return null;
 
-  const exactComment = rows.find((r) => commentsContainIg(r.comments, u));
+  const exactComment = rows.find((r) => commentsContainIg(clientNoteFromBeautyproRow(r), u));
   if (exactComment) return exactComment;
 
   // Weak fallback: name fields equal handle (some salons paste nick as name)

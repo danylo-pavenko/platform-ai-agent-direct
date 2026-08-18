@@ -87,6 +87,8 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 | **leadgen** | Qualification / brief | `classify_intent`, `submit_brief` | Brief + Telegram (+ optional KeyCRM lead) |
 | **booking** | Salon appointment | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment` | CRM appointment |
 
+There are **no** cancel / reschedule / refund tools. If the client asks to cancel a visit, move a slot, or reverse a payment → `request_handoff`. Adapter `cancelBooking` exists on BeautyPro/CleverBOX but is **not** wired to the agent. A second `book_appointment` on another date creates a **new** CRM visit (BeautyPro merges only same date+location+client); it does not move the old one.
+
 **Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / agent failure (`services/telegram-notify.ts`).
 
 ---

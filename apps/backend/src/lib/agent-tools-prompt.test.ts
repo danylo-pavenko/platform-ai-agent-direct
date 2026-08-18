@@ -85,4 +85,11 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/ОБОВʼЯЗКОВО виклич book_appointment|ОБОВ'ЯЗКОВО виклич book_appointment/);
     expect(prompt).toMatch(/чекаємо тебе/);
   });
+
+  it('routes cancel/reschedule/refund to handoff, not a second book_appointment', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/request_handoff/);
+    expect(prompt).toMatch(/перенесення|перенести/);
+    expect(prompt).toMatch(/другий запис/);
+  });
 });

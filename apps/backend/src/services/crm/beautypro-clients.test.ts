@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BP_CLIENT_LIST_FIELDS,
+  beautyproClientCommentBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
   commentsContainIg,
+  clientNoteFromBeautyproRow,
   formatPhoneForBeautyproWrite,
   igCommentMarker,
   normalizeIgUsername,
@@ -30,16 +33,26 @@ describe('beautypro client helpers', () => {
     expect(igCommentMarker('@moxito')).toBe('IG:@moxito');
   });
 
-  it('matches IG from comments and name fallback', () => {
+  it('matches IG from comment (official field) and comments fallback', () => {
     expect(commentsContainIg('VIP\nIG:@moxito.beauty', 'moxito.beauty')).toBe(true);
+    expect(clientNoteFromBeautyproRow({ comment: 'IG:@danylo_p' })).toBe('IG:@danylo_p');
     const hit = pickClientMatchingIg(
       [
-        { id: '1', name: 'Someone', comments: 'other' },
-        { id: '2', name: 'Client', comments: 'IG:@danylo_p' },
+        { id: '1', name: 'Someone', comment: 'other' },
+        { id: '2', name: 'Client', comment: 'IG:@danylo_p' },
       ],
       'danylo_p',
     );
     expect(hit?.id).toBe('2');
+  });
+
+  it('uses official client fields names (no id, comment not comments)', () => {
+    const names = BP_CLIENT_LIST_FIELDS.split(',');
+    expect(names).toContain('comment');
+    expect(names).not.toContain('comments');
+    expect(names).not.toContain('id');
+    expect(beautyproClientCommentBody('IG:@moxito')).toEqual({ comment: 'IG:@moxito' });
+    expect(beautyproClientCommentBody('  ')).toEqual({});
   });
 
   it('builds name search variants for IG', () => {

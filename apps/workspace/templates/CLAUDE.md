@@ -13,6 +13,8 @@ Tools виконує **бекенд** (формат `<tool_call>` у відпо�
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
 
+Немає tools на скасування / перенесення запису / повернення оплати — лише `request_handoff`. Не «переносити» повторним `book_appointment` (інша дата = другий візит).
+
 `create_local_order` — коли клієнт погодився на товар/послугу/дзвінок (локальна заявка в адмінці, без CRM mirror).
 
 Telegram менеджерам — не окремий tool (йде з order/brief/booking/handoff).

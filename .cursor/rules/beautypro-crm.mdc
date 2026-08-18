@@ -33,19 +33,19 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 
 | Capability | API | Adapter method |
 |------------|-----|----------------|
-| Branches | `GET /locations?active=true` | `fetchBranches` |
+| Branches | `GET /locations` (filter `active` in-process; list docs have no `active=` query) | `fetchBranches` |
 | Services | `GET /services` + `/services/categories` | `fetchServices` / `searchServices` |
 | Slots | `GET /employees/free_time` | `getAvailableSlots` |
-
-`step` must be `5m|10m|15m|…` — live API rejects `auto` (despite docs). We map duration → `15m`/`30m`/`60m`.
 | Book | `POST /appointments` (`state: planned`) | `createBooking` |
-| Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` |
+| Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` (adapter only — **not** an agent tool) |
 | Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
-
-Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no Instagram filter**. We try UA phone variants (`+380` / `380` / `0XX`), then email, then `name` + `IG:@handle` in comments.
 | History | `GET /clients/{id}/history` | `fetchClientHistory` |
 
-**Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks.
+`step` must be `5m|10m|15m|…` — live API rejects `auto` (despite docs). We map duration → `15m`/`30m`/`60m`.
+
+Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no Instagram filter**. We try UA phone variants (`+380` / `380` / `0XX`), then email, then `name` + `IG:@handle` in **`comment`** (singular; live `fields` rejects `comments`).
+
+**Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks, **agent cancel/reschedule/refund** (`POST /sales:refund` exists in vendor API but is not wired). Client asks to cancel/move/refund → `request_handoff`. Do not second `book_appointment` as a move (merge is only same date+location+client).
 
 ## Booking nuances (from official docs)
 
@@ -89,3 +89,4 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 | Poll API aggressively | Vendor rate-limits; review before prod |
 | Assume history without Marketplace grant / Ultimate | Auth pending or 403 LICENSE |
 | Put CRM HTTP in `conversation.ts` | Only via `CrmAdapter` + `resolveCrmProvider` |
+| Pass undocumented `fields` names (e.g. `fields=id` on POST, `comments` on GET /clients, `no_professional_price` on GET /services) | Live API 400 `Unknown parameter 'X'`; docs lists lag behind. Default POST 201 is `{ id }` — omit `fields` on POST |

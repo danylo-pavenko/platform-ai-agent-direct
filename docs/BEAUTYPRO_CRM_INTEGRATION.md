@@ -61,9 +61,34 @@
 | `fetchBranches` | `GET /locations` |
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
-| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` і не слати `id` у body — API 400 `Unknown parameter 'id'`; дефолтна відповідь вже `{ id }`. |
-| `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled` |
-| `findClient` / `upsertClient` | `GET/POST/PUT /clients` |
+| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` на POST (ні appointments, ні clients) — API 400 `Unknown parameter 'id'`; дефолтна 201 вже `{ id }`. |
+| `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. **Агент цього не викликає** — немає tool. Скасування/перенесення/оплата → `request_handoff`. |
+| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields` і body: `comment` (не `comments`). |
+
+## Agent: cancel / move / pay
+
+Агент у booking **не** вміє скасувати візит, перенести слот або повернути оплату.
+
+| Клієнт просить | Що має статись | Чому не «просто book знову» |
+|----------------|----------------|-----------------------------|
+| Скасувати запис | `request_handoff` (менеджер у BeautyPro) | `cancelBooking` є в adapter, але не в tools |
+| Перенести на інший день/час | `request_handoff` | BeautyPro **мержить** лише той самий `date + location + client`; інша дата = **другий** запис |
+| Скасувати/повернути оплату | `request_handoff` | Prepayment / `POST /sales:refund` / `POST /sales:cancel` **не в MVP** |
+
+## `fields` (живий API суворіший за docs)
+
+Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку `fields` цього методу — навіть коли старше docs його згадує, або коли хочеш лише `id`.
+
+| Виклик | Правило |
+|--------|---------|
+| `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг. |
+| `GET /clients` | `name,firstname,lastname,phone,email,comment,archive` — **`comment`**, не `comments`. POST/PUT body теж `comment`. |
+| `GET /services` | Не слати `no_professional_price` (docs має, live 400). Ціни з `location_prices`. |
+| `GET /locations` | Лише `fields=name,city,street,phone,timezone,active`. Фільтр `active=true` є на `GET /locations/{id}`, не на списку — фільтруємо в коді. |
+| `GET /clients/{id}/history` | Підмножина офіційного списку; `items(id,name,type,quantity,sum)` дозволено docs. |
+| `PUT /appointments/{id}` (cancel) | Без `fields`; body `{ state: 'cancelled', cancelReason }`. |
+
+Джерело списків: [AI Helps API docs](https://github.com/AIHelpsSoft/documentations/blob/master/API_DOCUMENTATION.md). Перед новим `fields=` — звірити **конкретний** метод, не копіювати GET-список на POST.
 
 ## Client link + visit history
 

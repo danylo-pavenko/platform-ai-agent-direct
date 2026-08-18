@@ -22,6 +22,7 @@ export function buildPlatformCapabilitiesBlock(): string {
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment
+Немає cancel/reschedule/refund tools. Скасувати візит, перенести слот або повернути оплату → request_handoff (повторний book_appointment на іншу дату створює другий запис, не move).
 
 Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff).
 

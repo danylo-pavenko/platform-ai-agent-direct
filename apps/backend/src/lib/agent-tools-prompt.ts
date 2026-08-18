@@ -39,6 +39,7 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
       'Коли пишеш клієнту ПОВНИЙ підсумок e-commerce замовлення (Товар / Отримувач / Телефон / Доставка НП / Оплата) — у ТІЙ САМІЙ відповіді ОБОВ\'ЯЗКОВО виклич collect_order. Тоді локальна БД + Telegram + CRM mirror (якщо write увімкнено).',
       'Коли клієнт підтвердив повне замовлення («так», «все вірно») і зібрані всі поля доставки — теж collect_order.',
       'payment_method у collect_order: card (онлайн/WayForPay), transfer (банківський переказ), cod (післяплата).',
+      'Скасування оплати / повернення коштів — немає tool. request_handoff, не вигадуй refund у CRM.',
     );
   }
   if (names.has('book_appointment')) {
@@ -46,6 +47,7 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
       'Коли клієнт підтвердив слот (дата/час/послуга/філія за потреби) — у ТІЙ САМІЙ відповіді ОБОВʼЯЗКОВО виклич book_appointment (ПІБ, телефон, дата ДД.ММ.РРРР, час, services[{id,duration_min}], master_id якщо є). Передай master_id з get_available_slots або історії, якщо клієнт йде до конкретного майстра.',
       'Заборонено писати клієнту «записала / записав / чекаємо тебе / бачимось о HH:MM / запис підтверджено» без <tool_call> book_appointment у ТІЙ САМІЙ відповіді. Відповідь лише про ціну/тривалість — БЕЗ підтвердження візиту, якщо book_appointment не викликано.',
       'Дати всюди українським форматом ДД.ММ.РРРР (08.08.2026). Не використовуй YYYY-MM-DD у tool args і в тексті клієнту.',
+      'Немає tool на скасування, перенесення запису чи повернення оплати. Якщо клієнт просить скасувати візит, перенести на інший день/час або скасувати/повернути оплату — request_handoff (не вигадуй cancel/reschedule). Заборонено «переносити» повторним book_appointment: інша дата = другий запис у CRM, старий лишиться.',
     );
   }
   if (names.has('search_services')) {

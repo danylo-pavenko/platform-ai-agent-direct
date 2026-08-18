@@ -47,6 +47,7 @@ import {
 } from './beautypro-appointment.js';
 import {
   BP_CLIENT_LIST_FIELDS,
+  beautyproClientCommentBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
   formatPhoneForBeautyproWrite,
@@ -128,7 +129,7 @@ interface RawClient {
   lastname?: string;
   phone?: string[] | string | null;
   email?: string[] | string | null;
-  comments?: string | null;
+  comment?: string | null;
 }
 
 function splitClientName(fullName: string): { firstname: string; lastname: string } {
@@ -642,8 +643,8 @@ export const beautyproAdapter: CrmAdapter = {
   async fetchBranches(): Promise<CrmBranch[]> {
     const rows = await bpFetch<RawLocation[]>('GET', '/locations', {
       query: {
+        // List endpoint documents only `fields` (no `active` filter — that is GET /locations/{id}).
         fields: 'name,city,street,phone,timezone,active',
-        active: true,
       },
     });
 
@@ -803,7 +804,7 @@ export const beautyproAdapter: CrmAdapter = {
       ? igCommentMarker(input.instagramUsername)
       : '';
     const noteParts = [input.note?.trim() || null, igMarker || null].filter(Boolean);
-    const comments = noteParts.join('\n') || undefined;
+    const comment = noteParts.join('\n') || undefined;
 
     if (crmBuyerId) {
       await bpFetch('PUT', `/clients/${crmBuyerId}`, {
@@ -813,21 +814,21 @@ export const beautyproAdapter: CrmAdapter = {
           // PUT examples use arrays for phone/email
           ...(phone ? { phone: [phone] } : {}),
           ...(email ? { email: [email] } : {}),
-          ...(comments ? { comments } : {}),
+          ...beautyproClientCommentBody(comment),
         },
       });
       return { crmBuyerId };
     }
 
     const created = await bpFetch<{ id: string }>('POST', '/clients', {
-      query: { fields: 'id' },
+      // Same as appointments: POST fields example has no `id`; default 201 is `{ id }`.
       body: {
         firstname,
         lastname,
         // POST examples use scalar phone/email strings
         ...(phone ? { phone } : {}),
         ...(email ? { email } : {}),
-        ...(comments ? { comments } : {}),
+        ...beautyproClientCommentBody(comment),
       },
     });
 
@@ -1371,7 +1372,6 @@ export async function testBeautyproConnection(overrides?: {
   const base = apiHostForServer(apiServer);
   const locUrl = new URL(`${base}/locations`);
   locUrl.searchParams.set('fields', 'name,city,street,active');
-  locUrl.searchParams.set('active', 'true');
 
   try {
     const t0 = Date.now();
@@ -1609,7 +1609,7 @@ export async function probeBeautyproDatasets(opts: {
     if (datasets.includes('locations')) {
       const t0 = Date.now();
       const rows = await bpFetch<RawLocation[]>('GET', '/locations', {
-        query: { fields: 'name,city,street,active', active: true },
+        query: { fields: 'name,city,street,active' },
       });
       const active = (rows ?? []).filter((l) => l.active !== false);
       result.locations = active.map((l) => ({
