@@ -71,7 +71,7 @@
 |------|-----------|
 | Авто (телефон) | `linkClientToCrm` після `update_client_info` / heuristic / admin save phone → `GET /clients?phone=` |
 | Booking | `createBooking` повертає `crmBuyerId` → persist на `Client` |
-| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів |
+| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** список overlays статус Appointment; `POST /orders/:id/sync-crm` повторно викликає `createBooking`, якщо ще немає `crmRecordId`. |
 | Агент | Prompt inject історії якщо linked; tool `get_client_crm_history` у booking mode |
 
 API: `GET /clients/{id}/history` → duration + services → планування наступного слота.

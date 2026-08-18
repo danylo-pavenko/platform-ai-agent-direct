@@ -111,14 +111,14 @@
               KeyCRM
             </v-btn>
             <v-btn
-              v-if="canRetryCrm(item)"
+              v-if="canRetry(item)"
               size="small"
               variant="text"
               color="primary"
               :loading="syncingId === item.id"
               @click.stop="retryCrmSync(item.id)"
             >
-              CRM
+              Відвантажити
             </v-btn>
             <v-btn
               v-if="item.conversationId"
@@ -206,37 +206,52 @@
                       </v-list-item>
                     </v-list>
 
-                    <h4 class="text-subtitle-2 mb-2 mt-4">KeyCRM</h4>
+                    <h4 class="text-subtitle-2 mb-2 mt-4">{{ item.crmProviderLabel || 'CRM' }}</h4>
                     <v-list density="compact">
                       <v-list-item>
                         <v-list-item-title>
-                          <template v-if="item.keycrmOrderId">
-                            Замовлення #{{ item.keycrmOrderId }}
-                          </template>
-                          <template v-else>
-                            {{ crmStatusLabel(item) }}
-                          </template>
+                          {{ crmStatusLabel(item) }}
                         </v-list-item-title>
+                        <v-list-item-subtitle v-if="item.crmRecordId && !item.keycrmOrderId">
+                          ID в CRM: {{ item.crmRecordId }}
+                        </v-list-item-subtitle>
                         <v-list-item-subtitle v-if="item.crmSyncedAt">
                           Синхронізовано: {{ formatDate(item.crmSyncedAt) }}
                         </v-list-item-subtitle>
                         <v-list-item-subtitle v-if="item.crmSyncError" class="text-error">
                           {{ item.crmSyncError }}
                         </v-list-item-subtitle>
-                        <template v-if="item.keycrmOrderUrl" #append>
-                          <v-btn
-                            size="small"
-                            variant="tonal"
-                            color="primary"
-                            :href="item.keycrmOrderUrl"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Відкрити в KeyCRM
-                          </v-btn>
-                        </template>
+                        <v-list-item-subtitle v-else-if="canRetry(item) && item.kind === 'booking'">
+                          Запис ще не відвантажено в CRM — можна спробувати ще раз
+                        </v-list-item-subtitle>
+                        <v-list-item-subtitle v-else-if="canRetry(item)">
+                          Замовлення ще не відвантажено в CRM — можна спробувати ще раз
+                        </v-list-item-subtitle>
                       </v-list-item>
                     </v-list>
+                    <div class="d-flex flex-wrap ga-2 mt-2">
+                      <v-btn
+                        v-if="item.keycrmOrderUrl"
+                        size="small"
+                        variant="tonal"
+                        color="primary"
+                        :href="item.keycrmOrderUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Відкрити в KeyCRM
+                      </v-btn>
+                      <v-btn
+                        v-if="canRetry(item)"
+                        size="small"
+                        variant="flat"
+                        color="primary"
+                        :loading="syncingId === item.id"
+                        @click="retryCrmSync(item.id)"
+                      >
+                        Відвантажити в CRM
+                      </v-btn>
+                    </div>
                   </v-col>
                 </v-row>
               </td>
@@ -282,6 +297,11 @@ interface Order {
   crmSyncStatus?: string;
   crmSyncError?: string | null;
   crmSyncedAt?: string | null;
+  crmProvider?: string | null;
+  crmProviderLabel?: string | null;
+  crmRecordId?: string | null;
+  appointmentId?: string | null;
+  canRetryCrm?: boolean;
   isArchived?: boolean;
   archivedAt?: string | null;
   createdAt: string;
@@ -317,7 +337,7 @@ const headers = [
   { title: 'Місто', key: 'city', sortable: false },
   { title: 'Сума', key: 'total', sortable: false, width: '100px' },
   { title: 'Дата', key: 'createdAt', sortable: false, width: '160px' },
-  { title: '', key: 'actions', sortable: false, width: '200px' },
+  { title: '', key: 'actions', sortable: false, width: '260px' },
 ];
 
 function statusColor(status: string): string {
@@ -373,10 +393,14 @@ function kindColor(kind: string | null | undefined): string {
 }
 
 function crmStatusLabel(item: Order): string {
+  const provider = item.crmProviderLabel || 'CRM';
+  if (item.crmRecordId && item.crmProvider === 'keycrm') {
+    return `${provider} #${item.crmRecordId}`;
+  }
   if (item.keycrmOrderId) return `KeyCRM #${item.keycrmOrderId}`;
   const labels: Record<string, string> = {
     pending: 'Очікує CRM',
-    synced: 'У CRM',
+    synced: `У ${provider}`,
     failed: 'Помилка CRM',
     skipped: 'Без CRM',
   };
@@ -384,14 +408,15 @@ function crmStatusLabel(item: Order): string {
 }
 
 function crmStatusColor(item: Order): string {
-  if (item.keycrmOrderId || item.crmSyncStatus === 'synced') return 'success';
+  if (item.crmRecordId || item.keycrmOrderId || item.crmSyncStatus === 'synced') return 'success';
   if (item.crmSyncStatus === 'failed') return 'error';
   if (item.crmSyncStatus === 'pending') return 'warning';
   return 'grey';
 }
 
-function canRetryCrm(item: Order): boolean {
-  return !item.keycrmOrderId && item.crmSyncStatus !== 'skipped';
+function canRetry(item: Order): boolean {
+  if (typeof item.canRetryCrm === 'boolean') return item.canRetryCrm;
+  return !item.keycrmOrderId && !item.crmRecordId && item.crmSyncStatus !== 'synced';
 }
 
 function formatDate(dateStr: string): string {
@@ -423,9 +448,10 @@ async function retryCrmSync(orderId: string) {
   syncingId.value = orderId;
   try {
     const { data } = await api.post(`/orders/${orderId}/sync-crm`);
-    snackbarText.value = data?.keycrmOrderId
-      ? `Синхронізовано: KeyCRM #${data.keycrmOrderId}`
-      : 'Синхронізацію виконано';
+    snackbarText.value = data?.message
+      ?? (data?.crmRecordId
+        ? `Синхронізовано: ${data.crmRecordId}`
+        : 'Синхронізацію виконано');
     snackbarColor.value = 'success';
     snackbar.value = true;
     await fetchOrders();

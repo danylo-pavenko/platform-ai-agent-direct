@@ -16,6 +16,7 @@ import { sendText } from './instagram.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
+import { providerDisplayName } from '../lib/crm-providers.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -309,11 +310,30 @@ async function createBookingOrderMirror(params: {
   return order.id;
 }
 
+export async function reflectAppointmentCrmOnOrder(appointment: {
+  id: string;
+  crmRecordId: string | null;
+  crmSyncStatus: string;
+  crmSyncError: string | null;
+  crmSyncedAt: Date | null;
+}): Promise<void> {
+  const marker = `appointmentId=${appointment.id}`;
+  const crmSyncStatus = appointment.crmRecordId ? 'synced' : appointment.crmSyncStatus;
+  await prisma.order.updateMany({
+    where: { kind: 'booking', note: { contains: marker } },
+    data: {
+      crmSyncStatus: crmSyncStatus as 'pending' | 'synced' | 'failed' | 'skipped',
+      crmSyncError: appointment.crmRecordId ? null : appointment.crmSyncError,
+      crmSyncedAt: appointment.crmSyncedAt,
+    },
+  });
+}
+
 export async function mirrorAppointmentToCrm(
   appointmentId: string,
-  opts?: { fallbackCrmExternalId?: string | null },
+  opts?: { fallbackCrmExternalId?: string | null; force?: boolean },
 ): Promise<void> {
-  if (!(await isCrmWriteEnabled())) return;
+  if (!opts?.force && !(await isCrmWriteEnabled())) return;
 
   const appointment = await prisma.appointment.findUnique({
     where: { id: appointmentId },
@@ -328,6 +348,13 @@ export async function mirrorAppointmentToCrm(
         data: { crmSyncStatus: 'synced', crmSyncError: null },
       });
     }
+    await reflectAppointmentCrmOnOrder({
+      id: appointmentId,
+      crmRecordId: appointment.crmRecordId,
+      crmSyncStatus: 'synced',
+      crmSyncError: null,
+      crmSyncedAt: appointment.crmSyncedAt,
+    });
     return;
   }
 
@@ -335,51 +362,53 @@ export async function mirrorAppointmentToCrm(
   const crm = getCrmAdapter(provider);
 
   if (!crm.createBooking) {
+    const message = `${providerDisplayName(provider)} не підтримує створення записів`;
+    if (opts?.force) throw new Error(message);
     log.debug({ provider: crm.name }, 'CRM has no booking API — skipping');
     return;
   }
 
-  let branchCrmId =
-    appointment.branch?.crmExternalId?.trim() ||
-    opts?.fallbackCrmExternalId?.trim() ||
-    '';
-  if (!branchCrmId) {
-    const resolved = await resolveBookingBranchForAppointment({
-      conversationBranchId: appointment.branchId,
-    });
-    branchCrmId = resolved?.crmExternalId?.trim() || '';
-  }
-  if (!branchCrmId) {
-    throw new Error('Branch CRM external id missing');
-  }
-
-  const rawServices = Array.isArray(appointment.services) ? appointment.services : [];
-  const services = rawServices.flatMap((raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-    const o = raw as Record<string, unknown>;
-    const id = asCrmId(o.id);
-    const durationMin = typeof o.durationMin === 'number' ? o.durationMin : 60;
-    const masterId = asCrmId(o.masterId) ?? undefined;
-    if (!id) return [];
-    return [{
-      id,
-      durationMin,
-      startTime: appointment.scheduledTime,
-      masterId,
-    }];
-  });
-
-  let photoNote = '';
-  const photos = await prisma.clientReferencePhoto.findMany({
-    where: { clientId: appointment.clientId, conversationId: appointment.conversationId },
-    orderBy: { createdAt: 'desc' },
-    take: 3,
-  });
-  if (photos.length > 0) {
-    photoNote = `\nРеференс-фото: ${photos.map((p) => p.storageKey).join(', ')}`;
-  }
-
   try {
+    let branchCrmId =
+      appointment.branch?.crmExternalId?.trim() ||
+      opts?.fallbackCrmExternalId?.trim() ||
+      '';
+    if (!branchCrmId) {
+      const resolved = await resolveBookingBranchForAppointment({
+        conversationBranchId: appointment.branchId,
+      });
+      branchCrmId = resolved?.crmExternalId?.trim() || '';
+    }
+    if (!branchCrmId) {
+      throw new Error('Branch CRM external id missing');
+    }
+
+    const rawServices = Array.isArray(appointment.services) ? appointment.services : [];
+    const services = rawServices.flatMap((raw) => {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+      const o = raw as Record<string, unknown>;
+      const id = asCrmId(o.id);
+      const durationMin = typeof o.durationMin === 'number' ? o.durationMin : 60;
+      const masterId = asCrmId(o.masterId) ?? undefined;
+      if (!id) return [];
+      return [{
+        id,
+        durationMin,
+        startTime: appointment.scheduledTime,
+        masterId,
+      }];
+    });
+
+    let photoNote = '';
+    const photos = await prisma.clientReferencePhoto.findMany({
+      where: { clientId: appointment.clientId, conversationId: appointment.conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: 3,
+    });
+    if (photos.length > 0) {
+      photoNote = `\nРеференс-фото: ${photos.map((p) => p.storageKey).join(', ')}`;
+    }
+
     const result = await crm.createBooking({
       date: appointment.scheduledDate,
       branchId: branchCrmId,
@@ -389,15 +418,23 @@ export async function mirrorAppointmentToCrm(
       services,
     });
 
+    const syncedAt = new Date();
     await prisma.appointment.update({
       where: { id: appointmentId },
       data: {
         crmRecordId: result.crmRecordId,
         crmSyncStatus: 'synced',
         crmSyncError: null,
-        crmSyncedAt: new Date(),
+        crmSyncedAt: syncedAt,
         status: 'synced',
       },
+    });
+    await reflectAppointmentCrmOnOrder({
+      id: appointmentId,
+      crmRecordId: result.crmRecordId,
+      crmSyncStatus: 'synced',
+      crmSyncError: null,
+      crmSyncedAt: syncedAt,
     });
 
     if (result.crmBuyerId) {
@@ -414,6 +451,13 @@ export async function mirrorAppointmentToCrm(
     await prisma.appointment.update({
       where: { id: appointmentId },
       data: { crmSyncStatus: 'failed', crmSyncError: errMessage.slice(0, 500), status: 'failed' },
+    });
+    await reflectAppointmentCrmOnOrder({
+      id: appointmentId,
+      crmRecordId: null,
+      crmSyncStatus: 'failed',
+      crmSyncError: errMessage.slice(0, 500),
+      crmSyncedAt: null,
     });
     notifyCrmFallback({
       kind: 'order',

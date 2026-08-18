@@ -151,13 +151,20 @@ export async function mirrorClientToCrm(
  * once Order.keycrmOrderId is set. Ensures the buyer exists in the CRM
  * first (pre-mirror) so the CRM-side order record ties to the right buyer.
  */
-export async function mirrorOrderToCrm(orderId: string): Promise<void> {
-  if (!(await isCrmWriteEnabled())) return;
+export async function mirrorOrderToCrm(
+  orderId: string,
+  opts?: { force?: boolean },
+): Promise<void> {
+  if (!opts?.force && !(await isCrmWriteEnabled())) return;
 
   const provider = await resolveCrmProvider('order');
   const crm = getCrmAdapter(provider);
   if (!crm.createOrder) {
-    log.debug({ provider: crm.name }, 'CRM adapter has no order writes — skipping');
+    const message = 'CRM adapter has no order writes — skipping';
+    if (opts?.force) {
+      throw new Error(`${provider} не підтримує створення замовлень`);
+    }
+    log.debug({ provider: crm.name }, message);
     return;
   }
 
@@ -167,6 +174,11 @@ export async function mirrorOrderToCrm(orderId: string): Promise<void> {
   });
   if (!order) {
     log.warn({ orderId }, 'Order not found for CRM mirror');
+    return;
+  }
+
+  if (order.kind === 'booking') {
+    log.warn({ orderId }, 'Booking orders must use appointment CRM mirror');
     return;
   }
 

@@ -8,7 +8,10 @@
 
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
-import { getIntegrationConfig } from './integration-config.js';
+import { resolveCrmProvider } from './crm-routing.js';
+import type { CrmAction, CrmProviderName } from './crm-providers.js';
+import { providerDisplayName } from './crm-providers.js';
+import { getIntegrationConfig, type IntegrationConfig } from './integration-config.js';
 
 const CACHE_TTL_MS = 60_000;
 
@@ -44,36 +47,80 @@ export interface CrmWriteReadyResult {
   enabled: boolean;
   source: CrmWriteSource;
   reason?: string;
+  provider?: CrmProviderName;
 }
 
-/** True when writes are enabled AND a CRM API key is configured. */
-export async function isCrmWriteReady(): Promise<CrmWriteReadyResult> {
+type IntegrationCreds = Pick<IntegrationConfig, 'keycrm' | 'cleverbox' | 'beautypro'>;
+
+/** Missing-credential reason, or null when the provider can accept writes. */
+export function providerWriteCredentialsReason(
+  provider: CrmProviderName,
+  cfg: IntegrationCreds,
+): string | null {
+  if (provider === 'keycrm') {
+    return cfg.keycrm.apiKey ? null : 'API ключ KeyCRM не налаштовано';
+  }
+  if (provider === 'cleverbox') {
+    return cfg.cleverbox.apiToken ? null : 'Токен CleverBOX не налаштовано';
+  }
+  if (provider === 'beautypro') {
+    if (
+      !cfg.beautypro.applicationId
+      || !cfg.beautypro.applicationSecret
+      || !cfg.beautypro.databaseCode
+    ) {
+      return 'BeautyPro: application_id, secret або database_code не налаштовано';
+    }
+    if (cfg.beautypro.authStatus === 'pending') {
+      return 'BeautyPro очікує Grant access у Marketplace';
+    }
+    if (cfg.beautypro.authStatus === 'refused') {
+      return 'BeautyPro: доступ відхилено';
+    }
+    return null;
+  }
+  return `${providerDisplayName(provider)} не налаштовано`;
+}
+
+/**
+ * True when writes are enabled AND the CRM for this action has credentials.
+ * Default action is `order` (KeyCRM) — dashboard / health keep that meaning.
+ */
+export async function isCrmWriteReady(
+  action: CrmAction = 'order',
+): Promise<CrmWriteReadyResult> {
   const envEnabled = config.CRM_WRITE_ENABLED;
   const settingsEnabled = envEnabled ? false : await isCrmWriteEnabledInSettings();
   const enabled = envEnabled || settingsEnabled;
+  const provider = await resolveCrmProvider(action);
 
   if (!enabled) {
     return {
       ready: false,
       enabled: false,
       source: 'none',
-      reason: 'Запис замовлень у CRM вимкнено (.env або Налаштування)',
+      provider,
+      reason: 'Запис у CRM вимкнено (.env або Налаштування)',
     };
   }
 
-  const { keycrm } = await getIntegrationConfig();
-  if (!keycrm.apiKey) {
+  const cfg = await getIntegrationConfig();
+  const credsReason = providerWriteCredentialsReason(provider, cfg);
+  const source: CrmWriteSource = envEnabled ? 'env' : 'settings';
+  if (credsReason) {
     return {
       ready: false,
       enabled: true,
-      source: envEnabled ? 'env' : 'settings',
-      reason: 'API ключ KeyCRM не налаштовано',
+      source,
+      provider,
+      reason: credsReason,
     };
   }
 
   return {
     ready: true,
     enabled: true,
-    source: envEnabled ? 'env' : 'settings',
+    source,
+    provider,
   };
 }

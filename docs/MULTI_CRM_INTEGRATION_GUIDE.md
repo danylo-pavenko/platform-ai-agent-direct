@@ -145,6 +145,7 @@ client_upsert: 'keycrm'
 | Філії | ❌ | ✅ | ✅ | `branches.ts`, `fetchBranches` |
 | Слоти / запис | ❌ | ✅ | ✅ | `appointment.ts`, adapters |
 | Замовлення | ✅ | ❌ | ❌ | `crm-sync.ts` |
+| Запис (booking) | ❌ | ✅ | ✅ | `appointment.ts` + `POST /orders/:id/sync-crm` |
 | Ліди | ✅ | ❌ | ❌ | `crm-sync.ts` |
 | Клієнт upsert | ✅ | ❌ | ✅ | `crm-sync.ts`, `beautypro.ts` |
 | Custom fields | ✅ | ❌ | ❌ | `crm-fields.ts`, `listCustomFields` |

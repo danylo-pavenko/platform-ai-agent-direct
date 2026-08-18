@@ -7,11 +7,12 @@ const {
   notifyOrder,
   sendText,
   mirrorCreateBooking,
+  isCrmWriteEnabled,
 } = vi.hoisted(() => ({
   prismaMock: {
     conversation: { findUnique: vi.fn(), update: vi.fn() },
     appointment: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    order: { findFirst: vi.fn(), create: vi.fn() },
+    order: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
     message: { create: vi.fn() },
     clientReferencePhoto: { findMany: vi.fn() },
   },
@@ -20,6 +21,7 @@ const {
   notifyOrder: vi.fn(),
   sendText: vi.fn(),
   mirrorCreateBooking: vi.fn(),
+  isCrmWriteEnabled: vi.fn(async () => false),
 }));
 
 vi.mock('../config.js', () => ({
@@ -34,7 +36,7 @@ vi.mock('../lib/prisma.js', () => ({
 }));
 
 vi.mock('../lib/crm-write.js', () => ({
-  isCrmWriteEnabled: vi.fn(async () => false),
+  isCrmWriteEnabled,
 }));
 
 vi.mock('../lib/crm-routing.js', () => ({
@@ -55,7 +57,7 @@ vi.mock('./crm/index.js', () => ({
 
 vi.mock('./telegram-notify.js', () => ({
   notifyOrder,
-  notifyCrmFallback: vi.fn(),
+  notifyCrmFallback: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('./instagram.js', () => ({
@@ -70,11 +72,12 @@ vi.mock('./client-crm-link.js', () => ({
   persistCrmBuyerIdFromBooking: vi.fn(),
 }));
 
-import { handleBookAppointment } from './appointment.js';
+import { handleBookAppointment, mirrorAppointmentToCrm, reflectAppointmentCrmOnOrder } from './appointment.js';
 
 describe('handleBookAppointment Order + Telegram mirror', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    isCrmWriteEnabled.mockResolvedValue(false);
     resolveCrmProvider.mockResolvedValue('beautypro');
     prismaMock.conversation.findUnique.mockResolvedValue({ branchId: 'branch-1' });
     prismaMock.conversation.update.mockResolvedValue({});
@@ -210,5 +213,68 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     expect(id).toBe('appt-1');
     expect(prismaMock.order.create).not.toHaveBeenCalled();
     expect(notifyOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('reflectAppointmentCrmOnOrder + mirrorAppointmentToCrm', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isCrmWriteEnabled.mockResolvedValue(true);
+    resolveCrmProvider.mockResolvedValue('beautypro');
+    prismaMock.order.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.appointment.update.mockResolvedValue({});
+    prismaMock.clientReferencePhoto.findMany.mockResolvedValue([]);
+  });
+
+  it('copies appointment CRM status onto the booking Order', async () => {
+    const syncedAt = new Date('2026-08-18T10:00:00.000Z');
+    await reflectAppointmentCrmOnOrder({
+      id: 'appt-1',
+      crmRecordId: 'bp-1',
+      crmSyncStatus: 'synced',
+      crmSyncError: null,
+      crmSyncedAt: syncedAt,
+    });
+    expect(prismaMock.order.updateMany).toHaveBeenCalledWith({
+      where: { kind: 'booking', note: { contains: 'appointmentId=appt-1' } },
+      data: {
+        crmSyncStatus: 'synced',
+        crmSyncError: null,
+        crmSyncedAt: syncedAt,
+      },
+    });
+  });
+
+  it('marks appointment failed when branch CRM id is missing', async () => {
+    prismaMock.appointment.findUnique.mockResolvedValue({
+      id: 'appt-1',
+      crmRecordId: null,
+      crmSyncStatus: 'pending',
+      crmSyncedAt: null,
+      branchId: null,
+      branch: null,
+      client: { igUserId: 'ig-1' },
+      clientId: 'client-1',
+      conversationId: 'conv-1',
+      services: [{ id: 'svc-1', durationMin: 60 }],
+      scheduledDate: '2026-08-21',
+      scheduledTime: '12:00',
+      customerName: 'Анжела',
+      phone: '0930152179',
+      comment: null,
+    });
+    resolveBookingBranchForAppointment.mockResolvedValue(null);
+
+    await expect(mirrorAppointmentToCrm('appt-1', { force: true })).rejects.toThrow(
+      'Branch CRM external id missing',
+    );
+    expect(prismaMock.appointment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'appt-1' },
+        data: expect.objectContaining({ crmSyncStatus: 'failed', status: 'failed' }),
+      }),
+    );
+    expect(prismaMock.order.updateMany).toHaveBeenCalled();
+    expect(mirrorCreateBooking).not.toHaveBeenCalled();
   });
 });

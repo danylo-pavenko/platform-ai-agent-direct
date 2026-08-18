@@ -1,7 +1,8 @@
 /**
  * Retries failed / stuck CRM order mirrors.
  *
- * Called from sync-worker (every catalog sync cron) and manually via
+ * Called from sync-worker (every catalog sync cron). Booking rows are
+ * excluded — Appointment owns that CRM path. Manual retry is
  * POST /orders/:id/sync-crm. Idempotent — mirrorOrderToCrm skips
  * orders that already have keycrmOrderId.
  */
@@ -34,6 +35,7 @@ export async function retryPendingCrmMirrors(): Promise<CrmMirrorRetryStats> {
   const cutoff = new Date(Date.now() - RETRY_MIN_AGE_MS);
   const orders = await prisma.order.findMany({
     where: {
+      kind: { not: 'booking' },
       keycrmOrderId: null,
       isArchived: false,
       crmSyncStatus: { in: ['pending', 'failed'] },

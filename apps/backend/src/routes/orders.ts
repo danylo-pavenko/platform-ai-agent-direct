@@ -1,49 +1,92 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
-import { isCrmWriteReady } from '../lib/crm-write.js';
 import { computeOrderTotal } from '../lib/order-totals.js';
 import { buildKeycrmOrderUrl, resolveKeycrmAppUrl } from '../lib/keycrm-urls.js';
-import { mirrorOrderToCrm } from '../services/crm-sync.js';
+import { parseAppointmentIdFromOrderNote } from '../lib/order-appointment.js';
+import { buildOrderCrmView, type OrderCrmAppointment } from '../lib/order-crm-view.js';
+import { crmRetrySuccessMessage, OrderCrmRetryError, retryOrderCrmSync } from '../services/order-crm-retry.js';
+
+type OrderRow = {
+  id: string;
+  conversationId: string;
+  clientId: string;
+  kind?: string;
+  items: unknown;
+  customerName: string;
+  phone: string;
+  city: string | null;
+  npBranch: string | null;
+  paymentMethod: string | null;
+  note: string | null;
+  status: string;
+  submittedToManagerAt: Date | null;
+  keycrmOrderId: string | null;
+  crmSyncStatus: string;
+  crmSyncError: string | null;
+  crmSyncedAt: Date | null;
+  isArchived: boolean;
+  archivedAt: Date | null;
+  createdAt: Date;
+  client?: { id: string; igUserId: string | null; displayName: string | null } | null;
+  conversation?: { id: string } | null;
+};
 
 function serializeOrder(
-  order: {
-    id: string;
-    conversationId: string;
-    clientId: string;
-    kind?: string;
-    items: unknown;
-    customerName: string;
-    phone: string;
-    city: string | null;
-    npBranch: string | null;
-    paymentMethod: string | null;
-    note: string | null;
-    status: string;
-    submittedToManagerAt: Date | null;
-    keycrmOrderId: string | null;
-    crmSyncStatus: string;
-    crmSyncError: string | null;
-    crmSyncedAt: Date | null;
-    isArchived: boolean;
-    archivedAt: Date | null;
-    createdAt: Date;
-    client?: { id: string; igUserId: string | null; displayName: string | null } | null;
-    conversation?: { id: string } | null;
-  },
+  order: OrderRow,
   keycrmAppUrl: string | null,
+  appointment?: OrderCrmAppointment | null,
 ) {
+  const crm = buildOrderCrmView(order, appointment);
+  const keycrmUrl =
+    crm.crmProvider === 'keycrm' && order.keycrmOrderId
+      ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)
+      : null;
+
   return {
     ...order,
     kind: order.kind ?? 'product',
     total: computeOrderTotal(order.items),
-    keycrmOrderUrl: order.keycrmOrderId
-      ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)
-      : null,
+    keycrmOrderId: order.keycrmOrderId,
+    keycrmOrderUrl: keycrmUrl,
+    crmSyncStatus: crm.crmSyncStatus,
+    crmSyncError: crm.crmSyncError,
+    crmSyncedAt: crm.crmSyncedAt,
+    crmProvider: crm.crmProvider,
+    crmProviderLabel: crm.crmProviderLabel,
+    crmRecordId: crm.crmRecordId,
+    appointmentId: crm.appointmentId,
+    canRetryCrm: crm.canRetryCrm,
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
     clientId: order.client?.id ?? order.clientId,
     conversationId: order.conversation?.id ?? order.conversationId,
   };
+}
+
+async function loadAppointmentsForOrders(
+  rows: Array<{ kind?: string | null; note: string | null }>,
+): Promise<Map<string, OrderCrmAppointment>> {
+  const ids = [...new Set(
+    rows
+      .filter((row) => (row.kind ?? 'product') === 'booking')
+      .map((row) => parseAppointmentIdFromOrderNote(row.note))
+      .filter((id): id is string => Boolean(id)),
+  )];
+  if (ids.length === 0) return new Map();
+
+  const appointments = await prisma.appointment.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      crmProvider: true,
+      crmRecordId: true,
+      crmSyncStatus: true,
+      crmSyncError: true,
+      crmSyncedAt: true,
+      status: true,
+    },
+  });
+  return new Map(appointments.map((row) => [row.id, row]));
 }
 
 export async function orderRoutes(app: FastifyInstance): Promise<void> {
@@ -87,8 +130,17 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
       resolveKeycrmAppUrl(),
     ]);
 
+    const appointments = await loadAppointmentsForOrders(rows);
+
     return {
-      data: rows.map((row) => serializeOrder(row, keycrmAppUrl)),
+      data: rows.map((row) => {
+        const appointmentId = parseAppointmentIdFromOrderNote(row.note);
+        return serializeOrder(
+          row,
+          keycrmAppUrl,
+          appointmentId ? appointments.get(appointmentId) ?? null : null,
+        );
+      }),
       total,
       page,
       limit,
@@ -111,65 +163,36 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(404).send({ error: 'Order not found' });
     }
 
-    const keycrmAppUrl = await resolveKeycrmAppUrl();
-    return serializeOrder(order, keycrmAppUrl);
+    const [keycrmAppUrl, appointments] = await Promise.all([
+      resolveKeycrmAppUrl(),
+      loadAppointmentsForOrders([order]),
+    ]);
+    const appointmentId = parseAppointmentIdFromOrderNote(order.note);
+    return serializeOrder(
+      order,
+      keycrmAppUrl,
+      appointmentId ? appointments.get(appointmentId) ?? null : null,
+    );
   });
 
-  // POST /:id/sync-crm - Manual CRM mirror retry
+  // POST /:id/sync-crm - Manual CRM mirror retry (product → KeyCRM, booking → Appointment CRM)
   app.post<{
     Params: { id: string };
   }>('/:id/sync-crm', { onRequest: [app.authenticate] }, async (request, reply) => {
-    const order = await prisma.order.findUnique({
-      where: { id: request.params.id },
-      select: { id: true, keycrmOrderId: true },
-    });
-
-    if (!order) {
-      return reply.code(404).send({ error: 'Order not found' });
-    }
-
-    if (order.keycrmOrderId) {
-      return {
-        ok: true,
-        alreadySynced: true,
-        keycrmOrderId: order.keycrmOrderId,
-      };
-    }
-
-    const writeReady = await isCrmWriteReady();
-    if (!writeReady.ready) {
-      return reply.code(400).send({
-        error: writeReady.reason ?? 'CRM write not available',
-        crmWrite: writeReady,
-      });
-    }
-
     try {
-      await mirrorOrderToCrm(order.id);
-      const updated = await prisma.order.findUnique({
-        where: { id: order.id },
-        select: {
-          keycrmOrderId: true,
-          crmSyncStatus: true,
-          crmSyncError: true,
-          crmSyncedAt: true,
-        },
-      });
-
-      if (updated?.crmSyncStatus !== 'synced') {
-        return reply.code(502).send({
-          error: updated?.crmSyncError ?? 'CRM mirror failed',
-          crmSyncStatus: updated?.crmSyncStatus,
-        });
-      }
-
+      const result = await retryOrderCrmSync(request.params.id);
       return {
-        ok: true,
-        keycrmOrderId: updated.keycrmOrderId,
-        crmSyncStatus: updated.crmSyncStatus,
-        crmSyncedAt: updated.crmSyncedAt?.toISOString() ?? null,
+        ...result,
+        message: crmRetrySuccessMessage(result),
+        keycrmOrderId: result.kind === 'booking' ? null : result.crmRecordId,
       };
     } catch (err) {
+      if (err instanceof OrderCrmRetryError) {
+        return reply.code(err.statusCode).send({
+          error: err.message,
+          ...err.extra,
+        });
+      }
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: message });
     }
