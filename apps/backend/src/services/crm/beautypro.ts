@@ -49,11 +49,9 @@ import {
 } from './beautypro-appointment.js';
 import {
   BP_CLIENT_LIST_FIELDS,
-  beautyproClientCommentBody,
+  buildBeautyproClientWriteBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
-  formatPhoneForBeautyproWrite,
-  igCommentMarker,
   normalizeIgUsername,
   pickClientMatchingIg,
   type RawClientLike,
@@ -787,8 +785,8 @@ export const beautyproAdapter: CrmAdapter = {
     };
 
     /**
-     * BeautyPro has no instagram filter. We store IG:@handle in comments on upsert,
-     * then search via `name` and confirm against comments / name fields.
+     * BeautyPro has no instagram filter. Match GET `comment` (salon-typed notes)
+     * or name ≈ handle. We do not write IG onto the client card.
      */
     const tryInstagram = async (username: string): Promise<string | null> => {
       const handle = normalizeIgUsername(username);
@@ -831,38 +829,24 @@ export const beautyproAdapter: CrmAdapter = {
 
   async upsertClient(crmBuyerId: string | null, input: CrmClientInput) {
     const { firstname, lastname } = splitClientName(input.fullName);
-    const phone = formatPhoneForBeautyproWrite(input.phone);
-    const email = input.email?.trim().toLowerCase() || undefined;
-    const igMarker = input.instagramUsername
-      ? igCommentMarker(input.instagramUsername)
-      : '';
-    const noteParts = [input.note?.trim() || null, igMarker || null].filter(Boolean);
-    const comment = noteParts.join('\n') || undefined;
+    const body = buildBeautyproClientWriteBody({
+      mode: crmBuyerId ? 'update' : 'create',
+      firstname,
+      lastname,
+      phone: input.phone,
+      email: input.email,
+    });
+    // input.note / instagramUsername are not client write fields (live POST
+    // 400s `comment`). Booking notes go on the appointment `comments`.
 
     if (crmBuyerId) {
-      await bpFetch('PUT', `/clients/${crmBuyerId}`, {
-        body: {
-          firstname,
-          lastname,
-          // PUT examples use arrays for phone/email
-          ...(phone ? { phone: [phone] } : {}),
-          ...(email ? { email: [email] } : {}),
-          ...beautyproClientCommentBody(comment),
-        },
-      });
+      await bpFetch('PUT', `/clients/${crmBuyerId}`, { body });
       return { crmBuyerId };
     }
 
     const created = await bpFetch<{ id: string }>('POST', '/clients', {
-      // Same as appointments: POST fields example has no `id`; default 201 is `{ id }`.
-      body: {
-        firstname,
-        lastname,
-        // POST examples use scalar phone/email strings
-        ...(phone ? { phone } : {}),
-        ...(email ? { email } : {}),
-        ...beautyproClientCommentBody(comment),
-      },
+      // Official POST example returns `{ id }`. Do not send `fields` or `id`.
+      body,
     });
 
     if (!created?.id) {
@@ -887,7 +871,6 @@ export const beautyproAdapter: CrmAdapter = {
         const created = await beautyproAdapter.upsertClient!(null, {
           fullName: input.clientName,
           phone: input.phone,
-          note: input.comment,
         });
         clientId = created.crmBuyerId;
       }

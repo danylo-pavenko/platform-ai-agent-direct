@@ -38,6 +38,11 @@ describe('buildBeautyproAppointmentCreateBody', () => {
     });
   });
 
+  it('puts visit notes on appointment comments, not client comment', () => {
+    expect(body.comments).toBe('Брови паралельно');
+    expect(body).not.toHaveProperty('comment');
+  });
+
   it('keeps parallel starts when professionals differ', () => {
     const parallel = buildBeautyproAppointmentCreateBody({
       isoDate: '2026-08-21',

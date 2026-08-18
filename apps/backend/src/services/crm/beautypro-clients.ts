@@ -1,12 +1,14 @@
 /**
  * BeautyPro client lookup/upsert helpers (phone variants, IG note marker).
  * GET /clients filters (docs): phone, email, card_number, name, location, archive.
- * There is NO instagram/username filter — we store `IG:@handle` in `comment` and
- * fall back to `name` search + local comment match.
+ * There is NO instagram/username filter — match `IG:@handle` in GET `comment` if
+ * the salon typed it, else `name` search. We do not write that note ourselves.
  *
- * Live API 400s unknown `fields` names (`Unknown parameter 'X'`). Official GET/POST
- * client fields list has `comment` (singular), not `comments` — and no `id`
- * (id is always returned).
+ * Live API 400s unknown names (`Unknown parameter 'X'`). GET `fields` list has
+ * `comment` (singular), not `comments`, and no `id` (id is always returned).
+ * POST/PUT **body** is not the GET fields list: official create example is only
+ * firstname/lastname/phone/email. Live POST /clients 400s body `comment`.
+ * Visit notes belong on POST /appointments `comments` (plural).
  */
 
 import { normalizeUaPhone } from '../../lib/client-contact-heuristics.js';
@@ -101,12 +103,28 @@ export function clientNoteFromBeautyproRow(
   return v?.trim() ? v : null;
 }
 
-/** POST/PUT /clients body uses `comment`, not `comments`. */
-export function beautyproClientCommentBody(
-  note: string | undefined,
-): { comment: string } | Record<string, never> {
-  const v = note?.trim();
-  return v ? { comment: v } : {};
+export type BeautyproClientWriteMode = 'create' | 'update';
+
+/**
+ * POST/PUT /clients body. Do not send `comment` / `comments` / `fields` / `id` —
+ * live create rejects `comment`; docs create example has no note field.
+ * PUT examples use phone/email arrays; POST examples use scalars.
+ */
+export function buildBeautyproClientWriteBody(input: {
+  mode: BeautyproClientWriteMode;
+  firstname: string;
+  lastname: string;
+  phone?: string;
+  email?: string;
+}): Record<string, string | string[]> {
+  const firstname = input.firstname.trim() || 'Client';
+  const lastname = input.lastname.trim();
+  const phone = formatPhoneForBeautyproWrite(input.phone);
+  const email = input.email?.trim().toLowerCase() || undefined;
+  const body: Record<string, string | string[]> = { firstname, lastname };
+  if (phone) body.phone = input.mode === 'update' ? [phone] : phone;
+  if (email) body.email = input.mode === 'update' ? [email] : email;
+  return body;
 }
 
 export function pickClientMatchingIg(

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BP_CLIENT_LIST_FIELDS,
-  beautyproClientCommentBody,
+  buildBeautyproClientWriteBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
   commentsContainIg,
@@ -46,13 +46,34 @@ describe('beautypro client helpers', () => {
     expect(hit?.id).toBe('2');
   });
 
-  it('uses official client fields names (no id, comment not comments)', () => {
+  it('GET fields use comment; POST/PUT body never sends comment or comments', () => {
     const names = BP_CLIENT_LIST_FIELDS.split(',');
     expect(names).toContain('comment');
     expect(names).not.toContain('comments');
     expect(names).not.toContain('id');
-    expect(beautyproClientCommentBody('IG:@moxito')).toEqual({ comment: 'IG:@moxito' });
-    expect(beautyproClientCommentBody('  ')).toEqual({});
+    const created = buildBeautyproClientWriteBody({
+      mode: 'create',
+      firstname: 'Анжела',
+      lastname: 'Тимофіїв',
+      phone: '0930152179',
+      email: 'a@b.c',
+    });
+    expect(created).toEqual({
+      firstname: 'Анжела',
+      lastname: 'Тимофіїв',
+      phone: '+380930152179',
+      email: 'a@b.c',
+    });
+    expect(created).not.toHaveProperty('comment');
+    expect(created).not.toHaveProperty('comments');
+    const updated = buildBeautyproClientWriteBody({
+      mode: 'update',
+      firstname: 'Анжела',
+      lastname: 'Тимофіїв',
+      phone: '+380930152179',
+    });
+    expect(updated.phone).toEqual(['+380930152179']);
+    expect(updated).not.toHaveProperty('comment');
   });
 
   it('builds name search variants for IG', () => {
