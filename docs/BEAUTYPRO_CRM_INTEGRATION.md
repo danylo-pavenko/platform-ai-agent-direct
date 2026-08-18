@@ -61,7 +61,7 @@
 | `fetchBranches` | `GET /locations` |
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
-| `createBooking` | `POST /clients` + `POST /appointments` (+ optional `pick_professional`) |
+| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` і не слати `id` у body — API 400 `Unknown parameter 'id'`; дефолтна відповідь вже `{ id }`. |
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled` |
 | `findClient` / `upsertClient` | `GET/POST/PUT /clients` |
 

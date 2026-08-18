@@ -42,6 +42,10 @@ import {
   type FreeTimeResponse,
 } from './beautypro-free-time.js';
 import {
+  buildBeautyproAppointmentCreateBody,
+  normalizeBeautyproStartTime,
+} from './beautypro-appointment.js';
+import {
   BP_CLIENT_LIST_FIELDS,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
@@ -125,13 +129,6 @@ interface RawClient {
   phone?: string[] | string | null;
   email?: string[] | string | null;
   comments?: string | null;
-}
-
-function normalizeStartTime(time: string): string {
-  const t = time.trim();
-  if (/^\d{1,2}:\d{2}:\d{2}$/.test(t)) return t;
-  if (/^\d{1,2}:\d{2}$/.test(t)) return `${t}:00`;
-  return t;
 }
 
 function splitClientName(fullName: string): { firstname: string; lastname: string } {
@@ -916,31 +913,27 @@ export const beautyproAdapter: CrmAdapter = {
     if (!professional) {
       throw new Error('BeautyPro: no professional available for booking');
     }
+    if (!clientId) {
+      throw new Error('BeautyPro: client id missing after upsert');
+    }
 
-    const start = normalizeStartTime(input.services[0]?.startTime ?? '10:00');
-    const body = {
-      date: isoDate,
-      location: input.branchId,
-      client: clientId,
-      state: 'planned',
-      comments: input.comment,
-      services: input.services.map((s, idx) => ({
-        service: s.id,
-        professional: s.masterId || professional,
-        start: idx === 0 ? start : normalizeStartTime(s.startTime),
-        duration: s.durationMin || 60,
-      })),
-    };
+    const start = normalizeBeautyproStartTime(input.services[0]?.startTime ?? '10:00');
+    const body = buildBeautyproAppointmentCreateBody({
+      isoDate,
+      locationId: input.branchId,
+      clientId,
+      comment: input.comment,
+      professional,
+      start,
+      services: input.services,
+    });
 
+    // Do not pass `fields=id,...` — docs' POST fields list has no `id`, and the
+    // live API returns 400 "Unknown parameter 'id'". Default 201 body is `{ id }`.
     const created = await bpFetch<{ id: string; smsError?: unknown }>(
       'POST',
       '/appointments',
-      {
-        query: {
-          fields: 'id,date,location,client,services,comments',
-        },
-        body,
-      },
+      { body },
     );
 
     if (!created?.id) {
