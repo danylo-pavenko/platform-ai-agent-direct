@@ -164,6 +164,44 @@
                     <div v-if="item.note" class="mt-3 text-body-2">
                       <strong>Нотатка:</strong> {{ item.note }}
                     </div>
+
+                    <div
+                      v-if="item.kind === 'booking' && item.appointmentServices?.length && canRetry(item)"
+                      class="mt-4"
+                    >
+                      <h4 class="text-subtitle-2 mb-2">Майстри на послуги</h4>
+                      <p class="text-caption text-medium-emphasis mb-2">
+                        Різні майстри в один час — оберіть людину на кожен рядок, збережіть, потім відвантажте в CRM.
+                      </p>
+                      <div
+                        v-for="(svc, i) in item.appointmentServices"
+                        :key="`${item.id}-${svc.id}-${i}`"
+                        class="d-flex align-center ga-2 mb-2"
+                      >
+                        <div class="text-body-2 flex-grow-1">{{ svc.name || 'Послуга' }}</div>
+                        <v-select
+                          :model-value="svc.masterId || null"
+                          :items="masterOptions"
+                          item-title="name"
+                          item-value="id"
+                          density="compact"
+                          variant="outlined"
+                          hide-details
+                          label="Майстер"
+                          style="max-width: 280px"
+                          @update:model-value="(v: string) => setServiceMaster(item, i, v)"
+                        />
+                      </div>
+                      <v-btn
+                        size="small"
+                        variant="tonal"
+                        color="primary"
+                        :loading="savingMastersId === item.id"
+                        @click="saveBookingMasters(item)"
+                      >
+                        Зберегти майстрів
+                      </v-btn>
+                    </div>
                   </v-col>
 
                   <v-col cols="12" md="5">
@@ -278,6 +316,14 @@ interface OrderItem {
   price: number;
 }
 
+interface AppointmentServiceLine {
+  id: string;
+  name?: string;
+  price?: number;
+  durationMin: number;
+  masterId?: string;
+}
+
 interface Order {
   id: string;
   client?: string;
@@ -301,6 +347,7 @@ interface Order {
   crmProviderLabel?: string | null;
   crmRecordId?: string | null;
   appointmentId?: string | null;
+  appointmentServices?: AppointmentServiceLine[];
   canRetryCrm?: boolean;
   isArchived?: boolean;
   archivedAt?: string | null;
@@ -315,6 +362,8 @@ const loading = ref(false);
 const statusFilter = ref('');
 const includeArchived = ref(false);
 const syncingId = ref<string | null>(null);
+const savingMastersId = ref<string | null>(null);
+const masterOptions = ref<Array<{ id: string; name: string }>>([]);
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref<'success' | 'error'>('success');
@@ -444,6 +493,55 @@ async function fetchOrders() {
   }
 }
 
+function setServiceMaster(item: Order, index: number, masterId: string) {
+  const lines = item.appointmentServices;
+  if (!lines?.[index]) return;
+  lines[index] = { ...lines[index]!, masterId };
+}
+
+async function saveBookingMasters(item: Order) {
+  if (!item.appointmentServices?.length) return;
+  savingMastersId.value = item.id;
+  try {
+    const payload = item.appointmentServices
+      .map((svc, index) => ({
+        index,
+        serviceId: svc.id,
+        masterId: svc.masterId,
+      }))
+      .filter((row) => Boolean(row.masterId));
+    if (payload.length === 0) {
+      snackbarText.value = 'Оберіть майстра хоча б на одну послугу';
+      snackbarColor.value = 'error';
+      snackbar.value = true;
+      return;
+    }
+    await api.patch(`/orders/${item.id}/booking-services`, {
+      services: payload,
+    });
+    snackbarText.value = 'Майстрів збережено. Можна відвантажити в CRM.';
+    snackbarColor.value = 'success';
+    snackbar.value = true;
+    await fetchOrders();
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    snackbarText.value = err.response?.data?.error ?? 'Не вдалося зберегти майстрів';
+    snackbarColor.value = 'error';
+    snackbar.value = true;
+  } finally {
+    savingMastersId.value = null;
+  }
+}
+
+async function fetchBookingMasters() {
+  try {
+    const { data } = await api.get('/orders/booking-masters');
+    masterOptions.value = Array.isArray(data?.data) ? data.data : [];
+  } catch (e) {
+    console.error('Failed to fetch booking masters', e);
+  }
+}
+
 async function retryCrmSync(orderId: string) {
   syncingId.value = orderId;
   try {
@@ -481,5 +579,6 @@ watch(includeArchived, () => {
 
 onMounted(() => {
   fetchOrders();
+  fetchBookingMasters();
 });
 </script>

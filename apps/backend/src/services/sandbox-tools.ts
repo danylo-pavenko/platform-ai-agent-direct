@@ -8,7 +8,7 @@ import {
   searchServicesForContext,
 } from './service-search.js';
 import { parseSearchServicesLimit } from './booking-lookup.js';
-import { formatSearchServicesToolResult } from '../lib/booking-lookup-format.js';
+import { formatSearchServicesToolResult, parseGetAvailableSlotsArgs } from '../lib/booking-lookup-format.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 
@@ -107,19 +107,9 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
     }
 
     case 'get_available_slots': {
-      const date = asString(tc.args.date);
-      const rawServices = Array.isArray(tc.args.services) ? tc.args.services : [];
-      const services = rawServices.flatMap((raw) => {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-        const o = raw as Record<string, unknown>;
-        const id = asString(o.id);
-        const durationMin =
-          typeof o.duration_min === 'number' ? o.duration_min : Number(o.duration_min) || 60;
-        if (!id) return [];
-        return [{ id, durationMin }];
-      });
-      if (!date || services.length === 0) {
-        return { content: '[get_available_slots] ПОМИЛКА: потрібні date та services' };
+      const parsed = parseGetAvailableSlotsArgs(tc.args);
+      if ('error' in parsed) {
+        return { content: parsed.error };
       }
       const branchCrmId = await resolveBookingBranchCrmId(null);
       if (!branchCrmId) {
@@ -129,17 +119,16 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
         };
       }
       try {
-        const masterId = asString(tc.args.master_id) || undefined;
         const slotsText = await getAvailableSlotsForContext({
-          date,
+          date: parsed.date,
           branchCrmId,
-          services,
-          fullMonth: tc.args.full_month === true,
-          masterId,
+          services: parsed.services,
+          fullMonth: parsed.fullMonth,
+          masterId: parsed.masterId,
         });
         return { content: `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}` };
       } catch (err) {
-        log.error({ err, date }, 'sandbox get_available_slots failed');
+        log.error({ err, date: parsed.date }, 'sandbox get_available_slots failed');
         const detail = err instanceof Error ? err.message : String(err);
         return {
           content: `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`,

@@ -61,7 +61,7 @@
 | `fetchBranches` | `GET /locations` |
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
-| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` на POST (ні appointments, ні clients) — API 400 `Unknown parameter 'id'`; дефолтна 201 вже `{ id }`. |
+| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд (12:00 + 115 хв → 13:55). **Різні майстри** — той самий `start`, різний `professional`. Інакше 409 `TIME_CONFLICT`. Якщо 409 і в клієнта вже є planned/confirmed на цей день+філію — привʼязуємо існуючий id. |
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. **Агент цього не викликає** — немає tool. Скасування/перенесення/оплата → `request_handoff`. |
 | `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields` і body: `comment` (не `comments`). |
 
@@ -81,7 +81,8 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 
 | Виклик | Правило |
 |--------|---------|
-| `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг. |
+| `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |
+| `GET /appointments` (lookup після 409) | `fields=date,location,client` + `client`/`location`/`from`/`to`/`state`. Без `fields=id`. |
 | `GET /clients` | `name,firstname,lastname,phone,email,comment,archive` — **`comment`**, не `comments`. POST/PUT body теж `comment`. |
 | `GET /services` | Не слати `no_professional_price` (docs має, live 400). Ціни з `location_prices`. |
 | `GET /locations` | Лише `fields=name,city,street,phone,timezone,active`. Фільтр `active=true` є на `GET /locations/{id}`, не на списку — фільтруємо в коді. |
@@ -96,7 +97,18 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 |------|-----------|
 | Авто (телефон) | `linkClientToCrm` після `update_client_info` / heuristic / admin save phone → `GET /clients?phone=` |
 | Booking | `createBooking` повертає `crmBuyerId` → persist на `Client` |
-| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** список overlays статус Appointment; `POST /orders/:id/sync-crm` повторно викликає `createBooking`, якщо ще немає `crmRecordId`. |
+| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** overlays Appointment. Старий TIME_CONFLICT (один `master_id` на всі рядки): бекфіл копіює note `master_id` на рядки без `masterId`; менеджер ставить другого майстра в селекті (`PATCH /orders/:id/booking-services`) → `POST /orders/:id/sync-crm`. |
+
+## Паралель vs ланцюжок (один візит)
+
+`Appointment.services[]` = `{ id, name, price, durationMin, masterId? }`.
+
+| Майстри | `start` у POST `/appointments` | Слоти |
+|---------|--------------------------------|-------|
+| Різні UUID на рядках | однаковий час (12:00 і 12:00) | `free_time` на кожну пару (майстер, duration) → **перетин** годин |
+| Той самий / порожньо | ланцюжок (12:00 + 115 хв → 13:55) | сума duration як раніше |
+
+Агент: `book_appointment.services[].master_id`; top-level `master_id` — лише fallback для рядків без власного id. Другого майстра зі старого DM **не** вигадуємо.
 | Агент | Prompt inject історії якщо linked; tool `get_client_crm_history` у booking mode |
 
 API: `GET /clients/{id}/history` → duration + services → планування наступного слота.

@@ -66,6 +66,23 @@ describe('parseGetAvailableSlotsArgs', () => {
     });
   });
 
+  it('parses per-service master_id', () => {
+    const parsed = parseGetAvailableSlotsArgs({
+      date: '21.08.2026',
+      services: [
+        { id: 'svc-1', duration_min: 115, master_id: 'nails' },
+        { id: 'svc-2', duration_min: 30, master_id: 'brows' },
+      ],
+    });
+    expect(parsed).toMatchObject({
+      date: '21.08.2026',
+      services: [
+        { id: 'svc-1', durationMin: 115, masterId: 'nails' },
+        { id: 'svc-2', durationMin: 30, masterId: 'brows' },
+      ],
+    });
+  });
+
   it('rejects missing services', () => {
     const parsed = parseGetAvailableSlotsArgs({ date: '07.08.2026', services: [] });
     expect(parsed).toHaveProperty('error');

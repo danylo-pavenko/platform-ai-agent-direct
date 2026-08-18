@@ -7,6 +7,9 @@ const {
   OrderCrmRetryError,
   crmRetrySuccessMessage,
   resolveKeycrmAppUrl,
+  listBookingMasters,
+  updateAppointmentServiceMasters,
+  AppointmentUpdateError,
 } = vi.hoisted(() => {
   class OrderCrmRetryError extends Error {
     constructor(
@@ -16,6 +19,15 @@ const {
     ) {
       super(message);
       this.name = 'OrderCrmRetryError';
+    }
+  }
+  class AppointmentUpdateError extends Error {
+    constructor(
+      message: string,
+      readonly statusCode: number,
+    ) {
+      super(message);
+      this.name = 'AppointmentUpdateError';
     }
   }
   return {
@@ -29,6 +41,9 @@ const {
       result.kind === 'booking' ? 'Запис відвантажено в BeautyPro' : 'ok',
     ),
     resolveKeycrmAppUrl: vi.fn(async () => null),
+    listBookingMasters: vi.fn(async () => [{ id: 'm1', name: 'Анна' }]),
+    updateAppointmentServiceMasters: vi.fn(),
+    AppointmentUpdateError,
   };
 });
 
@@ -43,6 +58,11 @@ vi.mock('../services/order-crm-retry.js', () => ({
   retryOrderCrmSync,
   OrderCrmRetryError,
   crmRetrySuccessMessage,
+}));
+vi.mock('../services/appointment.js', () => ({
+  listBookingMasters,
+  updateAppointmentServiceMasters,
+  AppointmentUpdateError,
 }));
 
 import { orderRoutes } from './orders.js';
@@ -104,6 +124,10 @@ describe('order routes CRM overlay + retry', () => {
         crmSyncError: null,
         crmSyncedAt: new Date('2026-08-18T10:00:00.000Z'),
         status: 'synced',
+        services: [
+          { id: 'svc-1', name: 'Комплекс манікюр', durationMin: 115, masterId: 'nails' },
+          { id: 'svc-2', name: 'Брови', durationMin: 30 },
+        ],
       },
     ]);
 
@@ -116,6 +140,76 @@ describe('order routes CRM overlay + retry', () => {
     expect(body.data[0].crmRecordId).toBe('bp-appt');
     expect(body.data[0].canRetryCrm).toBe(false);
     expect(body.data[0].keycrmOrderUrl).toBeNull();
+    expect(body.data[0].appointmentServices).toEqual([
+      { id: 'svc-1', name: 'Комплекс манікюр', durationMin: 115, masterId: 'nails' },
+      { id: 'svc-2', name: 'Брови', durationMin: 30 },
+    ]);
+  });
+
+  it('lists booking masters for the admin select', async () => {
+    const app = await buildApp();
+    const response = await app.inject({ method: 'GET', url: '/orders/booking-masters' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data).toEqual([{ id: 'm1', name: 'Анна' }]);
+  });
+
+  it('patches per-service masters on a booking order', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      kind: 'booking',
+      note: 'appointmentId=a0712020-04d1-4863-8ad4-1370d6905921',
+      status: 'submitted',
+    });
+    updateAppointmentServiceMasters.mockResolvedValue({
+      services: [
+        { id: 'svc-1', durationMin: 115, name: 'Манікюр', masterId: 'nails' },
+        { id: 'svc-2', durationMin: 30, name: 'Брови', masterId: 'brows' },
+      ],
+    });
+    const app = await buildApp();
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/orders/order-1/booking-services',
+      payload: {
+        services: [
+          { index: 0, masterId: 'nails' },
+          { index: 1, masterId: 'brows' },
+        ],
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(updateAppointmentServiceMasters).toHaveBeenCalledWith({
+      appointmentId: 'a0712020-04d1-4863-8ad4-1370d6905921',
+      assignments: [
+        { index: 0, masterId: 'nails' },
+        { index: 1, masterId: 'brows' },
+      ],
+      force: undefined,
+    });
+    expect(response.json().services.map((s: { masterId: string }) => s.masterId)).toEqual([
+      'nails',
+      'brows',
+    ]);
+  });
+
+  it('maps appointment update errors to HTTP 400', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      kind: 'booking',
+      note: 'appointmentId=a0712020-04d1-4863-8ad4-1370d6905921',
+      status: 'submitted',
+    });
+    updateAppointmentServiceMasters.mockRejectedValue(
+      new AppointmentUpdateError('Запис уже в CRM — майстрів не змінюємо без force', 400),
+    );
+    const app = await buildApp();
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/orders/order-1/booking-services',
+      payload: { services: [{ index: 1, masterId: 'brows' }] },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toMatch(/force/);
   });
 
   it('maps retry errors to HTTP status codes', async () => {

@@ -72,7 +72,12 @@ vi.mock('./client-crm-link.js', () => ({
   persistCrmBuyerIdFromBooking: vi.fn(),
 }));
 
-import { handleBookAppointment, mirrorAppointmentToCrm, reflectAppointmentCrmOnOrder } from './appointment.js';
+import {
+  handleBookAppointment,
+  mirrorAppointmentToCrm,
+  reflectAppointmentCrmOnOrder,
+  updateAppointmentServiceMasters,
+} from './appointment.js';
 
 describe('handleBookAppointment Order + Telegram mirror', () => {
   beforeEach(() => {
@@ -214,6 +219,49 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     expect(prismaMock.order.create).not.toHaveBeenCalled();
     expect(notifyOrder).not.toHaveBeenCalled();
   });
+
+  it('stores a distinct masterId on each service line', async () => {
+    await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Анжела',
+        phone: '+380501112233',
+        date: '21.08.2026',
+        time: '12:00',
+        services: [
+          {
+            id: 'svc-manicure',
+            name: 'Комплекс манікюр',
+            duration_min: 115,
+            price: 820,
+            master_id: 'master-nails',
+          },
+          {
+            id: 'svc-brows',
+            name: 'Брови',
+            duration_min: 30,
+            price: 350,
+            master_id: 'master-brows',
+          },
+        ],
+        master_id: 'master-nails',
+      },
+      { skipClientMessage: true },
+    );
+
+    const created = prismaMock.appointment.create.mock.calls[0]?.[0] as {
+      data: { services: Array<{ masterId?: string }>; };
+    };
+    expect(created.data.services.map((s) => s.masterId)).toEqual(['master-nails', 'master-brows']);
+    expect(prismaMock.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          note: expect.stringMatching(/master_id=master-nails[\s\S]*master_id=master-brows|master_id=master-brows[\s\S]*master_id=master-nails/),
+        }),
+      }),
+    );
+  });
 });
 
 describe('reflectAppointmentCrmOnOrder + mirrorAppointmentToCrm', () => {
@@ -276,5 +324,65 @@ describe('reflectAppointmentCrmOnOrder + mirrorAppointmentToCrm', () => {
     );
     expect(prismaMock.order.updateMany).toHaveBeenCalled();
     expect(mirrorCreateBooking).not.toHaveBeenCalled();
+  });
+
+  it('updates per-service masters and CRM retry reads both ids', async () => {
+    prismaMock.appointment.findUnique.mockResolvedValue({
+      id: 'appt-1',
+      crmRecordId: null,
+      crmSyncStatus: 'failed',
+      crmSyncedAt: null,
+      branchId: 'branch-1',
+      branch: { crmExternalId: 'loc-1' },
+      client: { igUserId: 'ig-1' },
+      clientId: 'client-1',
+      conversationId: 'conv-1',
+      services: [
+        { id: 'svc-1', durationMin: 115, name: 'Манікюр', masterId: 'nails' },
+        { id: 'svc-2', durationMin: 30, name: 'Брови' },
+      ],
+      scheduledDate: '21.08.2026',
+      scheduledTime: '12:00',
+      customerName: 'Анжела',
+      phone: '0930152179',
+      comment: null,
+      status: 'failed',
+    });
+    prismaMock.appointment.update.mockResolvedValue({});
+    const patched = await updateAppointmentServiceMasters({
+      appointmentId: 'appt-1',
+      assignments: [{ index: 1, masterId: 'brows' }],
+    });
+    expect(patched.services.map((s) => s.masterId)).toEqual(['nails', 'brows']);
+
+    prismaMock.appointment.findUnique.mockResolvedValue({
+      id: 'appt-1',
+      crmRecordId: null,
+      crmSyncStatus: 'failed',
+      crmSyncedAt: null,
+      branchId: 'branch-1',
+      branch: { crmExternalId: 'loc-1' },
+      client: { igUserId: 'ig-1' },
+      clientId: 'client-1',
+      conversationId: 'conv-1',
+      services: patched.services,
+      scheduledDate: '21.08.2026',
+      scheduledTime: '12:00',
+      customerName: 'Анжела',
+      phone: '0930152179',
+      comment: null,
+      status: 'failed',
+    });
+    mirrorCreateBooking.mockResolvedValue({ crmRecordId: 'bp-1' });
+
+    await mirrorAppointmentToCrm('appt-1', { force: true });
+    expect(mirrorCreateBooking).toHaveBeenCalledWith(
+      expect.objectContaining({
+        services: [
+          expect.objectContaining({ id: 'svc-1', masterId: 'nails' }),
+          expect.objectContaining({ id: 'svc-2', masterId: 'brows' }),
+        ],
+      }),
+    );
   });
 });

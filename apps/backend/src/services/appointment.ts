@@ -11,6 +11,14 @@ import { asCrmId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder } from './telegram-notify.js';
+import {
+  applyServiceMasterAssignments,
+  normalizeAppointmentServices,
+  servicesToJson,
+  uniqueMasterIds,
+  type AppointmentServiceLine,
+  type ServiceMasterAssignment,
+} from '../lib/appointment-services.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import { sendText } from './instagram.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -19,6 +27,16 @@ import type { OrderLineItem } from '../lib/order-normalize.js';
 import { providerDisplayName } from '../lib/crm-providers.js';
 
 const log = pino({ name: 'appointment' });
+
+export class AppointmentUpdateError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+  ) {
+    super(message);
+    this.name = 'AppointmentUpdateError';
+  }
+}
 
 const BOOKING_ORDER_DEDUPE_MS = 2 * 60 * 1000;
 
@@ -41,10 +59,10 @@ export async function handleBookAppointment(
   const rawDate = typeof args.date === 'string' ? args.date.trim() : '';
   const time = typeof args.time === 'string' ? args.time.trim() : '';
   const comment = typeof args.comment === 'string' ? args.comment.trim() : undefined;
-  const masterId = asCrmId(args.master_id) ?? undefined;
+  const fallbackMasterId = asCrmId(args.master_id) ?? undefined;
 
   const rawServices = Array.isArray(args.services) ? args.services : [];
-  const services = rawServices.flatMap((raw) => {
+  const services: AppointmentServiceLine[] = rawServices.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const o = raw as Record<string, unknown>;
     const id = asCrmId(o.id);
@@ -57,6 +75,7 @@ export async function handleBookAppointment(
     const name = typeof o.name === 'string' ? o.name : `Послуга #${id ?? '?'}`;
     const price = typeof o.price === 'number' ? o.price : 0;
     if (!id) return [];
+    const masterId = asCrmId(o.master_id) ?? fallbackMasterId;
     return [{ id, durationMin, name, price, masterId }];
   });
 
@@ -122,7 +141,7 @@ export async function handleBookAppointment(
       conversationId,
       clientId,
       branchId: resolved.branchId,
-      services,
+      services: toInputJsonValue(services)!,
       scheduledDate: date,
       scheduledTime: time,
       customerName,
@@ -145,11 +164,11 @@ export async function handleBookAppointment(
     time,
     branchName: resolved.displayName,
     services: services.map((s) => ({
-      name: s.name,
-      price: s.price,
+      name: s.name ?? 'Послуга',
+      price: s.price ?? 0,
       qty: 1,
     })),
-    masterId,
+    masterIds: uniqueMasterIds(services),
     comment,
   }).catch((err) => {
     log.error({ err, appointmentId: appointment.id }, 'Booking Order mirror failed (non-fatal)');
@@ -204,7 +223,7 @@ async function createBookingOrderMirror(params: {
   time: string;
   branchName?: string | null;
   services: OrderLineItem[];
-  masterId?: string;
+  masterIds?: string[];
   comment?: string;
 }): Promise<string | null> {
   const {
@@ -218,7 +237,7 @@ async function createBookingOrderMirror(params: {
     time,
     branchName,
     services,
-    masterId,
+    masterIds,
     comment,
   } = params;
 
@@ -252,7 +271,7 @@ async function createBookingOrderMirror(params: {
   const noteParts = [
     summary,
     branchName ? `Філія: ${branchName}` : null,
-    masterId ? `master_id=${masterId}` : null,
+    ...(masterIds ?? []).map((id) => `master_id=${id}`),
     comment ? `Коментар: ${comment}` : null,
     appointmentMarker,
   ].filter(Boolean) as string[];
@@ -389,7 +408,7 @@ export async function mirrorAppointmentToCrm(
       const o = raw as Record<string, unknown>;
       const id = asCrmId(o.id);
       const durationMin = typeof o.durationMin === 'number' ? o.durationMin : 60;
-      const masterId = asCrmId(o.masterId) ?? undefined;
+      const masterId = asCrmId(o.masterId) ?? asCrmId(o.master_id) ?? undefined;
       if (!id) return [];
       return [{
         id,
@@ -473,4 +492,50 @@ export async function mirrorAppointmentToCrm(
     }).catch(() => undefined);
     throw err;
   }
+}
+
+export async function updateAppointmentServiceMasters(params: {
+  appointmentId: string;
+  assignments: ServiceMasterAssignment[];
+  force?: boolean;
+}): Promise<{ services: AppointmentServiceLine[] }> {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: params.appointmentId },
+    select: { id: true, services: true, crmRecordId: true, status: true },
+  });
+  if (!appointment) {
+    throw new AppointmentUpdateError('Повʼязаний запис не знайдено', 404);
+  }
+  if (appointment.status === 'cancelled') {
+    throw new AppointmentUpdateError('Скасований запис не змінюється', 400);
+  }
+  if (appointment.crmRecordId && !params.force) {
+    throw new AppointmentUpdateError('Запис уже в CRM — майстрів не змінюємо без force', 400);
+  }
+
+  const current = normalizeAppointmentServices(appointment.services);
+  let next: AppointmentServiceLine[];
+  try {
+    next = applyServiceMasterAssignments(current, params.assignments);
+  } catch (err) {
+    throw new AppointmentUpdateError(
+      err instanceof Error ? err.message : 'Некоректне призначення майстра',
+      400,
+    );
+  }
+  await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: { services: toInputJsonValue(servicesToJson(next))! },
+  });
+  return { services: next };
+}
+
+export async function listBookingMasters(): Promise<Array<{ id: string; name: string }>> {
+  const provider = await resolveCrmProvider('booking');
+  const crm = getCrmAdapter(provider);
+  if (!crm.fetchEmployees) return [];
+  const rows = await crm.fetchEmployees();
+  return rows
+    .filter((row) => row.public !== false)
+    .map((row) => ({ id: row.id, name: row.name }));
 }

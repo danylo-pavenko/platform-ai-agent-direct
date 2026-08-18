@@ -89,6 +89,8 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 There are **no** cancel / reschedule / refund tools. If the client asks to cancel a visit, move a slot, or reverse a payment → `request_handoff`. Adapter `cancelBooking` exists on BeautyPro/CleverBOX but is **not** wired to the agent. A second `book_appointment` on another date creates a **new** CRM visit (BeautyPro merges only same date+location+client); it does not move the old one.
 
+Parallel services at the same clock time need **per-line** `services[].master_id` (different professionals). A single top-level `master_id` is copied only onto lines that omit their own id; same master → sequential starts in BeautyPro. Old failed bookings: admin sets masters per Appointment service line, then retry CRM (`PATCH /orders/:id/booking-services` → `POST /orders/:id/sync-crm`).
+
 **Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / agent failure (`services/telegram-notify.ts`).
 
 ---

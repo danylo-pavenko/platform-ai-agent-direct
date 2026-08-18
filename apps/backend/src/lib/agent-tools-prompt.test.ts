@@ -92,4 +92,10 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/перенесення|перенести/);
     expect(prompt).toMatch(/другий запис/);
   });
+
+  it('requires per-service master_id for parallel booking', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/різних майстрів/);
+    expect(prompt).toMatch(/services\[\]\.master_id/);
+  });
 });

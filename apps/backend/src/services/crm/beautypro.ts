@@ -43,7 +43,9 @@ import {
 } from './beautypro-free-time.js';
 import {
   buildBeautyproAppointmentCreateBody,
+  isBeautyproTimeConflictError,
   normalizeBeautyproStartTime,
+  pickSameDayAppointmentId,
 } from './beautypro-appointment.js';
 import {
   BP_CLIENT_LIST_FIELDS,
@@ -613,6 +615,37 @@ async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTime
   );
 }
 
+async function findSameDayClientAppointment(opts: {
+  clientId: string;
+  locationId: string;
+  isoDate: string;
+}): Promise<string | null> {
+  try {
+    const rows = await bpFetch<
+      Array<{
+        id: string;
+        date?: string | null;
+        location?: string | null;
+        client?: string | null;
+      }>
+    >('GET', '/appointments', {
+      query: {
+        // Official GET fields have no `id` (always returned) and no `state`.
+        fields: 'date,location,client',
+        client: opts.clientId,
+        location: opts.locationId,
+        from: `${opts.isoDate}T00:00:00.000Z`,
+        to: `${opts.isoDate}T23:59:59.999Z`,
+        state: 'planned,confirmed',
+      },
+    });
+    return pickSameDayAppointmentId(rows, opts);
+  } catch (err) {
+    log.warn({ err, ...opts }, 'BeautyPro same-day appointment lookup failed');
+    return null;
+  }
+}
+
 export const beautyproAdapter: CrmAdapter = {
   name: 'beautypro',
   capabilities: {
@@ -860,7 +893,8 @@ export const beautyproAdapter: CrmAdapter = {
       }
     }
 
-    let professional = input.services[0]?.masterId;
+    let professional =
+      input.services.map((s) => s.masterId).find((id) => Boolean(id?.trim())) ?? undefined;
     if (!professional) {
       const serviceIds = input.services.map((s) => s.id).join(',');
       const loadCandidates = async (publicOnly: boolean | undefined) => {
@@ -931,11 +965,28 @@ export const beautyproAdapter: CrmAdapter = {
 
     // Do not pass `fields=id,...` — docs' POST fields list has no `id`, and the
     // live API returns 400 "Unknown parameter 'id'". Default 201 body is `{ id }`.
-    const created = await bpFetch<{ id: string; smsError?: unknown }>(
-      'POST',
-      '/appointments',
-      { body },
-    );
+    let created: { id: string; smsError?: unknown } | undefined;
+    try {
+      created = await bpFetch<{ id: string; smsError?: unknown }>('POST', '/appointments', {
+        body,
+      });
+    } catch (err) {
+      if (isBeautyproTimeConflictError(err)) {
+        const existingId = await findSameDayClientAppointment({
+          clientId,
+          locationId: input.branchId,
+          isoDate,
+        });
+        if (existingId) {
+          log.info(
+            { appointmentId: existingId, clientId, isoDate },
+            'BeautyPro TIME_CONFLICT — linked existing same-day appointment',
+          );
+          return { crmRecordId: existingId, crmBuyerId: clientId };
+        }
+      }
+      throw err;
+    }
 
     if (!created?.id) {
       throw new Error('BeautyPro appointment create returned no id');

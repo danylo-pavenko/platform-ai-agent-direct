@@ -51,7 +51,7 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 
 - One **planned/confirmed** appointment per `date + location + client` — API **merges** services if duplicate.
 - Prefer cancel (`state: cancelled`) over DELETE.
-- `409 TIME_CONFLICT` — do not `force=true` in agent prod path.
+- `409 TIME_CONFLICT` — do not `force=true` in agent prod path. Same-master services must be sequential (not all `start=12:00`). Different masters may share a start. Retry may link an existing same-day appointment for that client instead of POSTing a duplicate.
 - `smsError` on create is non-fatal (log only).
 - Agent dates often `DD.MM.YYYY` → convert to ISO `YYYY-MM-DD` in adapter.
 - History: **last ~2 months only**; field `duration` (minutes) + `items[].name/type` for planning next slot.
@@ -62,7 +62,7 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 - Store CRM client UUID on `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`).
 - **Auto:** phone via `linkClientToCrm` / `mirrorClientToCrm` (read match works even if CRM write off).
 - **Booking:** `createBooking` returns `crmBuyerId` → `persistCrmBuyerIdFromBooking`.
-- **Admin:** Conversation profile → find by phone / paste UUID / history.
+- **Admin:** Conversation profile → find by phone / paste UUID / history. Orders: per-service master select (`PATCH /orders/:id/booking-services`) then retry CRM. Data migration copies note `master_id` onto JSON lines missing `masterId` (does not invent a second master).
 - **Agent:** prompt inject when linked; tool `get_client_crm_history` in booking mode.
 
 ## Routing example (salon-only)

@@ -164,7 +164,7 @@ const SEARCH_SERVICES: ToolDefinition = {
 const GET_AVAILABLE_SLOTS: ToolDefinition = {
   name: 'get_available_slots',
   description:
-    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id — лише цей майстер; у результаті може бути блок «Ціни для обраного майстра» (фіксована сума або «недоступно для цього майстра»). Без master_id — найближчі вікна різних майстрів; ціну клієнту тоді тримай як діапазон з search_services, доки не обрано майстра. Повторний клієнт: передай master_id з історії.',
+    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id (або services[].master_id) — лише ці майстри; у результаті може бути блок «Ціни для обраного майстра». Кілька послуг до різних майстрів на той самий час — передай master_id на кожному рядку services; бекенд шукає спільні години. Без master_id — найближчі вікна різних майстрів. Повторний клієнт: передай master_id з історії.',
   parameters: {
     type: 'object',
     properties: {
@@ -182,6 +182,11 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
               description: 'ID послуги з search_services (число або UUID)',
             },
             duration_min: { type: 'number' },
+            master_id: {
+              type: 'string',
+              description:
+                'Майстер саме цієї послуги (якщо різні майстри паралельно). Інакше top-level master_id',
+            },
           },
           required: ['id', 'duration_min'],
         },
@@ -200,7 +205,7 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
 const BOOK_APPOINTMENT: ToolDefinition = {
   name: 'book_appointment',
   description:
-    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Якщо відома точна ціна для обраного майстра (з get_available_slots) — передай services[].price; CRM сам може перерахувати, поле для локального запису/клієнта. master_id обовʼязковий, якщо клієнт іде до конкретного майстра.',
+    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Один майстер на всі послуги — top-level master_id. Різні майстри на той самий час — обовʼязково services[].master_id на кожному рядку (клієнту імена, не UUID). price — з цитати слотів для того майстра.',
   parameters: {
     type: 'object',
     properties: {
@@ -227,6 +232,11 @@ const BOOK_APPOINTMENT: ToolDefinition = {
                 'Ціна для клієнта: з блоку «Ціни для обраного майстра» або з розбивки грейдів search_services для обраного рівня; не мінімум чужого грейду',
             },
             duration_min: { type: 'number' },
+            master_id: {
+              type: 'string',
+              description:
+                'Майстер цієї послуги. Обовʼязковий, якщо клієнт іде до різних майстрів паралельно',
+            },
           },
           required: ['id', 'name', 'duration_min'],
         },
@@ -234,7 +244,7 @@ const BOOK_APPOINTMENT: ToolDefinition = {
       master_id: {
         type: 'string',
         description:
-          'ID майстра з get_available_slots або CRM історії (master_id=…); клієнту не показуй',
+          'Один майстер на всі послуги без services[].master_id. З get_available_slots / історії; клієнту не показуй',
       },
       comment: { type: 'string' },
       crm_provider: {

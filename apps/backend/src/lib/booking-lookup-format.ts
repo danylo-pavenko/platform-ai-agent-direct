@@ -83,7 +83,7 @@ export function formatSearchServicesToolResult(params: {
 
 export type ParsedSlotsArgs = {
   date: string;
-  services: Array<{ id: string; durationMin: number }>;
+  services: Array<{ id: string; durationMin: number; masterId?: string }>;
   fullMonth: boolean;
   masterId?: string;
 };
@@ -104,8 +104,14 @@ export function parseGetAvailableSlotsArgs(
           : '';
     const durationMin =
       typeof o.duration_min === 'number' ? o.duration_min : Number(o.duration_min) || 60;
+    const lineMaster =
+      typeof o.master_id === 'string'
+        ? o.master_id.trim()
+        : typeof o.master_id === 'number' && Number.isFinite(o.master_id)
+          ? String(o.master_id)
+          : '';
     if (!id) return [];
-    return [{ id, durationMin }];
+    return [{ id, durationMin, masterId: lineMaster || undefined }];
   });
 
   if (!date || services.length === 0) {

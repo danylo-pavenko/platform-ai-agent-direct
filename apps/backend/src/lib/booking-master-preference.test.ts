@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { buildPlatformCapabilitiesBlock } from './platform-capabilities-prompt.js';
 import { buildAgentTools } from './tool-definitions.js';
@@ -14,6 +15,8 @@ describe('booking preferred-master tools and docs', () => {
     expect(book).toBeDefined();
     expect(slots!.parameters.properties).toHaveProperty('master_id');
     expect(book!.parameters.properties).toHaveProperty('master_id');
+    expect(slots!.parameters.properties.services.items.properties).toHaveProperty('master_id');
+    expect(book!.parameters.properties.services.items.properties).toHaveProperty('master_id');
     expect(slots!.description).toMatch(/master_id/);
     const handoff = tools.find((t) => t.name === 'request_handoff');
     expect(handoff!.description).toMatch(/перенесення запису|скасування або перенесення/);
@@ -36,6 +39,7 @@ describe('booking preferred-master tools and docs', () => {
     expect(block).toContain('Новий клієнт');
     expect(block).toMatch(/request_handoff/);
     expect(block).toMatch(/cancel\/reschedule\/refund/);
+    expect(block).toMatch(/services\[\]\.master_id/);
   });
 
   it('documents grade pricing for booking tools in platform capabilities', () => {
@@ -47,7 +51,7 @@ describe('booking preferred-master tools and docs', () => {
 
   it('seed booking prompt covers returning and first-time master flows', () => {
     const seed = readFileSync(
-      resolve(process.cwd(), '../workspace/templates/prompts/booking-agent.txt'),
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../../workspace/templates/prompts/booking-agent.txt'),
       'utf-8',
     );
     expect(seed).toContain('Повторний клієнт');
@@ -59,5 +63,6 @@ describe('booking preferred-master tools and docs', () => {
     expect(seed).toMatch(/недоступно для цього майстра/);
     expect(seed).toMatch(/request_handoff/);
     expect(seed).toMatch(/другий візит/);
+    expect(seed).toMatch(/різних майстрів/);
   });
 });

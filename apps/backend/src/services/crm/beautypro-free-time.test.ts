@@ -93,5 +93,11 @@ describe('beautypro free_time helpers', () => {
     expect(resolveFreeTimeDurationMin([{ id: 'a', durationMin: 45 }])).toBe(45);
     expect(resolveFreeTimeDurationMin([{ id: 'a', durationMin: NaN }])).toBe(60);
     expect(resolveFreeTimeDurationMin([])).toBe(60);
+    expect(
+      resolveFreeTimeDurationMin([
+        { id: 'a', durationMin: 115 },
+        { id: 'b', durationMin: 30 },
+      ]),
+    ).toBe(145);
   });
 });

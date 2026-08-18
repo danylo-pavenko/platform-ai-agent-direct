@@ -118,4 +118,56 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).toContain('[master_id=b] Bohdan');
     expect(text).not.toMatch(/цього майстра/);
   });
+
+  it('intersects free times when services have different masters', async () => {
+    getAvailableSlots.mockImplementation(async (query: { masterId?: string }) => {
+      if (query.masterId === 'nails') {
+        return {
+          slots: {
+            '21.08.2026': [
+              { date: '21.08.2026', time: '12:00', masterIds: ['nails'] },
+              { date: '21.08.2026', time: '13:00', masterIds: ['nails'] },
+            ],
+          },
+          masters: [{ id: 'nails', name: 'Анна' }],
+        };
+      }
+      return {
+        slots: {
+          '21.08.2026': [
+            { date: '21.08.2026', time: '12:00', masterIds: ['brows'] },
+          ],
+        },
+        masters: [{ id: 'brows', name: 'Оля' }],
+      };
+    });
+
+    const text = await getAvailableSlotsForContext({
+      date: '21.08.2026',
+      branchCrmId: 'loc-1',
+      services: [
+        { id: 'svc-1', durationMin: 115, masterId: 'nails' },
+        { id: 'svc-2', durationMin: 30, masterId: 'brows' },
+      ],
+    });
+
+    expect(getAvailableSlots).toHaveBeenCalledTimes(2);
+    expect(getAvailableSlots).toHaveBeenCalledWith(
+      expect.objectContaining({
+        masterId: 'nails',
+        services: [{ id: 'svc-1', durationMin: 115 }],
+      }),
+    );
+    expect(getAvailableSlots).toHaveBeenCalledWith(
+      expect.objectContaining({
+        masterId: 'brows',
+        services: [{ id: 'svc-2', durationMin: 30 }],
+      }),
+    );
+    expect(text).toContain('12:00');
+    expect(text).not.toContain('13:00');
+    expect(text).toMatch(/services\[\]\.master_id/);
+    expect(text).toContain('[master_id=nails] Анна');
+    expect(text).toContain('[master_id=brows] Оля');
+  });
 });

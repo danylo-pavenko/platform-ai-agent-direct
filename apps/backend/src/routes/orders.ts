@@ -1,10 +1,17 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { computeOrderTotal } from '../lib/order-totals.js';
 import { buildKeycrmOrderUrl, resolveKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { parseAppointmentIdFromOrderNote } from '../lib/order-appointment.js';
+import { normalizeAppointmentServices } from '../lib/appointment-services.js';
 import { buildOrderCrmView, type OrderCrmAppointment } from '../lib/order-crm-view.js';
 import { crmRetrySuccessMessage, OrderCrmRetryError, retryOrderCrmSync } from '../services/order-crm-retry.js';
+import {
+  AppointmentUpdateError,
+  listBookingMasters,
+  updateAppointmentServiceMasters,
+} from '../services/appointment.js';
 
 type OrderRow = {
   id: string;
@@ -31,10 +38,12 @@ type OrderRow = {
   conversation?: { id: string } | null;
 };
 
+type AppointmentForOrder = OrderCrmAppointment & { services?: unknown };
+
 function serializeOrder(
   order: OrderRow,
   keycrmAppUrl: string | null,
-  appointment?: OrderCrmAppointment | null,
+  appointment?: AppointmentForOrder | null,
 ) {
   const crm = buildOrderCrmView(order, appointment);
   const keycrmUrl =
@@ -55,6 +64,10 @@ function serializeOrder(
     crmProviderLabel: crm.crmProviderLabel,
     crmRecordId: crm.crmRecordId,
     appointmentId: crm.appointmentId,
+    appointmentServices:
+      crm.kind === 'booking' && appointment
+        ? normalizeAppointmentServices(appointment.services)
+        : undefined,
     canRetryCrm: crm.canRetryCrm,
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
@@ -65,7 +78,7 @@ function serializeOrder(
 
 async function loadAppointmentsForOrders(
   rows: Array<{ kind?: string | null; note: string | null }>,
-): Promise<Map<string, OrderCrmAppointment>> {
+): Promise<Map<string, AppointmentForOrder>> {
   const ids = [...new Set(
     rows
       .filter((row) => (row.kind ?? 'product') === 'booking')
@@ -84,6 +97,7 @@ async function loadAppointmentsForOrders(
       crmSyncError: true,
       crmSyncedAt: true,
       status: true,
+      services: true,
     },
   });
   return new Map(appointments.map((row) => [row.id, row]));
@@ -147,6 +161,11 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get('/booking-masters', { onRequest: [app.authenticate] }, async () => {
+    const data = await listBookingMasters();
+    return { data };
+  });
+
   // GET /:id - Get single order detail
   app.get<{
     Params: { id: string };
@@ -192,6 +211,61 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
           error: err.message,
           ...err.extra,
         });
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: message });
+    }
+  });
+
+  const bookingServicesPatchSchema = z.object({
+    services: z
+      .array(
+        z.object({
+          index: z.number().int().nonnegative().optional(),
+          serviceId: z.string().min(1).optional(),
+          masterId: z.string().min(1),
+        }),
+      )
+      .min(1),
+    force: z.boolean().optional(),
+  });
+
+  app.patch<{
+    Params: { id: string };
+  }>('/:id/booking-services', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const parsed = bookingServicesPatchSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Некоректне призначення майстрів' });
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, kind: true, note: true, status: true },
+    });
+    if (!order) {
+      return reply.code(404).send({ error: 'Order not found' });
+    }
+    if (order.kind !== 'booking') {
+      return reply.code(400).send({ error: 'Майстрів призначають лише для запису' });
+    }
+    if (order.status === 'cancelled') {
+      return reply.code(400).send({ error: 'Скасоване замовлення не змінюється' });
+    }
+    const appointmentId = parseAppointmentIdFromOrderNote(order.note);
+    if (!appointmentId) {
+      return reply.code(400).send({ error: 'Немає повʼязаного запису (appointmentId)' });
+    }
+
+    try {
+      const updated = await updateAppointmentServiceMasters({
+        appointmentId,
+        assignments: parsed.data.services,
+        force: parsed.data.force,
+      });
+      return { ok: true, appointmentId, services: updated.services };
+    } catch (err) {
+      if (err instanceof AppointmentUpdateError) {
+        return reply.code(err.statusCode).send({ error: err.message });
       }
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: message });

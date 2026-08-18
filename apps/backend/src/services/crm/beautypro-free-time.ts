@@ -68,10 +68,12 @@ export function freeTimeDayBounds(
 export function resolveFreeTimeDurationMin(
   services: Array<{ id: string; durationMin: number }>,
 ): number {
-  const durations = services
-    .map((s) => (Number.isFinite(s.durationMin) && s.durationMin > 0 ? s.durationMin : 60))
-    .filter((n) => Number.isFinite(n));
-  return Math.max(...(durations.length > 0 ? durations : [60]), 15);
+  if (services.length === 0) return 60;
+  const sum = services.reduce((acc, s) => {
+    const d = Number.isFinite(s.durationMin) && s.durationMin > 0 ? s.durationMin : 60;
+    return acc + d;
+  }, 0);
+  return Math.max(sum, 15);
 }
 
 /**

@@ -24,6 +24,7 @@ import {
 } from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmServiceItem } from './crm/types.js';
+import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 
 export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
 
@@ -157,7 +158,7 @@ export function formatSlotMastersLine(
 export async function getAvailableSlotsForContext(args: {
   date: string;
   branchCrmId: string;
-  services: Array<{ id: string; durationMin: number }>;
+  services: Array<{ id: string; durationMin: number; masterId?: string }>;
   fullMonth?: boolean;
   masterId?: string;
 }): Promise<string> {
@@ -168,13 +169,49 @@ export async function getAvailableSlotsForContext(args: {
     return 'Слоти недоступні — CRM не підтримує онлайн-запис.';
   }
 
-  const result = await crm.getAvailableSlots({
-    date: args.date,
-    branchId: args.branchCrmId,
-    services: args.services,
-    fullMonth: args.fullMonth,
-    masterId: args.masterId,
-  });
+  const assigned = args.services.map((s) => ({
+    ...s,
+    masterId: s.masterId || args.masterId,
+  }));
+  const uniqueMasters = [
+    ...new Set(assigned.map((s) => s.masterId).filter((id): id is string => Boolean(id))),
+  ];
+  const parallelMasters = uniqueMasters.length > 1;
+
+  let result: {
+    slots: Record<string, Array<{ date: string; time: string; masterIds: string[] }>>;
+    masters: Array<{ id: string; name: string }>;
+  };
+
+  if (parallelMasters) {
+    const grouped = new Map<string, typeof assigned>();
+    for (const row of assigned) {
+      const key = row.masterId!;
+      const list = grouped.get(key) ?? [];
+      list.push(row);
+      grouped.set(key, list);
+    }
+    const lookups = await Promise.all(
+      [...grouped.entries()].map(([masterId, services]) =>
+        crm.getAvailableSlots!({
+          date: args.date,
+          branchId: args.branchCrmId,
+          services: services.map((s) => ({ id: s.id, durationMin: s.durationMin })),
+          fullMonth: args.fullMonth,
+          masterId,
+        }),
+      ),
+    );
+    result = intersectSlotLookupResults(lookups);
+  } else {
+    result = await crm.getAvailableSlots({
+      date: args.date,
+      branchId: args.branchCrmId,
+      services: assigned.map((s) => ({ id: s.id, durationMin: s.durationMin })),
+      fullMonth: args.fullMonth,
+      masterId: uniqueMasters[0] ?? args.masterId,
+    });
+  }
 
   const lines: string[] = [];
   const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
@@ -190,29 +227,39 @@ export async function getAvailableSlotsForContext(args: {
   }
 
   if (lines.length === 0) {
-    return args.masterId
+    return uniqueMasters.length > 0
       ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
       : 'Вільних слотів на обрану дату не знайдено.';
   }
 
-  if (args.masterId && args.services.length > 0) {
+  if (parallelMasters) {
+    lines.push(
+      '',
+      'Паралельний запис: різні майстри на той самий час. У book_appointment передай services[].master_id на кожен рядок.',
+    );
+  }
+
+  const priceMasterId = uniqueMasters.length === 1 ? uniqueMasters[0] : undefined;
+  if (priceMasterId && args.services.length > 0) {
     try {
       const priceLines = await formatMasterServicePrices({
-        masterId: args.masterId,
+        masterId: priceMasterId,
         branchId: args.branchCrmId,
         serviceIds: args.services.map((s) => s.id),
       });
       if (priceLines.length > 0) {
         lines.push('', 'Ціни для обраного майстра:', ...priceLines);
       }
-    } catch (err) {
+    } catch {
       // Non-fatal — slots still useful without grade quote.
     }
   }
 
   lines.push(
     '',
-    'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
+    parallelMasters
+      ? 'Для book_appointment використовуй services[].master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.'
+      : 'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
   );
   return lines.join('\n');
 }
