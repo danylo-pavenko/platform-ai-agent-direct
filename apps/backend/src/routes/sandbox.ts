@@ -17,6 +17,7 @@ import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatBotFailureDetail } from '../lib/agent-fallback.js';
 import { formatBranchesForPrompt, getDefaultBranch } from '../services/branches.js';
 import { resolveBookingBranchCrmId } from '../services/booking-branch.js';
+import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
 import {
   buildSandboxCopyBundle,
   type SandboxFailure,
@@ -26,7 +27,7 @@ import {
   getActivePrompt,
   getWorkingHours,
   isWithinWorkingHours,
-  loadCatalogSnippet,
+  loadCatalogSnippetForMode,
 } from '../services/prompt-builder.js';
 import {
   buildReturningPersonaHistory,
@@ -148,7 +149,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
 
         const now = new Date();
         const workingHours = await getWorkingHours();
-        const catalogSnippet = await loadCatalogSnippet();
+        const catalogSnippet = await loadCatalogSnippetForMode(agentCfg.mode);
         const isOutOfHours = !isWithinWorkingHours(now, workingHours);
         const agentCfg = await getAgentConfig();
         const branchesList = await formatBranchesForPrompt();
@@ -214,16 +215,13 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         let userMessage = lastMessage.content;
         let conversationHistory = [...history];
         let finalText = '';
-        let claudeSessionId: string | undefined;
-        let sessionModel: string | undefined;
+        const sessions = createTurnClaudeSessions();
         const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const purpose = round === 0 ? 'reply' : 'router';
-          let model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
-          if (sessionModel && sessionModel !== model) {
-            claudeSessionId = undefined;
-          }
+          const model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
+          const resumeSessionId = sessions.resumeIdFor(purpose);
 
           let response = await askClaude(
             {
@@ -231,7 +229,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
               conversationHistory,
               userMessage,
               tools,
-              ...(claudeSessionId ? { resumeSessionId: claudeSessionId } : {}),
+              ...(resumeSessionId ? { resumeSessionId } : {}),
             },
             {
               channel: 'sandbox',
@@ -242,45 +240,37 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
             },
           );
 
-          if (response.sessionId && !response.fallback) {
-            claudeSessionId = response.sessionId;
-            sessionModel = model;
-          } else if (response.fallback) {
-            claudeSessionId = undefined;
-            sessionModel = undefined;
+          if (response.fallback) {
+            sessions.noteFallback(purpose);
           } else {
-            sessionModel = model;
+            sessions.noteSuccess(purpose, response.sessionId);
           }
 
-          // After tool results: if Haiku produced final prose (no tools), rewrite with reply model.
+          // After tool results: if Haiku produced final prose (no tools), resume reply session.
           if (
             round > 0 &&
             !response.fallback &&
             !(response.toolCalls && response.toolCalls.length > 0)
           ) {
-            claudeSessionId = undefined;
-            model = replyModel;
+            const replyResume = sessions.resumeIdFor('reply');
             response = await askClaude(
               {
                 systemPrompt,
                 conversationHistory,
                 userMessage,
                 tools,
+                ...(replyResume ? { resumeSessionId: replyResume } : {}),
               },
               {
                 channel: 'sandbox',
-                model,
+                model: replyModel,
                 timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
               },
             );
-            if (response.sessionId && !response.fallback) {
-              claudeSessionId = response.sessionId;
-              sessionModel = model;
-            } else if (response.fallback) {
-              claudeSessionId = undefined;
-              sessionModel = undefined;
+            if (response.fallback) {
+              sessions.noteFallback('reply');
             } else {
-              sessionModel = model;
+              sessions.noteSuccess('reply', response.sessionId);
             }
           }
 

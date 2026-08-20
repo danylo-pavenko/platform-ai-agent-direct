@@ -50,8 +50,8 @@ Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversatio
 | CWD | `~/.cache/platform-ai-agent/{instance}/claude-spawn` — **isolated** from `~/tenant_knowledge` (avoids parent `CLAUDE.md` pollution) |
 | Tools | **Text** protocol `<tool_call>{json}</tool_call>` — native CLI tools are not used in `-p` mode |
 | Concurrency | `CLAUDE_MAX_CONCURRENCY` (default 2); meta-agent: `CLAUDE_META_MAX_CONCURRENCY` (default 1) |
-| Session reuse | **Within a turn, same model:** follow-up tool rounds pass `resumeSessionId` → `claude -p --resume` with slim prompt; switching router↔reply model clears the session |
-| Reply vs router model | Tenant picks **sonnet \| opus** for customer-facing Ukrainian replies. Tool follow-ups first try internal **Haiku** (`CLAUDE_ROUTER_MODEL`); if no further tools, reply model writes the final text. Haiku is not in the admin picker. |
+| Session reuse | **Dual sessions per turn** (`lib/turn-claude-sessions.ts`): reply model and Haiku router keep separate `--resume` ids. Tool follow-up: Haiku resume → if no more tools, **resume reply session** (slim prompt), not a second cold Sonnet/Opus spawn. Mid-turn prompt activate clears both. |
+| Reply vs router model | Tenant picks **sonnet \| opus** for customer-facing Ukrainian replies. Tool follow-ups first try internal **Haiku** (`CLAUDE_ROUTER_MODEL`); if no further tools, reply model writes the final text (prefer resume). Haiku is not in the admin picker. |
 | Channels | `instagram`, customer telegram, `meta_agent`, `sandbox`, `supervisor`, `insights` |
 
 ---
@@ -62,15 +62,16 @@ Order in `buildRuntimePrompt` / `askClaude`:
 
 1. Anti-injection preamble  
 2. Active system prompt from DB (`system_prompts`, `isActive`) with placeholders (hours, branches, brand)  
-3. Session block: time, client profile, CRM history snippet, branches, Telegram bots, out-of-hours, previous brief  
-4. Live catalog snippet from `~/tenant_knowledge/knowledge/{catalog,services-live,masters-live}.txt` (~12k chars)  
+3. Session block: time, client profile, CRM **link hint** (full visits via `get_client_crm_history`), branches, Telegram bots, out-of-hours, previous brief  
+4. Live catalog snippet: sales/leadgen → products+services+masters (~12k); **booking** → masters only (≤1k); services/prices via tools  
 5. Mode tools block (`formatAgentToolsPrompt`)
 
 | Layer | Injected at runtime? |
 |-------|----------------------|
 | DB system prompt | Yes |
 | Seed `prompts/{sales,leadgen,booking}-agent.txt` | First DB seed only |
-| Live catalog / services / masters files | Yes (snippet) |
+| Live catalog / services / masters files | Yes (mode-aware snippet) |
+| Full CRM visit history | **No** on cold prompt — tool `get_client_crm_history` |
 | Legacy `knowledge/contacts|faq|…` | **No** |
 | Tenant disk `CLAUDE.md` | **No** (spawn cwd isolated) |
 | `<platform_capabilities>` | Meta-agent + **AI-помічник (insights)** — not the customer IG agent |
@@ -129,7 +130,7 @@ Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabili
 - Client profile fields collected so far + tags + branch  
 - Recent conversation (capped ~30 messages)  
 - Catalog / services / masters live snippets + search tools  
-- CRM visit history when linked (booking)  
+- CRM link hint when linked (booking); full visits via `get_client_crm_history`  
 - Working hours / out-of-hours strategy  
 - Mode tool surface only (no inventing tools)
 
@@ -142,13 +143,15 @@ Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabili
 | Factor | Impact |
 |--------|--------|
 | Fresh CLI spawn on **first** round of a turn | Cold start cost (Opus/Sonnet) |
-| Tool follow-ups | Prefer `claude -p --resume <session_id>` + slim prompt (tool result only); cold full prompt retry if resume fails |
+| Tool follow-ups | Haiku `--resume`; final prose **`--resume` reply session** when available (dual sessions) |
+| Slot / search tool results | Max **3** slot times/day; service search default limit **8** |
 | Semaphore max 2 | Queue / busy fallback under load |
-| Large system prompt + catalog + history on cold start | Token and TTFT cost |
+| Large system prompt + catalog + history on cold start | Token and TTFT cost (booking omits services-live dump) |
 | Intentional `responseDelay` | Product latency (0–60s), not a bug |
 | Insights snapshot | In-memory TTL (~45s) per period — chat turns reuse one snapshot |
+| Turn debug | Spawn counters (cold vs resume) in admin agent-turn notes |
 
-Optimization directions (roadmap): parallelize independent tool lookups where safe; further slim cold-start session blocks.
+Optimization directions (roadmap): parallelize independent tool lookups where safe; compact tool schemas; history char budget.
 
 ---
 

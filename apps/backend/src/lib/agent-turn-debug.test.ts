@@ -5,6 +5,7 @@ import {
   formatAgentTurnDebugNote,
   isAgentTurnDebugNote,
   recordTurnRound,
+  recordTurnSpawn,
   recordTurnTool,
   shouldPersistAgentTurnDebug,
 } from './agent-turn-debug.js';
@@ -50,5 +51,16 @@ describe('agent-turn-debug', () => {
 
   it('skips empty collectors', () => {
     expect(shouldPersistAgentTurnDebug(createAgentTurnDebugCollector())).toBe(false);
+  });
+
+  it('formats cold vs resume spawn counters', () => {
+    const c = createAgentTurnDebugCollector();
+    recordTurnSpawn(c, { purpose: 'reply', model: 'sonnet', resumed: false, inputChars: 4000 });
+    recordTurnSpawn(c, { purpose: 'router', model: 'haiku', resumed: true, inputChars: 200 });
+    recordTurnSpawn(c, { purpose: 'reply', model: 'sonnet', resumed: true, inputChars: 150 });
+    expect(shouldPersistAgentTurnDebug(c)).toBe(true);
+    const note = formatAgentTurnDebugNote(c, { durationMs: 100 });
+    expect(note).toMatch(/cold 1, resume 2/);
+    expect(note).toMatch(/~4350 input chars/);
   });
 });

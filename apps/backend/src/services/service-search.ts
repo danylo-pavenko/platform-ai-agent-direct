@@ -217,7 +217,7 @@ export async function getAvailableSlotsForContext(args: {
   const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
 
   for (const [day, slots] of Object.entries(result.slots)) {
-    const daySlots = slots.slice(0, 12);
+    const daySlots = slots.slice(0, 3);
     if (daySlots.length === 0) continue;
     lines.push(`## ${day}`);
     for (const slot of daySlots) {

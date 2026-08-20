@@ -21,9 +21,17 @@ export type AgentTurnRoundDebug = {
   fallback?: string | null;
 };
 
+export type AgentTurnSpawnDebug = {
+  purpose: 'reply' | 'router';
+  model: string;
+  resumed: boolean;
+  inputChars?: number;
+};
+
 export type AgentTurnDebugCollector = {
   tools: AgentTurnToolDebug[];
   rounds: AgentTurnRoundDebug[];
+  spawns: AgentTurnSpawnDebug[];
   stallRecovery: boolean;
   /** True when we recovered a false "you're booked" claim without book_appointment. */
   falseBookingRecovery: boolean;
@@ -48,6 +56,7 @@ export function createAgentTurnDebugCollector(): AgentTurnDebugCollector {
   return {
     tools: [],
     rounds: [],
+    spawns: [],
     stallRecovery: false,
     falseBookingRecovery: false,
   };
@@ -91,10 +100,23 @@ export function recordTurnRound(
   });
 }
 
+export function recordTurnSpawn(
+  collector: AgentTurnDebugCollector,
+  spawn: AgentTurnSpawnDebug,
+): void {
+  collector.spawns.push({
+    purpose: spawn.purpose,
+    model: spawn.model,
+    resumed: spawn.resumed,
+    inputChars: spawn.inputChars,
+  });
+}
+
 export function shouldPersistAgentTurnDebug(collector: AgentTurnDebugCollector): boolean {
   return (
     collector.rounds.length > 0 ||
     collector.tools.length > 0 ||
+    collector.spawns.length > 0 ||
     collector.stallRecovery ||
     collector.falseBookingRecovery ||
     Boolean(collector.agentFallback) ||
@@ -135,6 +157,16 @@ export function formatAgentTurnDebugNote(
   }
   if (opts?.durationMs != null && Number.isFinite(opts.durationMs)) {
     lines.push(`• Тривалість: ${(opts.durationMs / 1000).toFixed(1)}с`);
+  }
+  if (collector.spawns.length > 0) {
+    const cold = collector.spawns.filter((s) => !s.resumed).length;
+    const resumed = collector.spawns.filter((s) => s.resumed).length;
+    const chars = collector.spawns.reduce((n, s) => n + (s.inputChars ?? 0), 0);
+    lines.push(
+      `• Claude spawns: ${collector.spawns.length} (cold ${cold}, resume ${resumed}` +
+        (chars > 0 ? `, ~${chars} input chars` : '') +
+        ')',
+    );
   }
   if (collector.stallRecovery) {
     lines.push('• Stall recovery: так (обіцянка пошуку без tool → повторний хід)');

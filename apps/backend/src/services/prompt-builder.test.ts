@@ -61,5 +61,19 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toMatch(/активний системний промпт = бренд, контакти/);
     expect(prompt).toMatch(/живий каталог \+ tools/);
   });
+
+  it('in booking mode points at tools instead of embedded services catalog', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        agentMode: 'booking',
+        catalogSnippet: '### MASTERS\nАнна',
+      }),
+    );
+    expect(prompt).toMatch(/search_services \/ get_available_slots/);
+    expect(prompt).not.toMatch(
+      /Товари \/ послуги \/ ціни \/ майстри — з блоку нижче або через tools/,
+    );
+    expect(prompt).toContain('Анна');
+  });
 });
 

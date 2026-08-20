@@ -33,7 +33,7 @@ import {
   buildRuntimePrompt,
   getWorkingHours,
   isWithinWorkingHours,
-  loadCatalogSnippet,
+  loadCatalogSnippetForMode,
   type ClientProfile,
 } from './prompt-builder.js';
 import {
@@ -41,7 +41,7 @@ import {
   getPromptRuntimeGeneration,
 } from './prompt-runtime.js';
 import { formatBranchesForPrompt } from './branches.js';
-import { fetchClientCrmHistory } from './client-crm-link.js';
+import { formatCrmLinkHintForPrompt } from './client-crm-link.js';
 
 export {
   evaluateFollowUpNeed,
@@ -299,14 +299,9 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       };
 
       if (client.crmBuyerId) {
-        try {
-          const history = await fetchClientCrmHistory(client.id, { limit: 8 });
-          if (history.text) {
-            clientProfile.crmVisitHistory = history.text;
-          }
-        } catch (err) {
-          log.warn({ err, clientId: client.id }, 'CRM history for remarketing prompt failed');
-        }
+        clientProfile.crmVisitHistory = formatCrmLinkHintForPrompt({
+          crmBuyerId: client.crmBuyerId,
+        });
       }
 
       const agentCfg = await getAgentConfig();
@@ -324,7 +319,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         getActiveSystemPrompt(),
         getPromptRuntimeGeneration(),
       ]);
-      const catalog = await loadCatalogSnippet();
+      const catalog = await loadCatalogSnippetForMode(agentCfg.mode);
       const crmWritesEnabled = await isCrmWriteEnabled();
       const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
       const branchesList = await formatBranchesForPrompt();

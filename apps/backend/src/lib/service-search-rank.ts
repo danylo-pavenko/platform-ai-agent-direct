@@ -11,7 +11,7 @@ import {
   resolveServicePrice,
 } from './service-price-resolve.js';
 
-export const DEFAULT_SERVICE_SEARCH_LIMIT = 12;
+export const DEFAULT_SERVICE_SEARCH_LIMIT = 8;
 export const MAX_SERVICE_SEARCH_LIMIT = 20;
 
 /** Tokenize a service search query (Cyrillic + Latin, min 2 chars). */

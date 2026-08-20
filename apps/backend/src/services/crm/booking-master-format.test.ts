@@ -19,10 +19,28 @@ vi.mock('../../lib/integration-config.js', () => ({
   getIntegrationConfig: vi.fn(),
 }));
 
-import { formatCrmHistoryForPrompt } from '../client-crm-link.js';
+import { formatCrmHistoryForPrompt, formatCrmLinkHintForPrompt } from '../client-crm-link.js';
 import { formatSlotMastersLine } from '../service-search.js';
 
-describe('formatCrmHistoryForPrompt preferred master', () => {
+describe('formatCrmLinkHintForPrompt', () => {
+  it('points at get_client_crm_history without dumping visits', () => {
+    const text = formatCrmLinkHintForPrompt({ crmBuyerId: 'abc-def-12345678' });
+    expect(text).toMatch(/get_client_crm_history/);
+    expect(text).not.toMatch(/хв \|/);
+  });
+
+  it('includes preferred master when provided', () => {
+    const text = formatCrmLinkHintForPrompt({
+      crmBuyerId: 'id',
+      preferredMasterId: 'pro-1',
+      preferredMasterName: 'Анна',
+    });
+    expect(text).toContain('[master_id=pro-1]');
+    expect(text).toContain('Анна');
+  });
+});
+
+describe('formatCrmHistoryForPrompt', () => {
   it('includes master_id for tools and a preferred-master hint', () => {
     const text = formatCrmHistoryForPrompt([
       {

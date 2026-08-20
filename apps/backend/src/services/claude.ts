@@ -79,6 +79,10 @@ export interface ClaudeResponse {
   errorDetail?: string;
   /** Claude Code session id from stream-json — pass as `resumeSessionId` on the next round. */
   sessionId?: string;
+  /** True when this invocation used `--resume` with a slim prompt (no cold retry). */
+  resumed?: boolean;
+  /** Approx stdin size for this spawn (chars). */
+  inputChars?: number;
 }
 
 export interface ClaudeCallContext {
@@ -681,7 +685,7 @@ export async function askClaude(
     );
     logFallback(circuit, Date.now() - startMs, 0);
     record(circuit, 0);
-    return circuit;
+    return { ...circuit, resumed: false, inputChars: 0 };
   }
 
   // Back-pressure: reject early if too many requests are already queued
@@ -697,7 +701,7 @@ export async function askClaude(
     );
     logFallback(busy, Date.now() - startMs, 0);
     record(busy, 0);
-    return busy;
+    return { ...busy, resumed: false, inputChars: 0 };
   }
 
   let release: (() => void) | undefined;
@@ -804,14 +808,18 @@ export async function askClaude(
 
     logFallback(response, durationMs, promptChars);
     record(response, promptChars);
-    return response;
+    return {
+      ...response,
+      resumed: usedResume,
+      inputChars: promptChars,
+    };
   } catch (err) {
     log.error({ err }, 'Unexpected error in askClaude');
     const message = err instanceof Error ? err.message : String(err);
     const fallback = fallbackFor('timeout', context, `askClaude unexpected error: ${message}`);
     logFallback(fallback, Date.now() - startMs, 0);
     record(fallback, 0, message);
-    return fallback;
+    return { ...fallback, resumed: false, inputChars: 0 };
   } finally {
     release?.();
   }
@@ -856,7 +864,7 @@ export async function askClaudeStream(
       'Claude quota hard block — stream fallback without spawn',
     );
     emitDone(circuit);
-    return circuit;
+    return { ...circuit, resumed: false, inputChars: 0 };
   }
 
   if (gate.pending > MAX_PENDING) {
@@ -866,7 +874,7 @@ export async function askClaudeStream(
       `queue overloaded (pending=${gate.pending}, active=${gate.active})`,
     );
     emitDone(busy);
-    return busy;
+    return { ...busy, resumed: false, inputChars: 0 };
   }
 
   const spawnOnce = async (resumeSessionId: string | undefined) => {
@@ -961,12 +969,16 @@ export async function askClaudeStream(
     }
 
     emitDone(response);
-    return response;
+    return {
+      ...response,
+      resumed: Boolean(req.resumeSessionId) && !response.fallback,
+      inputChars: promptChars,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const fallback = fallbackFor('timeout', context, `askClaudeStream unexpected error: ${message}`);
     emitDone(fallback);
-    return fallback;
+    return { ...fallback, resumed: false, inputChars: 0 };
   } finally {
     release?.();
   }

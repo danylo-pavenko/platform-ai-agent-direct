@@ -170,4 +170,30 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).toContain('[master_id=nails] Анна');
     expect(text).toContain('[master_id=brows] Оля');
   });
+
+  it('returns at most 3 slot times per day', async () => {
+    getAvailableSlots.mockResolvedValue({
+      slots: {
+        '04.08.2026': [
+          { date: '04.08.2026', time: '10:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '11:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '12:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '13:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '14:00', masterIds: ['a'] },
+        ],
+      },
+      masters: [{ id: 'a', name: 'Anna' }],
+    });
+
+    const text = await getAvailableSlotsForContext({
+      date: '04.08.2026',
+      branchCrmId: 'loc-1',
+      services: [{ id: 'svc-1', durationMin: 45 }],
+    });
+
+    expect(text).toContain('10:00');
+    expect(text).toContain('12:00');
+    expect(text).not.toContain('13:00');
+    expect(text).not.toContain('14:00');
+  });
 });

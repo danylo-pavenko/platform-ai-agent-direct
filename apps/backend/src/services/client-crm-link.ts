@@ -322,6 +322,27 @@ export function formatCrmHistoryForPrompt(
   return lines.join('\n');
 }
 
+/**
+ * Compact CRM link hint for cold prompts (no full visit dump — use get_client_crm_history).
+ */
+export function formatCrmLinkHintForPrompt(opts: {
+  crmBuyerId: string;
+  preferredMasterId?: string | null;
+  preferredMasterName?: string | null;
+}): string {
+  const lines = [
+    'Повну історію візитів CRM бери через get_client_crm_history (не вигадуй минулі візити).',
+  ];
+  const masterId = opts.preferredMasterId?.trim();
+  if (masterId) {
+    const label = opts.preferredMasterName?.trim() || 'попередній майстер';
+    lines.push(
+      `Улюблений майстер: ${label} [master_id=${masterId}] — запропонуй його і виклич get_available_slots з цим master_id. Клієнту лише імʼя.`,
+    );
+  }
+  return lines.join('\n');
+}
+
 function formatVisitDate(iso: string): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return iso || 'дата?';

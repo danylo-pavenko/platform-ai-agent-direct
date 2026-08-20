@@ -9,7 +9,7 @@ import {
   buildRuntimePrompt,
   getWorkingHours,
   isWithinWorkingHours,
-  loadCatalogSnippet,
+  loadCatalogSnippetForMode,
   type ClientProfile,
 } from './prompt-builder.js';
 import {
@@ -45,7 +45,7 @@ import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
-import { fetchClientCrmHistory } from './client-crm-link.js';
+import { fetchClientCrmHistory, formatCrmLinkHintForPrompt } from './client-crm-link.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
@@ -77,10 +77,12 @@ import {
   createAgentTurnDebugCollector,
   formatAgentTurnDebugNote,
   recordTurnRound,
+  recordTurnSpawn,
   recordTurnTool,
   shouldPersistAgentTurnDebug,
   type AgentTurnDebugCollector,
 } from '../lib/agent-turn-debug.js';
+import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
 import {
   executeGetAvailableSlotsTool,
   formatSearchServicesToolResult,
@@ -401,17 +403,11 @@ async function handleIncomingMessageImpl(
     crmBuyerId: client.crmBuyerId ?? undefined,
   };
 
-  // Salon CRM visit history — only when already linked (avoid CRM hit every turn).
-  // Agent can call get_client_crm_history after phone is collected to refresh.
+  // Salon CRM: compact link hint only (full visits via get_client_crm_history tool).
   if (client.crmBuyerId) {
-    try {
-      const history = await fetchClientCrmHistory(client.id, { limit: 8 });
-      if (history.text) {
-        clientProfile.crmVisitHistory = history.text;
-      }
-    } catch (err) {
-      log.warn({ err, clientId: client.id }, 'CRM history for prompt failed');
-    }
+    clientProfile.crmVisitHistory = formatCrmLinkHintForPrompt({
+      crmBuyerId: client.crmBuyerId,
+    });
   }
 
   // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
@@ -509,7 +505,7 @@ async function handleIncomingMessageImpl(
     getActiveSystemPrompt(),
     getPromptRuntimeGeneration(),
   ]);
-  const catalog = await loadCatalogSnippet();
+  const catalog = await loadCatalogSnippetForMode(agentCfg.mode);
 
   // Per-tenant CRM field mappings — shapes both the prompt (extra-fields
   // hints) and the tool schema (update_client_info.custom_fields). Cache
@@ -732,8 +728,7 @@ async function handleIncomingMessageImpl(
   debug.runtimeGeneration = promptSession.getMeta().generation;
 
   /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
-  let claudeSessionId: string | undefined;
-  let sessionModel: string | undefined;
+  const sessions = createTurnClaudeSessions();
   const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
 
   async function askTurnClaude(
@@ -746,9 +741,8 @@ async function handleIncomingMessageImpl(
 
     const { prompt: systemPrompt, refreshed, meta } = await promptSession.refreshIfStale();
     if (refreshed) {
-      // New system prompt must start a fresh Claude Code session.
-      claudeSessionId = undefined;
-      sessionModel = undefined;
+      // New system prompt must start fresh Claude Code sessions.
+      sessions.clearAll();
       debug.promptRefreshedMidTurn = true;
       debug.promptId = meta.id;
       debug.promptVersion = meta.version;
@@ -764,34 +758,34 @@ async function handleIncomingMessageImpl(
       );
     }
 
-    // --resume is model-bound; switching router↔reply requires a cold spawn.
-    if (sessionModel && sessionModel !== model) {
-      claudeSessionId = undefined;
-    }
-
+    const resumeSessionId = sessions.resumeIdFor(purpose);
     const response = await askClaude(
       {
         ...req,
         systemPrompt,
-        ...(claudeSessionId ? { resumeSessionId: claudeSessionId } : {}),
+        ...(resumeSessionId ? { resumeSessionId } : {}),
       },
       { ...ctx, model },
     );
-    if (response.sessionId && !response.fallback) {
-      claudeSessionId = response.sessionId;
-      sessionModel = model;
-    } else if (response.fallback) {
-      claudeSessionId = undefined;
-      sessionModel = undefined;
+
+    recordTurnSpawn(debug, {
+      purpose,
+      model,
+      resumed: Boolean(response.resumed),
+      inputChars: response.inputChars,
+    });
+
+    if (response.fallback) {
+      sessions.noteFallback(purpose);
     } else {
-      sessionModel = model;
+      sessions.noteSuccess(purpose, response.sessionId);
     }
     return response;
   }
 
   /**
    * Tool follow-up: Haiku decides whether to call more tools; customer-facing
-   * prose is always regenerated with the tenant reply model (sonnet/opus).
+   * prose resumes the reply-model session (no cold full prompt when possible).
    */
   async function askTurnClaudeFollowUp(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
