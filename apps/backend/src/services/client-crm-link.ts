@@ -12,6 +12,10 @@ import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { isCrmProviderName, type CrmProviderName } from '../lib/crm-providers.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmVisitHistoryItem } from './crm/types.js';
+import {
+  formatRecommendedDurationBlock,
+  resolveRecommendedDuration,
+} from '../lib/client-service-duration.js';
 
 const log = pino({ name: 'client-crm-link' });
 
@@ -265,7 +269,13 @@ export async function persistCrmBuyerIdFromBooking(
 
 export function formatCrmHistoryForPrompt(
   items: CrmVisitHistoryItem[],
-  opts?: { limit?: number },
+  opts?: {
+    limit?: number;
+    serviceId?: string;
+    serviceName?: string;
+    catalogDurationMin?: number;
+    masterId?: string;
+  },
 ): string {
   const limit = opts?.limit ?? 8;
   const slice = items.slice(0, limit);
@@ -287,9 +297,27 @@ export function formatCrmHistoryForPrompt(
       services.length > 0
         ? services.join(', ')
         : visit.items.map((i) => i.name).filter(Boolean).join(', ') || 'візит';
-    const dur =
-      visit.durationMin > 0 ? `${visit.durationMin} хв` : 'тривалість н/д';
-    if (visit.durationMin > 0) durations.push(visit.durationMin);
+    const effective =
+      typeof visit.actualDurationMin === 'number' && visit.actualDurationMin > 0
+        ? visit.actualDurationMin
+        : visit.durationMin;
+    const booked = visit.bookedDurationMin ?? visit.durationMin;
+    let dur = 'тривалість н/д';
+    if (effective > 0) {
+      if (
+        typeof visit.actualDurationMin === 'number' &&
+        visit.actualDurationMin > 0 &&
+        booked > 0 &&
+        visit.actualDurationMin !== booked
+      ) {
+        dur = `${visit.actualDurationMin} хв actual (booked ${booked})`;
+      } else if (typeof visit.actualDurationMin === 'number' && visit.actualDurationMin > 0) {
+        dur = `${visit.actualDurationMin} хв actual`;
+      } else {
+        dur = `${effective} хв`;
+      }
+      durations.push(effective);
+    }
     let master = '';
     if (visit.professionalName || visit.professionalId) {
       const name = visit.professionalName ?? 'майстер';
@@ -307,7 +335,7 @@ export function formatCrmHistoryForPrompt(
     );
     const last = durations[0]!;
     lines.push(
-      `Орієнтир: остання тривалість ${last} хв, середня з історії ~${avg} хв — враховуй при виборі слота (якщо клієнт бере ту саму/схожу послугу).`,
+      `Орієнтир: остання тривалість ${last} хв, середня з історії ~${avg} хв — платформа підставить персональну тривалість у get_available_slots / book_appointment для схожої послуги.`,
     );
   }
 
@@ -317,6 +345,17 @@ export function formatCrmHistoryForPrompt(
     lines.push(
       `Улюблений майстер: ${label} [master_id=${lastWithMaster.professionalId}] — запропонуй його і виклич get_available_slots з цим master_id. Клієнту показуй лише ім'я, не id.`,
     );
+  }
+
+  if (opts?.serviceId || opts?.serviceName) {
+    const rec = resolveRecommendedDuration({
+      catalogDurationMin: opts.catalogDurationMin ?? 60,
+      serviceId: opts.serviceId,
+      serviceName: opts.serviceName,
+      masterId: opts.masterId,
+      visits: items,
+    });
+    lines.push(formatRecommendedDurationBlock(rec));
   }
 
   return lines.join('\n');
@@ -355,7 +394,13 @@ function formatVisitDate(iso: string): string {
 
 export async function fetchClientCrmHistory(
   clientId: string,
-  opts?: { limit?: number },
+  opts?: {
+    limit?: number;
+    serviceId?: string;
+    serviceName?: string;
+    catalogDurationMin?: number;
+    masterId?: string;
+  },
 ): Promise<{
   items: CrmVisitHistoryItem[];
   provider: CrmProviderName | null;
@@ -416,7 +461,13 @@ export async function fetchClientCrmHistory(
       items,
       provider,
       crmBuyerId: refreshed.crmBuyerId,
-      text: formatCrmHistoryForPrompt(items, { limit: opts?.limit ?? 8 }),
+      text: formatCrmHistoryForPrompt(items, {
+        limit: opts?.limit ?? 8,
+        serviceId: opts?.serviceId,
+        serviceName: opts?.serviceName,
+        catalogDurationMin: opts?.catalogDurationMin,
+        masterId: opts?.masterId,
+      }),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

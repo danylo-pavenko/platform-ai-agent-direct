@@ -251,16 +251,29 @@ export interface CrmBookingInput {
 export interface CrmVisitHistoryItem {
   id: string;
   date: string;
+  /**
+   * Effective minutes for display / matching (actual wall-clock if known,
+   * else booked). Prefer reading via client-service-duration helpers.
+   */
   durationMin: number;
+  /** Booked duration from history.duration. */
+  bookedDurationMin?: number;
+  /**
+   * Wall-clock minutes: sale_date − visit start (when sale_id was resolved).
+   * Prefer this over booked for personal slot duration.
+   */
+  actualDurationMin?: number;
   /** CRM professional / employee id for preferred-master booking (internal). */
   professionalId?: string;
   professionalName?: string;
   paid?: boolean;
   items: Array<{
+    id?: string;
     name: string;
     type: string;
     quantity?: number;
     sum?: number;
+    saleId?: string;
   }>;
   feedbackRating?: number;
   feedbackText?: string;

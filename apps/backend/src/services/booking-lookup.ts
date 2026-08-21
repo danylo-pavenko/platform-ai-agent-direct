@@ -38,6 +38,7 @@ export async function searchServicesWithFallback(
 export async function executeGetAvailableSlotsTool(params: {
   args: Record<string, unknown>;
   branchCrmExternalId?: string | null;
+  clientId?: string | null;
 }): Promise<string> {
   const parsed = parseGetAvailableSlotsArgs(params.args);
   if ('error' in parsed) return parsed.error;
@@ -57,6 +58,7 @@ export async function executeGetAvailableSlotsTool(params: {
       services: parsed.services,
       fullMonth: parsed.fullMonth,
       masterId: parsed.masterId,
+      clientId: params.clientId,
     });
     return `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
   } catch (err) {

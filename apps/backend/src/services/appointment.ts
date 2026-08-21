@@ -28,6 +28,7 @@ import { providerDisplayName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { getAvailableSlotsForContext } from './service-search.js';
+import { applyPersonalDurations } from './personal-duration.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -97,6 +98,28 @@ export async function handleBookAppointment(
   if (!parseAgentDate(date)) {
     log.warn({ conversationId, rawDate }, 'book_appointment invalid date (need DD.MM.YYYY)');
     return null;
+  }
+
+  const personal = await applyPersonalDurations({
+    clientId,
+    services: services.map((s) => ({
+      id: s.id,
+      durationMin: s.durationMin,
+      masterId: s.masterId,
+      name: s.name,
+    })),
+  });
+  for (let i = 0; i < services.length; i++) {
+    const next = personal.services[i];
+    if (next && services[i]) {
+      services[i]!.durationMin = next.durationMin;
+    }
+  }
+  if (personal.notes.length > 0) {
+    log.info(
+      { conversationId, clientId, notes: personal.notes },
+      'book_appointment: personal duration applied',
+    );
   }
 
   const conversation = await prisma.conversation.findUnique({
@@ -233,7 +256,10 @@ export async function handleBookAppointment(
     return {
       appointmentId: appointment.id,
       crmSynced: true,
-      toolResult: `[book_appointment] ok id=${appointment.id}`,
+      toolResult:
+        personal.notes.length > 0
+          ? `[book_appointment] ok id=${appointment.id}\n${personal.notes.join('\n')}`
+          : `[book_appointment] ok id=${appointment.id}`,
     };
   }
 
@@ -252,6 +278,7 @@ export async function handleBookAppointment(
         })),
         fullMonth: true,
         excludeTime: time,
+        clientId,
       });
       toolResult = formatTimeConflictToolResult({
         failedDate: date,

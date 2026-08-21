@@ -45,7 +45,7 @@ import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
-import { fetchClientCrmHistory, formatCrmLinkHintForPrompt } from './client-crm-link.js';
+import { fetchClientCrmHistory, formatCrmLinkHintForPrompt, linkClientToCrm } from './client-crm-link.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
@@ -1050,7 +1050,29 @@ async function handleIncomingMessageImpl(
     if (crmHistoryCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall) {
       let toolResultContent: string;
       try {
-        const history = await fetchClientCrmHistory(client.id, { limit: 10 });
+        const serviceId =
+          typeof crmHistoryCall.args.service_id === 'string'
+            ? crmHistoryCall.args.service_id.trim()
+            : undefined;
+        const serviceName =
+          typeof crmHistoryCall.args.service_query === 'string'
+            ? crmHistoryCall.args.service_query.trim()
+            : undefined;
+        const catalogDurationMin =
+          typeof crmHistoryCall.args.duration_min === 'number'
+            ? crmHistoryCall.args.duration_min
+            : undefined;
+        const masterId =
+          typeof crmHistoryCall.args.master_id === 'string'
+            ? crmHistoryCall.args.master_id.trim()
+            : undefined;
+        const history = await fetchClientCrmHistory(client.id, {
+          limit: 10,
+          serviceId: serviceId || undefined,
+          serviceName: serviceName || undefined,
+          catalogDurationMin,
+          masterId: masterId || undefined,
+        });
         toolResultContent = `[get_client_crm_history] РЕЗУЛЬТАТ:\n${history.text}`;
       } catch (err) {
         log.error({ err, clientId: client.id }, 'get_client_crm_history failed');
@@ -1176,6 +1198,7 @@ async function handleIncomingMessageImpl(
           const slotsResult = await executeGetAvailableSlotsTool({
             args: nextSlots.args,
             branchCrmExternalId: conversation.branch?.crmExternalId,
+            clientId: client.id,
           });
           recordTurnTool(debug, 'get_available_slots', nextSlots.args, slotsResult);
           const afterSlots = await askTurnClaudeFollowUp(
@@ -1283,6 +1306,7 @@ async function handleIncomingMessageImpl(
       const toolResultContent = await executeGetAvailableSlotsTool({
         args: slotsCall.args,
         branchCrmExternalId: conversation.branch?.crmExternalId,
+        clientId: client.id,
       });
       recordTurnTool(debug, 'get_available_slots', slotsCall.args, toolResultContent);
       const date =
@@ -1396,6 +1420,7 @@ async function handleIncomingMessageImpl(
         const slotsResult = await executeGetAvailableSlotsTool({
           args: recoverySlots.args,
           branchCrmExternalId: conversation.branch?.crmExternalId,
+          clientId: client.id,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlots.args, slotsResult);
         const afterSlots = await askTurnClaudeFollowUp(
@@ -1483,6 +1508,7 @@ async function handleIncomingMessageImpl(
           const slotsResult = await executeGetAvailableSlotsTool({
             args: chainedSlots.args,
             branchCrmExternalId: conversation.branch?.crmExternalId,
+            clientId: client.id,
           });
           recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
           const afterSlots = await askTurnClaudeFollowUp(
@@ -1669,6 +1695,7 @@ async function handleIncomingMessageImpl(
             const slotsResult = await executeGetAvailableSlotsTool({
               args: chainedSlots.args,
               branchCrmExternalId: conversation.branch?.crmExternalId,
+              clientId: client.id,
             });
             recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
             const afterSlots = await askTurnClaudeFollowUp(
@@ -1773,6 +1800,7 @@ async function handleIncomingMessageImpl(
         const slotsResult = await executeGetAvailableSlotsTool({
           args: recoverySlotsCall.args,
           branchCrmExternalId: conversation.branch?.crmExternalId,
+          clientId: client.id,
         });
         recordTurnTool(debug, 'get_available_slots', recoverySlotsCall.args, slotsResult);
         const afterSlots = await askTurnClaudeFollowUp(
@@ -2423,7 +2451,7 @@ type TerminalToolContext = {
   turnDebug?: AgentTurnDebugCollector | null;
 };
 
-/** Fire-and-forget profile / intent writes — never ends the conversation turn. */
+/** Profile / intent writes — await phone+CRM link so same-turn slots/history see crmBuyerId. */
 async function runSideEffectToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   clientId: string,
@@ -2443,11 +2471,25 @@ async function runSideEffectToolCalls(
         ? (updateInfo.args.custom_fields as Record<string, unknown>)
         : {};
 
-    handleUpdateClientInfo(clientId, updateInfo.args)
-      .then(() => mirrorClientToCrm(clientId, extractedCustomFields))
-      .catch((err) => {
-        log.error({ err, conversationId, clientId }, 'Failed to save/mirror client info');
+    const hasPhone =
+      typeof updateInfo.args.phone === 'string' && updateInfo.args.phone.trim().length > 0;
+
+    try {
+      await handleUpdateClientInfo(clientId, updateInfo.args);
+      if (hasPhone) {
+        // Await link so get_available_slots / get_client_crm_history in this turn
+        // can resolve personal duration from CRM history.
+        await linkClientToCrm(clientId, { upsert: false }).catch((err) => {
+          log.warn({ err, clientId }, 'linkClientToCrm after phone failed (non-fatal)');
+        });
+      }
+      // Full CRM mirror stays async (may need write-enabled upsert).
+      void mirrorClientToCrm(clientId, extractedCustomFields).catch((err) => {
+        log.error({ err, conversationId, clientId }, 'Failed to mirror client info');
       });
+    } catch (err) {
+      log.error({ err, conversationId, clientId }, 'Failed to save/mirror client info');
+    }
   }
 
   const tagClient = toolCalls.find((tc) => tc.name === 'tag_client');

@@ -26,6 +26,7 @@ import { getCrmAdapter } from './crm/index.js';
 import type { CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
+import { applyPersonalDurations } from './personal-duration.js';
 
 export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
 
@@ -170,6 +171,8 @@ export async function getAvailableSlotsForContext(args: {
   masterId?: string;
   /** Clock time to omit (after TIME_CONFLICT). */
   excludeTime?: string;
+  /** Local client id — personal duration from CRM history when available. */
+  clientId?: string | null;
 }): Promise<string> {
   const provider = await resolveCrmProvider('booking');
   const crm = getCrmAdapter(provider);
@@ -178,7 +181,13 @@ export async function getAvailableSlotsForContext(args: {
     return 'Слоти недоступні — CRM не підтримує онлайн-запис.';
   }
 
-  const assigned = args.services.map((s) => ({
+  const personal = await applyPersonalDurations({
+    clientId: args.clientId,
+    services: args.services,
+  });
+  const servicesForLookup = personal.services;
+
+  const assigned = servicesForLookup.map((s) => ({
     ...s,
     masterId: s.masterId || args.masterId,
   }));
@@ -227,6 +236,9 @@ export async function getAvailableSlotsForContext(args: {
   }
 
   const lines: string[] = [];
+  if (personal.notes.length > 0) {
+    lines.push(...personal.notes, '');
+  }
   const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
   const excludeKey = args.excludeTime
     ? normalizeSlotTimeKey(args.excludeTime)
@@ -264,12 +276,15 @@ export async function getAvailableSlotsForContext(args: {
     if (daysShown >= 5) break;
   }
 
-  if (lines.length === 0) {
-    return parallelMasters
+  if (daysShown === 0) {
+    const emptyMsg = parallelMasters
       ? 'Спільних вільних вікон для цих майстрів на обрану дату (і найближчі дні) не знайдено. Запропонуй інший день, інших майстрів або послідовний запис (один майстер). Не вигадуй «лист очікування» без процесу салону.'
       : uniqueMasters.length > 0
         ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
         : 'Вільних слотів на обрану дату не знайдено.';
+    return personal.notes.length > 0
+      ? `${personal.notes.join('\n')}\n\n${emptyMsg}`
+      : emptyMsg;
   }
 
   if (broadenedToMonth) {

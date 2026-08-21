@@ -42,7 +42,7 @@ Telegram-сповіщення менеджерам — НЕ окремий tool 
 
 Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox).
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
-Історія візитів (тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок.
+Історія візитів (фактична тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок. Платформа підставляє персональну duration у free_time / book.
 
 ## Booking master preference (booking mode)
 

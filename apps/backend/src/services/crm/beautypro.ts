@@ -56,8 +56,12 @@ import {
   pickClientMatchingIg,
   type RawClientLike,
 } from './beautypro-clients.js';
+import { computeActualDurationMin } from '../../lib/client-service-duration.js';
 
 const log = pino({ name: 'crm:beautypro' });
+
+/** Max sales to resolve per history fetch (avoid API spam). */
+const HISTORY_SALE_LOOKUP_CAP = 8;
 
 const AUTH_HOST = 'https://api.aihelps.com/v1';
 
@@ -644,6 +648,75 @@ async function findSameDayClientAppointment(opts: {
   }
 }
 
+/**
+ * For paid visits with sale_id, fetch sale_date and set actualDurationMin
+ * (wall-clock start → payment close, as in BeautyPro UI history).
+ */
+async function enrichHistoryWithSaleDurations(
+  visits: CrmVisitHistoryItem[],
+): Promise<void> {
+  const saleIds: string[] = [];
+  const seen = new Set<string>();
+  for (const visit of visits) {
+    if (visit.paid !== true) continue;
+    for (const it of visit.items) {
+      const sid = it.saleId?.trim();
+      if (!sid || seen.has(sid)) continue;
+      seen.add(sid);
+      saleIds.push(sid);
+      if (saleIds.length >= HISTORY_SALE_LOOKUP_CAP) break;
+    }
+    if (saleIds.length >= HISTORY_SALE_LOOKUP_CAP) break;
+  }
+  if (saleIds.length === 0) return;
+
+  const saleDates = new Map<string, string>();
+  await Promise.all(
+    saleIds.map(async (saleId) => {
+      try {
+        const sale = await bpFetch<{ sale_date?: string; duration?: number }>(
+          'GET',
+          `/sales/${saleId}`,
+          { query: { fields: 'sale_date,duration,calendar_date' } },
+        );
+        if (typeof sale?.sale_date === 'string' && sale.sale_date.trim()) {
+          saleDates.set(saleId, sale.sale_date.trim());
+        }
+      } catch (err) {
+        log.warn({ err, saleId }, 'BeautyPro sale lookup failed (history duration)');
+      }
+    }),
+  );
+
+  for (const visit of visits) {
+    if (!visit.date) continue;
+    let bestActual: number | undefined;
+    for (const it of visit.items) {
+      const sid = it.saleId?.trim();
+      if (!sid) continue;
+      const saleDate = saleDates.get(sid);
+      if (!saleDate) continue;
+      const actual = computeActualDurationMin(visit.date, saleDate);
+      if (actual == null) continue;
+      if (bestActual == null || actual > bestActual) bestActual = actual;
+    }
+    if (bestActual == null) continue;
+    visit.actualDurationMin = bestActual;
+    visit.durationMin = bestActual;
+    const booked = visit.bookedDurationMin ?? 0;
+    if (booked > 0 && Math.abs(bestActual - booked) >= 5) {
+      log.debug(
+        {
+          visitId: visit.id,
+          booked,
+          actual: bestActual,
+        },
+        'BeautyPro history: actual duration differs from booked',
+      );
+    }
+  }
+}
+
 export const beautyproAdapter: CrmAdapter = {
   name: 'beautypro',
   capabilities: {
@@ -1011,10 +1084,12 @@ export const beautyproAdapter: CrmAdapter = {
         professional_name?: string | null;
         paid?: boolean;
         items?: Array<{
+          id?: string;
           name?: string;
           type?: string;
           quantity?: number;
           sum?: number;
+          sale_id?: string | null;
         }>;
         feedback?: {
           ratings?: number;
@@ -1024,31 +1099,43 @@ export const beautyproAdapter: CrmAdapter = {
     >('GET', `/clients/${crmBuyerId}/history`, {
       query: {
         fields:
-          'date,duration,professional,professional_name,paid,items(id,name,type,quantity,sum),feedback',
+          'date,duration,professional,professional_name,paid,items(id,name,type,quantity,sum,sale_id),feedback',
       },
     });
 
-    const items: CrmVisitHistoryItem[] = (raw ?? []).map((row) => ({
-      id: row.id,
-      date: row.date ?? '',
-      durationMin: typeof row.duration === 'number' ? row.duration : 0,
-      professionalId: row.professional?.trim() || undefined,
-      professionalName: row.professional_name || undefined,
-      paid: row.paid,
-      items: (row.items ?? []).map((it) => ({
-        name: it.name ?? '—',
-        type: it.type ?? 'Service',
-        quantity: it.quantity,
-        sum: it.sum,
-      })),
-      feedbackRating:
-        typeof row.feedback?.ratings === 'number' ? row.feedback.ratings : undefined,
-      feedbackText: row.feedback?.text || undefined,
-    }));
+    const items: CrmVisitHistoryItem[] = (raw ?? []).map((row) => {
+      const booked =
+        typeof row.duration === 'number' && row.duration > 0 ? row.duration : 0;
+      return {
+        id: row.id,
+        date: row.date ?? '',
+        durationMin: booked,
+        bookedDurationMin: booked > 0 ? booked : undefined,
+        professionalId: row.professional?.trim() || undefined,
+        professionalName: row.professional_name || undefined,
+        paid: row.paid,
+        items: (row.items ?? []).map((it) => ({
+          id: typeof it.id === 'string' && it.id.trim() ? it.id.trim() : undefined,
+          name: it.name ?? '—',
+          type: it.type ?? 'Service',
+          quantity: it.quantity,
+          sum: it.sum,
+          saleId:
+            typeof it.sale_id === 'string' && it.sale_id.trim()
+              ? it.sale_id.trim()
+              : undefined,
+        })),
+        feedbackRating:
+          typeof row.feedback?.ratings === 'number' ? row.feedback.ratings : undefined,
+        feedbackText: row.feedback?.text || undefined,
+      };
+    });
 
     // Newest first; API may return mixed order
     items.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
-    return items.slice(0, limit);
+    const sliced = items.slice(0, limit);
+    await enrichHistoryWithSaleDurations(sliced);
+    return sliced;
   },
 };
 

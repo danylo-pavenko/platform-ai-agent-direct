@@ -277,10 +277,27 @@ const ATTACH_REFERENCE_PHOTO: ToolDefinition = {
 const GET_CLIENT_CRM_HISTORY: ToolDefinition = {
   name: 'get_client_crm_history',
   description:
-    'Історія візитів клієнта з CRM (тривалість попередніх послуг, майстер, дати). Викликай перед записом, якщо клієнт уже дав телефон, або щоб уточнити скільки часу займала минула послуга.',
+    'Історія візитів клієнта з CRM (фактична тривалість, майстер, дати). Викликай після телефону / перед записом. Передай service_id або service_query — отримаєш РЕКОМЕНДОВАНУ_ТРИВАЛІСТЬ для слотів.',
   parameters: {
     type: 'object',
-    properties: {},
+    properties: {
+      service_id: {
+        type: 'string',
+        description: 'CRM id послуги з search_services — для персональної тривалості',
+      },
+      service_query: {
+        type: 'string',
+        description: 'Назва/ключові слова послуги (якщо ще немає id), напр. «Комплекс»',
+      },
+      duration_min: {
+        type: 'number',
+        description: 'Каталожна duration_min з search_services (для порівняння з історією)',
+      },
+      master_id: {
+        type: 'string',
+        description: 'Опційно: майстер з історії — пріоритет його візитів для тривалості',
+      },
+    },
     required: [],
   },
 };
