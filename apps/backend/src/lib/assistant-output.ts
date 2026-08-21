@@ -8,12 +8,18 @@
  * 4. This gate — last mile: redact internal IDs, strip meta/JSON rants;
  *    replace with safe fallback only when nothing customer-facing remains.
  *    Prices and human-readable copy pass through.
+ *    Never wipe replies that still have enough Cyrillic (UA client copy).
  */
 
 const META_MARKERS_RE =
   /not a coding task|I should respond|respond in character|per the system prompt|This is an Instagram DM|Instagram DM from a customer|Looking at (?:the|this) (?:message|prompt)|Let me (?:just )?(?:respond|reply)|I'll (?:respond|reply) (?:as|in)|I'm going to (?:respond|reply)|The (?:user|customer) (?:is asking|asked|wants)|As (?:an? )?(?:AI|assistant|sales agent)|CLAUDE\.md|toolset|tools provided|doesn't match|does not match|knowledge base|business identity|entirely different compan|lead-?gen tools|e-commerce sales-?mode|mismatch between|wrong tools|orientation file/i;
 
 const CYRILLIC_RE = /[\u0400-\u04FF]/;
+const CYRILLIC_GLOBAL_RE = /[\u0400-\u04FF]/g;
+const LATIN_GLOBAL_RE = /[A-Za-z]/g;
+
+/** Keep / rescue client copy when at least this many Cyrillic letters remain. */
+const MIN_CYRILLIC_CLIENT_COPY = 8;
 
 const INTERNAL_XML_RE =
   /<\/?(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)[^>]*>[\s\S]*?<\/(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)>/gi;
@@ -21,9 +27,12 @@ const INTERNAL_XML_RE =
 const INTERNAL_XML_OPEN_ONLY_RE =
   /<\/?(?:thinking|thought|reflection|reasoning|scratchpad|analysis|plan|antthinking)[^>]*>/gi;
 
-/** Safe Ukrainian copy when the model produced only internal/meta text. */
+/**
+ * Neutral copy when the model produced only internal/meta text.
+ * Do NOT promise a live manager — this is not a handoff.
+ */
 export const CUSTOMER_SAFE_META_FALLBACK =
-  'Дякую за повідомлення! Менеджер уточнить деталі й відповість найближчим часом.';
+  'Уточніть, будь ласка, ще раз — зараз підберу варіанти.';
 
 export type CustomerFacingGateReason =
   | 'ok'
@@ -41,11 +50,11 @@ export interface CustomerFacingGateResult {
 }
 
 function latinCount(s: string): number {
-  return (s.match(/[A-Za-z]/g) ?? []).length;
+  return (s.match(LATIN_GLOBAL_RE) ?? []).length;
 }
 
 function cyrillicCount(s: string): number {
-  return (s.match(CYRILLIC_RE) ?? []).length;
+  return (s.match(CYRILLIC_GLOBAL_RE) ?? []).length;
 }
 
 /** True when a chunk looks like internal English reasoning, not client copy. */
@@ -56,7 +65,7 @@ export function looksLikeAssistantMetaReasoning(chunk: string): boolean {
 
   const lat = latinCount(t);
   const cyr = cyrillicCount(t);
-  if (lat >= 40 && cyr < 8 && /\b(I should|I'll|I will|Let me|This is|There's|There is|I'm)\b/i.test(t)) {
+  if (lat >= 40 && cyr < MIN_CYRILLIC_CLIENT_COPY && /\b(I should|I'll|I will|Let me|This is|There's|There is|I'm)\b/i.test(t)) {
     return true;
   }
   if (lat >= 120 && cyr < 12 && t.length >= 200) {
@@ -67,7 +76,7 @@ export function looksLikeAssistantMetaReasoning(chunk: string): boolean {
 
 /**
  * Remove leading English meta-reasoning so only the client-facing reply remains.
- * If the *entire* reply is meta (no client copy left), returns empty string.
+ * Never wipe a chunk that still has enough Cyrillic (UA client copy).
  */
 export function stripAssistantMetaReasoning(text: string): string {
   let s = text.replace(/^\uFEFF/, '').trim();
@@ -76,21 +85,31 @@ export function stripAssistantMetaReasoning(text: string): string {
   const cyrIdx = s.search(CYRILLIC_RE);
   if (cyrIdx > 0) {
     const before = s.slice(0, cyrIdx).trim();
-    if (looksLikeAssistantMetaReasoning(before) || META_MARKERS_RE.test(before)) {
+    // Only strip a clear English meta preamble (not a short accidental marker).
+    if (
+      before.length >= 24 &&
+      latinCount(before) >= 20 &&
+      (looksLikeAssistantMetaReasoning(before) || META_MARKERS_RE.test(before))
+    ) {
       s = s.slice(cyrIdx).trim();
     }
   }
 
   const parts = s.split(/\n\n+/);
   while (parts.length > 0 && looksLikeAssistantMetaReasoning(parts[0]!)) {
-    if (cyrillicCount(parts[0]!) >= 8) break;
+    if (cyrillicCount(parts[0]!) >= MIN_CYRILLIC_CLIENT_COPY) break;
     parts.shift();
   }
   s = parts.join('\n\n').trim();
 
   if (!s) return '';
 
-  if (looksLikeAssistantMetaReasoning(s) && cyrillicCount(s) < 8) {
+  // Do not empty mixed/UA replies even if a meta marker also matched.
+  if (cyrillicCount(s) >= MIN_CYRILLIC_CLIENT_COPY) {
+    return s;
+  }
+
+  if (looksLikeAssistantMetaReasoning(s)) {
     return '';
   }
 
@@ -156,7 +175,16 @@ function collapseBlankLines(text: string): string {
 }
 
 /**
+ * Light scrub for UA rescue: drop thinking XML only (keep Cyrillic even if
+ * aggressive meta/fence stripping would have emptied the full sanitize path).
+ */
+function lightCleanKeepCyrillic(text: string): string {
+  return collapseBlankLines(stripInternalXmlBlocks(text.replace(/^\uFEFF/, '')));
+}
+
+/**
  * Scrub artifacts from model text. May return empty when nothing customer-facing remains.
+ * Preserves any result that still has enough Cyrillic.
  */
 export function sanitizeCustomerFacingReply(text: string): string {
   let s = text.replace(/^\uFEFF/, '');
@@ -164,7 +192,12 @@ export function sanitizeCustomerFacingReply(text: string): string {
   s = stripMarkdownCodeFences(s);
   s = stripStandaloneJsonArtifacts(s);
   s = stripAssistantMetaReasoning(s);
-  return collapseBlankLines(s);
+  s = collapseBlankLines(s);
+  if (!s && cyrillicCount(text) >= MIN_CYRILLIC_CLIENT_COPY) {
+    const rescued = lightCleanKeepCyrillic(text);
+    if (cyrillicCount(rescued) >= MIN_CYRILLIC_CLIENT_COPY) return rescued;
+  }
+  return s;
 }
 
 /** Field names that must never reach the customer. Prices / amounts are allowed. */
@@ -211,19 +244,30 @@ export function gateCustomerFacingReply(raw: string): CustomerFacingGateResult {
   const { text: withoutIds, redacted } = redactLeakedInternalIds(raw);
   const scrubbed = sanitizeCustomerFacingReply(withoutIds);
 
-  if (!scrubbed.trim()) {
+  if (scrubbed.trim()) {
     return {
-      text: CUSTOMER_SAFE_META_FALLBACK,
-      rejected: true,
-      reason: looksLikeAssistantMetaReasoning(raw.trim()) ? 'meta_only' : 'empty_after_sanitize',
+      text: scrubbed,
+      rejected: false,
+      reason: 'ok',
+      redactedInternals: redacted,
+    };
+  }
+
+  // Rescue: full sanitize emptied the string, but UA client copy is still present.
+  const light = lightCleanKeepCyrillic(withoutIds);
+  if (cyrillicCount(light) >= MIN_CYRILLIC_CLIENT_COPY) {
+    return {
+      text: light,
+      rejected: false,
+      reason: 'ok',
       redactedInternals: redacted,
     };
   }
 
   return {
-    text: scrubbed,
-    rejected: false,
-    reason: 'ok',
+    text: CUSTOMER_SAFE_META_FALLBACK,
+    rejected: true,
+    reason: looksLikeAssistantMetaReasoning(raw.trim()) ? 'meta_only' : 'empty_after_sanitize',
     redactedInternals: redacted,
   };
 }

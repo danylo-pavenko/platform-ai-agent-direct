@@ -40,6 +40,22 @@ describe('stripAssistantMetaReasoning', () => {
       'The user is asking what is available. I should respond in character. Привіт! Що шукаєте?';
     expect(stripAssistantMetaReasoning(raw)).toBe('Привіт! Що шукаєте?');
   });
+
+  it('keeps UA copy even when a meta marker appears in the same string', () => {
+    const raw =
+      'knowledge base підказує: ліпідне відновлення підходить для сухого волосся. Записати вас?';
+    expect(stripAssistantMetaReasoning(raw)).toBe(raw);
+  });
+
+  it('does not wipe long UA replies that also match a meta marker (cyrillicCount regression)', () => {
+    // Historical bug: non-global Cyrillic regex made cyrillicCount always 0|1,
+    // so any META_MARKERS hit emptied the whole UA reply → empty_after_sanitize.
+    const raw =
+      'Looking at this prompt briefly. Ліпідне відновлення волосся у нас є — підкажіть довжину, і я підберу програму та вільний час.';
+    const out = stripAssistantMetaReasoning(raw);
+    expect(out).toMatch(/Ліпідне відновлення/);
+    expect(out.length).toBeGreaterThan(40);
+  });
 });
 
 describe('looksLikeAssistantMetaReasoning', () => {
@@ -130,7 +146,17 @@ describe('gateCustomerFacingReply', () => {
     });
   });
 
-  it('replaces whole-message toolset rant with safe fallback', () => {
+  it('passes lipid restoration UA reply without fallback', () => {
+    const raw =
+      'Ліпідне відновлення — чудовий вибір! Тривалість близько 60–90 хв. Підкажіть зручну дату?';
+    const gated = gateCustomerFacingReply(raw);
+    expect(gated.rejected).toBe(false);
+    expect(gated.reason).toBe('ok');
+    expect(gated.text).toBe(raw);
+    expect(gated.text).not.toBe(CUSTOMER_SAFE_META_FALLBACK);
+  });
+
+  it('replaces whole-message toolset rant with safe fallback (no manager promise)', () => {
     const raw = [
       "There's a mismatch between the tools provided and CLAUDE.md:",
       'e-commerce sales-mode collect_order vs lead-gen submit_brief.',
@@ -140,6 +166,15 @@ describe('gateCustomerFacingReply', () => {
     expect(gated.rejected).toBe(true);
     expect(gated.reason).toBe('meta_only');
     expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
+    expect(gated.text).not.toMatch(/менеджер/i);
+  });
+
+  it('replaces thinking-only reply with fallback (no manager promise)', () => {
+    const gated = gateCustomerFacingReply('<thinking>search lipid service then reply</thinking>');
+    expect(gated.rejected).toBe(true);
+    expect(gated.reason).toBe('empty_after_sanitize');
+    expect(gated.text).toBe(CUSTOMER_SAFE_META_FALLBACK);
+    expect(gated.text).not.toMatch(/менеджер/i);
   });
 
   it('redacts leaked IDs but still sends the customer text', () => {
@@ -152,6 +187,18 @@ describe('gateCustomerFacingReply', () => {
     expect(gated.text).not.toMatch(/product_id/i);
     expect(gated.text).toContain('850 грн');
     expect(gated.text).toContain('у Олі');
+  });
+
+  it('keeps UA with service_id bracket and strips the id', () => {
+    const gated = gateCustomerFacingReply(
+      'У нас є Ліпідне відновлення волосся [service_id=xxx-yyy]. Ціна від 1500 грн.',
+    );
+    expect(gated.rejected).toBe(false);
+    expect(gated.reason).toBe('ok');
+    expect(gated.redactedInternals).toBe(true);
+    expect(gated.text).not.toMatch(/service_id/i);
+    expect(gated.text).toContain('Ліпідне відновлення');
+    expect(gated.text).toContain('1500 грн');
   });
 
   it('allows prices including purchased_price wording', () => {
@@ -167,5 +214,15 @@ describe('gateCustomerFacingReply', () => {
     const gated = gateCustomerFacingReply(raw);
     expect(gated.rejected).toBe(false);
     expect(gated.text).toBe('Привіт! Що шукаєте?');
+  });
+
+  it('rescues UA copy when aggressive sanitize would empty mixed meta+UA', () => {
+    const raw =
+      'Looking at this message / knowledge base tools provided.\n\nЛіпідна програма є — можу підказати тривалість і записати вас.';
+    const gated = gateCustomerFacingReply(raw);
+    expect(gated.rejected).toBe(false);
+    expect(gated.reason).toBe('ok');
+    expect(gated.text).toMatch(/Ліпідна/);
+    expect(gated.text).not.toBe(CUSTOMER_SAFE_META_FALLBACK);
   });
 });
