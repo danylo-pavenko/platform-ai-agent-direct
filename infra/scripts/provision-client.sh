@@ -292,11 +292,14 @@ TELEGRAM_ADMIN_PASSWORD=${TG_ADMIN_PASS}
 
 # ── Claude ──
 CLAUDE_MAX_CONCURRENCY=2
+CLAUDE_META_MAX_CONCURRENCY=1
 CLAUDE_TIMEOUT_MS=120000
+CLAUDE_WARMUP_ON_START=true
 CLAUDE_VOICE_TIMEOUT_MS=90000
 CLAUDE_ADMIN_TIMEOUT_MS=120000
+CLAUDE_TEACH_TIMEOUT_MS=600000
 CLAUDE_MODEL=sonnet
-# Customer replies: Agent SDK. Hotfix rollback: cli
+# Customer replies: Agent SDK query() (required for new tenants). Hotfix rollback only: cli
 CLAUDE_RUNTIME=sdk
 
 # Retry IG/TG bot replies when Claude timed out or no outbound was sent
