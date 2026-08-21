@@ -25,6 +25,9 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
 import { providerDisplayName } from '../lib/crm-providers.js';
+import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
+import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
+import { getAvailableSlotsForContext } from './service-search.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -47,12 +50,18 @@ export type BookAppointmentOptions = {
   skipClientMessage?: boolean;
 };
 
+export type BookAppointmentResult = {
+  appointmentId: string;
+  crmSynced: boolean;
+  toolResult: string;
+};
+
 export async function handleBookAppointment(
   conversationId: string,
   clientId: string,
   args: Record<string, unknown>,
   options?: BookAppointmentOptions,
-): Promise<string | null> {
+): Promise<BookAppointmentResult | null> {
   const customerName =
     typeof args.customer_name === 'string' ? args.customer_name.trim() : '';
   const phone = typeof args.phone === 'string' ? args.phone.trim() : '';
@@ -174,42 +183,96 @@ export async function handleBookAppointment(
     log.error({ err, appointmentId: appointment.id }, 'Booking Order mirror failed (non-fatal)');
   });
 
-  const igUserId = options?.clientIgUserId?.trim();
-  if (igUserId && !options?.skipClientMessage) {
-    const confirmationText =
-      options?.clientMessage?.trim() ||
-      `Запис підтверджено: ${date} о ${time}. Чекаємо тебе!`;
+  const writeEnabled = await isCrmWriteEnabled();
+  let crmSynced = !writeEnabled;
+  let crmError: string | null = null;
+
+  if (writeEnabled) {
     try {
-      await sendText(igUserId, confirmationText);
-      await prisma.message.create({
-        data: {
-          conversationId,
-          direction: 'out',
-          sender: 'bot',
-          text: confirmationText,
-        },
+      await mirrorAppointmentToCrm(appointment.id, {
+        fallbackCrmExternalId: resolved.crmExternalId,
       });
-      markFirstOutboundAt(conversationId).catch((err) =>
-        log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
-      );
+      const after = await prisma.appointment.findUnique({
+        where: { id: appointment.id },
+        select: { crmSyncStatus: true, crmSyncError: true, crmRecordId: true },
+      });
+      crmSynced = after?.crmSyncStatus === 'synced' && Boolean(after.crmRecordId);
+      crmError = after?.crmSyncError ?? null;
     } catch (err) {
-      log.error(
-        { err, conversationId, appointmentId: appointment.id },
-        'Failed to send booking confirmation to IG',
-      );
+      crmError = err instanceof Error ? err.message : String(err);
+      log.error({ err, appointmentId: appointment.id }, 'Appointment CRM mirror failed');
     }
   }
 
-  // Await CRM so sync status / crm_fallback are decided before the turn ends.
-  try {
-    await mirrorAppointmentToCrm(appointment.id, {
-      fallbackCrmExternalId: resolved.crmExternalId,
-    });
-  } catch (err) {
-    log.error({ err, appointmentId: appointment.id }, 'Appointment CRM mirror failed');
+  if (crmSynced) {
+    const igUserId = options?.clientIgUserId?.trim();
+    if (igUserId && !options?.skipClientMessage) {
+      const confirmationText =
+        options?.clientMessage?.trim() ||
+        `Запис підтверджено: ${date} о ${time}. Чекаємо тебе!`;
+      try {
+        await sendText(igUserId, confirmationText);
+        await prisma.message.create({
+          data: {
+            conversationId,
+            direction: 'out',
+            sender: 'bot',
+            text: confirmationText,
+          },
+        });
+        markFirstOutboundAt(conversationId).catch((err) =>
+          log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+        );
+      } catch (err) {
+        log.error(
+          { err, conversationId, appointmentId: appointment.id },
+          'Failed to send booking confirmation to IG',
+        );
+      }
+    }
+    return {
+      appointmentId: appointment.id,
+      crmSynced: true,
+      toolResult: `[book_appointment] ok id=${appointment.id}`,
+    };
   }
 
-  return appointment.id;
+  // CRM failed — never send «записали» to the client from this path.
+  let toolResult = `[book_appointment] failed: ${(crmError ?? 'CRM sync failed').slice(0, 400)}`;
+  if (crmError && isBeautyproTimeConflictError(crmError)) {
+    try {
+      const alternativesText = await getAvailableSlotsForContext({
+        date,
+        branchCrmId: resolved.crmExternalId,
+        services: services.map((s) => ({
+          id: s.id,
+          durationMin: s.durationMin,
+          masterId: s.masterId,
+          name: s.name,
+        })),
+        fullMonth: true,
+        excludeTime: time,
+      });
+      toolResult = formatTimeConflictToolResult({
+        failedDate: date,
+        failedTime: time,
+        alternativesText,
+      });
+    } catch (err) {
+      log.warn({ err, appointmentId: appointment.id }, 'TIME_CONFLICT alternatives lookup failed');
+      toolResult = formatTimeConflictToolResult({
+        failedDate: date,
+        failedTime: time,
+        alternativesText: '',
+      });
+    }
+  }
+
+  return {
+    appointmentId: appointment.id,
+    crmSynced: false,
+    toolResult,
+  };
 }
 
 async function createBookingOrderMirror(params: {

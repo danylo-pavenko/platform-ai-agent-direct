@@ -136,3 +136,20 @@ export function enrichUserMessageWithIgContext(
   }
   return `${header}\n\nПовідомлення клієнта: "${trimmed}"`;
 }
+
+/**
+ * Pure reaction (heart/like) with no caption/media — skip full Claude turn
+ * to avoid 180s timeouts on ❤ after a booking confirmation.
+ */
+export function isReactionOnlyInbound(opts: {
+  messageText: string;
+  igContext?: IgInboundContext | null;
+  hasVisualMedia?: boolean;
+  hasSharedPost?: boolean;
+}): boolean {
+  if (opts.igContext?.kind !== 'reaction') return false;
+  if (opts.messageText.trim()) return false;
+  if (opts.hasVisualMedia) return false;
+  if (opts.hasSharedPost) return false;
+  return true;
+}

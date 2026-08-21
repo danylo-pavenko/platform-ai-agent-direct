@@ -25,6 +25,7 @@ import {
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
+import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
 
 export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
 
@@ -155,12 +156,20 @@ export function formatSlotMastersLine(
     .join(', ');
 }
 
+export { formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
+
+const SLOT_TIMES_PER_DAY = 3;
+/** Pull more from CRM/intersect before capping display (parallel races). */
+const SLOT_TIMES_CANDIDATE_CAP = 12;
+
 export async function getAvailableSlotsForContext(args: {
   date: string;
   branchCrmId: string;
-  services: Array<{ id: string; durationMin: number; masterId?: string }>;
+  services: Array<{ id: string; durationMin: number; masterId?: string; name?: string }>;
   fullMonth?: boolean;
   masterId?: string;
+  /** Clock time to omit (after TIME_CONFLICT). */
+  excludeTime?: string;
 }): Promise<string> {
   const provider = await resolveCrmProvider('booking');
   const crm = getCrmAdapter(provider);
@@ -178,64 +187,106 @@ export async function getAvailableSlotsForContext(args: {
   ];
   const parallelMasters = uniqueMasters.length > 1;
 
-  let result: {
-    slots: Record<string, Array<{ date: string; time: string; masterIds: string[] }>>;
-    masters: Array<{ id: string; name: string }>;
-  };
-
-  if (parallelMasters) {
-    const grouped = new Map<string, typeof assigned>();
-    for (const row of assigned) {
-      const key = row.masterId!;
-      const list = grouped.get(key) ?? [];
-      list.push(row);
-      grouped.set(key, list);
+  const runLookup = async (fullMonth: boolean | undefined) => {
+    if (parallelMasters) {
+      const grouped = new Map<string, typeof assigned>();
+      for (const row of assigned) {
+        const key = row.masterId!;
+        const list = grouped.get(key) ?? [];
+        list.push(row);
+        grouped.set(key, list);
+      }
+      const lookups = await Promise.all(
+        [...grouped.entries()].map(([masterId, services]) =>
+          crm.getAvailableSlots!({
+            date: args.date,
+            branchId: args.branchCrmId,
+            services: services.map((s) => ({ id: s.id, durationMin: s.durationMin })),
+            fullMonth,
+            masterId,
+          }),
+        ),
+      );
+      return intersectSlotLookupResults(lookups);
     }
-    const lookups = await Promise.all(
-      [...grouped.entries()].map(([masterId, services]) =>
-        crm.getAvailableSlots!({
-          date: args.date,
-          branchId: args.branchCrmId,
-          services: services.map((s) => ({ id: s.id, durationMin: s.durationMin })),
-          fullMonth: args.fullMonth,
-          masterId,
-        }),
-      ),
-    );
-    result = intersectSlotLookupResults(lookups);
-  } else {
-    result = await crm.getAvailableSlots({
+    return crm.getAvailableSlots!({
       date: args.date,
       branchId: args.branchCrmId,
       services: assigned.map((s) => ({ id: s.id, durationMin: s.durationMin })),
-      fullMonth: args.fullMonth,
+      fullMonth,
       masterId: uniqueMasters[0] ?? args.masterId,
     });
+  };
+
+  let result = await runLookup(args.fullMonth);
+  let broadenedToMonth = false;
+  const hasAnySlot = Object.values(result.slots).some((s) => s.length > 0);
+  if (!hasAnySlot && args.fullMonth !== true) {
+    result = await runLookup(true);
+    broadenedToMonth = true;
   }
 
   const lines: string[] = [];
   const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
+  const excludeKey = args.excludeTime
+    ? normalizeSlotTimeKey(args.excludeTime)
+    : null;
 
+  let daysShown = 0;
   for (const [day, slots] of Object.entries(result.slots)) {
-    const daySlots = slots.slice(0, 3);
+    const filtered = (excludeKey
+      ? slots.filter((s) => normalizeSlotTimeKey(s.time) !== excludeKey)
+      : slots
+    ).slice(0, SLOT_TIMES_CANDIDATE_CAP);
+    const daySlots = filtered.slice(0, SLOT_TIMES_PER_DAY);
     if (daySlots.length === 0) continue;
+    daysShown += 1;
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
-      const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
-      lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
+      if (parallelMasters && assigned.every((s) => s.masterId)) {
+        const byService = assigned
+          .map((s) => {
+            const name = masterMap.get(s.masterId!) ?? s.masterId!;
+            const svc = s.name?.trim() || s.id.slice(0, 8);
+            return `${svc}: ${name}`;
+          })
+          .join('; ');
+        const ids = formatSlotMastersLine(
+          assigned.map((s) => s.masterId!).filter(Boolean),
+          masterMap,
+        );
+        lines.push(`- ${slot.time} | ${byService} | tools: ${ids}`);
+      } else {
+        const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
+        lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
+      }
     }
+    if (daysShown >= 5) break;
   }
 
   if (lines.length === 0) {
-    return uniqueMasters.length > 0
-      ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
-      : 'Вільних слотів на обрану дату не знайдено.';
+    return parallelMasters
+      ? 'Спільних вільних вікон для цих майстрів на обрану дату (і найближчі дні) не знайдено. Запропонуй інший день, інших майстрів або послідовний запис (один майстер). Не вигадуй «лист очікування» без процесу салону.'
+      : uniqueMasters.length > 0
+        ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
+        : 'Вільних слотів на обрану дату не знайдено.';
+  }
+
+  if (broadenedToMonth) {
+    lines.unshift(
+      'На точну дату спільних вікон не було — нижче найближчі дні з вільними слотами.',
+      '',
+    );
   }
 
   if (parallelMasters) {
+    const binding = formatParallelServiceMasterLines(assigned, masterMap);
     lines.push(
       '',
-      'Паралельний запис: різні майстри на той самий час. У book_appointment передай services[].master_id на кожен рядок.',
+      'Паралельний запис (різні майстри, один start):',
+      ...binding,
+      'Swap майстрів між послугами або додавання ще однієї послуги → НОВИЙ get_available_slots з оновленими services[].master_id, потім book_appointment.',
+      'Перед book_appointment після паузи клієнта — свіжий get_available_slots (слот міг зайнятись).',
     );
   }
 

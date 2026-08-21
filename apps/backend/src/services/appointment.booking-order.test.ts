@@ -101,7 +101,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
   });
 
   it('creates booking Order, notifies Telegram, and sends IG confirmation', async () => {
-    const id = await handleBookAppointment(
+    const result = await handleBookAppointment(
       'conv-1',
       'client-1',
       {
@@ -125,7 +125,9 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       },
     );
 
-    expect(id).toBe('appt-1');
+    expect(result?.appointmentId).toBe('appt-1');
+    expect(result?.crmSynced).toBe(true);
+    expect(result?.toolResult).toMatch(/ok id=appt-1/);
     expect(prismaMock.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -159,7 +161,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       source: 'default',
     });
 
-    const id = await handleBookAppointment(
+    const result = await handleBookAppointment(
       'conv-1',
       'client-1',
       {
@@ -180,7 +182,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       { clientIgUserId: 'ig-danylo', skipClientMessage: true },
     );
 
-    expect(id).toBe('appt-1');
+    expect(result?.appointmentId).toBe('appt-1');
     expect(prismaMock.appointment.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -202,7 +204,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
   it('dedupes booking Order within window', async () => {
     prismaMock.order.findFirst.mockResolvedValue({ id: 'order-existing' });
 
-    const id = await handleBookAppointment(
+    const result = await handleBookAppointment(
       'conv-1',
       'client-1',
       {
@@ -215,7 +217,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       { clientIgUserId: 'ig-angela', skipClientMessage: true },
     );
 
-    expect(id).toBe('appt-1');
+    expect(result?.appointmentId).toBe('appt-1');
     expect(prismaMock.order.create).not.toHaveBeenCalled();
     expect(notifyOrder).not.toHaveBeenCalled();
   });

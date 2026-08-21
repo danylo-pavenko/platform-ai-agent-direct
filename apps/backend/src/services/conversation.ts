@@ -55,6 +55,7 @@ import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 import {
   enrichUserMessageWithIgContext,
+  isReactionOnlyInbound,
   type IgInboundContext,
 } from '../lib/ig-inbound-context.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
@@ -73,6 +74,7 @@ import {
   looksLikeBookingConfirmation,
   sanitizeFalseBookingConfirmReply,
 } from '../lib/false-booking-confirm.js';
+import { buildClientFacingTimeConflictReply } from '../lib/booking-time-conflict.js';
 import {
   createAgentTurnDebugCollector,
   formatAgentTurnDebugNote,
@@ -348,6 +350,25 @@ async function handleIncomingMessageImpl(
   if (!client.igUserId) {
     log.error({ conversationId, clientId: client.id }, 'Client has no igUserId');
     return 'released';
+  }
+
+  if (
+    isReactionOnlyInbound({
+      messageText,
+      igContext,
+      hasVisualMedia: visualStorageKeys(mediaAttachments, mediaUrls).length > 0,
+      hasSharedPost: Boolean(sharedPost),
+    })
+  ) {
+    log.info(
+      {
+        conversationId,
+        reaction: igContext?.reaction?.reaction ?? igContext?.reaction?.emoji ?? null,
+      },
+      'Skipping Claude turn for reaction-only inbound',
+    );
+    await clearTypingOnSkip();
+    return 'completed';
   }
 
   // Build a typed profile object from the client record.
@@ -2569,24 +2590,47 @@ async function tryTerminalToolCalls(
     if (turnDebug) {
       recordTurnTool(turnDebug, 'book_appointment', bookAppointment.args, '[book_appointment] …');
     }
-    const appointmentId = await handleBookAppointment(
+    const bookResult = await handleBookAppointment(
       conversationId,
       client.id,
       bookAppointment.args,
       {
         clientIgUserId: client.igUserId,
         clientMessage: ctx.clientMessage,
+        // Confirmation sent only after CRM sync inside handleBookAppointment.
       },
     );
     if (turnDebug) {
       const last = turnDebug.tools[turnDebug.tools.length - 1];
       if (last?.name === 'book_appointment') {
-        last.resultPreview = appointmentId
-          ? `[book_appointment] ok id=${appointmentId}`
-          : '[book_appointment] failed (no CRM location or missing fields)';
+        last.resultPreview = bookResult?.toolResult
+          ?? '[book_appointment] failed (no CRM location or missing fields)';
       }
     }
-    if (appointmentId) {
+    if (bookResult?.crmSynced) {
+      return true;
+    }
+    if (bookResult && !bookResult.crmSynced) {
+      // CRM rejected (e.g. TIME_CONFLICT) — do not leave the agent's false «Записали» as the reply.
+      // handleBookAppointment skipped IG confirm; send alternatives instead.
+      const reply = bookResult.toolResult.includes('TIME_CONFLICT')
+        ? buildClientFacingTimeConflictReply(bookResult.toolResult)
+        : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
+          'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
+      try {
+        await sendText(client.igUserId, reply);
+        await prisma.message.create({
+          data: {
+            conversationId,
+            direction: 'out',
+            sender: 'bot',
+            text: reply,
+          },
+        });
+        markFirstOutboundAt(conversationId).catch(() => undefined);
+      } catch (err) {
+        log.error({ err, conversationId }, 'Failed to send TIME_CONFLICT client reply');
+      }
       return true;
     }
   }

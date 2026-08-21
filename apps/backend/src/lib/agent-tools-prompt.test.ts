@@ -46,6 +46,8 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toContain('get_available_slots');
     expect(prompt).toMatch(/Повторний клієнт/);
     expect(prompt).toMatch(/master_id/);
+    expect(prompt).toMatch(/Swap майстрів|міняє майстрів/i);
+    expect(prompt).toMatch(/TIME_CONFLICT/);
   });
 
   it('forbids deferred catalog promises without search_services in booking', () => {

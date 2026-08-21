@@ -24,6 +24,7 @@ describe('looksLikeBookingConfirmation', () => {
 
   it('detects explicit booked claims', () => {
     expect(looksLikeBookingConfirmation('Записала тебе на завтра о 14:00.')).toBe(true);
+    expect(looksLikeBookingConfirmation('Записали Вас до Аліни та Іванки 😊')).toBe(true);
     expect(looksLikeBookingConfirmation('Ти записана до Олі на 16:30.')).toBe(true);
     expect(looksLikeBookingConfirmation('Бачимось завтра о 11:00!')).toBe(true);
   });
