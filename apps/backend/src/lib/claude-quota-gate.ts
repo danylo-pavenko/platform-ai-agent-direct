@@ -308,6 +308,31 @@ export function weekBucketFromHint(
   );
 }
 
+/**
+ * Future reset from an exhausted usage hint, if any.
+ * Does **not** invent a +5h fallback — that belongs in note/sync when first recording exhaustion.
+ */
+export function futureResetMsFromUsageHint(
+  snap: ClaudeUsageExhaustedHint | null | undefined,
+  nowMs = Date.now(),
+): number | null {
+  if (!snap || snap.status !== 'exhausted') return null;
+  const session = sessionBucketFromHint(snap);
+  const week = weekBucketFromHint(snap);
+  const weekBucket = snap.buckets?.find(
+    (b) => /week/i.test(b.id) || /week/i.test(b.label),
+  );
+  const preferWeek = week != null && week.percentUsed >= 100;
+  const candidates = preferWeek
+    ? [weekBucket?.resetsAtIso, weekBucket?.resetsAt, session?.resetsAtIso, session?.resetsAt]
+    : [session?.resetsAtIso, session?.resetsAt, weekBucket?.resetsAtIso, weekBucket?.resetsAt];
+  for (const c of candidates) {
+    const ms = parseClaudeResetToMs(c ?? null, nowMs);
+    if (ms != null && ms > nowMs) return ms;
+  }
+  return null;
+}
+
 export function evaluateClaudeSpawn(
   purpose: ClaudeSpawnPurpose,
   opts: {
@@ -315,6 +340,8 @@ export function evaluateClaudeSpawn(
     softPercent?: number;
     state?: Readonly<ClaudeQuotaMemoryState>;
     usage?: ClaudeUsageExhaustedHint | null;
+    /** Owner "Update now" — bypass soft/stale gates; still honors active hard_block_until. */
+    forceUsageRefresh?: boolean;
   } = {},
 ): ClaudeSpawnDecision {
   const nowMs = opts.nowMs ?? Date.now();
@@ -330,31 +357,26 @@ export function evaluateClaudeSpawn(
     const week = weekBucketFromHint(opts.usage);
     if (session) sessionPercent = session.percentUsed;
     if (week) weeklyPercent = week.percentUsed;
-    if (opts.usage.status === 'exhausted') {
-      const weekBucket = opts.usage.buckets?.find(
-        (b) => /week/i.test(b.id) || /week/i.test(b.label),
-      );
-      const preferWeek = week != null && week.percentUsed >= 100;
-      const fromIso = preferWeek
-        ? parseClaudeResetToMs(weekBucket?.resetsAtIso ?? null, nowMs)
-        : parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs);
-      const fromDisplay = preferWeek
-        ? parseClaudeResetToMs(weekBucket?.resetsAt ?? null, nowMs)
-        : parseClaudeResetToMs(session?.resetsAt ?? null, nowMs);
-      const until =
-        fromIso ??
-        fromDisplay ??
-        parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs) ??
-        parseClaudeResetToMs(session?.resetsAt ?? null, nowMs);
-      if (until != null && until > blockedUntilMs) blockedUntilMs = until;
-      // Exhausted without parseable reset → keep blocking at least one session window
-      if (until == null && blockedUntilMs <= nowMs) {
-        blockedUntilMs = nowMs + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS;
-      }
-    }
+    const until = futureResetMsFromUsageHint(opts.usage, nowMs);
+    if (until != null && until > blockedUntilMs) blockedUntilMs = until;
   }
 
   const hardBlock = nowMs < blockedUntilMs;
+
+  // Live /usage: skip while hard_block_until is active (save quota), unless owner forces.
+  // After the window, always allow — even if memory still says session 100% (stale).
+  if (purpose === 'usage_refresh' || opts.forceUsageRefresh) {
+    if (hardBlock && !opts.forceUsageRefresh) {
+      return {
+        allowed: false,
+        reason: `hard_block_until:${new Date(blockedUntilMs).toISOString()}`,
+        softBudget: false,
+        hardBlock: true,
+      };
+    }
+    return { allowed: true, reason: null, softBudget: false, hardBlock: false };
+  }
+
   if (hardBlock) {
     return {
       allowed: false,
@@ -364,23 +386,11 @@ export function evaluateClaudeSpawn(
     };
   }
 
+  // Past reset: stale session/week 100% must NOT hard-block (was session_exhausted:100 forever).
   const softSession =
     sessionPercent != null && sessionPercent >= softPercent && sessionPercent < 100;
   const softWeek =
     weeklyPercent != null && weeklyPercent >= softPercent && weeklyPercent < 100;
-  const hardSession = sessionPercent != null && sessionPercent >= 100;
-  const hardWeek = weeklyPercent != null && weeklyPercent >= 100;
-
-  if (hardSession || hardWeek) {
-    return {
-      allowed: false,
-      reason: hardWeek
-        ? `week_exhausted:${weeklyPercent}`
-        : `session_exhausted:${sessionPercent}`,
-      softBudget: false,
-      hardBlock: true,
-    };
-  }
 
   if ((softSession || softWeek) && BACKGROUND_PURPOSES.has(purpose)) {
     return {
@@ -393,8 +403,32 @@ export function evaluateClaudeSpawn(
     };
   }
 
-  // usage_refresh after hard block cleared: allowed (discover recovery)
   return { allowed: true, reason: null, softBudget: false, hardBlock: false };
+}
+
+/**
+ * When `blockedUntil` has passed, drop stale hard-exhaustion markers so UI / retries
+ * do not keep advertising 100% until the next live /usage lands.
+ * Returns true if memory changed.
+ */
+export function releaseExpiredClaudeQuotaHardBlock(nowMs = Date.now()): boolean {
+  if (state.blockedUntilMs > nowMs) return false;
+  const staleHardSession = state.sessionPercent != null && state.sessionPercent >= 100;
+  const staleHardWeek = state.weeklyPercent != null && state.weeklyPercent >= 100;
+  if (state.blockedUntilMs <= 0 && !staleHardSession && !staleHardWeek && !state.reason) {
+    return false;
+  }
+  // Keep soft-budget percents (<100); only clear hard 100 markers and expired until.
+  state = {
+    ...state,
+    blockedUntilMs: 0,
+    reason: null,
+    sessionPercent: staleHardSession ? null : state.sessionPercent,
+    weeklyPercent: staleHardWeek ? null : state.weeklyPercent,
+    limitKind: null,
+    updatedAtMs: nowMs,
+  };
+  return true;
 }
 
 export function getClaudeQuotaCircuitState(nowMs = Date.now()): {
@@ -475,26 +509,41 @@ export function syncClaudeQuotaFromUsage(
   let blockedUntilMs = state.blockedUntilMs;
   let reason = state.reason;
 
-  if (snap.status === 'exhausted' || (session && session.percentUsed >= 100) || (week && week.percentUsed >= 100)) {
+  const hardSession = session != null && session.percentUsed >= 100;
+  const hardWeek = week != null && week.percentUsed >= 100;
+  const exhausted =
+    snap.status === 'exhausted' || hardSession || hardWeek;
+
+  if (exhausted) {
     const weekBucket = snap.buckets?.find(
       (b) => /week/i.test(b.id) || /week/i.test(b.label),
     );
-    const until =
-      parseClaudeResetToMs(weekBucket?.resetsAtIso ?? null, nowMs) ??
-      parseClaudeResetToMs(weekBucket?.resetsAt ?? null, nowMs) ??
-      parseClaudeResetToMs(session?.resetsAtIso ?? null, nowMs) ??
-      parseClaudeResetToMs(session?.resetsAt ?? null, nowMs) ??
-      nowMs + CLAUDE_QUOTA_CIRCUIT_DEFAULT_MS;
-    if (until > blockedUntilMs) {
-      blockedUntilMs = until;
-      reason =
-        reason ??
-        `usage_exhausted:${week && week.percentUsed >= 100 ? weekBucket?.label ?? 'week' : session?.label ?? snap.status}`;
+    const until = futureResetMsFromUsageHint(
+      {
+        status: 'exhausted',
+        checkedAt: snap.checkedAt,
+        buckets: snap.buckets,
+        worstPercent: snap.worstPercent,
+      },
+      nowMs,
+    );
+
+    if (until != null && until > nowMs) {
+      if (until > blockedUntilMs) {
+        blockedUntilMs = until;
+        reason =
+          reason ??
+          `usage_exhausted:${hardWeek ? weekBucket?.label ?? 'week' : session?.label ?? snap.status}`;
+      }
+    } else if (blockedUntilMs > 0 && blockedUntilMs <= nowMs) {
+      // Snapshot still says exhausted but reset window already passed — clear time lock.
+      // (Do not re-arm +5h here; live 429 via noteClaudeRateLimit arms the circuit.)
+      blockedUntilMs = 0;
+      reason = null;
     }
   }
 
-  if (snap.status === 'ok' && (session == null || session.percentUsed < 100)) {
-    // Recovery — clear hard block if we're past it or usage says ok
+  if (snap.status === 'ok' && (session == null || session.percentUsed < 100) && !hardWeek) {
     if (nowMs >= blockedUntilMs || (session != null && session.percentUsed < 90)) {
       blockedUntilMs = 0;
       reason = null;
@@ -508,11 +557,13 @@ export function syncClaudeQuotaFromUsage(
     weeklyPercent: week?.percentUsed ?? state.weeklyPercent,
     sessionResetsAtIso: session?.resetsAtIso ?? state.sessionResetsAtIso,
     limitKind:
-      week && week.percentUsed >= 100
+      hardWeek
         ? 'weekly'
-        : session && session.percentUsed >= 100
+        : hardSession
           ? 'session'
-          : state.limitKind,
+          : snap.status === 'ok'
+            ? null
+            : state.limitKind,
     updatedAtMs: nowMs,
   };
 }

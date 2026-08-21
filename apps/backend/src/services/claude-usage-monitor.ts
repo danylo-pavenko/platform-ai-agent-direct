@@ -11,7 +11,11 @@ import {
   type ClaudeUsageSnapshot,
   type ClaudeUsageStatus,
 } from './claude-usage.js';
-import { applyUsageSnapshotToQuota, buildQuotaBlockedUsageSnapshot } from './claude-quota.js';
+import {
+  applyUsageSnapshotToQuota,
+  buildQuotaBlockedUsageSnapshot,
+  releaseExpiredClaudeQuotaIfNeeded,
+} from './claude-quota.js';
 import { notifyClaudeUsageLimit } from './telegram-notify.js';
 
 const log = pino({ name: 'claude-usage-monitor' });
@@ -77,17 +81,23 @@ export async function loadClaudeUsageSnapshot(): Promise<ClaudeUsageSnapshot | n
   return row.value as unknown as ClaudeUsageSnapshot;
 }
 
-/** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram. */
+/** Fetch live usage (force CLI /usage), persist, and optionally alert managers via Telegram.
+ * @param opts.force — owner "Update now": probe even during hard_block_until (discover early reset).
+ */
 let usageCheckInFlight: Promise<ClaudeUsageSnapshot> | null = null;
 
-export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
+export async function runClaudeUsageCheck(
+  opts: { force?: boolean } = {},
+): Promise<ClaudeUsageSnapshot> {
   if (usageCheckInFlight) return usageCheckInFlight;
 
   usageCheckInFlight = (async () => {
+    await releaseExpiredClaudeQuotaIfNeeded();
     const prevSnap = await loadClaudeUsageSnapshot();
     const gate = evaluateClaudeSpawn('usage_refresh', {
       usage: prevSnap,
       softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+      forceUsageRefresh: opts.force === true,
     });
     if (!gate.allowed) {
       const kept = buildQuotaBlockedUsageSnapshot(prevSnap);
@@ -98,15 +108,18 @@ export async function runClaudeUsageCheck(): Promise<ClaudeUsageSnapshot> {
           skippedLive: true,
           reason: gate.reason,
           previousCheckedAt: prevSnap?.checkedAt ?? null,
+          force: opts.force === true,
         },
         'Skipping live /usage — quota gate',
       );
       await persistSnapshot(kept);
-      // Do not re-record gate.reason (hard_block_…) — circuit already open.
       return kept;
     }
 
-    const snapshot = await fetchClaudeUsageSnapshot({ forceLive: true });
+    const snapshot = await fetchClaudeUsageSnapshot({
+      forceLive: true,
+      bypassQuotaGate: opts.force === true,
+    });
 
     // Transient CLI failures (timeout / parse) must not wipe the last good snapshot.
     const transientFailure =

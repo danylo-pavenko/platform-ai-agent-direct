@@ -466,7 +466,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
 
   /** POST /settings/claude-usage/check — on-demand refresh. */
   app.post('/claude-usage/check', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
-    const snapshot = await runClaudeUsageCheck();
+    const snapshot = await runClaudeUsageCheck({ force: true });
     return {
       snapshot,
       checkIntervalMin: config.CLAUDE_USAGE_CHECK_INTERVAL_MIN,

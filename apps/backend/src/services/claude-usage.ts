@@ -528,6 +528,8 @@ export type FetchClaudeUsageOptions = {
    * and Settings → «Оновити зараз».
    */
   forceLive?: boolean;
+  /** Owner forced refresh — probe even while hard_block_until is still set. */
+  bypassQuotaGate?: boolean;
 };
 
 /**
@@ -582,10 +584,11 @@ export async function fetchClaudeUsageSnapshot(
         }
       : null;
 
-    // Hard/soft quota gate — never spawn /usage while circuit / soft budget blocks it.
+    // Hard/soft quota gate — never spawn /usage while circuit blocks it (unless owner force).
     const usageGate = evaluateClaudeSpawn('usage_refresh', {
       usage: cachedHint,
       softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,
+      forceUsageRefresh: opts.bypassQuotaGate === true,
     });
     if (opts.forceLive === true && !usageGate.allowed) {
       // Do not re-record hard_block_/soft_budget reasons — circuit already set.

@@ -33,7 +33,7 @@ import {
 import { getAgentConfig, normalizeClaudeModel, type ClaudeModelId } from '../lib/agent-config.js';
 import type { AgentChannel } from '../generated/prisma/enums.js';
 import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
-import { recordClaudeRateLimit } from './claude-quota.js';
+import { recordClaudeRateLimit, releaseExpiredClaudeQuotaIfNeeded } from './claude-quota.js';
 
 export { getClaudeBinaryPath, resolveClaudeSpawnCwd };
 
@@ -666,6 +666,9 @@ export async function askClaude(
 
   const gate = semaphoreFor(context);
 
+  // Drop stale session_exhausted:100 after Anthropic reset window elapsed.
+  await releaseExpiredClaudeQuotaIfNeeded();
+
   // Circuit breaker: after live 429 / session limit, skip CLI until window resets.
   const askPurpose =
     context?.spawnPurpose ?? purposeFromAgentChannel(context?.channel ?? null);
@@ -847,6 +850,8 @@ export async function askClaudeStream(
   const emitDone = (response: ClaudeResponse) => {
     onEvent({ type: response.fallback ? 'error' : 'done', response });
   };
+
+  await releaseExpiredClaudeQuotaIfNeeded();
 
   const streamPurpose =
     context?.spawnPurpose ?? purposeFromAgentChannel(context?.channel ?? null);
@@ -1078,6 +1083,8 @@ let authLiveProbeInFlight: Promise<ClaudeAuthHealth> | null = null;
 
 export async function verifyClaudeAuthLive(timeoutMs = 12000): Promise<ClaudeAuthHealth> {
   if (authLiveProbeInFlight) return authLiveProbeInFlight;
+
+  await releaseExpiredClaudeQuotaIfNeeded();
 
   const gate = evaluateClaudeSpawn('auth_probe', {
     softPercent: config.CLAUDE_QUOTA_SOFT_PERCENT,

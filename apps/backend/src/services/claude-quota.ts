@@ -12,6 +12,7 @@ import {
   getClaudeQuotaMemoryState,
   hydrateClaudeQuotaMemory,
   noteClaudeRateLimit,
+  releaseExpiredClaudeQuotaHardBlock,
   syncClaudeQuotaFromUsage,
   type ClaudeSpawnPurpose,
   type ClaudeUsageExhaustedHint,
@@ -48,6 +49,19 @@ function formatResetUk(ms: number): string {
   } catch {
     return new Date(ms).toISOString();
   }
+}
+
+/** Drop expired hard-block markers and persist when memory changed. */
+export async function releaseExpiredClaudeQuotaIfNeeded(): Promise<boolean> {
+  const changed = releaseExpiredClaudeQuotaHardBlock();
+  if (changed) {
+    await persistClaudeQuotaCircuit();
+    log.info(
+      { sessionPercent: getClaudeQuotaMemoryState().sessionPercent },
+      'Claude quota hard block released — reset window elapsed',
+    );
+  }
+  return changed;
 }
 
 export async function loadClaudeQuotaCircuit(): Promise<void> {
@@ -87,6 +101,8 @@ export async function loadClaudeQuotaCircuit(): Promise<void> {
         },
         'Claude quota circuit restored from DB',
       );
+    } else {
+      await releaseExpiredClaudeQuotaIfNeeded();
     }
   } catch (err) {
     log.warn({ err }, 'Failed to load Claude quota circuit from DB');
@@ -145,28 +161,33 @@ export function buildQuotaBlockedUsageSnapshot(
 ): ClaudeUsageSnapshot {
   const mem = getClaudeQuotaMemoryState();
   const now = Date.now();
-  const untilMs = mem.blockedUntilMs > now ? mem.blockedUntilMs : now;
-  const resetsLabel = formatResetUk(untilMs);
+  const stillBlocked = mem.blockedUntilMs > now;
+  const untilMs = stillBlocked ? mem.blockedUntilMs : 0;
+  const resetsLabel = untilMs > 0 ? formatResetUk(untilMs) : '— (очікуємо live /usage)';
   const isWeekly =
     mem.limitKind === 'weekly' || /weekly/i.test(mem.reason ?? '');
 
-  const sessionPct = Math.max(mem.sessionPercent ?? 0, isWeekly ? 0 : 100);
-  const weeklyPct = Math.max(mem.weeklyPercent ?? 0, isWeekly ? 100 : 0);
+  const sessionPct = Math.max(mem.sessionPercent ?? 0, isWeekly ? 0 : stillBlocked ? 100 : 0);
+  const weeklyPct = Math.max(mem.weeklyPercent ?? 0, isWeekly && stillBlocked ? 100 : 0);
 
   const prevBuckets = prev?.buckets?.filter((b) => b.percentUsed >= 0) ?? [];
   let buckets: ClaudeUsageBucket[] = prevBuckets.map((b) => {
     if (/week/i.test(b.id) || /week/i.test(b.label)) {
       return {
         ...b,
-        percentUsed: Math.max(b.percentUsed, weeklyPct || b.percentUsed),
-        resetsAt: isWeekly ? resetsLabel : b.resetsAt,
+        percentUsed: stillBlocked
+          ? Math.max(b.percentUsed, weeklyPct || b.percentUsed)
+          : b.percentUsed,
+        resetsAt: isWeekly && stillBlocked ? resetsLabel : b.resetsAt,
       };
     }
     if (/session/i.test(b.id) || /session/i.test(b.label)) {
       return {
         ...b,
-        percentUsed: Math.max(b.percentUsed, sessionPct || b.percentUsed),
-        resetsAt: !isWeekly ? resetsLabel : b.resetsAt,
+        percentUsed: stillBlocked
+          ? Math.max(b.percentUsed, sessionPct || b.percentUsed)
+          : b.percentUsed,
+        resetsAt: !isWeekly && stillBlocked ? resetsLabel : b.resetsAt,
       };
     }
     return b;
@@ -177,41 +198,43 @@ export function buildQuotaBlockedUsageSnapshot(
       {
         id: 'current_session',
         label: 'Current session',
-        percentUsed: sessionPct || (isWeekly ? 0 : 100),
+        percentUsed: sessionPct || (isWeekly ? 0 : stillBlocked ? 100 : 0),
         resetsAt: isWeekly ? '—' : resetsLabel,
       },
       {
         id: 'current_week_all_models',
         label: 'Current week (all models)',
-        percentUsed: weeklyPct || (isWeekly ? 100 : 0),
+        percentUsed: weeklyPct || (isWeekly && stillBlocked ? 100 : 0),
         resetsAt: isWeekly ? resetsLabel : '—',
       },
     ];
   }
 
   const worstPercent = Math.max(
-    100,
+    0,
     ...buckets.map((b) => b.percentUsed),
     sessionPct,
     weeklyPct,
   );
 
-  const message = isWeekly
-    ? `Тижневий ліміт Claude вичерпано. Скидається ${resetsLabel}. Live /usage не запускаємо, щоб не витрачати квоту. Авторизація в порядку — це ліміт підписки, не logout.`
-    : `Ліміт сесії Claude вичерпано до ${resetsLabel}. Live /usage пропущено (quota gate). Авторизація в порядку.`;
+  const message = !stillBlocked
+    ? 'Вікно ліміту вже минуло — запускаємо live /usage для оновлення. Авторизація в порядку.'
+    : isWeekly
+      ? `Тижневий ліміт Claude вичерпано. Скидається ${resetsLabel}. Live /usage не запускаємо, щоб не витрачати квоту. Авторизація в порядку — це ліміт підписки, не logout.`
+      : `Ліміт сесії Claude вичерпано до ${resetsLabel}. Live /usage пропущено (quota gate). Авторизація в порядку.`;
 
   return {
     checkedAt: new Date().toISOString(),
-    status: 'exhausted',
+    status: stillBlocked ? 'exhausted' : prev?.status === 'ok' ? 'ok' : 'exhausted',
     subscriptionType: prev?.subscriptionType ?? null,
     authEmail: prev?.authEmail ?? null,
     buckets,
-    worstPercent,
+    worstPercent: stillBlocked ? Math.max(100, worstPercent) : worstPercent,
     message,
     rawText: null,
     error: null,
     cacheFetchedAt: prev?.cacheFetchedAt ?? null,
-    cacheStale: false,
+    cacheStale: !stillBlocked,
   };
 }
 

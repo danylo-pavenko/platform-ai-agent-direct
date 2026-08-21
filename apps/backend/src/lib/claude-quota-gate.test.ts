@@ -6,11 +6,13 @@ import {
   clearClaudeQuotaCircuit,
   evaluateClaudeSpawn,
   getClaudeQuotaCircuitState,
+  getClaudeQuotaMemoryState,
   isBotFailureRateLimited,
   isClaudeBackgroundSpawnBlocked,
   isClaudeQuotaCircuitOpen,
   noteClaudeRateLimit,
   parseClaudeResetToMs,
+  releaseExpiredClaudeQuotaHardBlock,
   shouldSkipForceLiveUsageRefresh,
   syncClaudeQuotaFromUsage,
   zonedWallTimeToUtcMs,
@@ -117,7 +119,7 @@ describe('claude-quota-gate', () => {
     expect(getClaudeQuotaCircuitState(now).blockedUntilMs).toBe(until);
   });
 
-  it('soft-budget blocks background on weekly percent too', () => {
+  it('soft-budget blocks background but allows usage_refresh to discover recovery', () => {
     _setClaudeQuotaMemoryForTests({
       blockedUntilMs: 0,
       sessionPercent: 10,
@@ -125,7 +127,7 @@ describe('claude-quota-gate', () => {
       reason: null,
     });
     expect(evaluateClaudeSpawn('customer_dm').allowed).toBe(true);
-    expect(evaluateClaudeSpawn('usage_refresh').allowed).toBe(false);
+    expect(evaluateClaudeSpawn('usage_refresh').allowed).toBe(true);
     expect(evaluateClaudeSpawn('auth_probe').softBudget).toBe(true);
   });
 
@@ -187,7 +189,7 @@ describe('claude-quota-gate', () => {
     }
   });
 
-  it('soft-budget blocks background but allows customer_dm', () => {
+  it('soft-budget blocks background but allows customer_dm and usage_refresh', () => {
     _setClaudeQuotaMemoryForTests({
       blockedUntilMs: 0,
       sessionPercent: 92,
@@ -196,7 +198,7 @@ describe('claude-quota-gate', () => {
     expect(evaluateClaudeSpawn('customer_dm').allowed).toBe(true);
     expect(evaluateClaudeSpawn('admin').allowed).toBe(true);
     expect(evaluateClaudeSpawn('conversation_retry').allowed).toBe(false);
-    expect(evaluateClaudeSpawn('usage_refresh').allowed).toBe(false);
+    expect(evaluateClaudeSpawn('usage_refresh').allowed).toBe(true);
     expect(evaluateClaudeSpawn('auth_probe').allowed).toBe(false);
     expect(evaluateClaudeSpawn('follow_up').allowed).toBe(false);
     expect(evaluateClaudeSpawn('warmup').softBudget).toBe(true);
@@ -222,6 +224,84 @@ describe('claude-quota-gate', () => {
         now,
       ),
     ).toBe(true);
+  });
+
+  it('allows customer_dm and usage_refresh after blockedUntil despite stale session 100%', () => {
+    const until = Date.parse('2026-08-21T08:00:00.000Z');
+    const after = until + 60_000;
+    _setClaudeQuotaMemoryForTests({
+      blockedUntilMs: until,
+      sessionPercent: 100,
+      weeklyPercent: 19,
+      reason: 'usage_exhausted:Current session',
+      limitKind: 'session',
+    });
+    expect(evaluateClaudeSpawn('customer_dm', { nowMs: after }).allowed).toBe(true);
+    expect(evaluateClaudeSpawn('usage_refresh', { nowMs: after }).allowed).toBe(true);
+    expect(
+      evaluateClaudeSpawn('customer_dm', { nowMs: until - 1 }).allowed,
+    ).toBe(false);
+  });
+
+  it('owner forceUsageRefresh probes during hard_block_until', () => {
+    const until = Date.parse('2026-08-21T12:00:00.000Z');
+    const now = until - 60_000;
+    _setClaudeQuotaMemoryForTests({
+      blockedUntilMs: until,
+      sessionPercent: 100,
+      reason: 'session',
+    });
+    expect(evaluateClaudeSpawn('usage_refresh', { nowMs: now }).allowed).toBe(false);
+    expect(
+      evaluateClaudeSpawn('usage_refresh', { nowMs: now, forceUsageRefresh: true }).allowed,
+    ).toBe(true);
+    expect(
+      evaluateClaudeSpawn('customer_dm', { nowMs: now, forceUsageRefresh: true }).allowed,
+    ).toBe(true);
+  });
+
+  it('releaseExpiredClaudeQuotaHardBlock clears stale 100% after window', () => {
+    const until = Date.parse('2026-08-21T08:00:00.000Z');
+    _setClaudeQuotaMemoryForTests({
+      blockedUntilMs: until,
+      sessionPercent: 100,
+      weeklyPercent: 18,
+      reason: 'hard',
+      limitKind: 'session',
+    });
+    expect(releaseExpiredClaudeQuotaHardBlock(until - 1)).toBe(false);
+    expect(releaseExpiredClaudeQuotaHardBlock(until + 1)).toBe(true);
+    expect(getClaudeQuotaCircuitState(until + 1).blockedUntilMs).toBe(0);
+    expect(getClaudeQuotaMemoryState().sessionPercent).toBeNull();
+    expect(getClaudeQuotaMemoryState().weeklyPercent).toBe(18);
+  });
+
+  it('sync does not re-arm expired exhausted snapshot without future reset', () => {
+    const until = Date.parse('2026-08-21T08:00:00.000Z');
+    const after = until + 120_000;
+    _setClaudeQuotaMemoryForTests({
+      blockedUntilMs: until,
+      sessionPercent: 100,
+      reason: 'old',
+    });
+    syncClaudeQuotaFromUsage(
+      {
+        status: 'exhausted',
+        checkedAt: new Date(after).toISOString(),
+        buckets: [
+          {
+            id: 'current_session',
+            label: 'Current session',
+            percentUsed: 100,
+            // Past ISO only — display strings can year-bump in parseClaudeResetToMs
+            resetsAt: 'past',
+            resetsAtIso: '2026-08-21T08:00:00.000Z',
+          },
+        ],
+      },
+      after,
+    );
+    expect(getClaudeQuotaCircuitState(after).blockedUntilMs).toBe(0);
   });
 
   it('syncs percentages and reset from usage snapshot', () => {
