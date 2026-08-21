@@ -217,11 +217,19 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         let finalText = '';
         const sessions = createTurnClaudeSessions();
         const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
+        const onSandboxDisconnect = () => sessions.abortInflight();
+        request.raw.on('close', onSandboxDisconnect);
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const purpose = round === 0 ? 'reply' : 'router';
           const model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
           const resumeSessionId = sessions.resumeIdFor(purpose);
+          const sandboxCtx = {
+            channel: 'sandbox' as const,
+            model,
+            timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
+            signal: sessions.signal,
+          };
 
           let response = await askClaude(
             {
@@ -231,13 +239,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
               tools,
               ...(resumeSessionId ? { resumeSessionId } : {}),
             },
-            {
-              channel: 'sandbox',
-              model,
-              // Multi-round CRM tools need the long teach budget (default 10m),
-              // not CLAUDE_ADMIN_TIMEOUT_MS (2m) — otherwise nginx/proxy look like "connection error".
-              timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
-            },
+            sandboxCtx,
           );
 
           if (response.fallback) {
@@ -265,6 +267,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
                 channel: 'sandbox',
                 model: replyModel,
                 timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
+                signal: sessions.signal,
               },
             );
             if (response.fallback) {
@@ -301,7 +304,10 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
           if (!toolCall) break;
 
           stages.push(stageLabelForTool(toolCall.name));
-          const executed = await executeSandboxToolCall(toolCall);
+          const reusedLookup = response.lookupResults?.find((r) => r.name === toolCall.name);
+          const executed = reusedLookup
+            ? { content: reusedLookup.result }
+            : await executeSandboxToolCall(toolCall);
           toolDebug.push({
             name: toolCall.name,
             args: toolCall.args,

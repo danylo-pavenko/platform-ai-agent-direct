@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../config.js', () => ({
   config: {
     CLAUDE_MODEL: 'sonnet',
+    CLAUDE_RUNTIME: 'cli',
     CLAUDE_MAX_CONCURRENCY: 2,
     CLAUDE_META_MAX_CONCURRENCY: 1,
     CLAUDE_TIMEOUT_MS: 120_000,
@@ -69,5 +70,12 @@ describe('buildClaudePromptForTest (resume slim)', () => {
     expect(prompt).toBe('Human: [get_available_slots] РЕЗУЛЬТАТ:\n10:00');
     expect(prompt).not.toContain('SYSTEM BIG PROMPT');
     expect(prompt).not.toContain('хочу стрижку');
+  });
+
+  it('omits <system> wrapper when embedSystem is false (SDK path)', () => {
+    const prompt = buildClaudePromptForTest(baseReq, { embedSystem: false });
+    expect(prompt).not.toContain('<system>');
+    expect(prompt).toContain('хочу стрижку');
+    expect(prompt).toContain('get_available_slots');
   });
 });

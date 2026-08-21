@@ -45,13 +45,12 @@ import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
-import { fetchClientCrmHistory, formatCrmLinkHintForPrompt, linkClientToCrm } from './client-crm-link.js';
+import { formatCrmLinkHintForPrompt, linkClientToCrm } from './client-crm-link.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
 } from './product-search.js';
-import { getDeliveryCost } from './nova-poshta.js';
 import type { SharedPostData } from '../routes/webhooks.js';
 import {
   enrichUserMessageWithIgContext,
@@ -85,12 +84,7 @@ import {
   type AgentTurnDebugCollector,
 } from '../lib/agent-turn-debug.js';
 import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
-import {
-  executeGetAvailableSlotsTool,
-  formatSearchServicesToolResult,
-  searchServicesWithFallback,
-  parseSearchServicesLimit,
-} from './booking-lookup.js';
+import { executeLookupTool, lookupResultFromResponse } from './agent-lookup-tools.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -751,6 +745,36 @@ async function handleIncomingMessageImpl(
   /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
   const sessions = createTurnClaudeSessions();
   const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
+  const existingBookingRow =
+    agentCfg.mode === 'booking'
+      ? await prisma.appointment.findFirst({
+          where: {
+            conversationId,
+            status: { in: ['confirmed', 'synced'] },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { scheduledDate: true, scheduledTime: true },
+        })
+      : null;
+  const lookupCtx = {
+    clientId: client.id,
+    branchCrmExternalId: conversation.branch?.crmExternalId,
+    crmHistoryAllowed: agentCfg.mode === 'booking' && Boolean(client.crmBuyerId),
+    clientMessage: messageText,
+    mutationsAllowed: true,
+    existingBooking: existingBookingRow
+      ? { date: existingBookingRow.scheduledDate, time: existingBookingRow.scheduledTime }
+      : null,
+  };
+  const runLookup = (
+    name: string,
+    args: Record<string, unknown>,
+    from?: { lookupResults?: { name: string; result: string }[] },
+  ) =>
+    Promise.resolve(
+      lookupResultFromResponse(from?.lookupResults, name) ??
+        executeLookupTool(name, args, lookupCtx),
+    );
 
   async function askTurnClaude(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
@@ -784,9 +808,10 @@ async function handleIncomingMessageImpl(
       {
         ...req,
         systemPrompt,
+        lookupContext: lookupCtx,
         ...(resumeSessionId ? { resumeSessionId } : {}),
       },
-      { ...ctx, model },
+      { ...ctx, model, signal: sessions.signal },
     );
 
     recordTurnSpawn(debug, {
@@ -909,23 +934,13 @@ async function handleIncomingMessageImpl(
       if (!query) {
         toolResultContent = '[search_catalog] ПОМИЛКА: порожній запит';
       } else {
-        try {
-          const { contextBlock, matchCount } = await searchActiveProductsForContext(query);
-          catalogDebug = {
-            query,
-            matchCount,
-            contextBlock,
-            source: 'search_catalog',
-          };
-          toolResultContent =
-            matchCount > 0
-              ? `[search_catalog] РЕЗУЛЬТАТ:\n${contextBlock}`
-              : `[search_catalog] Нічого не знайдено за «${query}». Уточни у клієнта назву/модель або запропонуй схожі з каталогу.`;
-        } catch (err) {
-          log.error({ err, query }, 'search_catalog failed');
-          toolResultContent =
-            '[search_catalog] ПОМИЛКА: каталог тимчасово недоступний. Відповідай за знімком каталогу в промпті.';
-        }
+        toolResultContent = await runLookup('search_catalog', searchCatalogCall.args, response);
+        catalogDebug = {
+          query,
+          matchCount: toolResultContent.includes('РЕЗУЛЬТАТ:') ? 1 : 0,
+          contextBlock: toolResultContent,
+          source: 'search_catalog',
+        };
       }
       recordTurnTool(debug, 'search_catalog', searchCatalogCall.args, toolResultContent);
 
@@ -976,28 +991,12 @@ async function handleIncomingMessageImpl(
     // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
     if (deliveryCostCall && !handoff && !collectOrder && !createLocalOrder && !searchCatalogCall) {
       const city = typeof deliveryCostCall.args.city === 'string' ? deliveryCostCall.args.city : '';
-      const weightKg = typeof deliveryCostCall.args.weight_kg === 'number'
-        ? deliveryCostCall.args.weight_kg
-        : 0.5;
-      const declaredValue = typeof deliveryCostCall.args.declared_value === 'number'
-        ? deliveryCostCall.args.declared_value
-        : 500;
 
       let toolResultContent: string;
       if (!city) {
         toolResultContent = '[get_delivery_cost] ПОМИЛКА: місто не вказано';
       } else {
-        try {
-          const npResult = await getDeliveryCost(city, weightKg, declaredValue);
-          if ('error' in npResult) {
-            toolResultContent = `[get_delivery_cost] ПОМИЛКА: ${npResult.error}`;
-          } else {
-            toolResultContent = `[get_delivery_cost] РЕЗУЛЬТАТ: Місто "${npResult.recipientCityName}", доставка НП (${npResult.serviceType}): ${npResult.cost} грн`;
-          }
-        } catch (npErr) {
-          log.error({ err: npErr, city }, 'Nova Poshta getDeliveryCost failed');
-          toolResultContent = '[get_delivery_cost] ПОМИЛКА: сервіс тимчасово недоступний';
-        }
+        toolResultContent = await runLookup('get_delivery_cost', deliveryCostCall.args, response);
       }
       recordTurnTool(debug, 'get_delivery_cost', deliveryCostCall.args, toolResultContent);
 
@@ -1048,36 +1047,11 @@ async function handleIncomingMessageImpl(
     const crmHistoryCall = response.toolCalls.find((tc) => tc.name === 'get_client_crm_history');
 
     if (crmHistoryCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall) {
-      let toolResultContent: string;
-      try {
-        const serviceId =
-          typeof crmHistoryCall.args.service_id === 'string'
-            ? crmHistoryCall.args.service_id.trim()
-            : undefined;
-        const serviceName =
-          typeof crmHistoryCall.args.service_query === 'string'
-            ? crmHistoryCall.args.service_query.trim()
-            : undefined;
-        const catalogDurationMin =
-          typeof crmHistoryCall.args.duration_min === 'number'
-            ? crmHistoryCall.args.duration_min
-            : undefined;
-        const masterId =
-          typeof crmHistoryCall.args.master_id === 'string'
-            ? crmHistoryCall.args.master_id.trim()
-            : undefined;
-        const history = await fetchClientCrmHistory(client.id, {
-          limit: 10,
-          serviceId: serviceId || undefined,
-          serviceName: serviceName || undefined,
-          catalogDurationMin,
-          masterId: masterId || undefined,
-        });
-        toolResultContent = `[get_client_crm_history] РЕЗУЛЬТАТ:\n${history.text}`;
-      } catch (err) {
-        log.error({ err, clientId: client.id }, 'get_client_crm_history failed');
-        toolResultContent = '[get_client_crm_history] ПОМИЛКА: не вдалося отримати історію CRM';
-      }
+      const toolResultContent = await runLookup(
+        'get_client_crm_history',
+        crmHistoryCall.args,
+        response,
+      );
       recordTurnTool(debug, 'get_client_crm_history', crmHistoryCall.args, toolResultContent);
 
       const response2 = await askTurnClaudeFollowUp(
@@ -1130,24 +1104,7 @@ async function handleIncomingMessageImpl(
       if (!query) {
         toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
       } else {
-        try {
-          const found = await searchServicesWithFallback(
-            query,
-            parseSearchServicesLimit(searchServicesCall.args),
-            { clientMessage: messageText },
-          );
-          toolResultContent = formatSearchServicesToolResult({
-            query,
-            matchCount: found.matchCount,
-            contextBlock: found.contextBlock,
-            usedQuery: found.usedQuery,
-            broadenedFrom: found.broadenedFrom,
-            intentNote: found.intentNote,
-          });
-        } catch (err) {
-          log.error({ err, query }, 'search_services failed');
-          toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
-        }
+        toolResultContent = await runLookup('search_services', searchServicesCall.args, response);
       }
       recordTurnTool(debug, 'search_services', searchServicesCall.args, toolResultContent);
 
@@ -1195,11 +1152,7 @@ async function handleIncomingMessageImpl(
         const nextSearch = followUps.find((tc) => tc.name === 'search_services');
 
         if (nextSlots) {
-          const slotsResult = await executeGetAvailableSlotsTool({
-            args: nextSlots.args,
-            branchCrmExternalId: conversation.branch?.crmExternalId,
-            clientId: client.id,
-          });
+          const slotsResult = await runLookup('get_available_slots', nextSlots.args);
           recordTurnTool(debug, 'get_available_slots', nextSlots.args, slotsResult);
           const afterSlots = await askTurnClaudeFollowUp(
             {
@@ -1239,24 +1192,7 @@ async function handleIncomingMessageImpl(
           if (!q2) {
             searchResult = '[search_services] ПОМИЛКА: порожній запит';
           } else {
-            try {
-              const found = await searchServicesWithFallback(
-                q2,
-                parseSearchServicesLimit(nextSearch.args),
-                { clientMessage: messageText },
-              );
-              searchResult = formatSearchServicesToolResult({
-                query: q2,
-                matchCount: found.matchCount,
-                contextBlock: found.contextBlock,
-                usedQuery: found.usedQuery,
-                broadenedFrom: found.broadenedFrom,
-                intentNote: found.intentNote,
-              });
-            } catch (err) {
-              log.error({ err, query: q2 }, 'search_services follow-up failed');
-              searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
-            }
+            searchResult = await runLookup('search_services', nextSearch.args);
           }
           recordTurnTool(debug, 'search_services', nextSearch.args, searchResult);
           const afterSearch = await askTurnClaudeFollowUp(
@@ -1303,11 +1239,11 @@ async function handleIncomingMessageImpl(
       !searchServicesCall &&
       !crmHistoryCall
     ) {
-      const toolResultContent = await executeGetAvailableSlotsTool({
-        args: slotsCall.args,
-        branchCrmExternalId: conversation.branch?.crmExternalId,
-        clientId: client.id,
-      });
+      const toolResultContent = await runLookup(
+        'get_available_slots',
+        slotsCall.args,
+        response,
+      );
       recordTurnTool(debug, 'get_available_slots', slotsCall.args, toolResultContent);
       const date =
         typeof slotsCall.args.date === 'string' ? slotsCall.args.date.trim() : '';
@@ -1417,11 +1353,7 @@ async function handleIncomingMessageImpl(
       const recoverySearch = recovery.toolCalls.find((tc) => tc.name === 'search_services');
 
       if (recoverySlots) {
-        const slotsResult = await executeGetAvailableSlotsTool({
-          args: recoverySlots.args,
-          branchCrmExternalId: conversation.branch?.crmExternalId,
-          clientId: client.id,
-        });
+        const slotsResult = await runLookup('get_available_slots', recoverySlots.args, recovery);
         recordTurnTool(debug, 'get_available_slots', recoverySlots.args, slotsResult);
         const afterSlots = await askTurnClaudeFollowUp(
           {
@@ -1456,24 +1388,7 @@ async function handleIncomingMessageImpl(
         if (!q) {
           searchResult = '[search_services] ПОМИЛКА: порожній запит';
         } else {
-          try {
-            const found = await searchServicesWithFallback(
-              q,
-              parseSearchServicesLimit(recoverySearch.args),
-              { clientMessage: messageText },
-            );
-            searchResult = formatSearchServicesToolResult({
-              query: q,
-              matchCount: found.matchCount,
-              contextBlock: found.contextBlock,
-              usedQuery: found.usedQuery,
-              broadenedFrom: found.broadenedFrom,
-              intentNote: found.intentNote,
-            });
-          } catch (err) {
-            log.error({ err, query: q }, 'search_services failed (slots recovery)');
-            searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
-          }
+          searchResult = await runLookup('search_services', recoverySearch.args, recovery);
         }
         recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
         const afterSearch = await askTurnClaudeFollowUp(
@@ -1505,11 +1420,7 @@ async function handleIncomingMessageImpl(
 
         const chainedSlots = afterSearch.toolCalls?.find((tc) => tc.name === 'get_available_slots');
         if (chainedSlots) {
-          const slotsResult = await executeGetAvailableSlotsTool({
-            args: chainedSlots.args,
-            branchCrmExternalId: conversation.branch?.crmExternalId,
-            clientId: client.id,
-          });
+          const slotsResult = await runLookup('get_available_slots', chainedSlots.args, afterSearch);
           recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
           const afterSlots = await askTurnClaudeFollowUp(
             {
@@ -1625,24 +1536,11 @@ async function handleIncomingMessageImpl(
         if (!query) {
           toolResultContent = '[search_services] ПОМИЛКА: порожній запит';
         } else {
-          try {
-            const found = await searchServicesWithFallback(
-              query,
-              parseSearchServicesLimit(recoverySearchServices.args),
-              { clientMessage: messageText },
-            );
-            toolResultContent = formatSearchServicesToolResult({
-              query,
-              matchCount: found.matchCount,
-              contextBlock: found.contextBlock,
-              usedQuery: found.usedQuery,
-              broadenedFrom: found.broadenedFrom,
-              intentNote: found.intentNote,
-            });
-          } catch (err) {
-            log.error({ err, query }, 'search_services failed (stall recovery)');
-            toolResultContent = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
-          }
+          toolResultContent = await runLookup(
+            'search_services',
+            recoverySearchServices.args,
+            recovery,
+          );
         }
         recordTurnTool(debug, 'search_services', recoverySearchServices.args, toolResultContent);
 
@@ -1692,11 +1590,7 @@ async function handleIncomingMessageImpl(
 
           const chainedSlots = afterSearch.toolCalls.find((tc) => tc.name === 'get_available_slots');
           if (chainedSlots) {
-            const slotsResult = await executeGetAvailableSlotsTool({
-              args: chainedSlots.args,
-              branchCrmExternalId: conversation.branch?.crmExternalId,
-              clientId: client.id,
-            });
+            const slotsResult = await runLookup('get_available_slots', chainedSlots.args, afterSearch);
             recordTurnTool(debug, 'get_available_slots', chainedSlots.args, slotsResult);
             const afterSlots = await askTurnClaudeFollowUp(
               {
@@ -1732,23 +1626,13 @@ async function handleIncomingMessageImpl(
         if (!query) {
           toolResultContent = '[search_catalog] ПОМИЛКА: порожній запит';
         } else {
-          try {
-            const { contextBlock, matchCount } = await searchActiveProductsForContext(query);
-            catalogDebug = {
-              query,
-              matchCount,
-              contextBlock,
-              source: 'search_catalog',
-            };
-            toolResultContent =
-              matchCount > 0
-                ? `[search_catalog] РЕЗУЛЬТАТ:\n${contextBlock}`
-                : `[search_catalog] Нічого не знайдено за «${query}».`;
-          } catch (err) {
-            log.error({ err, query }, 'search_catalog failed (stall recovery)');
-            toolResultContent =
-              '[search_catalog] ПОМИЛКА: каталог тимчасово недоступний.';
-          }
+          toolResultContent = await runLookup('search_catalog', recoverySearchCatalog.args, recovery);
+          catalogDebug = {
+            query,
+            matchCount: toolResultContent.includes('РЕЗУЛЬТАТ:') ? 1 : 0,
+            contextBlock: toolResultContent,
+            source: 'search_catalog',
+          };
         }
         recordTurnTool(debug, 'search_catalog', recoverySearchCatalog.args, toolResultContent);
 
@@ -1797,11 +1681,11 @@ async function handleIncomingMessageImpl(
           }
         }
       } else if (recoverySlotsCall && canGetSlots) {
-        const slotsResult = await executeGetAvailableSlotsTool({
-          args: recoverySlotsCall.args,
-          branchCrmExternalId: conversation.branch?.crmExternalId,
-          clientId: client.id,
-        });
+        const slotsResult = await runLookup(
+          'get_available_slots',
+          recoverySlotsCall.args,
+          recovery,
+        );
         recordTurnTool(debug, 'get_available_slots', recoverySlotsCall.args, slotsResult);
         const afterSlots = await askTurnClaudeFollowUp(
           {
@@ -1893,22 +1777,7 @@ async function handleIncomingMessageImpl(
       if (!q) {
         searchResult = '[search_services] ПОМИЛКА: порожній запит';
       } else {
-        try {
-          const found = await searchServicesWithFallback(q, parseSearchServicesLimit(recoverySearch.args), {
-            clientMessage: messageText,
-          });
-          searchResult = formatSearchServicesToolResult({
-            query: q,
-            matchCount: found.matchCount,
-            contextBlock: found.contextBlock,
-            usedQuery: found.usedQuery,
-            broadenedFrom: found.broadenedFrom,
-            intentNote: found.intentNote,
-          });
-        } catch (err) {
-          log.error({ err, query: q }, 'search_services failed (service correction recovery)');
-          searchResult = '[search_services] ПОМИЛКА: CRM тимчасово недоступна.';
-        }
+        searchResult = await runLookup('search_services', recoverySearch.args, recovery);
       }
       recordTurnTool(debug, 'search_services', recoverySearch.args, searchResult);
 

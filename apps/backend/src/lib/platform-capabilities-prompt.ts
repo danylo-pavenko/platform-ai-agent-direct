@@ -15,7 +15,11 @@ export function buildPlatformCapabilitiesBlock(): string {
 | leadgen | Кваліфікація / бриф | submit_brief → локально + Telegram (+ KeyCRM lead якщо write увімкнено); create_local_order при згоді |
 | booking | Запис у салон | book_appointment → CRM запису; create_local_order якщо погодили послугу/дзвінок без слоту |
 
-## Tools за режимом (бекенд виконує; у промпті лише інструкції КОЛИ їх викликати)
+## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
+
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (без другого book як reschedule, без force=true). CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише booking + привʼязаний CRM-клієнт.
+
+Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
 Спільні: update_client_info, tag_client, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
 

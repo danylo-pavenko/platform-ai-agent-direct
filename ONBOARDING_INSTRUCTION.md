@@ -208,11 +208,13 @@ claude auth login
 # Увійди в Claude акаунт (клієнта або свій)
 ```
 
-Перевірка:
+Перевірка логіну (CLI лише для auth; відповіді агента йдуть через Agent SDK):
 ```bash
 echo "ping" | claude -p "Say one word: pong"
 # Відповідь: pong
 ```
+
+Customer replies: `CLAUDE_RUNTIME=sdk` (default). Hotfix rollback: `CLAUDE_RUNTIME=cli` + PM2 restart.
 
 ---
 

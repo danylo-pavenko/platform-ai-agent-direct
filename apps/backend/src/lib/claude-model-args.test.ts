@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../config.js', () => ({
   config: {
     CLAUDE_MODEL: 'sonnet',
+    CLAUDE_RUNTIME: 'cli',
     CLAUDE_MAX_CONCURRENCY: 2,
     CLAUDE_META_MAX_CONCURRENCY: 1,
     CLAUDE_TIMEOUT_MS: 120_000,

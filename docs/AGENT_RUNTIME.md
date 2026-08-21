@@ -15,7 +15,7 @@ Canonical map of the Instagram DM AI agent for this platform: spawn model, promp
 | Multi-CRM routing | `apps/backend/src/lib/crm-routing.ts`, `docs/MULTI_CRM_INTEGRATION_GUIDE.md` |
 | Tenant seed knowledge | `apps/workspace/templates/` |
 
-Claude invocation = **headless Claude Code CLI** (`claude -p`), **not** the Anthropic Messages API.
+Claude invocation = **headless Claude Code CLI / Agent SDK** (`query()` default, `claude -p` hotfix), **not** the Anthropic Messages API.
 
 ---
 
@@ -27,7 +27,8 @@ flowchart TD
   B -->|200 OK immediate| C[inbound coalesce + turn queue]
   C --> D[conversation.handleIncomingMessage]
   D --> E[buildRuntimePrompt + mode tools]
-  E --> F[askClaude → spawn CLI]
+  E --> F[askClaude]
+
   F --> G{tool_calls?}
   G -->|lookup| H[search / slots / CRM read]
   H --> F
@@ -41,16 +42,23 @@ Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversatio
 
 ---
 
-## Claude CLI spawn
+## Claude runtime
+
+Customer path goes through `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.ts`). Default is Agent SDK `query()` (`CLAUDE_RUNTIME=sdk`) with coding tools locked down. `CLAUDE_RUNTIME=cli` is a **hotfix rollback** (`claude -p`). Vision turns on the SDK path use an explicit logged CLI fallback (`cli_vision_fallback`). Auth / usage / login stay on `~/.local/bin/claude`. See [`CLAUDE_AGENT_SDK_MIGRATION_PLAN.md`](../CLAUDE_AGENT_SDK_MIGRATION_PLAN.md).
 
 | Piece | Behavior |
 |-------|----------|
-| Binary | `~/.local/bin/claude` (`lib/claude-binary.ts`) |
-| Args | `-p --output-format stream-json --verbose --model {haiku\|sonnet\|opus}` |
+| Runtime flag | `CLAUDE_RUNTIME=sdk\|cli` (default **`sdk`**; `cli` = hotfix) |
+| Customer transport | **sdk:** `@anthropic-ai/claude-agent-sdk` `query()` (lockdown + in-process MCP). **cli hotfix:** `claude -p` JSONL + text `<tool_call>` |
+| Binary | `~/.local/bin/claude` (`lib/claude-binary.ts`) — auth/usage always this CLI, even when customer path is `sdk` |
+| Args | `-p --output-format stream-json --verbose --model {haiku\|sonnet\|opus}` (CLI path) |
 | CWD | `~/.cache/platform-ai-agent/{instance}/claude-spawn` — **isolated** from `~/tenant_knowledge` (avoids parent `CLAUDE.md` pollution) |
-| Tools | **Text** protocol `<tool_call>{json}</tool_call>` — native CLI tools are not used in `-p` mode |
-| Concurrency | `CLAUDE_MAX_CONCURRENCY` (default 2); meta-agent: `CLAUDE_META_MAX_CONCURRENCY` (default 1) |
-| Session reuse | **Dual sessions per turn** (`lib/turn-claude-sessions.ts`): reply model and Haiku router keep separate `--resume` ids. Tool follow-up: Haiku resume → if no more tools, **resume reply session** (slim prompt), not a second cold Sonnet/Opus spawn. Mid-turn prompt activate clears both. |
+| Tools | **SDK (default):** in-process MCP `mcp__platform__*`; lookup handlers run in-process; terminal/`canUseTool` gate, host executes book/collect/handoff in `conversation.ts`. **CLI hotfix:** text `<tool_call>` |
+| Concurrency | `CLAUDE_MAX_CONCURRENCY` (default 2) shared IG/sandbox/insights; meta-agent: `CLAUDE_META_MAX_CONCURRENCY` (default 1) — teach does not queue behind IG |
+| Warmup | `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (SDK uses `query()`, not ad-hoc `claude -p`). Bypasses semaphores. Must **not** open the quota circuit |
+| Abort | CLI: process-group `SIGKILL` (`detached`) + warn if pid alive after 2s. SDK: `interrupt()` + `query.close()`. Sandbox disconnect / mid-turn prompt activate abort the turn `AbortSignal` |
+| Health | Orphan `claude` (ppid 1) → warn only, do not fail the check |
+| Session reuse | **Dual sessions per turn** (`lib/turn-claude-sessions.ts`): reply model and Haiku router keep separate `--resume` ids. Tool follow-up: Haiku resume → if no more tools, **resume reply session** (slim prompt), not a second cold Sonnet/Opus spawn. Mid-turn prompt activate clears both resume ids **and** aborts in-flight Claude. Lookup rounds reuse `resume`, not a long-lived `ClaudeSDKClient` |
 | Reply vs router model | Tenant picks **sonnet \| opus** for customer-facing Ukrainian replies. Tool follow-ups first try internal **Haiku** (`CLAUDE_ROUTER_MODEL`); if no further tools, reply model writes the final text (prefer resume). Haiku is not in the admin picker. |
 | Channels | `instagram`, customer telegram, `meta_agent`, `sandbox`, `supervisor`, `insights` |
 
@@ -152,6 +160,8 @@ Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabili
 | Turn debug | Spawn counters (cold vs resume) in admin agent-turn notes |
 
 Optimization directions (roadmap): parallelize independent tool lookups where safe; compact tool schemas; history char budget.
+
+**Claude Agent SDK migration** (planned, not started): control layer over the same CLI subprocess — typed sessions/events, in-process MCP tools, no Messages API swap and no billing change in that track. Phases + checklists: [`CLAUDE_AGENT_SDK_MIGRATION_PLAN.md`](../CLAUDE_AGENT_SDK_MIGRATION_PLAN.md).
 
 ---
 

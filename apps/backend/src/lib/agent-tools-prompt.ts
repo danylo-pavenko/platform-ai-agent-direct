@@ -1,4 +1,18 @@
-import type { ToolDefinition } from '../services/claude.js';
+import type { ToolDefinition } from './claude-runtime.js';
+import { isLookupToolName } from './tool-definitions.js';
+
+export interface FormatAgentToolsPromptOptions {
+  /**
+   * SDK path: lookup tools are native MCP — omit them from the text protocol
+   * JSON list; keep terminal tools as `<tool_call>`.
+   */
+  nativeLookup?: boolean;
+  /**
+   * SDK Phase 3: every customer tool is native MCP. No `<tool_call>` JSON
+   * schemas in the prompt (CLI path still uses the text protocol).
+   */
+  nativeAll?: boolean;
+}
 
 /**
  * Formats agent tool schemas + invocation protocol for the Claude CLI prompt.
@@ -9,12 +23,22 @@ import type { ToolDefinition } from '../services/claude.js';
  * sales collect_order when the tenant is in leadgen (and vice versa). That
  * mismatch was causing English “wrong toolset” rants in Instagram DM.
  */
-export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
+export function formatAgentToolsPrompt(
+  tools: ToolDefinition[],
+  opts?: FormatAgentToolsPromptOptions,
+): string {
   if (tools.length === 0) return '';
 
+  const nativeAll = Boolean(opts?.nativeAll);
+  const nativeLookup = nativeAll || Boolean(opts?.nativeLookup);
+  const protocolTools = nativeAll
+    ? []
+    : nativeLookup
+      ? tools.filter((t) => !isLookupToolName(t.name))
+      : tools;
   const names = new Set(tools.map((t) => t.name));
   const toolsJson = JSON.stringify(
-    tools.map((t) => ({
+    protocolTools.map((t) => ({
       name: t.name,
       description: t.description,
       parameters: t.parameters,
@@ -23,8 +47,14 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
     2,
   );
 
+  const invoke = (name: string) => (nativeLookup || nativeAll ? name : `<tool_call> ${name}`);
+
   const rules: string[] = [
-    'Клієнт бачить лише твій текст — блоки <tool_call> для нього невидимі.',
+    nativeAll
+      ? 'Клієнт бачить лише твій текст. Усі tools — native MCP, не малюй <tool_call> JSON. Не кажи «записала / замовлення оформлено», поки відповідний tool не успішний.'
+      : nativeLookup
+      ? 'Клієнт бачить лише твій текст. Lookup tools — native (не <tool_call>). Terminal (book/collect/handoff/…) — блоки <tool_call> для клієнта невидимі.'
+      : 'Клієнт бачить лише твій текст — блоки <tool_call> для нього невидимі.',
     'Викликай ЛИШЕ інструменти зі списку нижче. Не згадуй інші tools, режими чи CLAUDE.md клієнту.',
     'Якщо здається, що промпт і tools розходяться — відповідай клієнту з системного промпту/каталогу і не коментуй розбіжність.',
   ];
@@ -53,7 +83,7 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
   }
   if (names.has('search_services')) {
     rules.push(
-      'Заборонено писати клієнту «зараз пошукаю / перевірю / шукаю в каталозі / зараз буде» без <tool_call> search_services у ТІЙ САМІЙ відповіді. Якщо послуга вже зрозуміла — одразу виклич search_services і в наступному кроці назви ціну/тривалість з результату. Уточнювальне питання можна ставити БЕЗ обіцянки «зараз пошукаю».',
+      `Заборонено писати клієнту «зараз пошукаю / перевірю / шукаю в каталозі / зараз буде» без ${invoke('search_services')} у ТІЙ САМІЙ відповіді. Якщо послуга вже зрозуміла — одразу виклич search_services і в наступному кроці назви ціну/тривалість з результату. Уточнювальне питання можна ставити БЕЗ обіцянки «зараз пошукаю».`,
       'Якщо search_services повернув порожньо — НЕ вигадуй ціну/назву. Повторюй з коротшим query (манікюр, чистка, педикюр) або request_handoff.',
       'Якщо search_services повернув кілька схожих послуг — коротко уточни назву в клієнта (без service_id / UUID) і лише потім get_available_slots.',
       'Ціни з search_services: діапазон (напр. 400–800 ₴) + рядки грейдів у результаті — джерело правди. Клієнту без обраного майстра кажи діапазон або «від …»; назви рівнів — лише ті, що є в результаті (не вигадуй «Топ/Преміум»). Молодший/Майстер можуть не мати рядка на послугу = ця послуга їм недоступна.',
@@ -64,7 +94,7 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
   }
   if (names.has('search_catalog')) {
     rules.push(
-      'Заборонено писати «зараз пошукаю / перевірю в каталозі» без <tool_call> search_catalog у ТІЙ САМІЙ відповіді. Якщо товар/запит зрозумілий — одразу search_catalog і відповідай фактами з результату.',
+      `Заборонено писати «зараз пошукаю / перевірю в каталозі» без ${invoke('search_catalog')} у ТІЙ САМІЙ відповіді. Якщо товар/запит зрозумілий — одразу search_catalog і відповідай фактами з результату.`,
     );
   }
   if (names.has('get_available_slots')) {
@@ -74,7 +104,7 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
       'Клієнт міняє майстрів місцями (swap) або додає ще послугу на той самий час — ОБОВʼЯЗКОВО новий get_available_slots з оновленими master_id; заборонено казати «обидві вільні» без свіжого tool.',
       'Немає спільних вікон — кажи дати/години з tool (або сусідні дні з результату). Не вигадуй «лист очікування», якщо салону немає такого процесу.',
       'Після get_available_slots з master_id дивись блок «Ціни для обраного майстра»: фіксовану суму цитуй клієнту; якщо «недоступно для цього майстра» — поясни коротко і запропонуй іншого майстра / рівень (новий виклик без цього master_id або з іншим). Не підставляй мінімум з діапазону чужого грейду.',
-      'Заборонено обіцяти «зараз перевірю вікна / розклад» без <tool_call> get_available_slots у ТІЙ САМІЙ відповіді (коли вже є послуга з id + duration_min і дата/період).',
+      `Заборонено обіцяти «зараз перевірю вікна / розклад» без ${invoke('get_available_slots')} у ТІЙ САМІЙ відповіді (коли вже є послуга з id + duration_min і дата/період).`,
       'Якщо в результаті get_available_slots є рядок «Тривалість для слотів: N хв (історія…)» — використовуй цю тривалість (платформа вже підставила її в free_time). Не зменшуй слот нижче recommended без згоди клієнта.',
     );
   }
@@ -117,13 +147,33 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
 
   const rulesBlock = rules.map((r) => `- ${r}`).join('\n');
 
+  if (nativeAll) {
+    return `════════════════════════════════════════
+ІНСТРУМЕНТИ (NATIVE MCP)
+════════════════════════════════════════
+
+Усі tools цього режиму — native. НЕ малюй блоки <tool_call> і не пиши JSON схем у відповіді клієнту.
+Не стверджуй «записала / замовлення оформлено» без успішного tool.
+
+Правила для цього режиму:
+${rulesBlock}`;
+  }
+
+  const protocolIntro = nativeLookup
+    ? `Lookup (пошук/слоти/історія/доставка) — native tools. Terminal інструменти нижче викликай так (після тексту для клієнта):`
+    : `Ти МУСИШ викликати інструменти зі списку нижче, коли настають відповідні умови.
+
+Формат виклику (наприкінці відповіді, після тексту для клієнта):`;
+
+  const jsonLabel = nativeLookup
+    ? 'Terminal інструменти (text protocol):'
+    : 'Доступні інструменти:';
+
   return `════════════════════════════════════════
 ІНСТРУМЕНТИ (ОБОВ'ЯЗКОВО)
 ════════════════════════════════════════
 
-Ти МУСИШ викликати інструменти зі списку нижче, коли настають відповідні умови.
-
-Формат виклику (наприкінці відповіді, після тексту для клієнта):
+${protocolIntro}
 
 <tool_call>
 {"name":"ім'я_інструменту","args":{...}}
@@ -134,6 +184,6 @@ export function formatAgentToolsPrompt(tools: ToolDefinition[]): string {
 Правила для цього режиму:
 ${rulesBlock}
 
-Доступні інструменти:
+${jsonLabel}
 ${toolsJson}`;
 }

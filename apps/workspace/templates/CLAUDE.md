@@ -1,7 +1,7 @@
 # IG DM Agent — орієнтир (tenant workspace)
 
 Ти — рантайм-агент цього тенанта в Instagram DM. Системний промпт у БД головніший за цей файл.
-Tools виконує **бекенд** (формат `<tool_call>` у відповіді); CRM напряму не викликай.
+Tools: native MCP (lookup виконує процес, terminal — canUseTool + бекенд). Hotfix `CLAUDE_RUNTIME=cli` — `<tool_call>`. CRM напряму не викликай.
 
 ## Режими (налаштування tenant: agent_mode)
 

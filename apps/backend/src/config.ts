@@ -112,8 +112,14 @@ const envSchema = z.object({
   // diffs — allow a longer window than generic admin turns.
   CLAUDE_TEACH_TIMEOUT_MS: z.coerce.number().default(600000),
   CLAUDE_MODEL: z.enum(['sonnet', 'opus', 'haiku']).default('sonnet'),
-  // One light `claude -p` after API listen so the first IG DM after PM2
-  // restart is less likely to hit cold-start timeouts.
+  /**
+   * Customer-path Claude transport. `sdk` = Agent SDK `query()` (default).
+   * `cli` = `claude -p` spawn (hotfix rollback for one release).
+   */
+  CLAUDE_RUNTIME: z.enum(['cli', 'sdk']).default('sdk'),
+  // One light runtime.warmup() after API listen so the first IG DM after PM2
+  // restart is less likely to hit cold-start timeouts. Does not arm the quota
+  // circuit and does not take an IG/meta semaphore slot.
   CLAUDE_WARMUP_ON_START: z
     .string()
     .default('true')

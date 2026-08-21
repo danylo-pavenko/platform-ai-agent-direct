@@ -8,7 +8,11 @@ export type TurnClaudePurpose = 'reply' | 'router';
 export type TurnClaudeSessions = {
   replySessionId: string | undefined;
   routerSessionId: string | undefined;
+  /** AbortSignal for the current in-flight Claude call of this turn. */
+  readonly signal: AbortSignal;
   clearAll: () => void;
+  /** Abort in-flight Claude (sandbox disconnect). Does not wipe resume ids. */
+  abortInflight: () => void;
   /** Session id to pass as resumeSessionId for this purpose (undefined = cold). */
   resumeIdFor: (purpose: TurnClaudePurpose) => string | undefined;
   /** After a successful spawn — store session for that purpose only. */
@@ -20,6 +24,12 @@ export type TurnClaudeSessions = {
 export function createTurnClaudeSessions(): TurnClaudeSessions {
   let replySessionId: string | undefined;
   let routerSessionId: string | undefined;
+  let abort = new AbortController();
+
+  const abortInflight = () => {
+    if (!abort.signal.aborted) abort.abort();
+    abort = new AbortController();
+  };
 
   return {
     get replySessionId() {
@@ -28,9 +38,14 @@ export function createTurnClaudeSessions(): TurnClaudeSessions {
     get routerSessionId() {
       return routerSessionId;
     },
+    get signal() {
+      return abort.signal;
+    },
+    abortInflight,
     clearAll() {
       replySessionId = undefined;
       routerSessionId = undefined;
+      abortInflight();
     },
     resumeIdFor(purpose) {
       return purpose === 'router' ? routerSessionId : replySessionId;

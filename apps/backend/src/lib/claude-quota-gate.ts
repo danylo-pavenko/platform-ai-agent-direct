@@ -599,6 +599,19 @@ export function isClaudeBackgroundSpawnBlocked(
   return { blocked: !decision.allowed, reason: decision.reason };
 }
 
+/**
+ * Warmup must never open the hard circuit (a boot ping 429 would brick IG).
+ * Live customer/admin 429s still arm via `noteClaudeRateLimit`.
+ */
+export function shouldArmClaudeQuotaCircuit(
+  purpose: ClaudeSpawnPurpose | undefined,
+  armQuotaCircuit?: boolean,
+): boolean {
+  if (armQuotaCircuit === false) return false;
+  if (purpose === 'warmup') return false;
+  return true;
+}
+
 export function isBotFailureRateLimited(detail?: string | null): boolean {
   if (!detail?.trim()) return false;
   return isClaudeRateLimitSignal(detail);

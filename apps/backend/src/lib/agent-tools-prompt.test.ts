@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { formatAgentToolsPrompt } from './agent-tools-prompt.js';
 import { buildAgentTools } from './tool-definitions.js';
-import type { ToolDefinition } from '../services/claude.js';
+import type { ToolDefinition } from './claude-runtime.js';
 
 function tool(name: string): ToolDefinition {
   return { name, description: `${name} desc`, parameters: { type: 'object', properties: {} } };
@@ -99,5 +99,23 @@ describe('formatAgentToolsPrompt', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/різних майстрів/);
     expect(prompt).toMatch(/services\[\]\.master_id/);
+  });
+
+  it('omits lookup schemas from the text protocol on the SDK path', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'), { nativeLookup: true });
+    expect(prompt).toContain('native');
+    expect(prompt).toContain('book_appointment');
+    expect(prompt).not.toMatch(/"name": "search_services"/);
+    expect(prompt).toContain('НЕ вигадуй ціну');
+    expect(prompt).not.toContain('<tool_call> search_services');
+  });
+
+  it('drops the text protocol entirely when all tools are native MCP', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'), { nativeAll: true });
+    expect(prompt).toContain('NATIVE MCP');
+    expect(prompt).not.toMatch(/<tool_call>\s*\{/);
+    expect(prompt).not.toMatch(/"name": "book_appointment"/);
+    expect(prompt).toContain('book_appointment');
+    expect(prompt).toMatch(/request_handoff/);
   });
 });

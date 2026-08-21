@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import pino from 'pino';
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
@@ -11,6 +14,14 @@ import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import { getCrmAdapter } from './crm/registry.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
+import { getClaudeBinaryPath } from '../lib/claude-binary.js';
+import {
+  findOrphanClaudeProcesses,
+  parsePsProcessRows,
+} from '../lib/claude-orphan-processes.js';
+
+const execFileAsync = promisify(execFile);
+const log = pino({ name: 'health-check' });
 
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
@@ -95,6 +106,32 @@ async function checkInstagram(): Promise<HealthCheckItem> {
   };
 }
 
+async function warnOrphanClaudeProcesses(): Promise<{ count: number; pids: number[] }> {
+  try {
+    const { stdout } = await execFileAsync('ps', ['-ax', '-o', 'pid=', '-o', 'ppid=', '-o', 'args='], {
+      timeout: 3_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const orphans = findOrphanClaudeProcesses(parsePsProcessRows(String(stdout)), {
+      binaryPath: getClaudeBinaryPath(),
+      selfPid: process.pid,
+    });
+    if (orphans.length > 0) {
+      log.warn(
+        {
+          event: 'claude_orphan_processes',
+          count: orphans.length,
+          pids: orphans.map((row) => row.pid),
+        },
+        'Orphan claude processes (ppid 1) — warn only, health-check does not fail',
+      );
+    }
+    return { count: orphans.length, pids: orphans.map((row) => row.pid) };
+  } catch {
+    return { count: 0, pids: [] };
+  }
+}
+
 async function checkClaude(): Promise<HealthCheckItem> {
   const label = 'Claude CLI';
   const status = await getClaudeAuthStatus({ skipLiveCache: true });
@@ -134,15 +171,21 @@ async function checkClaude(): Promise<HealthCheckItem> {
     };
   }
 
+  const orphans = await warnOrphanClaudeProcesses();
+  const orphanNote =
+    orphans.count > 0 ? ` · ${orphans.count} orphan claude (warn)` : '';
+
   return {
     id: 'claude',
     label,
     status: 'ok',
-    message: `Підключено (${status.binaryVersion ?? 'ok'})`,
+    message: `Підключено (${status.binaryVersion ?? 'ok'})${orphanNote}`,
     details: {
       path: status.binaryPath,
       version: status.binaryVersion,
       email: status.email,
+      orphanClaudeCount: orphans.count,
+      orphanClaudePids: orphans.pids,
     },
   };
 }

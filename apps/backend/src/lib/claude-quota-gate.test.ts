@@ -14,6 +14,7 @@ import {
   parseClaudeResetToMs,
   releaseExpiredClaudeQuotaHardBlock,
   shouldSkipForceLiveUsageRefresh,
+  shouldArmClaudeQuotaCircuit,
   syncClaudeQuotaFromUsage,
   zonedWallTimeToUtcMs,
 } from './claude-quota-gate.js';
@@ -202,6 +203,14 @@ describe('claude-quota-gate', () => {
     expect(evaluateClaudeSpawn('auth_probe').allowed).toBe(false);
     expect(evaluateClaudeSpawn('follow_up').allowed).toBe(false);
     expect(evaluateClaudeSpawn('warmup').softBudget).toBe(true);
+  });
+
+  it('does not arm the circuit for warmup even when the caller omits the flag', () => {
+    expect(shouldArmClaudeQuotaCircuit('warmup')).toBe(false);
+    expect(shouldArmClaudeQuotaCircuit('warmup', true)).toBe(false);
+    expect(shouldArmClaudeQuotaCircuit('customer_dm')).toBe(true);
+    expect(shouldArmClaudeQuotaCircuit('customer_dm', false)).toBe(false);
+    expect(shouldArmClaudeQuotaCircuit('latency_probe')).toBe(true);
   });
 
   it('skips forceLive while hard-blocked or soft-budgeted from usage', () => {

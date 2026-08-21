@@ -1,7 +1,69 @@
-import type { ToolDefinition } from '../services/claude.js';
+import type { ToolDefinition } from './claude-runtime.js';
 import type { CrmFieldMapping } from '../generated/prisma/client.js';
 
 export type AgentMode = 'sales' | 'leadgen' | 'booking';
+
+/** Readonly lookup tools — Phase 2 in-process MCP on the SDK path. */
+export const LOOKUP_TOOL_NAMES = [
+  'search_catalog',
+  'search_services',
+  'get_available_slots',
+  'get_delivery_cost',
+  'get_client_crm_history',
+] as const;
+
+export type LookupToolName = (typeof LOOKUP_TOOL_NAMES)[number];
+
+export function isLookupToolName(name: string): name is LookupToolName {
+  return (LOOKUP_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/** Profile writes — host-executed after the model turn (Phase 3 MCP schemas). */
+export const PROFILE_TOOL_NAMES = [
+  'update_client_info',
+  'tag_client',
+  'set_conversation_branch',
+  'attach_reference_photo',
+  'classify_intent',
+] as const;
+
+export type ProfileToolName = (typeof PROFILE_TOOL_NAMES)[number];
+
+export function isProfileToolName(name: string): name is ProfileToolName {
+  return (PROFILE_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/** Side-effect terminal tools — host-executed; canUseTool is the gate. */
+export const TERMINAL_TOOL_NAMES = [
+  'book_appointment',
+  'collect_order',
+  'create_local_order',
+  'submit_brief',
+  'request_handoff',
+] as const;
+
+export type TerminalToolName = (typeof TERMINAL_TOOL_NAMES)[number];
+
+export function isTerminalToolName(name: string): name is TerminalToolName {
+  return (TERMINAL_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+export function isPlatformMcpToolName(name: string): boolean {
+  return isLookupToolName(name) || isProfileToolName(name) || isTerminalToolName(name);
+}
+
+export const CLAUDE_SDK_MCP_SERVER_NAME = 'platform';
+
+export function mcpLookupToolName(name: LookupToolName): string {
+  return `mcp__${CLAUDE_SDK_MCP_SERVER_NAME}__${name}`;
+}
+
+export function canonicalToolName(raw: string): string {
+  const trimmed = raw.trim();
+  const prefix = `mcp__${CLAUDE_SDK_MCP_SERVER_NAME}__`;
+  if (trimmed.startsWith(prefix)) return trimmed.slice(prefix.length);
+  return trimmed;
+}
 
 // ── Shared tools (both modes) ──────────────────────────────────────────────
 

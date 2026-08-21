@@ -296,6 +296,8 @@ CLAUDE_TIMEOUT_MS=120000
 CLAUDE_VOICE_TIMEOUT_MS=90000
 CLAUDE_ADMIN_TIMEOUT_MS=120000
 CLAUDE_MODEL=sonnet
+# Customer replies: Agent SDK. Hotfix rollback: cli
+CLAUDE_RUNTIME=sdk
 
 # Retry IG/TG bot replies when Claude timed out or no outbound was sent
 CONVERSATION_RETRY_ENABLED=true

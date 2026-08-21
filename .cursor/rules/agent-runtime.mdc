@@ -1,5 +1,5 @@
 ---
-description: Agent runtime — Claude CLI spawn, prompts, tools, CRM, admin AI assistants
+description: Agent runtime — Claude Agent SDK, prompts, tools, CRM, admin AI assistants
 alwaysApply: true
 ---
 
@@ -9,9 +9,10 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 
 ## Non-negotiables
 
-- Claude = **headless CLI** (`askClaude` / `services/claude.ts`), not Anthropic Messages API.
-- Customer tools = text `<tool_call>` + backend execution (`tool-definitions.ts`, `agent-tools-prompt.ts`).
-- Within a turn: **dual sessions** — reply model and Haiku router keep separate `--resume` ids (`lib/turn-claude-sessions.ts`). Final prose after tools resumes the reply session (no cold spawn on model switch). Mid-turn prompt activate clears both.
+- Claude = **Agent SDK `query()`** via `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.ts`). Default `CLAUDE_RUNTIME=sdk` (bundled Claude Code CLI + OAuth; coding tools disabled). `cli` = hotfix `claude -p`. Not Anthropic Messages API. Vision on SDK path uses explicit `cli_vision_fallback` (logged).
+- Customer tools = in-process MCP `mcp__platform__*` + `canUseTool` (host still executes book/collect in `conversation.ts`). CLI hotfix keeps the text `<tool_call>` protocol.
+- Within a turn: **dual sessions** — reply model and Haiku router keep separate `--resume` ids (`lib/turn-claude-sessions.ts`). Final prose after tools resumes the reply session (no cold spawn on model switch). Mid-turn prompt activate clears both resume ids and aborts in-flight Claude (`AbortSignal`).
+- Process hygiene: CLI spawn is a detached process group; abort/timeout kills the group and logs if pid is alive after 2s. `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (does not arm quota circuit, does not take IG/meta semaphore). Health-check warns on orphan `claude` (ppid 1) without failing.
 - Tenant reply model = **sonnet \| opus** only (`normalizeClaudeReplyModel`). Internal tool-routing uses `CLAUDE_ROUTER_MODEL` (haiku); final customer prose always uses the reply model.
 - CRM only via `getCrmAdapter` + `resolveCrmProvider(action)` — never HTTP in `conversation.ts`.
 - Platform capability map lives in `lib/platform-capabilities-prompt.ts` — inject into **meta-agent** and **insights (AI-помічник)**. Keep in sync when changing modes/tools/CRM.

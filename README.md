@@ -68,7 +68,7 @@ server
 | Frontend (admin) | Vue 3, Vuetify 3, Vite, Pinia, Vue Router 4 |
 | Super Admin | Fastify + TypeScript (tenant DB, webhook hub, deploy APIs, workers) |
 | Telegram | grammY framework, long polling (multi-bot roles) |
-| AI inference | Claude Code headless CLI (`claude -p`), NOT Anthropic API |
+| AI inference | Claude Agent SDK `query()` (bundled Claude Code CLI + OAuth), NOT Anthropic Messages API. `CLAUDE_RUNTIME=cli` hotfix still uses `claude -p` |
 | CRM | Multi-CRM: KeyCRM, CleverBOX, BeautyPro (routing by action / single / prompt) |
 | Delivery | Nova Poshta API v2 |
 | Process manager | PM2 |
@@ -180,7 +180,7 @@ platform-ai-agent-direct/
 │   │   │   │   ├── crm-fields.ts
 │   │   │   │   └── admin-auth.ts
 │   │   │   ├── services/
-│   │   │   │   ├── claude.ts           # headless CLI wrapper
+│   │   │   │   ├── claude.ts           # Agent SDK facade (cli hotfix + auth CLI)
 │   │   │   │   ├── conversation.ts     # main message handler (+ coalesce drain)
 │   │   │   │   ├── follow-up.ts        # Smart-trigger remarketing job
 │   │   │   │   ├── prompt-builder.ts   # runtime prompt assembly
@@ -447,7 +447,7 @@ See `.env.example` for the full list. Key groups:
 | Database | `DATABASE_URL` (separate DB per client) |
 | Instagram / Meta | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET`, `IG_WEBHOOK_VERIFY_TOKEN` (+ tokens in DB after OAuth) |
 | Telegram | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_MANAGER_GROUP_ID`, `TELEGRAM_ADMIN_PASSWORD` (more bots via Admin → Settings) |
-| Claude | `CLAUDE_MAX_CONCURRENCY`, `CLAUDE_TIMEOUT_MS`, `CLAUDE_MODEL` |
+| Claude | `CLAUDE_MAX_CONCURRENCY`, `CLAUDE_META_MAX_CONCURRENCY`, `CLAUDE_TIMEOUT_MS`, `CLAUDE_MODEL`, `CLAUDE_RUNTIME` (`sdk` default; `cli` = `claude -p` hotfix), `CLAUDE_WARMUP_ON_START` |
 | Auth | `JWT_SECRET`, `JWT_EXPIRES_IN` |
 | CRM | `CRM_PROVIDER`, `CRM_WRITE_ENABLED`, `KEYCRM_*`, `CLEVERBOX_*`, `BEAUTYPRO_*` |
 | Delivery | `NOVA_POSHTA_API_KEY` (or set via Admin → Settings) |
