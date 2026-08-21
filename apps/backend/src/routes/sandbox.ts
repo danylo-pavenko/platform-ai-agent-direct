@@ -149,9 +149,9 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
 
         const now = new Date();
         const workingHours = await getWorkingHours();
+        const agentCfg = await getAgentConfig();
         const catalogSnippet = await loadCatalogSnippetForMode(agentCfg.mode);
         const isOutOfHours = !isWithinWorkingHours(now, workingHours);
-        const agentCfg = await getAgentConfig();
         const branchesList = await formatBranchesForPrompt();
         const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
         const defaultBranch = await getDefaultBranch();
