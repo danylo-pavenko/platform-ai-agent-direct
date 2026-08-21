@@ -67,7 +67,7 @@ describe('retryOrderCrmSync', () => {
     expect(isCrmWriteReady).toHaveBeenCalledWith('booking');
     expect(mirrorAppointmentToCrm).toHaveBeenCalledWith(
       'a0712020-04d1-4863-8ad4-1370d6905921',
-      { force: true },
+      { force: true, forceTimeConflict: false },
     );
     expect(mirrorOrderToCrm).not.toHaveBeenCalled();
     expect(result).toMatchObject({
@@ -270,6 +270,45 @@ describe('retryOrderCrmSync', () => {
       statusCode: 502,
       message: 'TIME_CONFLICT',
     });
+  });
+
+  it('passes forceTimeConflict to mirrorAppointmentToCrm for admin override', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      kind: 'booking',
+      status: 'submitted',
+      note: 'appointmentId=a0712020-04d1-4863-8ad4-1370d6905921',
+      keycrmOrderId: null,
+    });
+    prismaMock.appointment.findUnique
+      .mockResolvedValueOnce({
+        id: 'a0712020-04d1-4863-8ad4-1370d6905921',
+        status: 'confirmed',
+        crmProvider: 'beautypro',
+        crmRecordId: null,
+        crmSyncStatus: 'failed',
+        crmSyncError: 'TIME_CONFLICT',
+        crmSyncedAt: null,
+      })
+      .mockResolvedValueOnce({
+        id: 'a0712020-04d1-4863-8ad4-1370d6905921',
+        crmProvider: 'beautypro',
+        crmRecordId: 'bp-forced',
+        crmSyncStatus: 'synced',
+        crmSyncError: null,
+        crmSyncedAt: new Date(),
+      });
+    isCrmWriteReady.mockResolvedValue({ ready: true, enabled: true, source: 'settings', provider: 'beautypro' });
+    mirrorAppointmentToCrm.mockResolvedValue(undefined);
+    reflectAppointmentCrmOnOrder.mockResolvedValue(undefined);
+
+    const result = await retryOrderCrmSync('order-1', { forceTimeConflict: true });
+
+    expect(mirrorAppointmentToCrm).toHaveBeenCalledWith(
+      'a0712020-04d1-4863-8ad4-1370d6905921',
+      { force: true, forceTimeConflict: true },
+    );
+    expect(result.crmRecordId).toBe('bp-forced');
   });
 
   it('returns alreadySynced for a product that already has a KeyCRM id', async () => {

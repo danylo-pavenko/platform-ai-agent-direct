@@ -51,7 +51,7 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 
 - One **planned/confirmed** appointment per `date + location + client` — API **merges** services if duplicate.
 - Prefer cancel (`state: cancelled`) over DELETE.
-- `409 TIME_CONFLICT` — do not `force=true` in agent prod path. Same-master services must be sequential (not all `start=12:00`). Different masters may share a start. Retry may link an existing same-day appointment for that client instead of POSTing a duplicate.
+- `409 TIME_CONFLICT` — do not `force=true` in agent prod path. Same-master services must be sequential (not all `start=12:00`). Different masters may share a start. Retry may link an existing same-day appointment for that client instead of POSTing a duplicate. **Admin only:** Orders → «Все одно в CRM (force)» → `POST /orders/:id/sync-crm` `{ forceTimeConflict: true }` → BeautyPro `POST /appointments?force=true`.
 - `smsError` on create is non-fatal (log only).
 - Agent dates often `DD.MM.YYYY` → convert to ISO `YYYY-MM-DD` in adapter.
 - History: **last ~2 months only**; field `duration` (minutes) + `items[].name/type` for planning next slot.

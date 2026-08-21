@@ -240,6 +240,11 @@ export interface CrmBookingInput {
     masterId?: string;
     startTime: string;
   }>;
+  /**
+   * BeautyPro only: POST /appointments?force=true — skip TIME_CONFLICT checks
+   * (admin confirm after showing conflicts). Never set from the Instagram agent.
+   */
+  forceTimeConflict?: boolean;
 }
 
 /** Past visit / sale from CRM client history (BeautyPro last ~2 months). */

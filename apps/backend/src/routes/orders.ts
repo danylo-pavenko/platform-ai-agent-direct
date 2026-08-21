@@ -195,11 +195,22 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // POST /:id/sync-crm - Manual CRM mirror retry (product → KeyCRM, booking → Appointment CRM)
+  const syncCrmBodySchema = z.object({
+    /** BeautyPro: POST /appointments?force=true — admin override for TIME_CONFLICT. */
+    forceTimeConflict: z.boolean().optional(),
+  });
+
   app.post<{
     Params: { id: string };
   }>('/:id/sync-crm', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const bodyParsed = syncCrmBodySchema.safeParse(request.body ?? {});
+    if (!bodyParsed.success) {
+      return reply.code(400).send({ error: 'Некоректне тіло запиту' });
+    }
     try {
-      const result = await retryOrderCrmSync(request.params.id);
+      const result = await retryOrderCrmSync(request.params.id, {
+        forceTimeConflict: bodyParsed.data.forceTimeConflict === true,
+      });
       return {
         ...result,
         message: crmRetrySuccessMessage(result),

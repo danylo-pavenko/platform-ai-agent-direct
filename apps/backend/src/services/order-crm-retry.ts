@@ -31,11 +31,14 @@ export interface OrderCrmRetryResult {
   crmSyncError: string | null;
 }
 
-async function retryBookingCrmSync(order: {
-  id: string;
-  note: string | null;
-  status: string;
-}): Promise<OrderCrmRetryResult> {
+async function retryBookingCrmSync(
+  order: {
+    id: string;
+    note: string | null;
+    status: string;
+  },
+  opts?: { forceTimeConflict?: boolean },
+): Promise<OrderCrmRetryResult> {
   const appointmentId = parseAppointmentIdFromOrderNote(order.note);
   if (!appointmentId) {
     throw new OrderCrmRetryError(
@@ -92,7 +95,10 @@ async function retryBookingCrmSync(order: {
     );
   }
 
-  await mirrorAppointmentToCrm(appointment.id, { force: true });
+  await mirrorAppointmentToCrm(appointment.id, {
+    force: true,
+    forceTimeConflict: opts?.forceTimeConflict === true,
+  });
 
   const updated = await prisma.appointment.findUnique({
     where: { id: appointment.id },
@@ -196,8 +202,12 @@ async function retryProductCrmSync(order: {
 /**
  * Manual admin retry: product orders → KeyCRM createOrder;
  * booking orders → Appointment createBooking (BeautyPro / CleverBOX).
+ * `forceTimeConflict` → BeautyPro POST /appointments?force=true (admin only).
  */
-export async function retryOrderCrmSync(orderId: string): Promise<OrderCrmRetryResult> {
+export async function retryOrderCrmSync(
+  orderId: string,
+  opts?: { forceTimeConflict?: boolean },
+): Promise<OrderCrmRetryResult> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -214,7 +224,7 @@ export async function retryOrderCrmSync(orderId: string): Promise<OrderCrmRetryR
   }
 
   if (order.kind === 'booking') {
-    return retryBookingCrmSync(order);
+    return retryBookingCrmSync(order, opts);
   }
 
   return retryProductCrmSync(order);

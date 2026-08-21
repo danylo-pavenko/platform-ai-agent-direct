@@ -289,6 +289,16 @@
                       >
                         Відвантажити в CRM
                       </v-btn>
+                      <v-btn
+                        v-if="canForceTimeConflict(item)"
+                        size="small"
+                        variant="tonal"
+                        color="warning"
+                        :loading="syncingId === item.id"
+                        @click="retryCrmSyncForce(item)"
+                      >
+                        Все одно в CRM (force)
+                      </v-btn>
                     </div>
                   </v-col>
                 </v-row>
@@ -468,6 +478,13 @@ function canRetry(item: Order): boolean {
   return !item.keycrmOrderId && !item.crmRecordId && item.crmSyncStatus !== 'synced';
 }
 
+/** BeautyPro TIME_CONFLICT on previous sync — admin may POST ?force=true. */
+function canForceTimeConflict(item: Order): boolean {
+  if (item.kind !== 'booking' || !canRetry(item)) return false;
+  const err = (item.crmSyncError ?? '').toUpperCase();
+  return err.includes('TIME_CONFLICT') || err.includes('TIME CONFLICT');
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return '—';
   return new Date(dateStr).toLocaleString('uk-UA');
@@ -542,10 +559,13 @@ async function fetchBookingMasters() {
   }
 }
 
-async function retryCrmSync(orderId: string) {
+async function retryCrmSync(orderId: string, opts?: { forceTimeConflict?: boolean }) {
   syncingId.value = orderId;
   try {
-    const { data } = await api.post(`/orders/${orderId}/sync-crm`);
+    const { data } = await api.post(
+      `/orders/${orderId}/sync-crm`,
+      opts?.forceTimeConflict ? { forceTimeConflict: true } : {},
+    );
     snackbarText.value = data?.message
       ?? (data?.crmRecordId
         ? `Синхронізовано: ${data.crmRecordId}`
@@ -561,6 +581,16 @@ async function retryCrmSync(orderId: string) {
   } finally {
     syncingId.value = null;
   }
+}
+
+async function retryCrmSyncForce(item: Order) {
+  const ok = window.confirm(
+    'Записати в BeautyPro з ігноруванням TIME_CONFLICT?\n\n'
+      + 'Слот може перетинатися з іншим записом або виходити за графік майстра. '
+      + 'Використовуйте лише якщо в CRM свідомо хочете force=true.',
+  );
+  if (!ok) return;
+  await retryCrmSync(item.id, { forceTimeConflict: true });
 }
 
 watch([page, limit], () => {

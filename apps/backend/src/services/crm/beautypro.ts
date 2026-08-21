@@ -948,13 +948,15 @@ export const beautyproAdapter: CrmAdapter = {
 
     // Do not pass `fields=id,...` — docs' POST fields list has no `id`, and the
     // live API returns 400 "Unknown parameter 'id'". Default 201 body is `{ id }`.
+    // `force=true` skips TIME_CONFLICT (admin-only; agent never sets this).
     let created: { id: string; smsError?: unknown } | undefined;
     try {
       created = await bpFetch<{ id: string; smsError?: unknown }>('POST', '/appointments', {
+        query: input.forceTimeConflict === true ? { force: true } : undefined,
         body,
       });
     } catch (err) {
-      if (isBeautyproTimeConflictError(err)) {
+      if (isBeautyproTimeConflictError(err) && input.forceTimeConflict !== true) {
         const existingId = await findSameDayClientAppointment({
           clientId,
           locationId: input.branchId,
@@ -979,7 +981,10 @@ export const beautyproAdapter: CrmAdapter = {
       log.warn({ smsError: created.smsError, id: created.id }, 'BeautyPro SMS warning');
     }
 
-    log.info({ appointmentId: created.id }, 'BeautyPro booking created');
+    log.info(
+      { appointmentId: created.id, forceTimeConflict: input.forceTimeConflict === true },
+      'BeautyPro booking created',
+    );
     return { crmRecordId: created.id, crmBuyerId: clientId };
   },
 

@@ -249,4 +249,25 @@ describe('order routes CRM overlay + retry', () => {
     expect(body.keycrmOrderId).toBeNull();
     expect(body.message).toBe('Запис відвантажено в BeautyPro');
   });
+
+  it('forwards forceTimeConflict on sync-crm', async () => {
+    retryOrderCrmSync.mockResolvedValue({
+      ok: true,
+      alreadySynced: false,
+      kind: 'booking',
+      crmProvider: 'beautypro',
+      crmRecordId: 'bp-force',
+      crmSyncStatus: 'synced',
+      crmSyncedAt: '2026-08-18T10:00:00.000Z',
+      crmSyncError: null,
+    });
+    const app = await buildApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/orders/order-1/sync-crm',
+      payload: { forceTimeConflict: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(retryOrderCrmSync).toHaveBeenCalledWith('order-1', { forceTimeConflict: true });
+  });
 });

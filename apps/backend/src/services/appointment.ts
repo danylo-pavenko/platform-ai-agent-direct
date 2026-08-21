@@ -413,7 +413,13 @@ export async function reflectAppointmentCrmOnOrder(appointment: {
 
 export async function mirrorAppointmentToCrm(
   appointmentId: string,
-  opts?: { fallbackCrmExternalId?: string | null; force?: boolean },
+  opts?: {
+    fallbackCrmExternalId?: string | null;
+    /** Bypass CRM_WRITE_ENABLED gate (admin retry). Not BeautyPro TIME_CONFLICT force. */
+    force?: boolean;
+    /** BeautyPro POST ?force=true — ignore calendar TIME_CONFLICT (admin only). */
+    forceTimeConflict?: boolean;
+  },
 ): Promise<void> {
   if (!opts?.force && !(await isCrmWriteEnabled())) return;
 
@@ -498,6 +504,7 @@ export async function mirrorAppointmentToCrm(
       phone: appointment.phone,
       comment: [appointment.comment, photoNote].filter(Boolean).join('\n') || undefined,
       services,
+      forceTimeConflict: opts?.forceTimeConflict === true,
     });
 
     const syncedAt = new Date();
