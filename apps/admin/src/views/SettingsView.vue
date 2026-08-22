@@ -2153,22 +2153,41 @@
           Небезпечна зона
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Незворотні дії. Використовуйте після зміни Instagram-акаунта або для повного скидання історії чатів.
+          Незворотні дії. Очищення діалогів — після зміни Instagram або повного скидання чатів.
+          Очищення замовлень — лише локальні угоди та записи, переписка лишається.
         </v-card-subtitle>
         <v-card-text>
           <p class="text-body-2 mb-3">
-            Видаляє <strong>усіх клієнтів</strong>, <strong>діалоги</strong>, <strong>повідомлення</strong>,
-            замовлення та брифі з бази цього тенанта. Instagram DM у Meta не чіпається — лише локальна копія.
+            <strong>Очистити всі діалоги</strong> — видаляє <strong>усіх клієнтів</strong>,
+            <strong>діалоги</strong>, <strong>повідомлення</strong>, замовлення та брифі з бази цього
+            тенанта. Instagram DM у Meta не чіпається — лише локальна копія.
           </p>
           <v-btn
             color="error"
             variant="outlined"
             prepend-icon="mdi-delete-sweep"
+            class="me-2 mb-2"
             :loading="purgeDialogsLoading"
-            :disabled="purgeDialogsLoading"
+            :disabled="purgeDialogsLoading || purgeOrdersLoading"
             @click="purgeDialogsDialog = true"
           >
             Очистити всі діалоги
+          </v-btn>
+          <p class="text-body-2 mb-3 mt-4">
+            <strong>Очистити всі замовлення</strong> — видаляє лише локальні
+            <strong>замовлення</strong> та <strong>записи (appointments)</strong>.
+            Діалоги, клієнти та повідомлення <strong>не</strong> змінюються. CRM у BeautyPro / KeyCRM
+            не чіпається.
+          </p>
+          <v-btn
+            color="error"
+            variant="outlined"
+            prepend-icon="mdi-cart-remove"
+            :loading="purgeOrdersLoading"
+            :disabled="purgeOrdersLoading || purgeDialogsLoading"
+            @click="purgeOrdersDialog = true"
+          >
+            Очистити всі замовлення
           </v-btn>
         </v-card-text>
       </v-card>
@@ -2394,6 +2413,61 @@
               @click="purgeAllDialogs"
             >
               Видалити назавжди
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+
+      <!-- Purge all orders confirmation -->
+      <v-dialog v-model="purgeOrdersDialog" max-width="520" persistent>
+        <v-card>
+          <v-card-title class="d-flex align-center text-error">
+            <v-icon start color="error">mdi-cart-remove</v-icon>
+            Очистити всі замовлення?
+          </v-card-title>
+          <v-card-text class="text-body-2">
+            <v-alert type="error" variant="tonal" density="compact" class="mb-3">
+              Цю дію <strong>неможливо скасувати</strong>.
+            </v-alert>
+            <ul class="pl-4 mb-3" style="line-height: 1.6;">
+              <li>Будуть видалені всі локальні замовлення (товари, booking, callback тощо).</li>
+              <li>Будуть видалені локальні записи на прийом (appointments) для CRM-синку.</li>
+              <li>Переписка, клієнти та повідомлення <strong>залишаться</strong>.</li>
+              <li>Записи в BeautyPro / KeyCRM / CleverBOX <strong>не</strong> скасовуються автоматично.</li>
+            </ul>
+            <p class="mb-2">
+              Щоб підтвердити, введіть:
+              <code class="text-error">{{ purgeOrdersConfirmPhrase }}</code>
+            </p>
+            <v-text-field
+              v-model="purgeOrdersConfirmInput"
+              label="Підтвердження"
+              variant="outlined"
+              density="compact"
+              hide-details
+              autocomplete="off"
+              :disabled="purgeOrdersLoading"
+              @keyup.enter="purgeAllOrders"
+            />
+          </v-card-text>
+          <v-card-actions>
+            <v-spacer />
+            <v-btn
+              variant="text"
+              :disabled="purgeOrdersLoading"
+              @click="closePurgeOrdersDialog"
+            >
+              Скасувати
+            </v-btn>
+            <v-btn
+              color="error"
+              variant="flat"
+              prepend-icon="mdi-delete-forever"
+              :loading="purgeOrdersLoading"
+              :disabled="!purgeOrdersConfirmReady"
+              @click="purgeAllOrders"
+            >
+              Видалити замовлення
             </v-btn>
           </v-card-actions>
         </v-card>
@@ -3738,6 +3812,48 @@ async function purgeAllDialogs() {
     );
   } finally {
     purgeDialogsLoading.value = false;
+  }
+}
+
+const PURGE_ORDERS_CONFIRM = 'ВИДАЛИТИ ЗАМОВЛЕННЯ';
+const purgeOrdersDialog = ref(false);
+const purgeOrdersConfirmInput = ref('');
+const purgeOrdersLoading = ref(false);
+const purgeOrdersConfirmPhrase = PURGE_ORDERS_CONFIRM;
+const purgeOrdersConfirmReady = computed(
+  () => purgeOrdersConfirmInput.value.trim() === PURGE_ORDERS_CONFIRM,
+);
+
+function closePurgeOrdersDialog() {
+  purgeOrdersDialog.value = false;
+  purgeOrdersConfirmInput.value = '';
+}
+
+async function purgeAllOrders() {
+  if (!purgeOrdersConfirmReady.value || purgeOrdersLoading.value) return;
+  purgeOrdersLoading.value = true;
+  try {
+    const { data } = await api.post<{
+      ok: boolean;
+      deleted: {
+        orders: number;
+        appointments: number;
+      };
+    }>('/settings/purge-orders', { confirm: PURGE_ORDERS_CONFIRM });
+
+    const d = data.deleted;
+    closePurgeOrdersDialog();
+    showOAuthSnackbar(
+      `Видалено: ${d.orders} замовлень, ${d.appointments} записів (appointments).`,
+      'success',
+    );
+  } catch (e: any) {
+    showOAuthSnackbar(
+      e.response?.data?.error ?? 'Не вдалося очистити замовлення',
+      'error',
+    );
+  } finally {
+    purgeOrdersLoading.value = false;
   }
 }
 

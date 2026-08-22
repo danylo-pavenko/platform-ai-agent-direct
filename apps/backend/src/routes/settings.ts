@@ -622,6 +622,44 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  const PURGE_ORDERS_CONFIRM = 'ВИДАЛИТИ ЗАМОВЛЕННЯ';
+
+  /**
+   * POST /settings/purge-orders
+   * Irreversible wipe of all local orders and salon appointments.
+   * Keeps clients, conversations and messages intact.
+   */
+  app.post<{ Body: { confirm?: string } }>(
+    '/purge-orders',
+    { onRequest: [app.authenticate, app.requireOwner] },
+    async (request, reply) => {
+      if (request.body?.confirm !== PURGE_ORDERS_CONFIRM) {
+        return reply.code(400).send({
+          error: `Для підтвердження надішліть confirm: "${PURGE_ORDERS_CONFIRM}"`,
+        });
+      }
+
+      const [orders, appointments] = await Promise.all([
+        prisma.order.count(),
+        prisma.appointment.count(),
+      ]);
+
+      if (orders === 0 && appointments === 0) {
+        return { ok: true, deleted: { orders: 0, appointments: 0 } };
+      }
+
+      await prisma.appointment.deleteMany({});
+      await prisma.order.deleteMany({});
+
+      app.log.warn({ orders, appointments }, 'All local orders purged via admin settings');
+
+      return {
+        ok: true,
+        deleted: { orders, appointments },
+      };
+    },
+  );
+
   // POST /settings/nova-poshta/resolve-city
   // Given a city name, returns its NP Ref UUID. Used to configure sender city.
   app.post<{ Body: { cityName: string } }>(
