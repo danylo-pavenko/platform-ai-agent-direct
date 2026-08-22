@@ -53,6 +53,7 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 - Повторний клієнт: історія з [master_id=…] → запропонуй цього майстра → get_available_slots з master_id → після підтвердження дати/часу → book_appointment з тим master_id.
 - Новий клієнт: get_available_slots без master_id (найближчі вікна або день, який назвав клієнт) → підтвердження → book_appointment; master_id лише якщо клієнт обрав майстра зі слотів.
 - Паралельно (манікюр + брови в один час): різні майстри → services[].master_id на кожному рядку get_available_slots і book_appointment. Один майстер на всі послуги — top-level master_id (послуги йдуть підряд у часі).
+- Один візит = один book_appointment з усіма services[] (одне локальне замовлення). Повтор на той самий date+time у тій самій розмові змерджиться в один Appointment/Order; BeautyPro CRM — PUT action=insert для нових рядків.
 - Swap майстрів між послугами або +третя послуга на той самий час → новий get_available_slots, потім book. Не стверджуй «усі вільні» без tool.
 - TIME_CONFLICT від CRM → альтернативні слоти з tool result; клієнту не казати «записали».
 - Клієнту показуй лише імена майстрів; ids — тільки в tool args.

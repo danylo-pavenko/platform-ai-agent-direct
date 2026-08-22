@@ -11,8 +11,8 @@ const {
 } = vi.hoisted(() => ({
   prismaMock: {
     conversation: { findUnique: vi.fn(), update: vi.fn() },
-    appointment: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    order: { findFirst: vi.fn(), create: vi.fn(), updateMany: vi.fn() },
+    appointment: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     message: { create: vi.fn() },
     clientReferencePhoto: { findMany: vi.fn() },
   },
@@ -86,6 +86,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     resolveCrmProvider.mockResolvedValue('beautypro');
     prismaMock.conversation.findUnique.mockResolvedValue({ branchId: 'branch-1' });
     prismaMock.conversation.update.mockResolvedValue({});
+    prismaMock.appointment.findFirst.mockResolvedValue(null);
     resolveBookingBranchForAppointment.mockResolvedValue({
       branchId: 'branch-1',
       crmExternalId: 'loc-1',
@@ -202,7 +203,9 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
   });
 
   it('dedupes booking Order within window', async () => {
-    prismaMock.order.findFirst.mockResolvedValue({ id: 'order-existing' });
+    prismaMock.order.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'order-existing' });
 
     const result = await handleBookAppointment(
       'conv-1',
@@ -263,6 +266,58 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         }),
       }),
     );
+  });
+
+  it('merges second book_appointment on the same slot into one visit', async () => {
+    prismaMock.appointment.findFirst.mockResolvedValue({
+      id: 'appt-existing',
+      services: [{ id: 'svc-1', durationMin: 60, masterId: 'm-1', name: 'Манікюр', price: 500 }],
+      crmRecordId: null,
+      crmSyncStatus: 'pending',
+      crmSyncError: null,
+      crmSyncedAt: null,
+      branchId: 'branch-1',
+    });
+    prismaMock.appointment.update.mockResolvedValue({ id: 'appt-existing' });
+    prismaMock.appointment.findUnique.mockResolvedValue({
+      services: [
+        { id: 'svc-1', durationMin: 60, masterId: 'm-1', name: 'Манікюр', price: 500 },
+        { id: 'svc-2', durationMin: 30, masterId: 'm-2', name: 'Брови', price: 350 },
+      ],
+    });
+    prismaMock.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      items: [{ name: 'Манікюр', price: 500, qty: 1 }],
+      note: 'appointmentId=appt-existing',
+    });
+
+    const result = await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Анжела',
+        phone: '+380501112233',
+        date: '2026-08-08',
+        time: '11:00',
+        services: [{ id: 'svc-2', name: 'Брови', duration_min: 30, price: 350, master_id: 'm-2' }],
+      },
+      { skipClientMessage: true },
+    );
+
+    expect(prismaMock.appointment.create).not.toHaveBeenCalled();
+    expect(prismaMock.appointment.update).toHaveBeenCalled();
+    expect(prismaMock.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'order-1' },
+        data: expect.objectContaining({
+          items: expect.arrayContaining([
+            expect.objectContaining({ name: 'Манікюр' }),
+            expect.objectContaining({ name: 'Брови' }),
+          ]),
+        }),
+      }),
+    );
+    expect(result?.toolResult).toContain('merged');
   });
 });
 

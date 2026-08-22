@@ -22,7 +22,7 @@ export type AgentTurnRoundDebug = {
 };
 
 export type AgentTurnSpawnDebug = {
-  purpose: 'reply' | 'router';
+  purpose: 'reply';
   model: string;
   resumed: boolean;
   inputChars?: number;

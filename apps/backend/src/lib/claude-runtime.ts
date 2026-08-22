@@ -101,7 +101,7 @@ export interface ClaudeCallContext {
   clientId?: string;
   /** Per-call override (e.g. voice turns after STT). */
   timeoutMs?: number;
-  /** Claude `--model` (haiku router / sonnet|opus reply). Falls back to agent_config. */
+  /** Claude `--model` (sonnet|opus reply; haiku only for warmup/usage). Falls back to agent_config. */
   model?: string;
   /** Override quota-gate purpose (e.g. follow_up vs customer_dm). */
   spawnPurpose?: ClaudeSpawnPurpose;

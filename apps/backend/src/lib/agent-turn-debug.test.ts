@@ -56,7 +56,7 @@ describe('agent-turn-debug', () => {
   it('formats cold vs resume spawn counters', () => {
     const c = createAgentTurnDebugCollector();
     recordTurnSpawn(c, { purpose: 'reply', model: 'sonnet', resumed: false, inputChars: 4000 });
-    recordTurnSpawn(c, { purpose: 'router', model: 'haiku', resumed: true, inputChars: 200 });
+    recordTurnSpawn(c, { purpose: 'reply', model: 'sonnet', resumed: true, inputChars: 200 });
     recordTurnSpawn(c, { purpose: 'reply', model: 'sonnet', resumed: true, inputChars: 150 });
     expect(shouldPersistAgentTurnDebug(c)).toBe(true);
     const note = formatAgentTurnDebugNote(c, { durationMs: 100 });

@@ -247,6 +247,28 @@ export interface CrmBookingInput {
   forceTimeConflict?: boolean;
 }
 
+/** Append services to an existing CRM booking (BeautyPro PUT action=insert). */
+export interface CrmBookingAppendInput {
+  crmRecordId: string;
+  date: string;
+  branchId: string;
+  clientName: string;
+  phone: string;
+  comment?: string;
+  clientId?: string;
+  /** Slot anchor for sequential start times (first service in the visit). */
+  startTime: string;
+  /** Full merged service list (local truth after merge). */
+  services: Array<{
+    id: string;
+    durationMin: number;
+    masterId?: string;
+    startTime?: string;
+  }>;
+  /** How many services were already synced before this append. */
+  previousServiceCount: number;
+}
+
 /** Past visit / sale from CRM client history (BeautyPro last ~2 months). */
 export interface CrmVisitHistoryItem {
   id: string;
@@ -329,6 +351,8 @@ export interface CrmAdapter {
     /** CRM client id resolved/created during booking (persist on local Client). */
     crmBuyerId?: string;
   }>;
+  /** Add services to an existing CRM booking after a local merge. */
+  appendBookingServices?(input: CrmBookingAppendInput): Promise<void>;
   cancelBooking?(recordId: string, reason?: 'move' | 'cancel'): Promise<void>;
 
   /** Past visits for duration / preference context (BeautyPro history, etc.). */

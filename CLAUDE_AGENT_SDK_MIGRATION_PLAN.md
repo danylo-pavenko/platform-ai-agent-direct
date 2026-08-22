@@ -3,7 +3,7 @@
 **Контекст (історичний).** До міграції customer / admin агенти викликали Claude через
 headless CLI: `askClaude()` → `spawn(claude -p)`. Tools — текстовий `<tool_call>`.
 **Зараз (Phase 5):** default `CLAUDE_RUNTIME=sdk` (`query()` + in-process MCP);
-`cli` лишається hotfix. Dual sessions (Sonnet/Opus reply + Haiku router) через
+`cli` лишається hotfix. One session per turn (tenant reply model) через
 `--resume`. Auth — `claude auth login` per Linux user (Max/Pro).
 
 **Мета документа:** зафіксувати, *чому* переходимо на Claude Agent SDK, які
@@ -412,7 +412,7 @@ local sandbox
 - Anthropic Messages API як заміна spawn.
 - Перехід billing на `ANTHROPIC_API_KEY` / pay-as-you-go.
 - `Bash` / `Read` / `Write` / `Edit` у customer або admin assistants «бо SDK вміє».
-- Віддати весь turn в `maxTurns: 20` (втрата Haiku/Sonnet split, Telegram timing,
+- Віддати весь turn в `maxTurns: 20` (втрата host tool loop, Telegram timing,
   anti-reschedule).
 - HTTP CRM у MCP handler напряму.
 - Persistent SDK client між діалогами / між tenants.

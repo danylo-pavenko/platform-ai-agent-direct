@@ -1,29 +1,27 @@
 /**
- * Per-turn Claude Code sessions: reply model and Haiku router keep separate
- * `--resume` ids so switching models does not force a cold full prompt.
+ * Per-turn Claude Code session for the tenant reply model (sonnet|opus).
+ * First spawn is cold; tool follow-ups `--resume` the same id so a multi-item
+ * order across tool rounds stays in one thread.
+ * Mid-turn prompt activate clears the id and aborts in-flight Claude.
  */
 
-export type TurnClaudePurpose = 'reply' | 'router';
-
 export type TurnClaudeSessions = {
-  replySessionId: string | undefined;
-  routerSessionId: string | undefined;
+  sessionId: string | undefined;
   /** AbortSignal for the current in-flight Claude call of this turn. */
   readonly signal: AbortSignal;
   clearAll: () => void;
-  /** Abort in-flight Claude (sandbox disconnect). Does not wipe resume ids. */
+  /** Abort in-flight Claude (sandbox disconnect). Does not wipe resume id. */
   abortInflight: () => void;
-  /** Session id to pass as resumeSessionId for this purpose (undefined = cold). */
-  resumeIdFor: (purpose: TurnClaudePurpose) => string | undefined;
-  /** After a successful spawn — store session for that purpose only. */
-  noteSuccess: (purpose: TurnClaudePurpose, sessionId: string | undefined) => void;
-  /** Fallback / unusable result — clear that purpose session (or both if unknown). */
-  noteFallback: (purpose?: TurnClaudePurpose) => void;
+  /** Session id to pass as resumeSessionId (undefined = cold). */
+  resumeId: () => string | undefined;
+  /** After a successful spawn — store session for later rounds. */
+  noteSuccess: (sessionId: string | undefined) => void;
+  /** Fallback / unusable result — clear the session so the next spawn is cold. */
+  noteFallback: () => void;
 };
 
 export function createTurnClaudeSessions(): TurnClaudeSessions {
-  let replySessionId: string | undefined;
-  let routerSessionId: string | undefined;
+  let sessionId: string | undefined;
   let abort = new AbortController();
 
   const abortInflight = () => {
@@ -32,41 +30,27 @@ export function createTurnClaudeSessions(): TurnClaudeSessions {
   };
 
   return {
-    get replySessionId() {
-      return replySessionId;
-    },
-    get routerSessionId() {
-      return routerSessionId;
+    get sessionId() {
+      return sessionId;
     },
     get signal() {
       return abort.signal;
     },
     abortInflight,
     clearAll() {
-      replySessionId = undefined;
-      routerSessionId = undefined;
+      sessionId = undefined;
       abortInflight();
     },
-    resumeIdFor(purpose) {
-      return purpose === 'router' ? routerSessionId : replySessionId;
+    resumeId() {
+      return sessionId;
     },
-    noteSuccess(purpose, sessionId) {
-      const id = sessionId?.trim() || undefined;
-      if (!id) return;
-      if (purpose === 'router') routerSessionId = id;
-      else replySessionId = id;
+    noteSuccess(id) {
+      const next = id?.trim() || undefined;
+      if (!next) return;
+      sessionId = next;
     },
-    noteFallback(purpose) {
-      if (purpose === 'router') {
-        routerSessionId = undefined;
-        return;
-      }
-      if (purpose === 'reply') {
-        replySessionId = undefined;
-        return;
-      }
-      replySessionId = undefined;
-      routerSessionId = undefined;
+    noteFallback() {
+      sessionId = undefined;
     },
   };
 }

@@ -58,8 +58,8 @@ Customer path goes through `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.
 | Warmup | `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (SDK uses `query()`, not ad-hoc `claude -p`). Bypasses semaphores. Must **not** open the quota circuit |
 | Abort | CLI: process-group `SIGKILL` (`detached`) + warn if pid alive after 2s. SDK: `interrupt()` + `query.close()`. Sandbox disconnect / mid-turn prompt activate abort the turn `AbortSignal` |
 | Health | Orphan `claude` (ppid 1) → warn only, do not fail the check |
-| Session reuse | **Dual sessions per turn** (`lib/turn-claude-sessions.ts`): reply model and Haiku router keep separate `--resume` ids. Tool follow-up: Haiku resume → if no more tools, **resume reply session** (slim prompt), not a second cold Sonnet/Opus spawn. Mid-turn prompt activate clears both resume ids **and** aborts in-flight Claude. Lookup rounds reuse `resume`, not a long-lived `ClaudeSDKClient` |
-| Reply vs router model | Tenant picks **sonnet \| opus** for customer-facing Ukrainian replies. Tool follow-ups first try internal **Haiku** (`CLAUDE_ROUTER_MODEL`); if no further tools, reply model writes the final text (prefer resume). Haiku is not in the admin picker. |
+| Session reuse | **One session per turn** (`lib/turn-claude-sessions.ts`): tenant reply model (`sonnet\|opus`) `--resume` across tool rounds. Mid-turn prompt activate clears the resume id **and** aborts in-flight Claude. Lookup rounds reuse `resume`, not a long-lived `ClaudeSDKClient` |
+| Reply model | Tenant picks **sonnet \| opus**. The same model runs the first spawn and every tool follow-up (no Haiku router). Haiku is not in the admin picker; it is only used for warmup / usage probes. |
 | Channels | `instagram`, customer telegram, `meta_agent`, `sandbox`, `supervisor`, `insights` |
 
 ---
@@ -151,7 +151,7 @@ Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabili
 | Factor | Impact |
 |--------|--------|
 | Fresh CLI spawn on **first** round of a turn | Cold start cost (Opus/Sonnet) |
-| Tool follow-ups | Haiku `--resume`; final prose **`--resume` reply session** when available (dual sessions) |
+| Tool follow-ups | Same reply model `--resume` (one session per turn) |
 | Slot / search tool results | Max **3** slot times/day; service search default limit **8** |
 | Semaphore max 2 | Queue / busy fallback under load |
 | Large system prompt + catalog + history on cold start | Token and TTFT cost (booking omits services-live dump) |

@@ -76,3 +76,26 @@ export function buildBeautyproAppointmentCreateBody(input: {
   }
   return body;
 }
+
+/** PUT /appointments/{id} — append new service rows without rewriting existing CRM lines. */
+export function buildBeautyproAppointmentAppendServicesBody(input: {
+  professional: string;
+  start: string;
+  allServices: Array<{ id: string; durationMin: number; masterId?: string; startTime?: string }>;
+  previousServiceCount: number;
+}): Record<string, unknown> {
+  const full = buildBeautyproAppointmentCreateBody({
+    isoDate: '1970-01-01',
+    locationId: 'unused',
+    clientId: 'unused',
+    professional: input.professional,
+    start: input.start,
+    services: input.allServices,
+  });
+  const rows = (full.services as Array<Record<string, unknown>>).slice(
+    Math.max(0, input.previousServiceCount),
+  );
+  return {
+    services: rows.map((row) => ({ ...row, action: 'insert' })),
+  };
+}

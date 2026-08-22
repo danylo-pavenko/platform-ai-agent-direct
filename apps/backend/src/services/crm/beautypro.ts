@@ -13,6 +13,7 @@ import { sanitizeIntegrationSecret } from '../../lib/integration-secrets.js';
 import { config } from '../../config.js';
 import type {
   CrmAdapter,
+  CrmBookingAppendInput,
   CrmBookingInput,
   CrmBranch,
   CrmCategory,
@@ -42,6 +43,7 @@ import {
   type FreeTimeResponse,
 } from './beautypro-free-time.js';
 import {
+  buildBeautyproAppointmentAppendServicesBody,
   buildBeautyproAppointmentCreateBody,
   isBeautyproTimeConflictError,
   normalizeBeautyproStartTime,
@@ -1059,6 +1061,34 @@ export const beautyproAdapter: CrmAdapter = {
       'BeautyPro booking created',
     );
     return { crmRecordId: created.id, crmBuyerId: clientId };
+  },
+
+  async appendBookingServices(input: CrmBookingAppendInput) {
+    if (input.previousServiceCount >= input.services.length) return;
+
+    let professional =
+      input.services.map((s) => s.masterId).find((id) => Boolean(id?.trim())) ?? undefined;
+    if (!professional) {
+      throw new Error('BeautyPro: no professional for booking append');
+    }
+
+    const start = normalizeBeautyproStartTime(input.startTime);
+    const body = buildBeautyproAppointmentAppendServicesBody({
+      professional,
+      start,
+      allServices: input.services,
+      previousServiceCount: input.previousServiceCount,
+    });
+
+    await bpFetch('PUT', `/appointments/${input.crmRecordId}`, { body });
+    log.info(
+      {
+        crmRecordId: input.crmRecordId,
+        previousServiceCount: input.previousServiceCount,
+        totalServices: input.services.length,
+      },
+      'BeautyPro booking services appended',
+    );
   },
 
   async cancelBooking(recordId: string, _reason?: 'move' | 'cancel') {

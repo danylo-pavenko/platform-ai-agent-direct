@@ -16,7 +16,7 @@
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
- *     claudeModel: 'sonnet' | 'opus',  // customer-facing reply model (Haiku only used internally for tool routing)
+ *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
  *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
  *   }
  */
@@ -35,18 +35,12 @@ export type OutOfHoursStrategy = 'warn_early' | 'defer_to_end';
 /** Models the tenant may pick for customer-facing replies (Ukrainian quality). */
 export type ClaudeReplyModelId = 'sonnet' | 'opus';
 
-/** All CLI `--model` ids we may spawn (includes internal router). */
+/** All CLI `--model` ids we may spawn (haiku = warmup / usage probe only). */
 export type ClaudeModelId = 'haiku' | ClaudeReplyModelId;
 
 export const CLAUDE_REPLY_MODEL_IDS: readonly ClaudeReplyModelId[] = ['sonnet', 'opus'] as const;
 
 export const CLAUDE_MODEL_IDS: readonly ClaudeModelId[] = ['haiku', 'sonnet', 'opus'] as const;
-
-/**
- * Fast model for tool-routing rounds after tool results.
- * Not offered in admin — Haiku is weak on Ukrainian customer copy.
- */
-export const CLAUDE_ROUTER_MODEL: ClaudeModelId = 'haiku';
 
 export const RESPONSE_DELAY_SEC_MAX = 60;
 

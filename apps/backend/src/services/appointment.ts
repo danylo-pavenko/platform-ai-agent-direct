@@ -24,11 +24,17 @@ import { sendText } from './instagram.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
+import { normalizeOrderItems } from '../lib/order-normalize.js';
 import { providerDisplayName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { getAvailableSlotsForContext } from './service-search.js';
 import { applyPersonalDurations } from './personal-duration.js';
+import {
+  buildBookingOrderSummary,
+  mergeAppointmentServiceLines,
+  mergeOrderLineItems,
+} from '../lib/booking-merge.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -168,24 +174,101 @@ export async function handleBookAppointment(
       typeof args.crm_provider === 'string' ? args.crm_provider : undefined,
   });
 
-  const appointment = await prisma.appointment.create({
-    data: {
+  const mergeTarget = await prisma.appointment.findFirst({
+    where: {
       conversationId,
-      clientId,
-      branchId: resolved.branchId,
-      services: toInputJsonValue(services)!,
       scheduledDate: date,
       scheduledTime: time,
-      customerName,
-      phone,
-      comment,
-      status: 'confirmed',
-      crmProvider,
-      crmSyncStatus: 'pending',
+      status: { not: 'cancelled' },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      services: true,
+      crmRecordId: true,
+      crmSyncStatus: true,
+      crmSyncError: true,
+      crmSyncedAt: true,
+      branchId: true,
     },
   });
 
-  await createBookingOrderMirror({
+  let appointment: { id: string };
+  let mergedIntoExisting = false;
+  let addedServiceCount = 0;
+  let previousServiceCount = 0;
+
+  if (mergeTarget) {
+    const existingServices = normalizeAppointmentServices(mergeTarget.services);
+    previousServiceCount = existingServices.length;
+    const { merged, added } = mergeAppointmentServiceLines(existingServices, services);
+    addedServiceCount = added.length;
+    mergedIntoExisting = true;
+
+    appointment = await prisma.appointment.update({
+      where: { id: mergeTarget.id },
+      data: {
+        services: toInputJsonValue(servicesToJson(merged))!,
+        customerName,
+        phone,
+        comment: comment ?? undefined,
+        branchId: resolved.branchId ?? mergeTarget.branchId,
+        crmProvider,
+        ...(addedServiceCount > 0 && mergeTarget.crmRecordId
+          ? { crmSyncStatus: 'pending' as const }
+          : {}),
+      },
+      select: { id: true },
+    });
+
+    if (addedServiceCount === 0) {
+      log.info(
+        { conversationId, appointmentId: appointment.id },
+        'book_appointment: idempotent merge — services already on visit',
+      );
+    } else {
+      log.info(
+        {
+          conversationId,
+          appointmentId: appointment.id,
+          addedServiceCount,
+          previousServiceCount,
+        },
+        'book_appointment: merged services into existing visit',
+      );
+    }
+  } else {
+    appointment = await prisma.appointment.create({
+      data: {
+        conversationId,
+        clientId,
+        branchId: resolved.branchId,
+        services: toInputJsonValue(services)!,
+        scheduledDate: date,
+        scheduledTime: time,
+        customerName,
+        phone,
+        comment,
+        status: 'confirmed',
+        crmProvider,
+        crmSyncStatus: 'pending',
+      },
+      select: { id: true },
+    });
+  }
+
+  const mergedServices = mergedIntoExisting
+    ? normalizeAppointmentServices(
+        (
+          await prisma.appointment.findUnique({
+            where: { id: appointment.id },
+            select: { services: true },
+          })
+        )?.services,
+      )
+    : services;
+
+  await upsertBookingOrderMirror({
     appointmentId: appointment.id,
     conversationId,
     clientId,
@@ -195,13 +278,14 @@ export async function handleBookAppointment(
     date,
     time,
     branchName: resolved.displayName,
-    services: services.map((s) => ({
+    services: mergedServices.map((s) => ({
       name: s.name ?? 'Послуга',
       price: s.price ?? 0,
       qty: 1,
     })),
-    masterIds: uniqueMasterIds(services),
+    masterIds: uniqueMasterIds(mergedServices),
     comment,
+    mergeIntoExisting: mergedIntoExisting,
   }).catch((err) => {
     log.error({ err, appointmentId: appointment.id }, 'Booking Order mirror failed (non-fatal)');
   });
@@ -212,15 +296,31 @@ export async function handleBookAppointment(
 
   if (writeEnabled) {
     try {
-      await mirrorAppointmentToCrm(appointment.id, {
-        fallbackCrmExternalId: resolved.crmExternalId,
-      });
-      const after = await prisma.appointment.findUnique({
-        where: { id: appointment.id },
-        select: { crmSyncStatus: true, crmSyncError: true, crmRecordId: true },
-      });
-      crmSynced = after?.crmSyncStatus === 'synced' && Boolean(after.crmRecordId);
-      crmError = after?.crmSyncError ?? null;
+      if (mergedIntoExisting && mergeTarget?.crmRecordId && addedServiceCount === 0) {
+        crmSynced =
+          mergeTarget.crmSyncStatus === 'synced' && Boolean(mergeTarget.crmRecordId);
+      } else if (mergedIntoExisting && mergeTarget?.crmRecordId && addedServiceCount > 0) {
+        await appendAppointmentServicesToCrm(appointment.id, {
+          previousServiceCount,
+          fallbackCrmExternalId: resolved.crmExternalId,
+        });
+        const after = await prisma.appointment.findUnique({
+          where: { id: appointment.id },
+          select: { crmSyncStatus: true, crmSyncError: true, crmRecordId: true },
+        });
+        crmSynced = after?.crmSyncStatus === 'synced' && Boolean(after.crmRecordId);
+        crmError = after?.crmSyncError ?? null;
+      } else {
+        await mirrorAppointmentToCrm(appointment.id, {
+          fallbackCrmExternalId: resolved.crmExternalId,
+        });
+        const after = await prisma.appointment.findUnique({
+          where: { id: appointment.id },
+          select: { crmSyncStatus: true, crmSyncError: true, crmRecordId: true },
+        });
+        crmSynced = after?.crmSyncStatus === 'synced' && Boolean(after.crmRecordId);
+        crmError = after?.crmSyncError ?? null;
+      }
     } catch (err) {
       crmError = err instanceof Error ? err.message : String(err);
       log.error({ err, appointmentId: appointment.id }, 'Appointment CRM mirror failed');
@@ -229,7 +329,8 @@ export async function handleBookAppointment(
 
   if (crmSynced) {
     const igUserId = options?.clientIgUserId?.trim();
-    if (igUserId && !options?.skipClientMessage) {
+    const skipDuplicateConfirm = mergedIntoExisting && addedServiceCount === 0;
+    if (igUserId && !options?.skipClientMessage && !skipDuplicateConfirm) {
       const confirmationText =
         options?.clientMessage?.trim() ||
         `Запис підтверджено: ${date} о ${time}. Чекаємо тебе!`;
@@ -258,8 +359,8 @@ export async function handleBookAppointment(
       crmSynced: true,
       toolResult:
         personal.notes.length > 0
-          ? `[book_appointment] ok id=${appointment.id}\n${personal.notes.join('\n')}`
-          : `[book_appointment] ok id=${appointment.id}`,
+          ? `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}\n${personal.notes.join('\n')}`
+          : `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}`,
     };
   }
 
@@ -302,7 +403,7 @@ export async function handleBookAppointment(
   };
 }
 
-async function createBookingOrderMirror(params: {
+async function upsertBookingOrderMirror(params: {
   appointmentId: string;
   conversationId: string;
   clientId: string;
@@ -315,6 +416,7 @@ async function createBookingOrderMirror(params: {
   services: OrderLineItem[];
   masterIds?: string[];
   comment?: string;
+  mergeIntoExisting?: boolean;
 }): Promise<string | null> {
   const {
     appointmentId,
@@ -329,9 +431,94 @@ async function createBookingOrderMirror(params: {
     services,
     masterIds,
     comment,
+    mergeIntoExisting = false,
   } = params;
 
   const appointmentMarker = `appointmentId=${appointmentId}`;
+  const existingByMarker = await prisma.order.findFirst({
+    where: {
+      conversationId,
+      kind: 'booking',
+      isArchived: false,
+      status: { notIn: ['cancelled'] },
+      note: { contains: appointmentMarker },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, items: true, note: true },
+  });
+  if (existingByMarker) {
+    const currentItems = normalizeOrderItems(existingByMarker.items, '');
+    const nextItems = mergeOrderLineItems(currentItems, services);
+    const serviceNames = nextItems.map((s) => s.name).filter(Boolean);
+    const summary = buildBookingOrderSummary({ serviceNames, date, time });
+    const noteParts = [
+      summary,
+      branchName ? `Філія: ${branchName}` : null,
+      ...(masterIds ?? []).map((id) => `master_id=${id}`),
+      comment ? `Коментар: ${comment}` : null,
+      appointmentMarker,
+    ].filter(Boolean) as string[];
+
+    await prisma.order.update({
+      where: { id: existingByMarker.id },
+      data: {
+        items: toInputJsonValue(nextItems)!,
+        note: noteParts.join('\n'),
+        customerName,
+        phone,
+        npBranch: `${date} ${time}`,
+      },
+    });
+    log.info(
+      { conversationId, orderId: existingByMarker.id, appointmentId },
+      'booking Order mirror updated (merged items)',
+    );
+    return existingByMarker.id;
+  }
+
+  if (mergeIntoExisting) {
+    const sameSlot = await prisma.order.findFirst({
+      where: {
+        conversationId,
+        kind: 'booking',
+        isArchived: false,
+        status: { notIn: ['cancelled'] },
+        note: { contains: `${date} ${time}` },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, items: true },
+    });
+    if (sameSlot) {
+      const currentItems = normalizeOrderItems(sameSlot.items, '');
+      const nextItems = mergeOrderLineItems(currentItems, services);
+      const serviceNames = nextItems.map((s) => s.name).filter(Boolean);
+      const summary = buildBookingOrderSummary({ serviceNames, date, time });
+      const noteParts = [
+        summary,
+        branchName ? `Філія: ${branchName}` : null,
+        ...(masterIds ?? []).map((id) => `master_id=${id}`),
+        comment ? `Коментар: ${comment}` : null,
+        appointmentMarker,
+      ].filter(Boolean) as string[];
+
+      await prisma.order.update({
+        where: { id: sameSlot.id },
+        data: {
+          items: toInputJsonValue(nextItems)!,
+          note: noteParts.join('\n'),
+          customerName,
+          phone,
+          npBranch: `${date} ${time}`,
+        },
+      });
+      log.info(
+        { conversationId, orderId: sameSlot.id, appointmentId },
+        'booking Order mirror linked to merged visit',
+      );
+      return sameSlot.id;
+    }
+  }
+
   const since = new Date(Date.now() - BOOKING_ORDER_DEDUPE_MS);
   const recent = await prisma.order.findFirst({
     where: {
@@ -356,8 +543,11 @@ async function createBookingOrderMirror(params: {
     return recent.id;
   }
 
-  const serviceNames = services.map((s) => s.name).filter(Boolean).join(', ') || 'Запис';
-  const summary = `Запис: ${serviceNames} · ${date} ${time}`;
+  const summary = buildBookingOrderSummary({
+    serviceNames: services.map((s) => s.name).filter(Boolean),
+    date,
+    time,
+  });
   const noteParts = [
     summary,
     branchName ? `Філія: ${branchName}` : null,
@@ -435,6 +625,78 @@ export async function reflectAppointmentCrmOnOrder(appointment: {
       crmSyncError: appointment.crmRecordId ? null : appointment.crmSyncError,
       crmSyncedAt: appointment.crmSyncedAt,
     },
+  });
+}
+
+async function appendAppointmentServicesToCrm(
+  appointmentId: string,
+  opts: { previousServiceCount: number; fallbackCrmExternalId?: string | null },
+): Promise<void> {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { branch: true, client: true },
+  });
+  if (!appointment?.crmRecordId) {
+    throw new Error('Appointment CRM record missing for append');
+  }
+
+  const provider = await resolveCrmProvider('booking');
+  const crm = getCrmAdapter(provider);
+  if (!crm.appendBookingServices) {
+    throw new Error(`${providerDisplayName(provider)} не підтримує додавання послуг до запису`);
+  }
+
+  let branchCrmId =
+    appointment.branch?.crmExternalId?.trim() ||
+    opts.fallbackCrmExternalId?.trim() ||
+    '';
+  if (!branchCrmId) {
+    const resolved = await resolveBookingBranchForAppointment({
+      conversationBranchId: appointment.branchId,
+    });
+    branchCrmId = resolved?.crmExternalId?.trim() || '';
+  }
+  if (!branchCrmId) {
+    throw new Error('Branch CRM external id missing');
+  }
+
+  const rawServices = normalizeAppointmentServices(appointment.services);
+  const services = rawServices.map((s) => ({
+    id: s.id,
+    durationMin: s.durationMin,
+    startTime: appointment.scheduledTime,
+    masterId: s.masterId,
+  }));
+
+  await crm.appendBookingServices({
+    crmRecordId: appointment.crmRecordId,
+    date: appointment.scheduledDate,
+    branchId: branchCrmId,
+    clientName: appointment.customerName,
+    phone: appointment.phone,
+    comment: appointment.comment ?? undefined,
+    clientId: appointment.client?.crmBuyerId ?? undefined,
+    startTime: appointment.scheduledTime,
+    services,
+    previousServiceCount: opts.previousServiceCount,
+  });
+
+  const syncedAt = new Date();
+  await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: {
+      crmSyncStatus: 'synced',
+      crmSyncError: null,
+      crmSyncedAt: syncedAt,
+      status: 'synced',
+    },
+  });
+  await reflectAppointmentCrmOnOrder({
+    id: appointmentId,
+    crmRecordId: appointment.crmRecordId,
+    crmSyncStatus: 'synced',
+    crmSyncError: null,
+    crmSyncedAt: syncedAt,
   });
 }
 

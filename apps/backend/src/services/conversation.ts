@@ -28,7 +28,6 @@ import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig, resolveResponseDelayMs,
-  CLAUDE_ROUTER_MODEL,
   normalizeClaudeReplyModel,
 } from '../lib/agent-config.js';
 import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
@@ -779,14 +778,10 @@ async function handleIncomingMessageImpl(
   async function askTurnClaude(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
     ctx: ClaudeCallContext,
-    opts?: { purpose?: 'reply' | 'router' },
   ) {
-    const purpose = opts?.purpose ?? 'reply';
-    const model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
-
     const { prompt: systemPrompt, refreshed, meta } = await promptSession.refreshIfStale();
     if (refreshed) {
-      // New system prompt must start fresh Claude Code sessions.
+      // New system prompt must start a fresh Claude Code session.
       sessions.clearAll();
       debug.promptRefreshedMidTurn = true;
       debug.promptId = meta.id;
@@ -803,7 +798,7 @@ async function handleIncomingMessageImpl(
       );
     }
 
-    const resumeSessionId = sessions.resumeIdFor(purpose);
+    const resumeSessionId = sessions.resumeId();
     const response = await askClaude(
       {
         ...req,
@@ -811,36 +806,30 @@ async function handleIncomingMessageImpl(
         lookupContext: lookupCtx,
         ...(resumeSessionId ? { resumeSessionId } : {}),
       },
-      { ...ctx, model, signal: sessions.signal },
+      { ...ctx, model: replyModel, signal: sessions.signal },
     );
 
     recordTurnSpawn(debug, {
-      purpose,
-      model,
+      purpose: 'reply',
+      model: replyModel,
       resumed: Boolean(response.resumed),
       inputChars: response.inputChars,
     });
 
     if (response.fallback) {
-      sessions.noteFallback(purpose);
+      sessions.noteFallback();
     } else {
-      sessions.noteSuccess(purpose, response.sessionId);
+      sessions.noteSuccess(response.sessionId);
     }
     return response;
   }
 
-  /**
-   * Tool follow-up: Haiku decides whether to call more tools; customer-facing
-   * prose resumes the reply-model session (no cold full prompt when possible).
-   */
+  /** Tool follow-up: same reply model + same `--resume` session (no Haiku hop). */
   async function askTurnClaudeFollowUp(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
     ctx: ClaudeCallContext,
   ) {
-    const routed = await askTurnClaude(req, ctx, { purpose: 'router' });
-    if (routed.fallback) return routed;
-    if (routed.toolCalls && routed.toolCalls.length > 0) return routed;
-    return askTurnClaude(req, ctx, { purpose: 'reply' });
+    return askTurnClaude(req, ctx);
   }
 
   const response = await askTurnClaude(

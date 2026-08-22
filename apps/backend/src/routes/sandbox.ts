@@ -6,7 +6,6 @@ import { prisma } from '../lib/prisma.js';
 import { askClaude } from '../services/claude.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { getAgentConfig,
-  CLAUDE_ROUTER_MODEL,
   normalizeClaudeReplyModel,
 } from '../lib/agent-config.js';
 import { buildAgentTools } from '../lib/tool-definitions.js';
@@ -221,17 +220,15 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         request.raw.on('close', onSandboxDisconnect);
 
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-          const purpose = round === 0 ? 'reply' : 'router';
-          const model = purpose === 'router' ? CLAUDE_ROUTER_MODEL : replyModel;
-          const resumeSessionId = sessions.resumeIdFor(purpose);
+          const resumeSessionId = sessions.resumeId();
           const sandboxCtx = {
             channel: 'sandbox' as const,
-            model,
+            model: replyModel,
             timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
             signal: sessions.signal,
           };
 
-          let response = await askClaude(
+          const response = await askClaude(
             {
               systemPrompt,
               conversationHistory,
@@ -243,38 +240,9 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
           );
 
           if (response.fallback) {
-            sessions.noteFallback(purpose);
+            sessions.noteFallback();
           } else {
-            sessions.noteSuccess(purpose, response.sessionId);
-          }
-
-          // After tool results: if Haiku produced final prose (no tools), resume reply session.
-          if (
-            round > 0 &&
-            !response.fallback &&
-            !(response.toolCalls && response.toolCalls.length > 0)
-          ) {
-            const replyResume = sessions.resumeIdFor('reply');
-            response = await askClaude(
-              {
-                systemPrompt,
-                conversationHistory,
-                userMessage,
-                tools,
-                ...(replyResume ? { resumeSessionId: replyResume } : {}),
-              },
-              {
-                channel: 'sandbox',
-                model: replyModel,
-                timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS,
-                signal: sessions.signal,
-              },
-            );
-            if (response.fallback) {
-              sessions.noteFallback('reply');
-            } else {
-              sessions.noteSuccess('reply', response.sessionId);
-            }
+            sessions.noteSuccess(response.sessionId);
           }
 
           finalText = response.text;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBeautyproAppointmentCreateBody, isBeautyproTimeConflictError, pickSameDayAppointmentId } from './beautypro-appointment.js';
+import { buildBeautyproAppointmentCreateBody, buildBeautyproAppointmentAppendServicesBody, isBeautyproTimeConflictError, pickSameDayAppointmentId } from './beautypro-appointment.js';
 
 describe('buildBeautyproAppointmentCreateBody', () => {
   const body = buildBeautyproAppointmentCreateBody({
@@ -76,5 +76,26 @@ describe('buildBeautyproAppointmentCreateBody', () => {
         { isoDate: '2026-08-21', locationId: 'loc-1', clientId: 'client-1' },
       ),
     ).toBe('hit');
+  });
+
+  it('builds PUT append body with action=insert for new rows only', () => {
+    const body = buildBeautyproAppointmentAppendServicesBody({
+      professional: 'master-1',
+      start: '12:00',
+      previousServiceCount: 1,
+      allServices: [
+        { id: 'svc-manicure', durationMin: 115, masterId: 'master-1' },
+        { id: 'svc-brows', durationMin: 30, masterId: 'master-2' },
+      ],
+    });
+    const services = body.services as Array<Record<string, unknown>>;
+    expect(services).toHaveLength(1);
+    expect(services[0]).toMatchObject({
+      action: 'insert',
+      service: 'svc-brows',
+      professional: 'master-2',
+      start: '12:00:00',
+      duration: 30,
+    });
   });
 });
