@@ -93,7 +93,7 @@ describe('createSdkClaudeRuntime', () => {
     expect(passed.options.tools).toEqual([]);
     expect(passed.options.disallowedTools).toEqual([...CLAUDE_SDK_DISALLOWED_TOOLS]);
     expect(passed.options.permissionMode).toBe('dontAsk');
-    expect(passed.options.maxTurns).toBe(1);
+    expect(passed.options.maxTurns).toBeUndefined();
     expect(passed.options.resume).toBeUndefined();
     expect(response.text).toBe('Манікюр від 400 ₴.');
     expect(response.sessionId).toBe('sess-sdk');
@@ -161,6 +161,41 @@ describe('createSdkClaudeRuntime', () => {
     expect(query).not.toHaveBeenCalled();
     expect(cliComplete).toHaveBeenCalledTimes(1);
     expect(response.text).toBe('Бачу фото нігтів.');
+  });
+
+  it('keeps greeting text when query() throws after maxTurns', async () => {
+    const close = vi.fn();
+    const query = vi.fn(() => {
+      const gen = (async function* () {
+        yield {
+          type: 'assistant',
+          session_id: 'sess-hi',
+          message: { content: [{ type: 'text', text: 'Привіт!' }] },
+        } as SdkAgentMessage;
+        yield {
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+          session_id: 'sess-hi',
+          result: 'Reached maximum number of turns (1).',
+        } as SdkAgentMessage;
+        throw new Error(
+          'Claude Code returned an error result: Reached maximum number of turns (1).',
+        );
+      })();
+      return Object.assign(gen, { close });
+    });
+
+    const response = await createSdkClaudeRuntime({ query: query as never }).complete(baseReq, {
+      timeoutMs: 5_000,
+      model: 'sonnet',
+      context: { channel: 'instagram' },
+    });
+
+    expect(response.fallback).toBeUndefined();
+    expect(response.text).toBe('Привіт!');
+    expect(response.sessionId).toBe('sess-hi');
+    expect(close).toHaveBeenCalled();
   });
 
   it('times out and closes the query', async () => {

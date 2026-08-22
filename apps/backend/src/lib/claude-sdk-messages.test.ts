@@ -83,6 +83,75 @@ describe('consumeSdkMessages', () => {
     expect(response.errorDetail).toBe('empty sdk result');
   });
 
+  it('keeps greeting text when Claude Code reports error_max_turns', async () => {
+    const response = await consumeSdkMessages(
+      from([
+        {
+          type: 'assistant',
+          session_id: 'sess-hi',
+          message: { content: [{ type: 'text', text: 'Привіт! Чим можу допомогти?' }] },
+        },
+        {
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+          session_id: 'sess-hi',
+          result: 'Reached maximum number of turns (1).',
+        },
+      ]),
+    );
+    expect(response.fallback).toBeUndefined();
+    expect(response.text).toBe('Привіт! Чим можу допомогти?');
+    expect(response.sessionId).toBe('sess-hi');
+  });
+
+  it('keeps tool_use when query() throws after error_max_turns', async () => {
+    async function* throwing() {
+      yield {
+        type: 'assistant',
+        session_id: 'sess-tool',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'search_services',
+              input: { query: 'манікюр' },
+            },
+          ],
+        },
+      } as SdkAgentMessage;
+      yield {
+        type: 'result',
+        subtype: 'error_max_turns',
+        is_error: true,
+        result: 'Reached maximum number of turns (1).',
+      } as SdkAgentMessage;
+      throw new Error(
+        'Claude Code returned an error result: Reached maximum number of turns (1).',
+      );
+    }
+
+    const response = await consumeSdkMessages(throwing());
+    expect(response.fallback).toBeUndefined();
+    expect(response.toolCalls).toEqual([{ name: 'search_services', args: { query: 'манікюр' } }]);
+    expect(response.sessionId).toBe('sess-tool');
+  });
+
+  it('still falls back when maxTurns is hit with no usable output', async () => {
+    const response = await consumeSdkMessages(
+      from([
+        {
+          type: 'result',
+          subtype: 'error_max_turns',
+          is_error: true,
+          result: 'Reached maximum number of turns (1).',
+        },
+      ]),
+    );
+    expect(response.fallback).toBe('timeout');
+    expect(response.errorDetail).toMatch(/maximum number of turns/i);
+  });
+
   it('falls back on execution error subtype', async () => {
     const response = await consumeSdkMessages(
       from([

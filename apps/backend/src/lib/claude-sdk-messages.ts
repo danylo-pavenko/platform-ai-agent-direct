@@ -106,6 +106,13 @@ function extractDeltaText(msg: SdkAgentMessage): string | null {
   return typeof event.delta.text === 'string' ? event.delta.text : null;
 }
 
+/** Claude Code may still report a turn cap as error_max_turns (legacy or implicit). */
+export function isSdkMaxTurnsLimit(value: string | undefined): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase();
+  return v.includes('error_max_turns') || v.includes('maximum number of turns');
+}
+
 function collectErrorDetail(msg: SdkAgentMessage): string | undefined {
   if (msg.type !== 'result') return undefined;
   const isErr =
@@ -148,36 +155,46 @@ export async function consumeSdkMessages(
   let sawError = false;
   let sawMessage = false;
 
-  for await (const msg of messages) {
-    sawMessage = true;
-    if (typeof msg.session_id === 'string' && msg.session_id.trim()) {
-      sessionId = msg.session_id.trim();
-    }
-
-    const delta = extractDeltaText(msg);
-    if (delta) {
-      opts?.onDelta?.(delta);
-    }
-
-    if (msg.type === 'assistant') {
-      const chunk = extractAssistantText(msg);
-      if (chunk) text = chunk;
-      toolCalls.push(...extractNativeToolCalls(msg, toolUseIds));
-    }
-
-    if (msg.type === 'user') {
-      lookupResults.push(...extractToolResults(msg, toolUseIds));
-    }
-
-    if (msg.type === 'result') {
-      const detail = collectErrorDetail(msg);
-      if (detail) {
-        sawError = true;
-        errorDetail = detail;
+  try {
+    for await (const msg of messages) {
+      sawMessage = true;
+      if (typeof msg.session_id === 'string' && msg.session_id.trim()) {
+        sessionId = msg.session_id.trim();
       }
-      if (msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
-        if (!text.trim()) text = msg.result;
+
+      const delta = extractDeltaText(msg);
+      if (delta) {
+        opts?.onDelta?.(delta);
       }
+
+      if (msg.type === 'assistant') {
+        const chunk = extractAssistantText(msg);
+        if (chunk) text = chunk;
+        toolCalls.push(...extractNativeToolCalls(msg, toolUseIds));
+      }
+
+      if (msg.type === 'user') {
+        lookupResults.push(...extractToolResults(msg, toolUseIds));
+      }
+
+      if (msg.type === 'result') {
+        const detail = collectErrorDetail(msg);
+        if (detail) {
+          sawError = true;
+          errorDetail = detail;
+        }
+        if (msg.subtype === 'success' && typeof msg.result === 'string' && msg.result.trim()) {
+          if (!text.trim()) text = msg.result;
+        }
+      }
+    }
+  } catch (err) {
+    // query() throws after error_max_turns — keep any assistant text / tools.
+    const message = err instanceof Error ? err.message : String(err);
+    if (isSdkMaxTurnsLimit(message)) {
+      errorDetail = errorDetail ? `${errorDetail} | ${message}` : message;
+    } else {
+      throw err;
     }
   }
 
@@ -186,6 +203,17 @@ export async function consumeSdkMessages(
       text: '',
       fallback: 'timeout',
       errorDetail: 'empty sdk result',
+    };
+  }
+
+  const usable =
+    text.trim().length > 0 || toolCalls.length > 0 || lookupResults.length > 0;
+  if (isSdkMaxTurnsLimit(errorDetail) && usable) {
+    return {
+      text,
+      ...(sessionId ? { sessionId } : {}),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+      ...(lookupResults.length > 0 ? { lookupResults } : {}),
     };
   }
 
@@ -209,7 +237,6 @@ export async function consumeSdkMessages(
     };
   }
 
-  const usable = text.trim().length > 0 || toolCalls.length > 0;
   if (!usable) {
     return {
       text: '',

@@ -13,7 +13,7 @@ describe('CLAUDE_SDK_LOCKDOWN', () => {
     expect(CLAUDE_SDK_LOCKDOWN.allowedTools).toEqual([]);
     expect(CLAUDE_SDK_LOCKDOWN.permissionMode).toBe('dontAsk');
     expect(CLAUDE_SDK_LOCKDOWN.settingSources).toEqual([]);
-    expect(CLAUDE_SDK_LOCKDOWN.maxTurns).toBe(1);
+    expect(CLAUDE_SDK_LOCKDOWN.maxTurns).toBeUndefined();
     expect(CLAUDE_SDK_LOCKDOWN.disallowedTools).toEqual([...CLAUDE_SDK_DISALLOWED_TOOLS]);
     expect(sdkOptionsExposeCodingTools(CLAUDE_SDK_LOCKDOWN)).toBe(false);
   });
@@ -47,7 +47,7 @@ describe('buildClaudeSdkQueryOptions', () => {
     expect(options.disallowedTools).toEqual([...CLAUDE_SDK_DISALLOWED_TOOLS]);
     expect(options.permissionMode).toBe('dontAsk');
     expect(options.settingSources).toEqual([]);
-    expect(options.maxTurns).toBe(1);
+    expect(options.maxTurns).toBeUndefined();
     expect(options.strictMcpConfig).toBe(true);
     expect(options.model).toBe('sonnet');
     expect(options.cwd).toBe('/tmp/claude-spawn');

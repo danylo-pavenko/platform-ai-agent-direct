@@ -9,7 +9,7 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 
 ## Non-negotiables
 
-- Claude = **Agent SDK `query()`** via `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.ts`). Default `CLAUDE_RUNTIME=sdk` (bundled Claude Code CLI + OAuth; coding tools disabled). `cli` = hotfix `claude -p`. Not Anthropic Messages API. Vision on SDK path uses explicit `cli_vision_fallback` (logged).
+- Claude = **Agent SDK `query()`** via `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.ts`). Default `CLAUDE_RUNTIME=sdk` (bundled Claude Code CLI + OAuth; coding tools disabled). `cli` = hotfix `claude -p`. Not Anthropic Messages API. Vision on SDK path uses explicit `cli_vision_fallback` (logged). No `maxTurns` cap — stop is `timeoutMs` / AbortSignal. `error_max_turns` with text/tools is not a customer timeout.
 - Customer tools = in-process MCP `mcp__platform__*` + `canUseTool` (host still executes book/collect in `conversation.ts`). CLI hotfix keeps the text `<tool_call>` protocol.
 - Within a turn: **one session** — tenant reply model keeps a single `--resume` id (`lib/turn-claude-sessions.ts`). Tool follow-ups continue that session (no Haiku hop). Mid-turn prompt activate clears the resume id and aborts in-flight Claude (`AbortSignal`).
 - Process hygiene: CLI spawn is a detached process group; abort/timeout kills the group and logs if pid is alive after 2s. `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (does not arm quota circuit, does not take IG/meta semaphore). Health-check warns on orphan `claude` (ppid 1) without failing.

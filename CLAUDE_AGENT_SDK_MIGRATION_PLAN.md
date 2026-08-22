@@ -153,7 +153,7 @@ Env: `CLAUDE_RUNTIME=cli|sdk` (default **`sdk`**; `cli` hotfix).
 | `allowedTools` | Phase 1: `[]`; далі лише наші MCP |
 | `disallowedTools` | `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `WebSearch`, `WebFetch` |
 | `permissionMode` | `dontAsk` |
-| `maxTurns` | `1` поки loop у `conversation.ts`; lookup-only експеримент 2–3 — окремо |
+| `maxTurns` | omit (no turn cap; query `timeoutMs` is the stop). Host still executes book/collect |
 | `includePartialMessages` | `true` для stream (teach) |
 | `resume` | `req.resumeSessionId` |
 | env | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`; credentials як у процесі tenant |
@@ -324,7 +324,7 @@ Lookup надійніший. `conversation.ts` ще оркеструє terminal;
 - [x] MCP для terminal tools (схеми + HOST_QUEUED; мутації виконує `conversation.ts`)
 - [x] `canUseTool`: повні args для book/collect; deny reschedule-через-book; `request_handoff` always allow; deny `force=true`
 - [x] Handlers lookup = `executeLookupTool`; terminal host = `tryTerminalToolCalls` / `handleSubmitBrief` (без дубля CRM write)
-- [x] Після terminal: `mutationsAllowed: false` прибирає book/collect з MCP allowlist; `maxTurns: 1`
+- [x] Після terminal: `mutationsAllowed: false` прибирає book/collect з MCP allowlist
 - [x] `submit_brief` досі віддає closing text клієнту (host path)
 - [x] Meta-agent / insights — без tools → без booking/order MCP
 - [x] SDK customer path не парсить `<tool_call>` (CLI path лишає text protocol до Phase 5)

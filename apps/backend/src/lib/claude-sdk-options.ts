@@ -15,7 +15,8 @@ export const CLAUDE_SDK_LOCKDOWN = {
   tools: [] as string[],
   permissionMode: 'dontAsk' as const,
   settingSources: [] as [],
-  maxTurns: 1,
+  // No maxTurns — the query timeout (timeoutMs / AbortSignal) is the stop.
+  // Book/collect still execute in conversation.ts (MCP returns HOST_QUEUED).
   strictMcpConfig: true,
 };
 

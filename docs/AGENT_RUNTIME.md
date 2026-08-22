@@ -58,7 +58,7 @@ Customer path goes through `askClaude` → `ClaudeRuntime` (`lib/claude-runtime.
 | Warmup | `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (SDK uses `query()`, not ad-hoc `claude -p`). Bypasses semaphores. Must **not** open the quota circuit |
 | Abort | CLI: process-group `SIGKILL` (`detached`) + warn if pid alive after 2s. SDK: `interrupt()` + `query.close()`. Sandbox disconnect / mid-turn prompt activate abort the turn `AbortSignal` |
 | Health | Orphan `claude` (ppid 1) → warn only, do not fail the check |
-| Session reuse | **One session per turn** (`lib/turn-claude-sessions.ts`): tenant reply model (`sonnet\|opus`) `--resume` across tool rounds. Mid-turn prompt activate clears the resume id **and** aborts in-flight Claude. Lookup rounds reuse `resume`, not a long-lived `ClaudeSDKClient` |
+| Session reuse | **One session per turn** (`lib/turn-claude-sessions.ts`): tenant reply model (`sonnet\|opus`) `--resume` across tool rounds. Mid-turn prompt activate clears the resume id **and** aborts in-flight Claude. Lookup rounds reuse `resume`, not a long-lived `ClaudeSDKClient`. SDK has **no `maxTurns` cap** (stop is query timeout). If Claude Code still emits `error_max_turns`, text/tools are kept — not a customer timeout |
 | Reply model | Tenant picks **sonnet \| opus**. The same model runs the first spawn and every tool follow-up (no Haiku router). Haiku is not in the admin picker; it is only used for warmup / usage probes. |
 | Channels | `instagram`, customer telegram, `meta_agent`, `sandbox`, `supervisor`, `insights` |
 
