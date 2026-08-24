@@ -97,7 +97,8 @@ async function retryBookingCrmSync(
 
   await mirrorAppointmentToCrm(appointment.id, {
     force: true,
-    forceTimeConflict: opts?.forceTimeConflict === true,
+    // BeautyPro defaults to force=true; keep explicit true when admin requests it.
+    forceTimeConflict: opts?.forceTimeConflict !== false,
   });
 
   const updated = await prisma.appointment.findUnique({
@@ -202,7 +203,7 @@ async function retryProductCrmSync(order: {
 /**
  * Manual admin retry: product orders → KeyCRM createOrder;
  * booking orders → Appointment createBooking (BeautyPro / CleverBOX).
- * `forceTimeConflict` → BeautyPro POST /appointments?force=true (admin only).
+ * `forceTimeConflict` → BeautyPro POST /appointments?force=true (default on).
  */
 export async function retryOrderCrmSync(
   orderId: string,

@@ -706,7 +706,10 @@ export async function mirrorAppointmentToCrm(
     fallbackCrmExternalId?: string | null;
     /** Bypass CRM_WRITE_ENABLED gate (admin retry). Not BeautyPro TIME_CONFLICT force. */
     force?: boolean;
-    /** BeautyPro POST ?force=true — ignore calendar TIME_CONFLICT (admin only). */
+    /**
+     * BeautyPro POST ?force=true. Default true (skip TIME_CONFLICT).
+     * Pass false only for strict calendar validation.
+     */
     forceTimeConflict?: boolean;
   },
 ): Promise<void> {
@@ -793,7 +796,7 @@ export async function mirrorAppointmentToCrm(
       phone: appointment.phone,
       comment: [appointment.comment, photoNote].filter(Boolean).join('\n') || undefined,
       services,
-      forceTimeConflict: opts?.forceTimeConflict === true,
+      forceTimeConflict: opts?.forceTimeConflict !== false,
     });
 
     const syncedAt = new Date();

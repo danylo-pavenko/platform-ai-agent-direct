@@ -196,7 +196,7 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
 
   // POST /:id/sync-crm - Manual CRM mirror retry (product → KeyCRM, booking → Appointment CRM)
   const syncCrmBodySchema = z.object({
-    /** BeautyPro: POST /appointments?force=true — admin override for TIME_CONFLICT. */
+    /** BeautyPro: POST /appointments?force=true (default on; admin can still pass explicitly). */
     forceTimeConflict: z.boolean().optional(),
   });
 
@@ -209,7 +209,7 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       const result = await retryOrderCrmSync(request.params.id, {
-        forceTimeConflict: bodyParsed.data.forceTimeConflict === true,
+        forceTimeConflict: bodyParsed.data.forceTimeConflict,
       });
       return {
         ...result,

@@ -67,7 +67,7 @@ describe('retryOrderCrmSync', () => {
     expect(isCrmWriteReady).toHaveBeenCalledWith('booking');
     expect(mirrorAppointmentToCrm).toHaveBeenCalledWith(
       'a0712020-04d1-4863-8ad4-1370d6905921',
-      { force: true, forceTimeConflict: false },
+      { force: true, forceTimeConflict: true },
     );
     expect(mirrorOrderToCrm).not.toHaveBeenCalled();
     expect(result).toMatchObject({

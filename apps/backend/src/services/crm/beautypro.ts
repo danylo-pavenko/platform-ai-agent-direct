@@ -1023,15 +1023,17 @@ export const beautyproAdapter: CrmAdapter = {
 
     // Do not pass `fields=id,...` — docs' POST fields list has no `id`, and the
     // live API returns 400 "Unknown parameter 'id'". Default 201 body is `{ id }`.
-    // `force=true` skips TIME_CONFLICT (admin-only; agent never sets this).
+    // Always POST ?force=true — salon bookings often overlap calendar checks
+    // (parallel masters, stale free_time, merge). Opt-out: forceTimeConflict=false.
+    const useForce = input.forceTimeConflict !== false;
     let created: { id: string; smsError?: unknown } | undefined;
     try {
       created = await bpFetch<{ id: string; smsError?: unknown }>('POST', '/appointments', {
-        query: input.forceTimeConflict === true ? { force: true } : undefined,
+        query: useForce ? { force: true } : undefined,
         body,
       });
     } catch (err) {
-      if (isBeautyproTimeConflictError(err) && input.forceTimeConflict !== true) {
+      if (isBeautyproTimeConflictError(err) && !useForce) {
         const existingId = await findSameDayClientAppointment({
           clientId,
           locationId: input.branchId,
@@ -1057,7 +1059,7 @@ export const beautyproAdapter: CrmAdapter = {
     }
 
     log.info(
-      { appointmentId: created.id, forceTimeConflict: input.forceTimeConflict === true },
+      { appointmentId: created.id, forceTimeConflict: useForce },
       'BeautyPro booking created',
     );
     return { crmRecordId: created.id, crmBuyerId: clientId };
@@ -1080,7 +1082,11 @@ export const beautyproAdapter: CrmAdapter = {
       previousServiceCount: input.previousServiceCount,
     });
 
-    await bpFetch('PUT', `/appointments/${input.crmRecordId}`, { body });
+    // Same as create: force=true by default so append does not 409 TIME_CONFLICT.
+    await bpFetch('PUT', `/appointments/${input.crmRecordId}`, {
+      query: { force: true },
+      body,
+    });
     log.info(
       {
         crmRecordId: input.crmRecordId,

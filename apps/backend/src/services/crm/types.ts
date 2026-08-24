@@ -241,8 +241,8 @@ export interface CrmBookingInput {
     startTime: string;
   }>;
   /**
-   * BeautyPro only: POST /appointments?force=true — skip TIME_CONFLICT checks
-   * (admin confirm after showing conflicts). Never set from the Instagram agent.
+   * BeautyPro only: POST /appointments?force=true — skip TIME_CONFLICT checks.
+   * Default **true** (agent + admin). Pass `false` only to require strict calendar.
    */
   forceTimeConflict?: boolean;
 }

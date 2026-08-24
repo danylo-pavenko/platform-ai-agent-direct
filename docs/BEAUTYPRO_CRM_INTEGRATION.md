@@ -61,7 +61,7 @@
 | `fetchBranches` | `GET /locations` |
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
-| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд (12:00 + 115 хв → 13:55). **Різні майстри** — той самий `start`, різний `professional`. Інакше 409 `TIME_CONFLICT`. Якщо 409 і в клієнта вже є planned/confirmed на цей день+філію — привʼязуємо існуючий id. Агент **ніколи** не ставить `force=true`; адмін Orders може через `forceTimeConflict`. |
+| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`, **`?force=true` за замовчуванням**). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд (12:00 + 115 хв → 13:55). **Різні майстри** — той самий `start`, різний `professional`. `force=true` пропускає 409 `TIME_CONFLICT`. Opt-out: `forceTimeConflict: false`. Якщо 409 без force і в клієнта вже є planned/confirmed на цей день+філію — привʼязуємо існуючий id. |
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. **Агент цього не викликає** — немає tool. Скасування/перенесення/оплата → `request_handoff`. |
 | `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: `comment` (не `comments`). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email` (як у docs create). Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
 
@@ -98,7 +98,7 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 |------|-----------|
 | Авто (телефон) | `linkClientToCrm` після `update_client_info` / heuristic / admin save phone → `GET /clients?phone=` |
 | Booking | `createBooking` повертає `crmBuyerId` → persist на `Client` |
-| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** overlays Appointment. Старий TIME_CONFLICT (один `master_id` на всі рядки): бекфіл копіює note `master_id` на рядки без `masterId`; менеджер ставить другого майстра в селекті (`PATCH /orders/:id/booking-services`) → `POST /orders/:id/sync-crm`. Якщо CRM все одно дає `TIME_CONFLICT` — кнопка «Все одно в CRM (force)» → `{ forceTimeConflict: true }` → BeautyPro `?force=true` (лише адмін; агент ніколи). |
+| Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** overlays Appointment. Старий TIME_CONFLICT (один `master_id` на всі рядки): бекфіл копіює note `master_id` на рядки без `masterId`; менеджер ставить другого майстра в селекті (`PATCH /orders/:id/booking-services`) → `POST /orders/:id/sync-crm`. BeautyPro create/append за замовчуванням з `?force=true`; кнопка «Все одно в CRM (force)» лишається для явного retry. |
 
 ## Паралель vs ланцюжок (один візит)
 
