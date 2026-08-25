@@ -59,7 +59,12 @@ export function buildBeautyproAppointmentCreateBody(input: {
   const services = input.services.map((s) => {
     const professional = s.masterId || input.professional;
     const duration = s.durationMin || 60;
-    const start = nextStartByPro.get(professional) ?? firstStart;
+    // Explicit per-service start (staggered multi-master) wins; else chain /
+    // parallel from firstStart as before.
+    const explicit = s.startTime?.trim()
+      ? normalizeBeautyproStartTime(s.startTime)
+      : undefined;
+    const start = explicit ?? nextStartByPro.get(professional) ?? firstStart;
     nextStartByPro.set(professional, addMinutesToBeautyproStart(start, duration));
     return { service: s.id, professional, start, duration };
   });

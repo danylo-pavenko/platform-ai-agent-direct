@@ -153,6 +153,50 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     );
   });
 
+  it('replaces confirmation tease with structured details', async () => {
+    await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Анжела',
+        phone: '+380501112233',
+        date: '26.08.2026',
+        time: '10:30',
+        services: [
+          {
+            id: 'svc-tips',
+            name: 'Стрижка кінчиків',
+            duration_min: 30,
+            price: 540,
+            master_id: 'm-1',
+            start_time: '10:30',
+          },
+          {
+            id: 'svc-mani',
+            name: 'Манікюр',
+            duration_min: 115,
+            price: 890,
+            master_id: 'm-2',
+            start_time: '11:00',
+          },
+        ],
+      },
+      {
+        clientIgUserId: 'ig-angela',
+        clientMessage: 'Оформлюю Ваш запис — зараз надішлю підтвердження з деталями. 🌸',
+      },
+    );
+
+    const created = prismaMock.appointment.create.mock.calls[0]?.[0] as {
+      data: { services: Array<{ startTime?: string; masterId?: string }> };
+    };
+    expect(created.data.services.map((s) => s.startTime)).toEqual(['10:30', '11:00']);
+    expect(sendText).toHaveBeenCalledWith(
+      'ig-angela',
+      expect.stringMatching(/Запис підтверджено на 26\.08\.2026[\s\S]*Стрижка кінчиків — 10:30[\s\S]*Манікюр — 11:00/),
+    );
+  });
+
   it('falls back to default CRM location when conversation has no branch', async () => {
     prismaMock.conversation.findUnique.mockResolvedValue({ branchId: null });
     resolveBookingBranchForAppointment.mockResolvedValue({

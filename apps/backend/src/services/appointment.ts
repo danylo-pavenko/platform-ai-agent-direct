@@ -35,6 +35,10 @@ import {
   mergeAppointmentServiceLines,
   mergeOrderLineItems,
 } from '../lib/booking-merge.js';
+import {
+  buildBookingConfirmationText,
+  normalizeServiceStartTime,
+} from '../lib/booking-confirmation.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -92,7 +96,14 @@ export async function handleBookAppointment(
     const price = typeof o.price === 'number' ? o.price : 0;
     if (!id) return [];
     const masterId = asCrmId(o.master_id) ?? fallbackMasterId;
-    return [{ id, durationMin, name, price, masterId }];
+    const startTime = normalizeServiceStartTime(
+      typeof o.start_time === 'string'
+        ? o.start_time
+        : typeof o.startTime === 'string'
+          ? o.startTime
+          : undefined,
+    );
+    return [{ id, durationMin, name, price, masterId, startTime }];
   });
 
   if (!customerName || !phone || !rawDate || !time || services.length === 0) {
@@ -331,9 +342,15 @@ export async function handleBookAppointment(
     const igUserId = options?.clientIgUserId?.trim();
     const skipDuplicateConfirm = mergedIntoExisting && addedServiceCount === 0;
     if (igUserId && !options?.skipClientMessage && !skipDuplicateConfirm) {
-      const confirmationText =
-        options?.clientMessage?.trim() ||
-        `Запис підтверджено: ${date} о ${time}. Чекаємо тебе!`;
+      const confirmationText = buildBookingConfirmationText({
+        date,
+        time,
+        services: mergedServices.map((s) => ({
+          name: s.name,
+          startTime: s.startTime,
+        })),
+        clientMessage: options?.clientMessage,
+      });
       try {
         await sendText(igUserId, confirmationText);
         await prisma.message.create({
@@ -664,7 +681,7 @@ async function appendAppointmentServicesToCrm(
   const services = rawServices.map((s) => ({
     id: s.id,
     durationMin: s.durationMin,
-    startTime: appointment.scheduledTime,
+    startTime: s.startTime || appointment.scheduledTime,
     masterId: s.masterId,
   }));
 
@@ -770,11 +787,19 @@ export async function mirrorAppointmentToCrm(
       const id = asCrmId(o.id);
       const durationMin = typeof o.durationMin === 'number' ? o.durationMin : 60;
       const masterId = asCrmId(o.masterId) ?? asCrmId(o.master_id) ?? undefined;
+      const startTime =
+        normalizeServiceStartTime(
+          typeof o.startTime === 'string'
+            ? o.startTime
+            : typeof o.start_time === 'string'
+              ? o.start_time
+              : undefined,
+        ) ?? appointment.scheduledTime;
       if (!id) return [];
       return [{
         id,
         durationMin,
-        startTime: appointment.scheduledTime,
+        startTime,
         masterId,
       }];
     });

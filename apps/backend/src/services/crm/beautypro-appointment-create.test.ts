@@ -60,6 +60,33 @@ describe('buildBeautyproAppointmentCreateBody', () => {
     expect(services[1]?.start).toBe('12:00:00');
   });
 
+  it('honors explicit per-service start_time for staggered masters', () => {
+    const staggered = buildBeautyproAppointmentCreateBody({
+      isoDate: '2026-08-26',
+      locationId: 'loc-1',
+      clientId: 'client-1',
+      professional: 'master-1',
+      start: '10:30',
+      services: [
+        { id: 'svc-tips', durationMin: 30, masterId: 'master-maxim', startTime: '10:30' },
+        { id: 'svc-mani', durationMin: 115, masterId: 'master-alina', startTime: '11:00' },
+      ],
+    });
+    const services = staggered.services as Array<Record<string, unknown>>;
+    expect(services[0]).toMatchObject({
+      service: 'svc-tips',
+      professional: 'master-maxim',
+      start: '10:30:00',
+      duration: 30,
+    });
+    expect(services[1]).toMatchObject({
+      service: 'svc-mani',
+      professional: 'master-alina',
+      start: '11:00:00',
+      duration: 115,
+    });
+  });
+
   it('detects TIME_CONFLICT and picks the client visit on that day', () => {
     expect(
       isBeautyproTimeConflictError(

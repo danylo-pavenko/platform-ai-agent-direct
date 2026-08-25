@@ -180,3 +180,13 @@ export function lookupResultFromResponse(
 ): string | undefined {
   return results?.find((r) => r.name === name)?.result;
 }
+
+/** True when SDK already executed this lookup in-process (skip host Claude replay). */
+export function hasNativeLookupResult(
+  results: { name: string; result: string }[] | undefined,
+  name: string,
+): boolean {
+  const result = lookupResultFromResponse(results, name);
+  if (!result?.trim()) return false;
+  return !/HOST_QUEUED/i.test(result);
+}

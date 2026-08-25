@@ -54,6 +54,7 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 - `409 TIME_CONFLICT` — platform defaults to BeautyPro `force=true` on POST/PUT (agent + admin). Same-master services should still be sequential (not all `start=12:00`). Different masters may share a start. Retry may link an existing same-day appointment for that client if force is explicitly off. **Admin:** Orders → «Все одно в CRM (force)» still works; agent path also sends `?force=true`.
 - `smsError` on create is non-fatal (log only).
 - Agent dates often `DD.MM.YYYY` → convert to ISO `YYYY-MM-DD` in adapter.
+- Staggered multi-master starts: `services[].start_time` (HH:MM) on each line; without it all rows share top-level `time` (parallel for different masters).
 - History: **last ~2 months only**; field `duration` (minutes) + `items[].name/type` for planning next slot.
 - History scope needs **`full`** (not only `clients_module`).
 

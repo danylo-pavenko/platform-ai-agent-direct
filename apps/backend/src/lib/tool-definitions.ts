@@ -267,7 +267,7 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
 const BOOK_APPOINTMENT: ToolDefinition = {
   name: 'book_appointment',
   description:
-    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Усі послуги одного візиту — одним викликом у масиві services[] (одне замовлення). Якщо додав ще послугу на той самий слот — можна повторити виклик: платформа змерджить у один запис. Один майстер на всі послуги — top-level master_id. Різні майстри на той самий час — обовʼязково services[].master_id на кожному рядку (клієнту імена, не UUID). price — з цитати слотів для того майстра.',
+    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Усі послуги одного візиту — одним викликом у масиві services[] (одне замовлення). Якщо додав ще послугу на той самий слот — можна повторити виклик: платформа змерджить у один запис. Один майстер на всі послуги — top-level master_id. Різні майстри: services[].master_id на кожному рядку. Різні години старту (напр. 10:30 і 11:00) — обовʼязково services[].start_time на кожному рядку; інакше всі стартують з time. price — з цитати слотів для того майстра.',
   parameters: {
     type: 'object',
     properties: {
@@ -277,7 +277,10 @@ const BOOK_APPOINTMENT: ToolDefinition = {
         type: 'string',
         description: 'Дата запису обовʼязково ДД.ММ.РРРР (напр. 08.08.2026), не YYYY-MM-DD',
       },
-      time: { type: 'string', description: 'ГГ:ХХ' },
+      time: {
+        type: 'string',
+        description: 'ГГ:ХХ — якір візиту / старт першої послуги, якщо немає services[].start_time',
+      },
       services: {
         type: 'array',
         items: {
@@ -297,7 +300,12 @@ const BOOK_APPOINTMENT: ToolDefinition = {
             master_id: {
               type: 'string',
               description:
-                'Майстер цієї послуги. Обовʼязковий, якщо клієнт іде до різних майстрів паралельно',
+                'Майстер цієї послуги. Обовʼязковий, якщо клієнт іде до різних майстрів',
+            },
+            start_time: {
+              type: 'string',
+              description:
+                'Старт цієї послуги ГГ:ХХ. Обовʼязковий, якщо послуги починаються в різний час (напр. стрижка 10:30, манікюр 11:00)',
             },
           },
           required: ['id', 'name', 'duration_min'],

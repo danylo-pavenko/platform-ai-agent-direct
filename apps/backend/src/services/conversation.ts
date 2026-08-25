@@ -25,7 +25,7 @@ import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { notifyAgentFailure, notifyHandoff } from './telegram-notify.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
-import { buildAgentTools, type AgentMode } from '../lib/tool-definitions.js';
+import { buildAgentTools, isLookupToolName, type AgentMode } from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig, resolveResponseDelayMs,
   normalizeClaudeReplyModel,
@@ -83,7 +83,7 @@ import {
   type AgentTurnDebugCollector,
 } from '../lib/agent-turn-debug.js';
 import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
-import { executeLookupTool, lookupResultFromResponse } from './agent-lookup-tools.js';
+import { executeLookupTool, lookupResultFromResponse, hasNativeLookupResult } from './agent-lookup-tools.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   claimInboundMessages,
@@ -775,6 +775,35 @@ async function handleIncomingMessageImpl(
         executeLookupTool(name, args, lookupCtx),
     );
 
+  /** SDK already ran lookups in-process — reuse text; do not Claude-replay tool dumps. */
+  const reuseNativeLookupsIfPresent = (
+    from: {
+      lookupResults?: { name: string; result: string }[];
+      toolCalls?: { name: string; args: Record<string, unknown> }[];
+    },
+    primaryTool: string,
+    textPreview: string,
+  ): boolean => {
+    if (!hasNativeLookupResult(from.lookupResults, primaryTool)) return false;
+    for (const tc of from.toolCalls ?? []) {
+      if (!isLookupToolName(tc.name)) continue;
+      const cached = lookupResultFromResponse(from.lookupResults, tc.name);
+      if (!cached || /HOST_QUEUED/i.test(cached)) continue;
+      if (!debug.tools.some((t) => t.name === tc.name)) {
+        recordTurnTool(debug, tc.name, tc.args, cached);
+      }
+    }
+    recordTurnRound(debug, {
+      label: `native_${primaryTool}_reuse`,
+      toolCalls: (from.toolCalls ?? [])
+        .filter((tc) => isLookupToolName(tc.name))
+        .map((tc) => tc.name),
+      textPreview,
+      fallback: null,
+    });
+    return true;
+  };
+
   async function askTurnClaude(
     req: Omit<ClaudeRequest, 'systemPrompt'>,
     ctx: ClaudeCallContext,
@@ -914,6 +943,7 @@ async function handleIncomingMessageImpl(
       !createLocalOrder &&
       !deliveryCostCall
     ) {
+      if (!reuseNativeLookupsIfPresent(response, 'search_catalog', responseText)) {
       const query =
         typeof searchCatalogCall.args.query === 'string'
           ? searchCatalogCall.args.query.trim()
@@ -975,10 +1005,12 @@ async function handleIncomingMessageImpl(
         }
       }
       log.info({ conversationId, query }, 'Catalog search completed and Claude re-invoked');
+      }
     }
 
     // get_delivery_cost - query tool: fetch NP price, then re-invoke Claude with the result
     if (deliveryCostCall && !handoff && !collectOrder && !createLocalOrder && !searchCatalogCall) {
+      if (!reuseNativeLookupsIfPresent(response, 'get_delivery_cost', responseText)) {
       const city = typeof deliveryCostCall.args.city === 'string' ? deliveryCostCall.args.city : '';
 
       let toolResultContent: string;
@@ -1029,6 +1061,7 @@ async function handleIncomingMessageImpl(
         }
       }
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
+      }
     }
 
     const searchServicesCall = response.toolCalls.find((tc) => tc.name === 'search_services');
@@ -1036,6 +1069,7 @@ async function handleIncomingMessageImpl(
     const crmHistoryCall = response.toolCalls.find((tc) => tc.name === 'get_client_crm_history');
 
     if (crmHistoryCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall) {
+      if (!reuseNativeLookupsIfPresent(response, 'get_client_crm_history', responseText)) {
       const toolResultContent = await runLookup(
         'get_client_crm_history',
         crmHistoryCall.args,
@@ -1082,9 +1116,11 @@ async function handleIncomingMessageImpl(
           return 'completed';
         }
       }
+      }
     }
 
     if (searchServicesCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment) {
+      if (!reuseNativeLookupsIfPresent(response, 'search_services', responseText)) {
       const query =
         typeof searchServicesCall.args.query === 'string'
           ? searchServicesCall.args.query.trim()
@@ -1217,6 +1253,7 @@ async function handleIncomingMessageImpl(
 
         break;
       }
+      }
     }
 
     if (
@@ -1228,6 +1265,7 @@ async function handleIncomingMessageImpl(
       !searchServicesCall &&
       !crmHistoryCall
     ) {
+      if (!reuseNativeLookupsIfPresent(response, 'get_available_slots', responseText)) {
       const toolResultContent = await runLookup(
         'get_available_slots',
         slotsCall.args,
@@ -1272,6 +1310,7 @@ async function handleIncomingMessageImpl(
         ) {
           return 'completed';
         }
+      }
       }
     }
   }

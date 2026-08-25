@@ -298,6 +298,7 @@ export function createLookupMcpServer(
               price: z.number().optional(),
               duration_min: z.number().optional(),
               master_id: z.string().optional(),
+              start_time: z.string().optional(),
             }),
           ),
           master_id: z.string().optional(),

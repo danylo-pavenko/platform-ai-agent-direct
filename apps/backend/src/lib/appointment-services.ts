@@ -13,6 +13,8 @@ export type AppointmentServiceLine = {
   price?: number;
   durationMin: number;
   masterId?: string;
+  /** Per-service start HH:MM (staggered multi-master visits). */
+  startTime?: string;
 };
 
 export type ServiceMasterAssignment = {
@@ -54,7 +56,15 @@ export function normalizeAppointmentServices(raw: unknown): AppointmentServiceLi
     const name = typeof o.name === 'string' ? o.name : undefined;
     const price = typeof o.price === 'number' ? o.price : undefined;
     const masterId = asCrmId(o.masterId) ?? asCrmId(o.master_id) ?? undefined;
-    return [{ id, name, price, durationMin, masterId }];
+    const startRaw =
+      typeof o.startTime === 'string'
+        ? o.startTime
+        : typeof o.start_time === 'string'
+          ? o.start_time
+          : undefined;
+    const startTime =
+      typeof startRaw === 'string' && startRaw.trim() ? startRaw.trim() : undefined;
+    return [{ id, name, price, durationMin, masterId, startTime }];
   });
 }
 
@@ -116,5 +126,6 @@ export function servicesToJson(services: AppointmentServiceLine[]): AppointmentS
     price: row.price,
     durationMin: row.durationMin,
     masterId: row.masterId,
+    ...(row.startTime ? { startTime: row.startTime } : {}),
   }));
 }
