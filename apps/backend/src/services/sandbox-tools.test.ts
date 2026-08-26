@@ -38,6 +38,10 @@ vi.mock('./booking-branch.js', () => ({
   resolveBookingBranchCrmId: vi.fn(async () => 'loc-1'),
 }));
 
+vi.mock('../lib/agent-config.js', () => ({
+  getAgentConfig: vi.fn(async () => ({ timezone: 'Europe/Kyiv' })),
+}));
+
 import {
   buildReturningPersonaHistory,
   executeSandboxToolCall,

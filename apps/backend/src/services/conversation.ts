@@ -505,7 +505,7 @@ async function handleIncomingMessageImpl(
   // ── 4. Working hours check ────────────────────────────────────────
   const hours = await getWorkingHours();
   const now = new Date();
-  const outOfHours = !isWithinWorkingHours(now, hours);
+  const outOfHours = !isWithinWorkingHours(now, hours, agentCfg.timezone);
 
   if (outOfHours) {
     log.info(
@@ -574,6 +574,7 @@ async function handleIncomingMessageImpl(
         previousBriefSummary,
         branchesList,
         telegramBotsBlock,
+        timeZone: agentCfg.timezone,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,
@@ -761,6 +762,7 @@ async function handleIncomingMessageImpl(
     crmHistoryAllowed: agentCfg.mode === 'booking' && Boolean(client.crmBuyerId),
     clientMessage: messageText,
     mutationsAllowed: true,
+    timeZone: agentCfg.timezone,
     existingBooking: existingBookingRow
       ? { date: existingBookingRow.scheduledDate, time: existingBookingRow.scheduledTime }
       : null,

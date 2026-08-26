@@ -218,6 +218,8 @@ export interface CrmSlotQuery {
   fullMonth?: boolean;
   /** Prefer slots for this professional / master (CRM employee id). */
   masterId?: string;
+  /** IANA timezone for day `from`/`to` ISO bounds (BeautyPro). */
+  timeZone?: string;
 }
 
 export interface CrmSlot {

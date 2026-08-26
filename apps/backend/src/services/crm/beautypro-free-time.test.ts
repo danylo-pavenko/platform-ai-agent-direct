@@ -47,8 +47,33 @@ describe('beautypro free_time helpers', () => {
     expect(params.duration).toBe(90);
     expect(params.step).toBe('30m');
     expect(params.step).not.toBe('auto');
-    expect(String(params.from)).toContain('2026-08-05');
-    expect(String(params.to)).toContain('2026-08-05');
+    expect(params.from).toBe('2026-08-04T21:00:00.000Z');
+    expect(params.to).toBe('2026-08-05T20:59:59.000Z');
+  });
+
+  it('uses UTC midnight when query.timeZone is UTC', () => {
+    const params = buildFreeTimeQueryParams(
+      {
+        date: '05.08.2026',
+        branchId: 'loc-1',
+        services: [{ id: 'svc-1', durationMin: 90 }],
+        timeZone: 'UTC',
+      },
+      { nearestDayOnly: false },
+    );
+    expect(params.from).toBe('2026-08-05T00:00:00.000Z');
+    expect(params.to).toBe('2026-08-05T23:59:59.000Z');
+  });
+
+  it('shifts day bounds for Europe/Berlin (CEST)', () => {
+    const params = buildFreeTimeQueryParams({
+      date: '05.08.2026',
+      branchId: 'loc-1',
+      services: [{ id: 'svc-1', durationMin: 60 }],
+      timeZone: 'Europe/Berlin',
+    });
+    expect(params.from).toBe('2026-08-04T22:00:00.000Z');
+    expect(params.to).toBe('2026-08-05T21:59:59.000Z');
   });
 
   it('passes professionals when masterId set and can omit services', () => {

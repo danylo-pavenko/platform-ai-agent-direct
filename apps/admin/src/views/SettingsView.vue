@@ -815,6 +815,52 @@
         </v-card-text>
       </v-card>
 
+      <!-- Tenant timezone (always visible — bookings need it even in 24/7) -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="teal">mdi-earth</v-icon>
+          Часовий пояс салону
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Сервер може бути в іншій країні (наприклад у Німеччині). «Зараз», робочі години
+          і вікна запису в CRM рахуються в цьому поясі. За замовчуванням — Україна, Київ.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-select
+            v-model="agentConfig.timezone"
+            :items="timezoneSelectItems"
+            item-title="title"
+            item-value="value"
+            label="Часовий пояс"
+            variant="outlined"
+            density="compact"
+            :loading="timezoneSaving"
+            :disabled="timezoneSaving"
+            hide-details
+            class="mb-2"
+            style="max-width: 420px"
+            @update:model-value="onTimezoneChange"
+          />
+          <v-alert
+            v-if="timezoneSaveError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-2"
+            closable
+            @click:close="timezoneSaveError = ''"
+          >
+            {{ timezoneSaveError }}
+          </v-alert>
+          <div v-if="timezoneSavedOk" class="text-caption text-success mb-1">
+            Часовий пояс збережено — нові відповіді й слоти підуть з ним одразу.
+          </div>
+          <div class="text-caption text-medium-emphasis">
+            Зберігається одразу при зміні (без кнопки внизу сторінки). Рестарт PM2 не потрібен.
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- AI Agent mode -->
       <v-card class="mb-4">
         <v-card-title class="d-flex align-center flex-wrap ga-2">
@@ -888,7 +934,7 @@
           Робочі години
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Графік, коли бот відповідає автоматично. Поза цими годинами - надсилає шаблон.
+          Графік, коли бот відповідає автоматично (у часовому поясі салону вище). Поза цими годинами — надсилає шаблон.
         </v-card-subtitle>
         <v-card-text>
           <v-row
@@ -3206,6 +3252,46 @@ const claudeModelSaveError = ref('');
 const claudeModelSavedOk = ref(false);
 let claudeModelSavedTimer: ReturnType<typeof setTimeout> | null = null;
 
+const TENANT_TIMEZONE_OPTIONS = [
+  { title: 'Україна — Київ', value: 'Europe/Kyiv' },
+  { title: 'Німеччина — Берлін', value: 'Europe/Berlin' },
+  { title: 'Польща — Варшава', value: 'Europe/Warsaw' },
+  { title: 'Румунія — Бухарест', value: 'Europe/Bucharest' },
+  { title: 'Молдова — Кишинів', value: 'Europe/Chisinau' },
+  { title: 'Чехія — Прага', value: 'Europe/Prague' },
+  { title: 'Австрія — Відень', value: 'Europe/Vienna' },
+  { title: 'Нідерланди — Амстердам', value: 'Europe/Amsterdam' },
+  { title: 'Франція — Париж', value: 'Europe/Paris' },
+  { title: 'Велика Британія — Лондон', value: 'Europe/London' },
+  { title: 'Швейцарія — Цюрих', value: 'Europe/Zurich' },
+  { title: 'UTC', value: 'UTC' },
+] as const;
+
+const TENANT_TIMEZONE_IDS = new Set<string>(TENANT_TIMEZONE_OPTIONS.map((o) => o.value));
+
+function normalizeTimezoneId(raw: unknown): string {
+  const id = typeof raw === 'string' ? raw.trim() : '';
+  if (id === 'Europe/Kiev') return 'Europe/Kyiv';
+  if (TENANT_TIMEZONE_IDS.has(id)) return id;
+  if (/^[A-Za-z0-9_+\-/]+$/.test(id) && id.includes('/')) return id;
+  return 'Europe/Kyiv';
+}
+
+const timezoneSaving = ref(false);
+const timezoneSaveError = ref('');
+const timezoneSavedOk = ref(false);
+let timezoneSavedTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPersistedTimezone = 'Europe/Kyiv';
+
+async function persistAgentConfigPatch(patch: Partial<AgentConfigShape>) {
+  await api.put('/settings', {
+    agent_config: {
+      ...agentConfig.value,
+      ...patch,
+    },
+  });
+}
+
 async function onClaudeModelChange(value: unknown) {
   const model = value === 'opus' || value === 'sonnet' ? value : 'sonnet';
   agentConfig.value.claudeModel = model;
@@ -3217,12 +3303,7 @@ async function onClaudeModelChange(value: unknown) {
     claudeModelSavedTimer = null;
   }
   try {
-    await api.put('/settings', {
-      agent_config: {
-        ...agentConfig.value,
-        claudeModel: model,
-      },
-    });
+    await persistAgentConfigPatch({ claudeModel: model });
     claudeModelSavedOk.value = true;
     claudeModelSavedTimer = setTimeout(() => {
       claudeModelSavedOk.value = false;
@@ -3233,6 +3314,33 @@ async function onClaudeModelChange(value: unknown) {
       e.response?.data?.error ?? 'Не вдалося зберегти модель Claude';
   } finally {
     claudeModelSaving.value = false;
+  }
+}
+
+async function onTimezoneChange(value: unknown) {
+  const tz = normalizeTimezoneId(value);
+  agentConfig.value.timezone = tz;
+  if (!runtimeHydrated || tz === lastPersistedTimezone) return;
+  timezoneSaving.value = true;
+  timezoneSaveError.value = '';
+  timezoneSavedOk.value = false;
+  if (timezoneSavedTimer) {
+    clearTimeout(timezoneSavedTimer);
+    timezoneSavedTimer = null;
+  }
+  try {
+    await persistAgentConfigPatch({ timezone: tz });
+    lastPersistedTimezone = tz;
+    timezoneSavedOk.value = true;
+    timezoneSavedTimer = setTimeout(() => {
+      timezoneSavedOk.value = false;
+      timezoneSavedTimer = null;
+    }, 4000);
+  } catch (e: any) {
+    timezoneSaveError.value =
+      e.response?.data?.error ?? 'Не вдалося зберегти часовий пояс';
+  } finally {
+    timezoneSaving.value = false;
   }
 }
 
@@ -4070,6 +4178,7 @@ interface AgentConfigShape {
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
   claudeModel: 'sonnet' | 'opus';
+  timezone: string;
   fallbackMessages: FallbackMessagesShape;
 }
 
@@ -4081,7 +4190,20 @@ const agentConfig = ref<AgentConfigShape>({
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
+  timezone: 'Europe/Kyiv',
   fallbackMessages: { ...DEFAULT_FALLBACK_MESSAGES, busy: { ...DEFAULT_FALLBACK_MESSAGES.busy }, timeout: { ...DEFAULT_FALLBACK_MESSAGES.timeout } },
+});
+
+const timezoneSelectItems = computed(() => {
+  const current = agentConfig.value.timezone;
+  const opts: Array<{ title: string; value: string }> = TENANT_TIMEZONE_OPTIONS.map((o) => ({
+    title: o.title,
+    value: o.value,
+  }));
+  if (current && !opts.some((o) => o.value === current)) {
+    opts.push({ title: current, value: current });
+  }
+  return opts;
 });
 
 interface FollowUpConfigShape {
@@ -4251,10 +4373,12 @@ async function fetchSettings() {
           raw.claudeModel === 'opus' || raw.claudeModel === 'sonnet'
             ? raw.claudeModel
             : 'sonnet',
+        timezone: normalizeTimezoneId((raw as { timezone?: unknown }).timezone),
         fallbackMessages: normalizeFallbackMessagesShape(
           (raw as { fallbackMessages?: unknown }).fallbackMessages,
         ),
       };
+      lastPersistedTimezone = agentConfig.value.timezone;
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {
         agentConfig.value.responseDelayMaxSeconds = agentConfig.value.responseDelayMinSeconds;
       }
@@ -4363,6 +4487,7 @@ async function saveSettings() {
           agentConfig.value.claudeModel === 'sonnet'
             ? agentConfig.value.claudeModel
             : 'sonnet',
+        timezone: normalizeTimezoneId(agentConfig.value.timezone),
         responseDelayMinSeconds: (() => {
           const n = Math.floor(Number(agentConfig.value.responseDelayMinSeconds) || 0);
           return Math.max(0, Math.min(60, n));

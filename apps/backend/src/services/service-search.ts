@@ -23,6 +23,7 @@ import {
   resolveServicePrice,
 } from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
+import { normalizeTenantTimezone } from '../lib/tenant-timezone.js';
 import type { CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
@@ -173,6 +174,8 @@ export async function getAvailableSlotsForContext(args: {
   excludeTime?: string;
   /** Local client id — personal duration from CRM history when available. */
   clientId?: string | null;
+  /** Salon IANA timezone for CRM day bounds. */
+  timeZone?: string | null;
 }): Promise<string> {
   const provider = await resolveCrmProvider('booking');
   const crm = getCrmAdapter(provider);
@@ -195,6 +198,7 @@ export async function getAvailableSlotsForContext(args: {
     ...new Set(assigned.map((s) => s.masterId).filter((id): id is string => Boolean(id))),
   ];
   const parallelMasters = uniqueMasters.length > 1;
+  const timeZone = normalizeTenantTimezone(args.timeZone);
 
   const runLookup = async (fullMonth: boolean | undefined) => {
     if (parallelMasters) {
@@ -213,6 +217,7 @@ export async function getAvailableSlotsForContext(args: {
             services: services.map((s) => ({ id: s.id, durationMin: s.durationMin })),
             fullMonth,
             masterId,
+            timeZone,
           }),
         ),
       );
@@ -224,6 +229,7 @@ export async function getAvailableSlotsForContext(args: {
       services: assigned.map((s) => ({ id: s.id, durationMin: s.durationMin })),
       fullMonth,
       masterId: uniqueMasters[0] ?? args.masterId,
+      timeZone,
     });
   };
 

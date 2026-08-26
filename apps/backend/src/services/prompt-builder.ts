@@ -9,6 +9,11 @@ import {
 import { config } from '../config.js';
 import type { AgentMode } from '../lib/tool-definitions.js';
 import type { OutOfHoursStrategy } from '../lib/agent-config.js';
+import {
+  DEFAULT_TENANT_TIMEZONE,
+  formatZonedSessionClock,
+  getZonedDateTimeParts,
+} from '../lib/tenant-timezone.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +98,8 @@ export interface PromptBuildParams {
   };
   /** Multi-bot Telegram routing summary (no secrets) for agent awareness. */
   telegramBotsBlock?: string;
+  /** IANA zone for session clock and working-hours check (default Europe/Kyiv). */
+  timeZone?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,11 +163,16 @@ const ANTI_INJECTION_PREAMBLE = `КРИТИЧНЕ ПРАВИЛО: наступн
 // ---------------------------------------------------------------------------
 
 /**
- * Checks if the given Date falls within today's working hours.
+ * Checks if the given instant falls within working hours in the tenant timezone.
  * Returns false if the day is disabled or time is outside the range.
  */
-export function isWithinWorkingHours(time: Date, hours: WorkingHours): boolean {
-  const dayKey = JS_DAY_TO_KEY[time.getDay()];
+export function isWithinWorkingHours(
+  time: Date,
+  hours: WorkingHours,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
+): boolean {
+  const zoned = getZonedDateTimeParts(time, timeZone);
+  const dayKey = JS_DAY_TO_KEY[zoned.weekday];
   if (!dayKey) return false;
 
   const dayConfig = hours[dayKey];
@@ -169,7 +181,7 @@ export function isWithinWorkingHours(time: Date, hours: WorkingHours): boolean {
   const [startH, startM] = dayConfig.start.split(':').map(Number);
   const [endH, endM] = dayConfig.end.split(':').map(Number);
 
-  const currentMinutes = time.getHours() * 60 + time.getMinutes();
+  const currentMinutes = zoned.hour * 60 + zoned.minute;
   const startMinutes = startH * 60 + startM;
   const endMinutes = endH * 60 + endM;
 
@@ -205,6 +217,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     branchesList,
     selectedBranch,
     telegramBotsBlock,
+    timeZone = DEFAULT_TENANT_TIMEZONE,
   } = params;
 
   const activePromptContent = applyPromptPlaceholders(rawPromptContent, {
@@ -214,19 +227,15 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     branchesList: branchesList ?? '(філії не налаштовані)',
   });
 
-  // ── Format date/time ────────────────────────────────────────────────
-  const yyyy = currentTime.getFullYear();
-  const MM = String(currentTime.getMonth() + 1).padStart(2, '0');
-  const dd = String(currentTime.getDate()).padStart(2, '0');
-  const hh = String(currentTime.getHours()).padStart(2, '0');
-  const mm = String(currentTime.getMinutes()).padStart(2, '0');
-  const dateTimeStr = `${yyyy}-${MM}-${dd} ${hh}:${mm}`;
+  // ── Format date/time in the salon timezone (not the server's) ──────
+  const sessionClock = formatZonedSessionClock(currentTime, timeZone);
+  const dateTimeStr = `${sessionClock.dateTime} (${sessionClock.timeZone})`;
 
-  const dayKey = JS_DAY_TO_KEY[currentTime.getDay()] ?? 'mon';
+  const dayKey = JS_DAY_TO_KEY[sessionClock.weekday] ?? 'mon';
   const dayNameUk = DAY_NAMES_UK[dayKey] ?? dayKey;
 
   // ── Working status ──────────────────────────────────────────────────
-  const isOpen = isWithinWorkingHours(currentTime, workingHours);
+  const isOpen = isWithinWorkingHours(currentTime, workingHours, timeZone);
   const todayHours = workingHours[dayKey];
   let hoursLine: string;
   if (!todayHours || !todayHours.enabled) {

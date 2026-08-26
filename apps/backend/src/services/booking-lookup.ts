@@ -39,6 +39,7 @@ export async function executeGetAvailableSlotsTool(params: {
   args: Record<string, unknown>;
   branchCrmExternalId?: string | null;
   clientId?: string | null;
+  timeZone?: string | null;
 }): Promise<string> {
   const parsed = parseGetAvailableSlotsArgs(params.args);
   if ('error' in parsed) return parsed.error;
@@ -59,6 +60,7 @@ export async function executeGetAvailableSlotsTool(params: {
       fullMonth: parsed.fullMonth,
       masterId: parsed.masterId,
       clientId: params.clientId,
+      timeZone: params.timeZone,
     });
     return `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
   } catch (err) {

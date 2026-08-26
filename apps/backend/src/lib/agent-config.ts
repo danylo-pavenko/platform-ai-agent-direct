@@ -17,11 +17,13 @@
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
  *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
+ *     timezone: 'Europe/Kyiv',         // salon calendar / working hours / CRM day bounds
  *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
  *   }
  */
 import { config } from '../config.js';
 import { prisma } from './prisma.js';
+import { DEFAULT_TENANT_TIMEZONE, normalizeTenantTimezone } from './tenant-timezone.js';
 import type { AgentMode } from './tool-definitions.js';
 import {
   CUSTOMER_FALLBACK_BUSY,
@@ -65,6 +67,8 @@ export interface AgentConfig {
   responseDelayMaxSeconds: number;
   /** Claude Code CLI `--model` for customer-facing replies (sonnet | opus). */
   claudeModel: ClaudeReplyModelId;
+  /** IANA timezone for "now", working hours, and CRM slot/booking day bounds. */
+  timezone: string;
   /** Canned customer replies when Claude is busy / times out (per language). */
   fallbackMessages: FallbackMessages;
 }
@@ -99,6 +103,7 @@ const DEFAULTS: AgentConfig = {
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
+  timezone: DEFAULT_TENANT_TIMEZONE,
   fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
 };
 
@@ -224,6 +229,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     responseDelayMinSeconds: delay.min,
     responseDelayMaxSeconds: delay.max,
     claudeModel: normalizeClaudeReplyModel(raw.claudeModel, envFallback),
+    timezone: normalizeTenantTimezone(raw.timezone, DEFAULTS.timezone),
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
   };
   _cacheAt = Date.now();

@@ -79,6 +79,8 @@
 
 Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку `fields` цього методу — навіть коли старше docs його згадує, або коли хочеш лише `id`.
 
+**Часовий пояс tenant** (`agent_config.timezone`, default `Europe/Kyiv`): `GET /employees/free_time` `from`/`to` — цивільний день у поясі салону, конвертований у UTC ISO. Не midnight UTC дати (на сервері в DE «сьогодні» інше). Запис (`POST /appointments`) лишає календарну дату `YYYY-MM-DD` як її передав агент.
+
 | Виклик | Правило |
 |--------|---------|
 | `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг; нотатка = **`comments`**. У body clients **не** слати `comment`/`comments` — лише імʼя + телефон/email. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |

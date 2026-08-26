@@ -73,6 +73,7 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.
+Часовий пояс tenant (agent_config.timezone, default Europe/Kyiv): «зараз», робочі години і межі цивільного дня для CRM-слотів (BeautyPro free_time from/to). Сервер може бути в DE — календар салону не бере системний TZ.
 
 ## Instagram inbound nuances (webhook → Claude)
 

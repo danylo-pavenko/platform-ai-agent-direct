@@ -307,7 +307,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const agentCfg = await getAgentConfig();
       const hours = await getWorkingHours();
       const now = new Date();
-      const outOfHours = !isWithinWorkingHours(now, hours);
+      const outOfHours = !isWithinWorkingHours(now, hours, agentCfg.timezone);
 
       const igTyping = await beginIgTypingIndicator({
         channel: conversation.channel,
@@ -356,6 +356,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
         branchesList,
         telegramBotsBlock,
+        timeZone: agentCfg.timezone,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,

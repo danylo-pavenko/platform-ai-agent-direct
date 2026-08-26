@@ -27,6 +27,8 @@ export interface LookupToolContext {
   clientMessage?: string;
   mutationsAllowed?: boolean;
   existingBooking?: { date: string; time: string } | null;
+  /** Salon IANA timezone for CRM slot day bounds. */
+  timeZone?: string | null;
 }
 
 let lookupActive = 0;
@@ -162,6 +164,7 @@ export async function executeLookupTool(
           args,
           branchCrmExternalId: ctx.branchCrmExternalId,
           clientId: ctx.clientId,
+          timeZone: ctx.timeZone,
         });
       case 'get_client_crm_history':
         return runCrmHistory(args, ctx);

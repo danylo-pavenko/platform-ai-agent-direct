@@ -69,6 +69,7 @@ describe('getAvailableSlotsForContext preferred master', () => {
       services: [{ id: 'svc-1', durationMin: 60 }],
       fullMonth: undefined,
       masterId: 'pro-1',
+      timeZone: 'Europe/Kyiv',
     });
     expect(text).toContain('[master_id=pro-1] Анна');
     expect(text).toContain('10:00');
@@ -156,6 +157,7 @@ describe('getAvailableSlotsForContext preferred master', () => {
       expect.objectContaining({
         masterId: 'nails',
         services: [{ id: 'svc-1', durationMin: 115 }],
+        timeZone: 'Europe/Kyiv',
       }),
     );
     expect(getAvailableSlots).toHaveBeenCalledWith(

@@ -70,7 +70,7 @@ Order in `buildRuntimePrompt` / `askClaude`:
 
 1. Anti-injection preamble  
 2. Active system prompt from DB (`system_prompts`, `isActive`) with placeholders (hours, branches, brand)  
-3. Session block: time, client profile, CRM **link hint** (full visits via `get_client_crm_history`), branches, Telegram bots, out-of-hours, previous brief  
+3. Session block: time **in tenant timezone** (`agent_config.timezone`, default `Europe/Kyiv` — not the host OS, often DE), client profile, CRM **link hint** (full visits via `get_client_crm_history`), branches, Telegram bots, out-of-hours, previous brief  
 4. Live catalog snippet: sales/leadgen → products+services+masters (~12k); **booking** → masters only (≤1k); services/prices via tools  
 5. Mode tools block (`formatAgentToolsPrompt`)
 

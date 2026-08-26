@@ -150,7 +150,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         const workingHours = await getWorkingHours();
         const agentCfg = await getAgentConfig();
         const catalogSnippet = await loadCatalogSnippetForMode(agentCfg.mode);
-        const isOutOfHours = !isWithinWorkingHours(now, workingHours);
+        const isOutOfHours = !isWithinWorkingHours(now, workingHours, agentCfg.timezone);
         const branchesList = await formatBranchesForPrompt();
         const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
         const defaultBranch = await getDefaultBranch();
@@ -185,6 +185,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
           outOfHoursStrategy: agentCfg.outOfHoursStrategy,
           managerSlaHoursBusiness: agentCfg.managerSlaHoursBusiness,
           branchesList,
+          timeZone: agentCfg.timezone,
           customFieldHints: crmMappings?.buyer.map((m) => ({
             localKey: m.localKey,
             label: m.label,
@@ -234,6 +235,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
               conversationHistory,
               userMessage,
               tools,
+              lookupContext: { timeZone: agentCfg.timezone },
               ...(resumeSessionId ? { resumeSessionId } : {}),
             },
             sandboxCtx,

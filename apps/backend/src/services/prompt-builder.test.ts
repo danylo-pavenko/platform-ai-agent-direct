@@ -16,6 +16,7 @@ vi.mock('../lib/paths.js', () => ({
 
 import {
   buildRuntimePrompt,
+  isWithinWorkingHours,
   type WorkingHours,
 } from './prompt-builder.js';
 
@@ -74,6 +75,27 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
       /Товари \/ послуги \/ ціни \/ майстри — з блоку нижче або через tools/,
     );
     expect(prompt).toContain('Анна');
+  });
+
+  it('formats session clock in tenant timezone, not server local', () => {
+    const utcNoon = new Date('2026-08-26T12:00:00.000Z');
+    const kyiv = buildRuntimePrompt(
+      baseParams({ currentTime: utcNoon, timeZone: 'Europe/Kyiv' }),
+    );
+    expect(kyiv).toMatch(/26\.08\.2026 15:00 \(Europe\/Kyiv\)/);
+    expect(kyiv).toContain('Середа');
+
+    const berlin = buildRuntimePrompt(
+      baseParams({ currentTime: utcNoon, timeZone: 'Europe/Berlin' }),
+    );
+    expect(berlin).toMatch(/26\.08\.2026 14:00 \(Europe\/Berlin\)/);
+  });
+
+  it('treats working hours in tenant timezone (Kyiv vs Berlin)', () => {
+    // 15:30 UTC Monday 20 Jul 2026 = 18:30 Kyiv (closed), 17:30 Berlin (open)
+    const at = new Date('2026-07-20T15:30:00.000Z');
+    expect(isWithinWorkingHours(at, HOURS, 'Europe/Kyiv')).toBe(false);
+    expect(isWithinWorkingHours(at, HOURS, 'Europe/Berlin')).toBe(true);
   });
 });
 

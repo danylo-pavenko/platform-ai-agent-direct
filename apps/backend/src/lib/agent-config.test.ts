@@ -17,6 +17,7 @@ import {
   DEFAULT_FALLBACK_MESSAGES,
   RESPONSE_DELAY_SEC_MAX,
 } from './agent-config.js';
+import { DEFAULT_TENANT_TIMEZONE, normalizeTenantTimezone } from './tenant-timezone.js';
 
 describe('normalizeResponseDelayBounds', () => {
   it('defaults to 0/0', () => {
@@ -64,6 +65,16 @@ describe('normalizeClaudeReplyModel', () => {
   it('falls back for unknown values', () => {
     expect(normalizeClaudeReplyModel('gpt-4')).toBe('sonnet');
     expect(normalizeClaudeReplyModel(undefined, 'opus')).toBe('opus');
+  });
+});
+
+describe('tenant timezone (agent_config)', () => {
+  it('defaults to Europe/Kyiv', () => {
+    expect(normalizeTenantTimezone(undefined)).toBe(DEFAULT_TENANT_TIMEZONE);
+  });
+
+  it('maps Europe/Kiev when reading stored agent_config', () => {
+    expect(normalizeTenantTimezone('Europe/Kiev')).toBe('Europe/Kyiv');
   });
 });
 

@@ -14,6 +14,7 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 - Within a turn: **one session** — tenant reply model keeps a single `--resume` id (`lib/turn-claude-sessions.ts`). Tool follow-ups continue that session (no Haiku hop). Mid-turn prompt activate clears the resume id and aborts in-flight Claude (`AbortSignal`).
 - Process hygiene: CLI spawn is a detached process group; abort/timeout kills the group and logs if pid is alive after 2s. `CLAUDE_WARMUP_ON_START` → `runtime.warmup()` (does not arm quota circuit, does not take IG/meta semaphore). Health-check warns on orphan `claude` (ppid 1) without failing.
 - Tenant reply model = **sonnet \| opus** only (`normalizeClaudeReplyModel`). The same model handles first spawn and tool follow-ups. Haiku is warmup / usage probe only.
+- Tenant timezone = `agent_config.timezone` (default `Europe/Kyiv`). Session clock, working hours, and BeautyPro free_time day bounds use this IANA zone — not the server’s (often DE).
 - CRM only via `getCrmAdapter` + `resolveCrmProvider(action)` — never HTTP in `conversation.ts`.
 - Platform capability map lives in `lib/platform-capabilities-prompt.ts` — inject into **meta-agent** and **insights (AI-помічник)**. Keep in sync when changing modes/tools/CRM.
 - Spawn CWD is isolated (`claude-spawn-cwd`) — tenant disk `CLAUDE.md` is **not** the customer system prompt; DB `system_prompts` + runtime injections are.

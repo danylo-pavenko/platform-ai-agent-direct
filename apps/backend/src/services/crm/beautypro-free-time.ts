@@ -3,6 +3,7 @@
  * Docs: https://aihelpssoft.github.io/documentations/ (employees/free_time)
  */
 
+import { DEFAULT_TENANT_TIMEZONE, civilDayBoundsUtcIso } from '../../lib/tenant-timezone.js';
 import type { CrmSlot, CrmSlotQuery } from './types.js';
 
 export type FreeTimeResponse = Record<string, Record<string, string[]>>;
@@ -52,17 +53,9 @@ export function toIsoDate(parts: { y: number; m: number; d: number }): string {
 export function freeTimeDayBounds(
   parts: { y: number; m: number; d: number },
   fullMonth: boolean,
+  timeZone: string = DEFAULT_TENANT_TIMEZONE,
 ): { from: string; to: string } {
-  let from: Date;
-  let to: Date;
-  if (fullMonth) {
-    from = new Date(Date.UTC(parts.y, parts.m - 1, 1, 0, 0, 0));
-    to = new Date(Date.UTC(parts.y, parts.m, 0, 23, 59, 59));
-  } else {
-    from = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 0, 0, 0));
-    to = new Date(Date.UTC(parts.y, parts.m - 1, parts.d, 23, 59, 59));
-  }
-  return { from: from.toISOString(), to: to.toISOString() };
+  return civilDayBoundsUtcIso(parts, timeZone, fullMonth);
 }
 
 export function resolveFreeTimeDurationMin(
@@ -110,7 +103,11 @@ export function buildFreeTimeQueryParams(
   }
 
   const fullMonth = query.fullMonth === true;
-  const { from, to } = freeTimeDayBounds(parts, fullMonth);
+  const { from, to } = freeTimeDayBounds(
+    parts,
+    fullMonth,
+    query.timeZone ?? DEFAULT_TENANT_TIMEZONE,
+  );
   const duration = resolveFreeTimeDurationMin(query.services);
   const nearestDayOnly = opts.nearestDayOnly ?? false;
   const includeServices = opts.includeServices !== false;

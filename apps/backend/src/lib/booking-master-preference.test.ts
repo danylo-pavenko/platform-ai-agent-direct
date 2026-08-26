@@ -33,6 +33,8 @@ describe('booking preferred-master tools and docs', () => {
   it('documents UC1/UC2 in platform capabilities for meta-agent', () => {
     const block = buildPlatformCapabilitiesBlock();
     expect(block).toContain('Booking master preference');
+    expect(block).toContain('agent_config.timezone');
+    expect(block).toContain('Europe/Kyiv');
     expect(block).toContain('get_available_slots');
     expect(block).toContain('master_id');
     expect(block).toContain('Повторний клієнт');

@@ -48,6 +48,8 @@ export interface ClaudeRequest {
     mutationsAllowed?: boolean;
     /** Synced/confirmed visit — different date/time is a reschedule (deny). */
     existingBooking?: { date: string; time: string } | null;
+    /** Salon IANA timezone for CRM slot day bounds. */
+    timeZone?: string | null;
   };
 }
 

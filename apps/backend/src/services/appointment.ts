@@ -30,6 +30,7 @@ import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { getAvailableSlotsForContext } from './service-search.js';
 import { applyPersonalDurations } from './personal-duration.js';
+import { getAgentConfig } from '../lib/agent-config.js';
 import {
   buildBookingOrderSummary,
   mergeAppointmentServiceLines,
@@ -397,6 +398,7 @@ export async function handleBookAppointment(
         fullMonth: true,
         excludeTime: time,
         clientId,
+        timeZone: (await getAgentConfig()).timezone,
       });
       toolResult = formatTimeConflictToolResult({
         failedDate: date,

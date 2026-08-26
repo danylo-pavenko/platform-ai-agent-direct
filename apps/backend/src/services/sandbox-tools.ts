@@ -11,6 +11,7 @@ import { parseSearchServicesLimit } from './booking-lookup.js';
 import { formatSearchServicesToolResult, parseGetAvailableSlotsArgs } from '../lib/booking-lookup-format.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
+import { getAgentConfig } from '../lib/agent-config.js';
 
 const log = pino({ name: 'sandbox-tools' });
 
@@ -119,12 +120,14 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
         };
       }
       try {
+        const agentCfg = await getAgentConfig();
         const slotsText = await getAvailableSlotsForContext({
           date: parsed.date,
           branchCrmId,
           services: parsed.services,
           fullMonth: parsed.fullMonth,
           masterId: parsed.masterId,
+          timeZone: agentCfg.timezone,
         });
         return { content: `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}` };
       } catch (err) {

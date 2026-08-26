@@ -254,6 +254,7 @@ export interface InsightsSnapshot {
       responseDelayMinSeconds: number;
       responseDelayMaxSeconds: number;
       claudeModel: string;
+      timezone: string;
     };
     runtime: {
       mode: string;
@@ -815,6 +816,7 @@ export async function buildInsightsSnapshotFresh(
         responseDelayMinSeconds: agentConfig.responseDelayMinSeconds,
         responseDelayMaxSeconds: agentConfig.responseDelayMaxSeconds,
         claudeModel: agentConfig.claudeModel,
+        timezone: agentConfig.timezone,
       },
       runtime: {
         mode: runtimeConfig.mode,
