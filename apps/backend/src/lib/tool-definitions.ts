@@ -229,7 +229,7 @@ const SEARCH_SERVICES: ToolDefinition = {
 const GET_AVAILABLE_SLOTS: ToolDefinition = {
   name: 'get_available_slots',
   description:
-    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id на КОЖНОМУ рядку різних майстрів — MODE: PARALLEL (спільний start). Без master_id / один майстер на кілька послуг — MODE: SEQUENTIAL (сума хв); не продавай як паралель. Пропонуй лише години з останнього lookup по всіх послугах візиту.',
+    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id на КОЖНОМУ рядку різних майстрів — MODE: PARALLEL (спільний start). Без master_id / один майстер на кілька послуг — MODE: SEQUENTIAL (сума хв); не продавай як паралель. У результаті може бути блок «Ціни для обраного майстра». Пропонуй лише години з останнього lookup по всіх послугах візиту. Повторний клієнт: master_id з історії.',
   parameters: {
     type: 'object',
     properties: {
