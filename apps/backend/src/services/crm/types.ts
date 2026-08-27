@@ -247,6 +247,11 @@ export interface CrmBookingInput {
    * Default **true** (agent + admin). Pass `false` only to require strict calendar.
    */
   forceTimeConflict?: boolean;
+  /**
+   * BeautyPro only: skip free_time open-day / slot check before POST.
+   * Agent path never sets this; admin may pass for emergency override.
+   */
+  skipScheduleCheck?: boolean;
 }
 
 /** Append services to an existing CRM booking (BeautyPro PUT action=insert). */

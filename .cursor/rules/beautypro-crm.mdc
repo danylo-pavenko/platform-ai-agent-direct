@@ -36,7 +36,7 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 | Branches | `GET /locations` (filter `active` in-process; list docs have no `active=` query) | `fetchBranches` |
 | Services | `GET /services` + `/services/categories` | `fetchServices` / `searchServices` |
 | Slots | `GET /employees/free_time` | `getAvailableSlots` |
-| Book | `POST /appointments` (`state: planned`) | `createBooking` |
+| Book | `POST /appointments` (`state: planned`) | `createBooking` — перед POST звірка `GET /employees/free_time` (день відкритий + час у слотах); `MASTER_DAY_CLOSED` / `SLOT_NOT_AVAILABLE` |
 | Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` → agent `cancel_appointment` / reschedule |
 | Remove service | `PUT` `services[].action=delete` | `removeBookingService` → `remove_appointment_service` |
 | Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
@@ -52,7 +52,7 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 
 - One **planned/confirmed** appointment per `date + location + client` — API **merges** services if duplicate.
 - Prefer cancel (`state: cancelled`) over DELETE.
-- `409 TIME_CONFLICT` — platform defaults to BeautyPro `force=true` on POST/PUT (agent + admin). Same-master services should still be sequential (not all `start=12:00`). Different masters may share a start. Retry may link an existing same-day appointment for that client if force is explicitly off. **Admin:** Orders → «Все одно в CRM (force)» still works; agent path also sends `?force=true`.
+- `409 TIME_CONFLICT` — platform defaults to BeautyPro `force=true` on POST/PUT (agent + admin) for overlapping appointments. **Still** refuses agent book when `free_time` shows the master has no open day (`MASTER_DAY_CLOSED`) or the clock time is absent (`SLOT_NOT_AVAILABLE`) — `force` must not invent a shift. Admin emergency: `skipScheduleCheck` on CRM input.
 - `smsError` on create is non-fatal (log only).
 - Agent dates often `DD.MM.YYYY` → convert to ISO `YYYY-MM-DD` in adapter.
 - Staggered multi-master starts: `services[].start_time` (HH:MM) on each line; without it all rows share top-level `time` (parallel for different masters).

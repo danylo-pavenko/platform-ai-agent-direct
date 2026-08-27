@@ -64,6 +64,11 @@ import {
   type RawClientLike,
 } from './beautypro-clients.js';
 import { computeActualDurationMin } from '../../lib/client-service-duration.js';
+import {
+  BeautyproScheduleError,
+  evaluateMasterFreeTimeStatus,
+} from '../../lib/beautypro-schedule-guard.js';
+import { DEFAULT_TENANT_TIMEZONE } from '../../lib/tenant-timezone.js';
 
 const log = pino({ name: 'crm:beautypro' });
 
@@ -624,6 +629,61 @@ async function fetchFreeTimeWithFallbacks(query: CrmSlotQuery): Promise<FreeTime
   );
 }
 
+async function assertProfessionalsScheduledForBooking(opts: {
+  uaDate: string;
+  branchId: string;
+  services: Array<{ id: string; durationMin: number; professional: string; start: string }>;
+  timeZone?: string;
+  skip?: boolean;
+}): Promise<void> {
+  if (opts.skip || opts.services.length === 0) return;
+
+  const grouped = new Map<string, typeof opts.services>();
+  for (const row of opts.services) {
+    const list = grouped.get(row.professional) ?? [];
+    list.push(row);
+    grouped.set(row.professional, list);
+  }
+
+  for (const [professionalId, lines] of grouped) {
+    const start = lines[0]?.start ?? '10:00';
+    const queryServices = lines.map((s) => ({
+      id: s.id,
+      durationMin: s.durationMin > 0 ? s.durationMin : 60,
+    }));
+    try {
+      const free = await fetchFreeTimeWithFallbacks({
+        date: opts.uaDate,
+        branchId: opts.branchId,
+        services: queryServices,
+        masterId: professionalId,
+        timeZone: opts.timeZone ?? DEFAULT_TENANT_TIMEZONE,
+      });
+      const { slots } = invertFreeTime(free);
+      const status = evaluateMasterFreeTimeStatus({
+        slots,
+        masterId: professionalId,
+        date: opts.uaDate,
+        time: start,
+      });
+      if (status !== 'ok') {
+        throw new BeautyproScheduleError({
+          status,
+          masterId: professionalId,
+          date: opts.uaDate,
+          time: normalizeBeautyproStartTime(start).slice(0, 5),
+        });
+      }
+    } catch (err) {
+      if (err instanceof BeautyproScheduleError) throw err;
+      log.warn(
+        { err, professionalId, date: opts.uaDate },
+        'BeautyPro schedule assert free_time failed — allowing book (fail-open)',
+      );
+    }
+  }
+}
+
 async function findSameDayClientAppointment(opts: {
   clientId: string;
   locationId: string;
@@ -1024,6 +1084,19 @@ export const beautyproAdapter: CrmAdapter = {
       professional,
       start,
       services: input.services,
+    });
+
+    const bodyServices = (body.services as Array<Record<string, unknown>>) ?? [];
+    await assertProfessionalsScheduledForBooking({
+      uaDate: input.date,
+      branchId: input.branchId,
+      services: bodyServices.map((row) => ({
+        id: String(row.service ?? ''),
+        durationMin: typeof row.duration === 'number' ? row.duration : 60,
+        professional: String(row.professional ?? professional),
+        start: String(row.start ?? start),
+      })).filter((s) => s.id && s.professional),
+      skip: input.skipScheduleCheck === true,
     });
 
     // Do not pass `fields=id,...` — docs' POST fields list has no `id`, and the

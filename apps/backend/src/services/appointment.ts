@@ -44,6 +44,10 @@ import {
   checkBookingMasterServiceFit,
   formatMasterServiceMismatchToolResult,
 } from '../lib/master-service-fit.js';
+import {
+  checkBookingMastersSchedule,
+  scheduleMismatchToToolResult,
+} from '../lib/booking-schedule-check.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -192,6 +196,31 @@ export async function handleBookAppointment(
       appointmentId: '',
       crmSynced: false,
       toolResult: formatMasterServiceMismatchToolResult(mismatches),
+    };
+  }
+
+  const scheduleMismatch = await checkBookingMastersSchedule({
+    date,
+    time,
+    branchId: resolved.crmExternalId,
+    services: services.map((s) => ({
+      id: s.id,
+      durationMin: s.durationMin,
+      masterId: s.masterId,
+      name: s.name,
+      startTime: s.startTime,
+    })),
+    timeZone: (await getAgentConfig()).timezone,
+  });
+  if (scheduleMismatch) {
+    log.warn(
+      { conversationId, scheduleMismatch },
+      'book_appointment: schedule guard — refusing (day closed or slot not in free_time)',
+    );
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult: scheduleMismatchToToolResult(scheduleMismatch),
     };
   }
 
@@ -410,7 +439,12 @@ export async function handleBookAppointment(
 
   // CRM failed — never send «записали» to the client from this path.
   let toolResult = `[book_appointment] failed: ${(crmError ?? 'CRM sync failed').slice(0, 400)}`;
-  if (crmError && isBeautyproTimeConflictError(crmError)) {
+  if (
+    crmError &&
+    (crmError.includes('MASTER_DAY_CLOSED') || crmError.includes('SLOT_NOT_AVAILABLE'))
+  ) {
+    toolResult = crmError;
+  } else if (crmError && isBeautyproTimeConflictError(crmError)) {
     try {
       const alternativesText = await getAvailableSlotsForContext({
         date,

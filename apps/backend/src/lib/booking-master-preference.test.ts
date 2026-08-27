@@ -55,6 +55,7 @@ describe('booking preferred-master tools and docs', () => {
     expect(block).toMatch(/services\[\]\.master_id/);
     expect(block).toContain('MASTER_SERVICE_MISMATCH');
     expect(block).toMatch(/однаковим ім/);
+    expect(block).toContain('MASTER_DAY_CLOSED');
   });
 
   it('documents grade pricing for booking tools in platform capabilities', () => {

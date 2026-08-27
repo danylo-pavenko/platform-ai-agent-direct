@@ -2653,6 +2653,10 @@ async function tryTerminalToolCalls(
         ? buildClientFacingTimeConflictReply(bookResult.toolResult)
         : bookResult.toolResult.includes('MASTER_SERVICE_MISMATCH')
           ? 'Цей майстер не виконує обрану послугу — зараз підберу іншого спеціаліста або інший час. Зачекайте хвильку.'
+        : bookResult.toolResult.includes('MASTER_DAY_CLOSED')
+          ? 'Цього дня майстер не працює за графіком. Підкажу інші дати зі свіжих слотів.'
+        : bookResult.toolResult.includes('SLOT_NOT_AVAILABLE')
+          ? 'На цей час вікна вже немає. Зараз запропоную інші години з розкладу.'
         : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
           'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
       try {

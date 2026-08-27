@@ -61,7 +61,8 @@
 | `fetchBranches` | `GET /locations` |
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
-| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`, **`?force=true` за замовчуванням**). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд (12:00 + 115 хв → 13:55). **Різні майстри** — той самий `start`, різний `professional`. `force=true` пропускає 409 `TIME_CONFLICT`. Opt-out: `forceTimeConflict: false`. Якщо 409 без force і в клієнта вже є planned/confirmed на цей день+філію — привʼязуємо існуючий id. |
+| `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`, **`?force=true` за замовчуванням**). Перед POST — `GET /employees/free_time`: відмова `MASTER_DAY_CLOSED` / `SLOT_NOT_AVAILABLE` якщо дня немає в графіку або час не вільний (`skipScheduleCheck` лише для admin override). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд. **Різні майстри** — той самий `start`, різний `professional`. `force=true` пропускає 409 `TIME_CONFLICT`, але не відкриває закритий день. |
+
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. Agent tool: `cancel_appointment` / part of `reschedule_appointment`. |
 | `removeBookingService` | `GET` services on appointment → `PUT` `services: [{ id: lineId, action: 'delete' }]`. Agent: `remove_appointment_service`. Last line → full cancel. |
 | `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: `comment` (не `comments`). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email` (як у docs create). Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
