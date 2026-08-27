@@ -2651,6 +2651,8 @@ async function tryTerminalToolCalls(
       // handleBookAppointment skipped IG confirm; send alternatives instead.
       const reply = bookResult.toolResult.includes('TIME_CONFLICT')
         ? buildClientFacingTimeConflictReply(bookResult.toolResult)
+        : bookResult.toolResult.includes('MASTER_SERVICE_MISMATCH')
+          ? 'Цей майстер не виконує обрану послугу — зараз підберу іншого спеціаліста або інший час. Зачекайте хвильку.'
         : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
           'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
       try {

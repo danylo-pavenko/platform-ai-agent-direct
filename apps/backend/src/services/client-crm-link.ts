@@ -342,8 +342,14 @@ export function formatCrmHistoryForPrompt(
   const lastWithMaster = slice.find((v) => v.professionalId);
   if (lastWithMaster?.professionalId) {
     const label = lastWithMaster.professionalName ?? 'попередній майстер';
+    const serviceHint =
+      lastWithMaster.items
+        ?.map((i) => i.name)
+        .filter(Boolean)
+        .slice(0, 2)
+        .join(', ') || 'схожа послуга';
     lines.push(
-      `Улюблений майстер: ${label} [master_id=${lastWithMaster.professionalId}] — запропонуй його і виклич get_available_slots з цим master_id. Клієнту показуй лише ім'я, не id.`,
+      `Улюблений майстер (лише для схожої послуги: ${serviceHint}): ${label} [master_id=${lastWithMaster.professionalId}] — запропонуй його і виклич get_available_slots з цим master_id ТІЛЬКИ якщо нова послуга того ж напрямку. Інша категорія (напр. волосся vs манікюр) — НЕ підставляй цей master_id; слоти без нього або з майстром з get_available_slots саме для нової послуги. Два майстри з однаковим імʼям — завжди UUID з tool result, не імʼя. Клієнту показуй лише ім'я, не id.`,
     );
   }
 
@@ -376,7 +382,7 @@ export function formatCrmLinkHintForPrompt(opts: {
   if (masterId) {
     const label = opts.preferredMasterName?.trim() || 'попередній майстер';
     lines.push(
-      `Улюблений майстер: ${label} [master_id=${masterId}] — запропонуй його і виклич get_available_slots з цим master_id. Клієнту лише імʼя.`,
+      `Улюблений майстер: ${label} [master_id=${masterId}] — лише для схожої послуги з історії. Інша категорія — не підставляй цей id; get_available_slots без нього. Однакові імена — тільки UUID з tool. Клієнту лише імʼя.`,
     );
   }
   return lines.join('\n');

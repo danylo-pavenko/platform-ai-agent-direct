@@ -40,6 +40,10 @@ import {
   buildBookingConfirmationText,
   normalizeServiceStartTime,
 } from '../lib/booking-confirmation.js';
+import {
+  checkBookingMasterServiceFit,
+  formatMasterServiceMismatchToolResult,
+} from '../lib/master-service-fit.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -167,6 +171,28 @@ export async function handleBookAppointment(
       },
       'book_appointment: using branch fallback (same cascade as slots)',
     );
+  }
+
+  // Soft-guard: refuse master_id that CRM grades mark as unavailable for the service
+  // (e.g. manicure Anastasia booked for hair toning when two share a name).
+  const mismatches = await checkBookingMasterServiceFit({
+    services: services.map((s) => ({
+      id: s.id,
+      name: s.name,
+      masterId: s.masterId,
+    })),
+    branchId: resolved.crmExternalId,
+  });
+  if (mismatches.length > 0) {
+    log.warn(
+      { conversationId, mismatches },
+      'book_appointment: MASTER_SERVICE_MISMATCH — refusing CRM write',
+    );
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult: formatMasterServiceMismatchToolResult(mismatches),
+    };
   }
 
   // Pin resolved local branch on the conversation for later turns.

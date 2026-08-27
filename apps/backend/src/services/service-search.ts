@@ -28,6 +28,7 @@ import type { CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
 import { applyPersonalDurations } from './personal-duration.js';
+import { buildDisambiguatedMasterMap } from '../lib/master-service-fit.js';
 
 export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
 
@@ -158,11 +159,34 @@ export function formatSlotMastersLine(
     .join(', ');
 }
 
-export { formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
-
 const SLOT_TIMES_PER_DAY = 3;
 /** Pull more from CRM/intersect before capping display (parallel races). */
 const SLOT_TIMES_CANDIDATE_CAP = 12;
+
+async function enrichMastersWithPositions(
+  masters: Array<{ id: string; name: string }>,
+  fetchEmployees?: () => Promise<
+    Array<{ id: string; name: string; positionNames?: string[] }>
+  >,
+): Promise<Array<{ id: string; name: string; positionNames?: string[] }>> {
+  if (!fetchEmployees || masters.length === 0) {
+    return masters.map((m) => ({ ...m }));
+  }
+  try {
+    const employees = await fetchEmployees();
+    const byId = new Map(employees.map((e) => [e.id, e]));
+    return masters.map((m) => {
+      const emp = byId.get(m.id);
+      return {
+        id: m.id,
+        name: emp?.name?.trim() || m.name,
+        positionNames: emp?.positionNames,
+      };
+    });
+  } catch {
+    return masters.map((m) => ({ ...m }));
+  }
+}
 
 export async function getAvailableSlotsForContext(args: {
   date: string;
@@ -264,7 +288,11 @@ export async function getAvailableSlotsForContext(args: {
     );
   }
 
-  const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
+  const enrichedMasters = await enrichMastersWithPositions(
+    result.masters,
+    crm.fetchEmployees?.bind(crm),
+  );
+  const masterMap = buildDisambiguatedMasterMap(enrichedMasters);
   const excludeKey = args.excludeTime
     ? normalizeSlotTimeKey(args.excludeTime)
     : null;

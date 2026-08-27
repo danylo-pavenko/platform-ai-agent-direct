@@ -53,6 +53,8 @@ describe('booking preferred-master tools and docs', () => {
     expect(block).toMatch(/request_handoff/);
     expect(block).toMatch(/cancel_appointment|reschedule_appointment/);
     expect(block).toMatch(/services\[\]\.master_id/);
+    expect(block).toContain('MASTER_SERVICE_MISMATCH');
+    expect(block).toMatch(/однаковим ім/);
   });
 
   it('documents grade pricing for booking tools in platform capabilities', () => {

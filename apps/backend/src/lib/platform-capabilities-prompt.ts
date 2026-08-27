@@ -50,13 +50,17 @@ Telegram-сповіщення менеджерам — НЕ окремий tool 
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
 Історія візитів (фактична тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок. Платформа підставляє персональну duration у free_time / book.
 
-## Booking master preference (booking mode)
+## Booking master preference (booking / general)
 
-- Повторний клієнт: історія з [master_id=…] → запропонуй цього майстра → get_available_slots з master_id → після підтвердження дати/часу → book_appointment з тим master_id.
-- Новий клієнт: get_available_slots без master_id (найближчі вікна або день, який назвав клієнт) → підтвердження → book_appointment; master_id лише якщо клієнт обрав майстра зі слотів.
+- Повторний клієнт: історія з [master_id=…] → запропонуй цього майстра ЛИШЕ для схожої послуги → get_available_slots з master_id → book з тим id.
+- Інша категорія (напр. тонування після манікюру в історії) — НЕ reuse улюбленого master_id; слоти без нього або з майстром зі слотів саме для нової послуги.
+- Два майстри з однаковим імʼям — у слотах підпис з positions / [#uuid]; у tools завжди UUID з останнього get_available_slots, не імʼя.
+- Платформа відхиляє book_appointment з MASTER_SERVICE_MISMATCH, якщо грейд майстра не має ціни на послугу (типовий кейс «не та Анастасія»).
+- Новий клієнт: get_available_slots без master_id → підтвердження → book; master_id лише якщо клієнт обрав майстра зі слотів.
 - Паралельно (манікюр + брови в один час): різні майстри → services[].master_id на кожному рядку get_available_slots і book_appointment. Один майстер на всі послуги — top-level master_id (послуги йдуть підряд у часі).
 - Різні години старту (стрижка 10:30, манікюр 11:00): services[].start_time на кожному рядку book_appointment; без цього CRM стартує всі з одного time.
 - Один візит = один book_appointment з усіма services[] (одне локальне замовлення). Повтор на той самий date+time у тій самій розмові змерджиться в один Appointment/Order; BeautyPro CRM — PUT action=insert для нових рядків.
+- Дві+ окремі послуги: спочатку пошукай комплекс/пакет у search_services; якщо є вигідніший SKU — запропонуй.
 - Після успішного book платформа сама шле клієнту підтвердження з датою/часом/послугами — не обіцяй «зараз надішлю підтвердження» без деталей.
 - Swap майстрів між послугами або +третя послуга на той самий час → новий get_available_slots, потім book. Не стверджуй «усі вільні» без tool.
 - TIME_CONFLICT від CRM → альтернативні слоти з tool result; клієнту не казати «записали».

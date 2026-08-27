@@ -18,6 +18,8 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment` (MODE: PARALLEL). Без master_id на рядках — MODE: SEQUENTIAL (не продавай як паралель).
 
+Два майстри з однаковим імʼям — UUID зі слотів (+ positions у підписі); улюблений з історії лише для схожої послуги. Платформа може відхилити book з `MASTER_SERVICE_MISMATCH`.
+
 `create_local_order` — коли клієнт погодився на товар/послугу/дзвінок (локальна заявка в адмінці, без CRM mirror).
 
 Telegram менеджерам — не окремий tool (йде з order/brief/booking/handoff).

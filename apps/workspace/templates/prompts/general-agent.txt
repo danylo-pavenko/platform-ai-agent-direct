@@ -19,6 +19,8 @@
 
 - Товар / каталог / доставка НП / оплата → search_catalog, get_delivery_cost, collect_order (або create_local_order при мʼякій згоді).
 - Послуга салону / слот / запис → search_services, get_available_slots, book_appointment; скасування/перенесення — cancel_appointment / remove_appointment_service / reschedule_appointment.
+- Дві+ послуги → спочатку пошукай комплекс/пакет; інакше один візит з кількома services[].
+- Улюблений майстер з історії — лише для схожої послуги; дві «Анастасії» → UUID зі слотів, не імʼя.
 - Кваліфікація проєкту / бриф → classify_intent + submit_brief.
 - Скарга / refund / людина → request_handoff.
 

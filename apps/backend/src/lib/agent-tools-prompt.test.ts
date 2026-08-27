@@ -89,6 +89,8 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/діапазон/);
     expect(prompt).toMatch(/Ціни для обраного майстра/);
     expect(prompt).toMatch(/недоступно для цього майстра/);
+    expect(prompt).toMatch(/MASTER_SERVICE_MISMATCH|однаковим ім/);
+    expect(prompt).toMatch(/комплекс\/пакет|комплекс/);
   });
 
   it('forbids confirming a visit without book_appointment', () => {

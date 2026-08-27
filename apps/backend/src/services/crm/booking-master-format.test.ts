@@ -37,6 +37,7 @@ describe('formatCrmLinkHintForPrompt', () => {
     });
     expect(text).toContain('[master_id=pro-1]');
     expect(text).toContain('Анна');
+    expect(text).toMatch(/схожої послуги|Інша категорія/i);
   });
 });
 
@@ -56,6 +57,7 @@ describe('formatCrmHistoryForPrompt', () => {
     expect(text).toContain('[master_id=pro-uuid-1]');
     expect(text).toContain('майстер: Анна');
     expect(text).toContain('Улюблений майстер');
+    expect(text).toMatch(/лише для схожої послуги/i);
     expect(text).toContain('get_available_slots');
   });
 
@@ -110,8 +112,10 @@ describe('formatCrmHistoryForPrompt', () => {
       },
     ]);
 
-    expect(text).toContain('Улюблений майстер: Новий [master_id=new-pro]');
-    expect(text).not.toContain('Улюблений майстер: Старий');
+    expect(text).toContain('Новий [master_id=new-pro]');
+    expect(text).toMatch(/лише для схожої послуги/i);
+    expect(text).toMatch(/Улюблений майстер \(лише для схожої послуги: Стрижка\): Новий/);
+    expect(text).not.toMatch(/Улюблений майстер[^]*Старий/);
   });
 });
 

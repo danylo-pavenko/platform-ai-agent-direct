@@ -44,9 +44,23 @@
         </template>
 
         <template #item.changeSummary="{ item }">
-          <span :class="{ 'text-grey text-caption': !item.changeSummary }">
-            {{ item.changeSummary || 'Без опису' }}
-          </span>
+          <v-tooltip
+            v-if="item.changeSummary"
+            location="bottom"
+            max-width="420"
+            open-delay="300"
+          >
+            <template #activator="{ props }">
+              <span
+                v-bind="props"
+                class="change-summary-clamp"
+              >
+                {{ item.changeSummary }}
+              </span>
+            </template>
+            <span class="text-body-2">{{ item.changeSummary }}</span>
+          </v-tooltip>
+          <span v-else class="text-grey text-caption">Без опису</span>
         </template>
 
         <template #item.actions="{ item }">
@@ -65,6 +79,10 @@
         <template #expanded-row="{ columns, item }">
           <tr>
             <td :colspan="columns.length" class="pa-4">
+              <div v-if="item.changeSummary" class="text-body-2 mb-3">
+                <div class="text-caption text-medium-emphasis mb-1">Опис змін</div>
+                <div class="change-summary-full">{{ item.changeSummary }}</div>
+              </div>
               <v-textarea
                 :model-value="item.content"
                 label="Зміст промпту"
@@ -382,7 +400,7 @@ const snackbarColor = ref('success');
 const headers = [
   { title: 'Версія', key: 'version', width: '100px' },
   { title: 'Автор', key: 'author' },
-  { title: 'Опис змін', key: 'changeSummary' },
+  { title: 'Опис змін', key: 'changeSummary', minWidth: '220px', cellProps: { class: 'change-summary-cell' } },
   { title: 'Дата', key: 'createdAt', width: '180px' },
   { title: 'Статус', key: 'isActive', width: '130px' },
   { title: 'Дії', key: 'actions', sortable: false, width: '150px' },
@@ -626,6 +644,29 @@ onMounted(() => {
   font-family: 'Roboto Mono', 'Courier New', monospace;
   max-height: min(150px, 22dvh);
   overflow-y: auto;
+}
+
+.change-summary-cell {
+  white-space: normal !important;
+  vertical-align: top;
+  max-width: 28rem;
+}
+
+.change-summary-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  width: 100%;
+  word-break: break-word;
+  line-height: 1.35;
+  cursor: default;
+}
+
+.change-summary-full {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .diff-before {
