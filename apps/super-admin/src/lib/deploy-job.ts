@@ -15,12 +15,15 @@ const LOG_DIR = process.env.SA_DEPLOY_LOG_DIR || '/tmp/platform-sa-deploys';
 const STALE_JOB_MS = 90 * 60 * 1000; // 90 minutes
 const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-/** In-process set of tenant IDs currently deploying (fast double-click guard). */
+/** In-process set of tenant IDs with an active deploy OR destroy job. */
 const runningTenantIds = new Set<string>();
+
+export type DeployJobKind = 'deploy' | 'destroy';
 
 export type DeployJobPublic = {
   id: string;
   tenantId: string;
+  kind: DeployJobKind;
   status: 'running' | 'succeeded' | 'failed';
   logPath: string;
   exitCode: number | null;
@@ -28,6 +31,20 @@ export type DeployJobPublic = {
   finishedAt: string | null;
   error: string | null;
 };
+
+export function isTenantJobLocked(tenantId: string): boolean {
+  return runningTenantIds.has(tenantId);
+}
+
+export function tryAcquireTenantJobLock(tenantId: string): boolean {
+  if (runningTenantIds.has(tenantId)) return false;
+  runningTenantIds.add(tenantId);
+  return true;
+}
+
+export function releaseTenantJobLock(tenantId: string): void {
+  runningTenantIds.delete(tenantId);
+}
 
 function ensureLogDir(): void {
   if (!existsSync(LOG_DIR)) mkdirSync(LOG_DIR, { recursive: true, mode: 0o755 });
@@ -44,6 +61,7 @@ function appendLine(logPath: string, line: string): void {
 export function toDeployJobPublic(job: {
   id: string;
   tenantId: string;
+  kind?: string | null;
   status: string;
   logPath: string;
   exitCode: number | null;
@@ -51,9 +69,11 @@ export function toDeployJobPublic(job: {
   finishedAt: Date | null;
   error: string | null;
 }): DeployJobPublic {
+  const kind: DeployJobKind = job.kind === 'destroy' ? 'destroy' : 'deploy';
   return {
     id: job.id,
     tenantId: job.tenantId,
+    kind,
     status: job.status as DeployJobPublic['status'],
     logPath: job.logPath,
     exitCode: job.exitCode,
@@ -63,7 +83,8 @@ export function toDeployJobPublic(job: {
   };
 }
 
-export async function getActiveDeployJob(tenantId: string): Promise<DeployJobPublic | null> {
+/** Any running job for this tenant (deploy or destroy) — used for mutual exclusion. */
+export async function getActiveTenantJob(tenantId: string): Promise<DeployJobPublic | null> {
   const job = await prisma.deployJob.findFirst({
     where: { tenantId, status: 'running' },
     orderBy: { startedAt: 'desc' },
@@ -71,9 +92,23 @@ export async function getActiveDeployJob(tenantId: string): Promise<DeployJobPub
   return job ? toDeployJobPublic(job) : null;
 }
 
-export async function getLatestDeployJob(tenantId: string): Promise<DeployJobPublic | null> {
+export async function getActiveDeployJob(
+  tenantId: string,
+  kind: DeployJobKind = 'deploy',
+): Promise<DeployJobPublic | null> {
   const job = await prisma.deployJob.findFirst({
-    where: { tenantId },
+    where: { tenantId, status: 'running', kind },
+    orderBy: { startedAt: 'desc' },
+  });
+  return job ? toDeployJobPublic(job) : null;
+}
+
+export async function getLatestDeployJob(
+  tenantId: string,
+  kind: DeployJobKind = 'deploy',
+): Promise<DeployJobPublic | null> {
+  const job = await prisma.deployJob.findFirst({
+    where: { tenantId, kind },
     orderBy: { startedAt: 'desc' },
   });
   return job ? toDeployJobPublic(job) : null;
@@ -161,9 +196,18 @@ export async function startDeployJob(tenantId: string): Promise<{
   started: boolean;
   error?: string;
 }> {
-  const existing = await getActiveDeployJob(tenantId);
-  if (existing || runningTenantIds.has(tenantId)) {
-    const job = existing ?? (await getActiveDeployJob(tenantId));
+  const existingAny = await getActiveTenantJob(tenantId);
+  if (existingAny || isTenantJobLocked(tenantId)) {
+    if (existingAny?.kind === 'destroy') {
+      return {
+        job: existingAny,
+        started: false,
+        error: 'A destroy job is already running for this tenant',
+      };
+    }
+    const job = existingAny?.kind === 'deploy'
+      ? existingAny
+      : await getActiveDeployJob(tenantId, 'deploy');
     if (job) return { job, started: false };
   }
 
@@ -172,12 +216,19 @@ export async function startDeployJob(tenantId: string): Promise<{
     throw new Error('Tenant not found');
   }
 
-  if (runningTenantIds.has(tenantId)) {
-    const job = await getActiveDeployJob(tenantId);
+  if (!tryAcquireTenantJobLock(tenantId)) {
+    const job = await getActiveDeployJob(tenantId, 'deploy');
     if (job) return { job, started: false };
+    const other = await getActiveTenantJob(tenantId);
+    if (other) {
+      return {
+        job: other,
+        started: false,
+        error: `A ${other.kind} job is already running for this tenant`,
+      };
+    }
   }
 
-  runningTenantIds.add(tenantId);
   ensureLogDir();
 
   try {
@@ -188,6 +239,7 @@ export async function startDeployJob(tenantId: string): Promise<{
     const created = await prisma.deployJob.create({
       data: {
         tenantId,
+        kind: 'deploy',
         status: 'running',
         logPath,
       },
@@ -224,13 +276,13 @@ export async function startDeployJob(tenantId: string): Promise<{
         await finishJob(created.id, 'failed', 1, message);
         log.error({ err, tenantId, jobId: created.id }, 'Deploy job crashed');
       } finally {
-        runningTenantIds.delete(tenantId);
+        releaseTenantJobLock(tenantId);
       }
     })();
 
     return { job: jobPublic, started: true };
   } catch (err) {
-    runningTenantIds.delete(tenantId);
+    releaseTenantJobLock(tenantId);
     throw err;
   }
 }
@@ -317,11 +369,32 @@ export async function followDeployLog(
       } catch {
         // ignore
       }
-      const status = fresh?.status ?? 'failed';
+
+      // After successful destroy, tenant delete cascades the job row away.
+      if (!fresh) {
+        let succeeded = false;
+        try {
+          const full = readFileSync(job.logPath, 'utf8');
+          succeeded =
+            full.includes('[✓ destroy finished successfully]') ||
+            full.includes('[✓ deploy finished successfully]') ||
+            full.includes('[job] finished: succeeded');
+        } catch {
+          succeeded = false;
+        }
+        emit(
+          succeeded
+            ? '[job] finished: succeeded'
+            : '[job] finished: failed (job row missing)',
+        );
+        return 'done';
+      }
+
+      const status = fresh.status;
       emit(
         status === 'succeeded'
           ? '[job] finished: succeeded'
-          : `[job] finished: ${status}${fresh?.exitCode != null ? ` (exit ${fresh.exitCode})` : ''}`,
+          : `[job] finished: ${status}${fresh.exitCode != null ? ` (exit ${fresh.exitCode})` : ''}`,
       );
       return 'done';
     }

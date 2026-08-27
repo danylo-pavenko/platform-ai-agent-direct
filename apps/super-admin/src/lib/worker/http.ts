@@ -164,5 +164,79 @@ export function createHttpWorkerClient(server: Server): WorkerClient {
 
       return exitCode;
     },
+
+    async runDestroyPipeline(tenant, onLine, opts): Promise<number> {
+      const body = {
+        tenant: {
+          id: tenant.id,
+          instanceId: tenant.instanceId,
+          name: tenant.name,
+          apiDomain: tenant.apiDomain,
+          adminDomain: tenant.adminDomain,
+          apiPort: tenant.apiPort,
+          adminPort: tenant.adminPort,
+          linuxUser: tenant.linuxUser,
+          appDir: tenant.appDir,
+          status: tenant.status,
+          gitRepo: tenant.gitRepo,
+          envExtra: tenant.envExtra,
+        },
+        supervisorSecret: config.SUPERVISOR_SHARED_SECRET,
+        saPublicUrl: config.SA_PUBLIC_URL || undefined,
+        saApiPort: config.SA_API_PORT,
+      };
+
+      const startRes = await fetch(`${base}/v1/jobs/destroy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders(secret),
+        },
+        body: JSON.stringify(body),
+        signal: opts?.signal,
+      });
+      if (!startRes.ok) {
+        const err = await startRes.json().catch(() => ({})) as { error?: string };
+        onLine(`[error] worker destroy start: ${err.error || `HTTP ${startRes.status}`}`);
+        return 1;
+      }
+      const started = (await startRes.json()) as RemoteJobStart;
+      onLine(`[worker] remote destroy job ${started.jobId}`);
+
+      const streamRes = await fetch(`${base}/v1/jobs/${started.jobId}/stream`, {
+        headers: authHeaders(secret),
+        signal: opts?.signal,
+      });
+      if (!streamRes.ok) {
+        onLine(`[error] worker stream HTTP ${streamRes.status}`);
+        return 1;
+      }
+
+      let exitCode = 1;
+      await readSseLines(streamRes, (line) => {
+        onLine(line);
+        if (line.startsWith('[job] finished: succeeded')) exitCode = 0;
+        const m = line.match(/\[job\] finished:.*\(exit (\d+)\)/);
+        if (m) exitCode = Number(m[1]);
+        if (line.startsWith('[✓ host deprovision finished successfully]')) exitCode = 0;
+      }, opts?.signal);
+
+      try {
+        const st = await fetch(`${base}/v1/jobs/${started.jobId}`, {
+          headers: authHeaders(secret),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (st.ok) {
+          const j = (await st.json()) as { status?: string; exitCode?: number | null };
+          if (typeof j.exitCode === 'number') exitCode = j.exitCode;
+          else if (j.status === 'succeeded') exitCode = 0;
+          else if (j.status === 'failed') exitCode = exitCode === 0 ? 1 : exitCode;
+        }
+      } catch {
+        // keep inferred
+      }
+
+      return exitCode;
+    },
   };
 }

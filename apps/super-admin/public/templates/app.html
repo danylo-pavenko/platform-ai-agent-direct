@@ -151,10 +151,22 @@
                         @click="openDeployLog(t)"
                         title="Відкрити лог поточного деплою"
                       >📋 Log</button>
-                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id) || isDestroyBusy(t.id)"
                         :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
                         {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
+                      <button
+                        v-if="isDestroyRunning(t.id)"
+                        class="btn btn-danger btn-sm"
+                        @click="openDestroyLog(t)"
+                        title="Відкрити лог Destroy"
+                      >📋 Destroy log</button>
+                      <button
+                        class="btn btn-danger btn-sm"
+                        @click="openDestroyModal(t)"
+                        :disabled="isDestroyBusy(t.id) || isDeployBusy(t.id)"
+                        title="Повний знос: Linux user, DB, nginx, PM2 + рядок у реєстрі"
+                      >💣 Destroy</button>
                     </div>
                   </td>
                 </tr>
@@ -239,11 +251,23 @@
                         @click="openDeployLog(t)"
                         title="Відкрити лог поточного деплою"
                       >📋 Log</button>
-                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id)"
+                      <button class="btn btn-ghost btn-sm" @click="triggerDeploy(t)" :disabled="isDeployBusy(t.id) || isDestroyBusy(t.id)"
                         :title="tenantNeedsProvision(t) ? 'Перша установка: provision-client.sh + deploy-client.sh' : 'Оновлення існуючого інстансу (git pull, build, restart) — дані не зачіпаються'">
                         {{ isDeployBusy(t.id) ? '⏳ ...' : (tenantNeedsProvision(t) ? '📦 Provision' : '🚀 Deploy') }}
                       </button>
-                      <button class="btn btn-danger btn-sm" @click="deleteTenant(t)">🗑</button>
+                      <button
+                        v-if="isDestroyRunning(t.id)"
+                        class="btn btn-danger btn-sm"
+                        @click="openDestroyLog(t)"
+                        title="Відкрити лог Destroy"
+                      >📋 Destroy log</button>
+                      <button
+                        class="btn btn-danger btn-sm"
+                        @click="openDestroyModal(t)"
+                        :disabled="isDestroyBusy(t.id) || isDeployBusy(t.id)"
+                        title="Повний знос: Linux user, DB, nginx, PM2 + рядок у реєстрі"
+                      >💣 Destroy</button>
+                      <button class="btn btn-danger btn-sm" @click="deleteTenant(t)" title="Лише рядок у реєстрі SA (сервер не чіпає)">🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -1132,6 +1156,76 @@
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="closeDeployLog()">
           {{ deployLog.running ? 'Hide (keeps running)' : 'Close' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Destroy confirm -->
+  <div class="modal-overlay" v-if="destroyModal.open" @click.self="closeDestroyModal()">
+    <div class="modal" style="width:520px;max-width:96vw">
+      <h2 style="color:var(--danger)">💣 Destroy tenant</h2>
+      <p style="font-size:13px;line-height:1.5;margin:0 0 12px">
+        Повний знос <strong>{{ destroyModal.tenant && destroyModal.tenant.name }}</strong>
+        (<code>{{ destroyModal.tenant && destroyModal.tenant.instanceId }}</code>) на worker-хості:
+      </p>
+      <ul style="font-size:12px;color:var(--muted);margin:0 0 14px;padding-left:18px;line-height:1.55">
+        <li>Linux user + home (+ tenant_knowledge, Claude, PM2)</li>
+        <li>PostgreSQL DB/role <code>{id}_agent</code></li>
+        <li>nginx site + (legacy) per-domain TLS</li>
+        <li>sudoers / root credentials file</li>
+        <li>після успіху — рядок у реєстрі SA (webhook routing)</li>
+      </ul>
+      <p style="font-size:12px;color:var(--danger);margin:0 0 10px">
+        Незворотно. Shared wildcard TLS і інші тенанти не чіпаються.
+      </p>
+      <div class="field">
+        <label>Введіть instanceId для підтвердження: <code>{{ destroyModal.tenant && destroyModal.tenant.instanceId }}</code></label>
+        <input
+          v-model="destroyModal.confirmInstanceId"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="instanceId"
+          :disabled="!!destroying"
+        />
+      </div>
+      <p v-if="destroyModal.error" style="color:var(--danger);font-size:12px">{{ destroyModal.error }}</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" :disabled="!!destroying" @click="closeDestroyModal()">Cancel</button>
+        <button
+          class="btn btn-danger"
+          :disabled="!destroyConfirmMatches || !!destroying"
+          @click="confirmDestroy"
+        >
+          {{ destroying ? 'Destroying…' : 'Destroy forever' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Destroy log modal -->
+  <div class="modal-overlay" v-if="destroyLog.open" @click.self="closeDestroyLog()">
+    <div class="modal" style="width:660px;max-width:96vw">
+      <h2>
+        <span v-if="destroyLog.running" class="deploy-running"></span>
+        💣 Destroy: {{ destroyLog.name }}
+      </h2>
+      <p style="font-size:11px;color:var(--muted);margin:-8px 0 12px;line-height:1.45">
+        <template v-if="destroyLog.running">
+          Знос у фоні — можна сховати вікно і відкрити знову через «Destroy log».
+        </template>
+        <template v-else-if="destroyLog.status">
+          Status: <strong>{{ destroyLog.status }}</strong>
+          <span v-if="destroyLog.exitCode != null"> (exit {{ destroyLog.exitCode }})</span>
+        </template>
+        <span v-if="destroyLogElapsed" style="margin-left:8px">· {{ destroyLogElapsed }}</span>
+      </p>
+      <div class="deploy-log-wrap">
+        <div class="deploy-log" ref="destroyLogEl" v-html="destroyLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeDestroyLog()">
+          {{ destroyLog.running ? 'Hide (keeps running)' : 'Close' }}
         </button>
       </div>
     </div>

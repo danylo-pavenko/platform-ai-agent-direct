@@ -2,11 +2,13 @@ import { spawn } from 'node:child_process';
 import type { Server } from '../../generated/prisma/client.js';
 import { config } from '../../config.js';
 import {
+  buildDeprovisionClientArgs,
   buildEnvMergePatch,
   buildEnvMergeScript,
   buildProvisionClientArgs,
   listLiveApiPorts,
   provisionClientEnv,
+  resolveDeprovisionScriptPath,
   resolveMergeEnvScriptPath,
   resolveProvisionScriptPath,
 } from '../tenant-provision.js';
@@ -109,6 +111,10 @@ export function createInProcessWorkerClient(server: Server): WorkerClient {
 
     async runDeployPipeline(tenant, onLine, opts): Promise<number> {
       return executeLocalDeployPipeline(tenant, onLine, opts?.signal);
+    },
+
+    async runDestroyPipeline(tenant, onLine, opts): Promise<number> {
+      return executeLocalDestroyPipeline(tenant, onLine, opts?.signal);
     },
   };
 }
@@ -242,4 +248,35 @@ export async function executeLocalDeployPipeline(
   }
 
   return deployCode;
+}
+
+export async function executeLocalDestroyPipeline(
+  tenant: TenantDeployInput,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<number> {
+  onLine(`[destroy started] ${tenant.name} (${tenant.instanceId})`);
+  onLine(`[destroy] linuxUser=${tenant.linuxUser} appDir=${tenant.appDir}`);
+
+  let deprovisionScript: string;
+  try {
+    deprovisionScript = await resolveDeprovisionScriptPath();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onLine(`[error] ${message}`);
+    onLine('[✗ destroy failed]');
+    return 1;
+  }
+
+  const args = buildDeprovisionClientArgs(tenant);
+  onLine(`[destroy] sudo bash ${deprovisionScript} ${args.join(' ')}`);
+
+  const code = await runLogged(['sudo', 'bash', deprovisionScript, ...args], onLine, { signal });
+
+  if (code === 0) {
+    onLine('[✓ host deprovision finished successfully]');
+  } else {
+    onLine(`[✗ host deprovision failed with exit code ${code}]`);
+  }
+  return code;
 }

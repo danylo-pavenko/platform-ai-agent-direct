@@ -17,8 +17,9 @@
 7. [Існуючі клієнти (legacy)](#7-існуючі-клієнти-legacy)
 8. [Multi-server (Workers companion)](#8-multi-server-workers-companion)
 9. [Port allocation](#9-port-allocation)
-10. [Чеклист ops](#10-чеклист-ops)
-11. [Довідник команд](#11-довідник-команд)
+10. [Delete vs Destroy](#10-delete-vs-destroy)
+11. [Чеклист ops](#11-чеклист-ops)
+12. [Довідник команд](#12-довідник-команд)
 
 ---
 
@@ -387,7 +388,43 @@ Whisper sidecar: `API_PORT + 5000` (як у `.env` template).
 
 ---
 
-## 10. Чеклист ops
+## 10. Delete vs Destroy
+
+У Super Admin є **дві різні** дії:
+
+| Дія | Що робить | Коли |
+|-----|-----------|------|
+| **Delete** (🗑) | Лише рядок у `platform_admin.tenants` (+ cascade deploy jobs). Хост **не** чіпає. | Прибрати «привид» з реєстру, коли сервер уже знесено вручну, або помилковий запис без provision. |
+| **Destroy** (💣) | Async job → `deprovision-client.sh` на worker (local або remote) → після exit 0 видаляє рядок реєстру. | Повністю прибрати клієнта з VPS. |
+
+### Destroy зносить
+
+- Linux user + `/home/{user}/` (app, `tenant_knowledge`, `.pm2`, Claude)
+- PostgreSQL `{id}_agent` (DB + role)
+- nginx `{id}-agent.conf` (+ bak)
+- legacy per-domain Let's Encrypt (якщо домени не platform wildcard)
+- `/etc/sudoers.d/{user}-deploy`, `/root/platform-tenant-credentials/{user}`
+- PM2 apps + `pm2-{user}.service`
+
+### Destroy **не** чіпає
+
+- `platform-pm2-startup`, shared wildcard TLS, інших тенантів, worker `Server` row
+
+### Підтвердження
+
+UI вимагає ввести точний `instanceId`. API: `POST /api/tenants/:id/destroy` з `{ "confirmInstanceId": "…" }`. Deploy і Destroy взаємно блокуються (один active job на tenant).
+
+### CLI (root на worker)
+
+```bash
+sudo bash infra/scripts/deprovision-client.sh <INSTANCE_ID> [API_DOMAIN] [ADMIN_DOMAIN]
+```
+
+Після CLI-зносу залиштеся з рядком у SA → тоді **Delete**. Або зносьте лише через UI **Destroy**.
+
+---
+
+## 11. Чеклист ops
 
 ### Зараз (без змін runtime)
 
@@ -415,7 +452,7 @@ Whisper sidecar: `API_PORT + 5000` (як у `.env` template).
 
 ---
 
-## 11. Довідник команд
+## 12. Довідник команд
 
 ```bash
 # Wildcard TLS (разово)
@@ -423,6 +460,11 @@ CERTBOT_EMAIL=you@example.com bash infra/scripts/setup-platform-wildcard-tls.sh
 
 # Новий клієнт — platform
 bash infra/scripts/provision-client.sh myshop "My Shop" --platform-auto
+
+# Повний знос тенанта на цьому хості (root)
+sudo bash infra/scripts/deprovision-client.sh myshop
+# legacy domains (optional certbot cleanup):
+sudo bash infra/scripts/deprovision-client.sh blessed api.status-blessed.com agent.status-blessed.com
 
 # Новий клієнт — legacy custom domains
 bash infra/scripts/provision-client.sh blessed Blessed \
@@ -444,9 +486,10 @@ PLATFORM_TLS_CERT_NAME=direct-ai-agents.com \
 |------|-------------|
 | `infra/scripts/lib/tenant-domains.sh` | Slug validation, domain builder, TLS resolver |
 | `infra/scripts/provision-client.sh` | Onboarding (legacy + `--platform`) |
+| `infra/scripts/deprovision-client.sh` | Full host teardown (Destroy) |
 | `infra/scripts/update-nginx.sh` | Regenerate vhost з `.env` |
 | `infra/scripts/setup-platform-wildcard-tls.sh` | DNS-01 wildcard cert |
 
 ---
 
-*Останнє оновлення: 2026-06 — platform subdomain mode v1, backward-compatible legacy provisioning.*
+*Останнє оновлення: 2026-08 — Destroy tenant (deprovision) + Delete vs Destroy.*

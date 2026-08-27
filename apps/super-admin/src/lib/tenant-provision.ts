@@ -49,6 +49,41 @@ export async function resolveProvisionScriptPath(): Promise<string> {
   return resolve(root, 'infra/scripts/provision-client.sh');
 }
 
+export async function resolveDeprovisionScriptPath(): Promise<string> {
+  const root = await resolvePlatformRepoRoot();
+  return resolve(root, 'infra/scripts/deprovision-client.sh');
+}
+
+/** Linux users we must never deprovision via Destroy. */
+export const PROTECTED_LINUX_USERS = new Set([
+  'root',
+  'postgres',
+  'agentsadmin',
+  'ubuntu',
+  'nobody',
+  'daemon',
+  'sync',
+  'bin',
+  'sys',
+]);
+
+export function assertDestroyableLinuxUser(linuxUser: string): void {
+  const u = linuxUser.trim().toLowerCase();
+  if (!/^[a-z0-9-]{2,24}$/.test(u)) {
+    throw new Error(`Invalid linuxUser for destroy: ${linuxUser}`);
+  }
+  if (PROTECTED_LINUX_USERS.has(u)) {
+    throw new Error(`Refusing to destroy protected Linux user: ${linuxUser}`);
+  }
+}
+
+export function buildDeprovisionClientArgs(tenant: Pick<
+  Tenant,
+  'instanceId' | 'apiDomain' | 'adminDomain'
+>): string[] {
+  return [tenant.instanceId, tenant.apiDomain, tenant.adminDomain];
+}
+
 export function buildProvisionClientArgs(tenant: Pick<
   Tenant,
   'instanceId' | 'name' | 'apiDomain' | 'adminDomain' | 'apiPort' | 'adminPort'

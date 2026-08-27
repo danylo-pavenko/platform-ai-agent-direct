@@ -47,6 +47,15 @@ export async function resolvePlatformRepoRoot(): Promise<string> {
   throw new Error('provision-client.sh not found — set PLATFORM_REPO_ROOT');
 }
 
+export async function resolveDeprovisionScriptPath(): Promise<string> {
+  const root = await resolvePlatformRepoRoot();
+  return resolve(root, 'infra/scripts/deprovision-client.sh');
+}
+
+export function buildDeprovisionArgs(tenant: TenantPayload): string[] {
+  return [tenant.instanceId, tenant.apiDomain, tenant.adminDomain];
+}
+
 export function isPlatformDomains(instanceId: string, apiDomain: string, adminDomain: string): boolean {
   const base = process.env.PLATFORM_BASE_DOMAIN || 'direct-ai-agents.com';
   return (

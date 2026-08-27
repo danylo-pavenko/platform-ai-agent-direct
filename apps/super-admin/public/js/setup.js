@@ -12,6 +12,7 @@ import {
 } from './constants.js';
 import { formatDate, formatInstagram, copyText } from './utils.js';
 import { createDeployLog } from './composables/deploy-log.js';
+import { createDestroyLog } from './composables/destroy-log.js';
 import { createTenants } from './composables/tenants.js';
 import { createLinks } from './composables/links.js';
 import { createLeads } from './composables/leads.js';
@@ -46,6 +47,28 @@ export function setup() {
     exitCode: null,
     tick: 0,
   });
+  const destroying = ref(null);
+  const destroyJobs = reactive({});
+  const destroyModal = reactive({
+    open: false,
+    tenant: null,
+    confirmInstanceId: '',
+    error: '',
+  });
+  const destroyLog = reactive({
+    open: false,
+    name: '',
+    text: '',
+    html: '',
+    running: false,
+    tenantId: null,
+    jobId: null,
+    status: null,
+    startedAt: null,
+    exitCode: null,
+    tick: 0,
+  });
+  const destroyLogEl = ref(null);
   const claudeHealth = reactive({ open: false, loading: null, tenantName: '', result: null });
   const pm2Restart = reactive({ loading: null });
   const tenantUsersModal = reactive({
@@ -145,6 +168,7 @@ export function setup() {
   // Break circular deps: tenants ↔ deploy (health poll ↔ loadTenants after stream)
   const bridge = {
     refreshDeployStatus: async () => {},
+    refreshDestroyStatus: async () => {},
     loadTenants: async () => {},
   };
 
@@ -161,6 +185,7 @@ export function setup() {
     logout,
     nextTick,
     refreshDeployStatus: (id) => bridge.refreshDeployStatus(id),
+    refreshDestroyStatus: (id) => bridge.refreshDestroyStatus(id),
     workers,
     dnsHintsModal,
   });
@@ -183,7 +208,19 @@ export function setup() {
     loadTenants: () => bridge.loadTenants(),
   });
 
+  const destroyApi = createDestroyLog({
+    destroyModal,
+    destroyLog,
+    destroyJobs,
+    destroyLogEl,
+    destroying,
+    auth,
+    nextTick,
+    loadTenants: () => bridge.loadTenants(),
+  });
+
   bridge.refreshDeployStatus = deployApi.refreshDeployStatus;
+  bridge.refreshDestroyStatus = destroyApi.refreshDestroyStatus;
   bridge.loadTenants = tenantsApi.loadTenants;
 
   const linksApi = createLinks({
@@ -279,6 +316,9 @@ export function setup() {
   return {
     auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
     deployLogElapsed: deployApi.deployLogElapsed,
+    destroying, destroyJobs, destroyModal, destroyLog, destroyLogEl,
+    destroyLogElapsed: destroyApi.destroyLogElapsed,
+    destroyConfirmMatches: destroyApi.confirmMatches,
     chat, chatMessages, modal, workerModal, dnsHintsModal, accessModal, claudeHealth, pm2Restart, tenantUsersModal, DEFAULT_GIT_REPO, PLATFORM_BASE_DOMAIN,
     tenantModalOverlay, slugInputEl,
     fieldHints, portDefaults,
@@ -299,6 +339,13 @@ export function setup() {
     closeDeployLog: deployApi.closeDeployLog,
     isDeployRunning: deployApi.isDeployRunning,
     isDeployBusy: deployApi.isDeployBusy,
+    openDestroyModal: destroyApi.openDestroyModal,
+    closeDestroyModal: destroyApi.closeDestroyModal,
+    confirmDestroy: destroyApi.confirmDestroy,
+    openDestroyLog: destroyApi.openDestroyLog,
+    closeDestroyLog: destroyApi.closeDestroyLog,
+    isDestroyRunning: destroyApi.isDestroyRunning,
+    isDestroyBusy: destroyApi.isDestroyBusy,
     openChat: chatApi.openChat,
     sendChat: chatApi.sendChat,
     checkClaudeHealth: chatApi.checkClaudeHealth,

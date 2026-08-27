@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import {
+  buildDeprovisionArgs,
   buildEnvMergePatch,
   buildEnvMergeScript,
   buildProvisionArgs,
   provisionEnv,
+  resolveDeprovisionScriptPath,
   resolvePlatformRepoRoot,
   type TenantPayload,
 } from './provision.js';
@@ -166,4 +168,29 @@ export async function executeWorkerPipeline(
   else onLine(`[✗ deploy failed with exit code ${deployCode}]`);
 
   return deployCode;
+}
+
+export async function executeWorkerDestroyPipeline(
+  tenant: TenantPayload,
+  onLine: (line: string) => void,
+): Promise<number> {
+  onLine(`[destroy started] ${tenant.name} (${tenant.instanceId})`);
+  onLine(`[destroy] linuxUser=${tenant.linuxUser}`);
+
+  let deprovisionScript: string;
+  try {
+    deprovisionScript = await resolveDeprovisionScriptPath();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onLine(`[error] ${message}`);
+    onLine('[✗ destroy failed]');
+    return 1;
+  }
+
+  const args = buildDeprovisionArgs(tenant);
+  onLine(`[destroy] sudo bash ${deprovisionScript} ${args.join(' ')}`);
+  const code = await runLogged(['sudo', 'bash', deprovisionScript, ...args], onLine);
+  if (code === 0) onLine('[✓ host deprovision finished successfully]');
+  else onLine(`[✗ host deprovision failed with exit code ${code}]`);
+  return code;
 }

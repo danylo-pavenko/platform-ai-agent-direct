@@ -38,4 +38,13 @@ export type WorkerClient = {
     onLine: (line: string) => void,
     opts?: { signal?: AbortSignal },
   ): Promise<number>;
+  /**
+   * Run full host deprovision (Linux user, DB, nginx, PM2). Does not touch SA DB.
+   * Returns process exit code (0 = success).
+   */
+  runDestroyPipeline(
+    tenant: TenantDeployInput,
+    onLine: (line: string) => void,
+    opts?: { signal?: AbortSignal },
+  ): Promise<number>;
 };

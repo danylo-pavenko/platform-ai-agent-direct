@@ -2,7 +2,7 @@ import { hostname } from 'node:os';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { config } from './config.js';
-import { followJobLog, getJob, startPipelineJob } from './lib/jobs.js';
+import { followJobLog, getJob, startDestroyJob, startPipelineJob } from './lib/jobs.js';
 import { listLivePorts, type TenantPayload } from './lib/provision.js';
 import { spawn } from 'node:child_process';
 
@@ -92,6 +92,18 @@ app.post('/v1/jobs/pipeline', async (req, reply) => {
     saPublicUrl: body.data.saPublicUrl,
     saApiPort: body.data.saApiPort,
   });
+  return { jobId: job.id };
+});
+
+app.post('/v1/jobs/destroy', async (req, reply) => {
+  if (!requireWorkerAuth(req as any, reply as any)) return;
+  const body = pipelineBody.safeParse(req.body);
+  if (!body.success) {
+    return reply.status(400).send({ error: body.error.message });
+  }
+
+  const tenant = body.data.tenant as TenantPayload;
+  const job = startDestroyJob(tenant);
   return { jobId: job.id };
 });
 

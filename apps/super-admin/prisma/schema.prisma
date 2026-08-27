@@ -63,11 +63,13 @@ model Tenant {
   @@map("tenants")
 }
 
-/// Background provision/deploy job started from super-admin (survives SSE disconnect).
+/// Background provision/deploy/destroy job started from super-admin (survives SSE disconnect).
 model DeployJob {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String    @map("tenant_id") @db.Uuid
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// deploy = provision/update pipeline; destroy = full host deprovision + registry delete
+  kind       String    @default("deploy") // deploy | destroy
   status     String    @default("running") // running | succeeded | failed
   logPath    String    @map("log_path")
   exitCode   Int?      @map("exit_code")
@@ -76,6 +78,7 @@ model DeployJob {
   error      String?
 
   @@index([tenantId, startedAt])
+  @@index([tenantId, kind, startedAt])
   @@index([status])
   @@map("deploy_jobs")
 }

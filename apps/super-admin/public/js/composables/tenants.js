@@ -27,6 +27,7 @@ export function createTenants(deps) {
     logout,
     nextTick,
     refreshDeployStatus,
+    refreshDestroyStatus,
     workers,
     dnsHintsModal,
   } = deps;
@@ -262,6 +263,7 @@ export function createTenants(deps) {
           health[t.id] = { online: false, deployed: t.status === 'provisioned' ? false : null, versionLabel: '' };
         });
       refreshDeployStatus(t.id);
+      refreshDestroyStatus?.(t.id);
     }
   }
 
@@ -375,7 +377,7 @@ export function createTenants(deps) {
   }
 
   async function deleteTenant(t) {
-    if (!confirm(`Delete ${t.name}? This only removes the registry entry, not the server.`)) return;
+    if (!confirm(`Delete registry entry for «${t.name}»?\n\nThis only removes the Super Admin row — Linux user, DB, nginx and PM2 stay on the server.\nUse Destroy for a full wipe.`)) return;
     await fetch(`${BASE}/tenants/${t.id}`, { method: 'DELETE', headers: authHeaders() });
     await loadTenants();
   }

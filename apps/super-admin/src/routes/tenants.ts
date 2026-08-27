@@ -25,6 +25,12 @@ import {
   getLatestDeployJob,
   startDeployJob,
 } from '../lib/deploy-job.js';
+import {
+  getActiveDestroyJob,
+  getLatestDestroyJob,
+  startDestroyJob,
+} from '../lib/destroy-job.js';
+import { assertDestroyableLinuxUser } from '../lib/tenant-provision.js';
 import { ensureLocalServer, getServerForTenant, isLocalServer } from '../lib/servers.js';
 import { getWorkerClient } from '../lib/worker/client.js';
 import { dnsHintsForTenant, resolveTenantApiUrl } from '../lib/worker/tenant-url.js';
@@ -395,6 +401,14 @@ export async function tenantsRoutes(app: FastifyInstance) {
 
     try {
       const result = await startDeployJob(tenant.id);
+      if (result.error && !result.started) {
+        return reply.status(409).send({
+          ok: false,
+          started: false,
+          job: result.job,
+          error: result.error,
+        });
+      }
       return {
         ok: true,
         started: result.started,
@@ -476,6 +490,139 @@ export async function tenantsRoutes(app: FastifyInstance) {
         if (!clientOpen) return;
         try {
           // SSE comment — keeps nginx/proxies from idle-closing the socket.
+          reply.raw.write(`: keepalive ${Date.now()}\n\n`);
+        } catch {
+          clientOpen = false;
+        }
+      };
+
+      try {
+        await followDeployLog(jobId, send, () => clientOpen, sendKeepalive, { fromEnd });
+      } catch (err: any) {
+        send(`[error] ${err?.message ?? err}`);
+      }
+
+      if (clientOpen) {
+        try {
+          reply.raw.end();
+        } catch {
+          // ignore
+        }
+      }
+    },
+  );
+
+  // ── Destroy (full host deprovision + registry delete) ─────────────────────
+  app.post<{
+    Params: { id: string };
+    Body: { confirmInstanceId?: string };
+  }>('/api/tenants/:id/destroy', auth, async (req, reply) => {
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+    if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+    const confirm = String(req.body?.confirmInstanceId ?? '').trim().toLowerCase();
+    if (!confirm || confirm !== tenant.instanceId.toLowerCase()) {
+      return reply.status(400).send({
+        error: 'confirmInstanceId must exactly match the tenant instanceId',
+        expected: tenant.instanceId,
+      });
+    }
+
+    try {
+      assertDestroyableLinuxUser(tenant.linuxUser);
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message });
+    }
+
+    try {
+      const result = await startDestroyJob(tenant.id);
+      if (result.error && !result.started) {
+        return reply.status(409).send({
+          ok: false,
+          started: false,
+          job: result.job,
+          error: result.error,
+        });
+      }
+      return { ok: true, started: result.started, job: result.job };
+    } catch (err: any) {
+      app.log.error({ err }, 'Failed to start destroy job');
+      return reply.status(500).send({ ok: false, error: err.message });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>('/api/tenants/:id/destroy/status', auth, async (req, reply) => {
+    const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+    if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+    const active = await getActiveDestroyJob(tenant.id);
+    const latest = active ?? (await getLatestDestroyJob(tenant.id));
+    return {
+      running: Boolean(active),
+      job: latest,
+    };
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { jobId?: string; fromEnd?: string } }>(
+    '/api/tenants/:id/destroy/stream',
+    auth,
+    async (req, reply) => {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.params.id } });
+      if (!tenant) return reply.status(404).send({ error: 'Not found' });
+
+      let jobId = '';
+      const rawJobId = req.query.jobId;
+      if (typeof rawJobId === 'string' && rawJobId.trim()) {
+        jobId = rawJobId.trim();
+      } else if (Array.isArray(rawJobId) && typeof rawJobId[0] === 'string') {
+        jobId = rawJobId[0].trim();
+      }
+
+      const fromEndRaw = req.query.fromEnd;
+      const fromEnd =
+        fromEndRaw === '1' ||
+        fromEndRaw === 'true' ||
+        (Array.isArray(fromEndRaw) && (fromEndRaw[0] === '1' || fromEndRaw[0] === 'true'));
+
+      if (jobId) {
+        const existing = await getDeployJob(jobId);
+        if (!existing || existing.tenantId !== tenant.id || existing.kind !== 'destroy') {
+          return reply.status(404).send({ error: 'Destroy job not found' });
+        }
+      } else {
+        const active = await getActiveDestroyJob(tenant.id);
+        if (!active) {
+          return reply.status(400).send({
+            error: 'No running destroy job — POST /destroy with confirmInstanceId first',
+          });
+        }
+        jobId = active.id;
+      }
+
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+        Connection: 'keep-alive',
+      });
+
+      let clientOpen = true;
+      req.raw.on('close', () => {
+        clientOpen = false;
+      });
+
+      const send = (line: string) => {
+        if (!clientOpen) return;
+        try {
+          reply.raw.write(`data: ${line}\n\n`);
+        } catch {
+          clientOpen = false;
+        }
+      };
+
+      const sendKeepalive = () => {
+        if (!clientOpen) return;
+        try {
           reply.raw.write(`: keepalive ${Date.now()}\n\n`);
         } catch {
           clientOpen = false;
