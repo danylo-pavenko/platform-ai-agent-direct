@@ -134,7 +134,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         data: expect.objectContaining({
           kind: 'booking',
           crmSyncStatus: 'skipped',
-          status: 'submitted',
+          status: 'confirmed',
           customerName: 'Анжела',
           phone: '+380501112233',
         }),
@@ -194,6 +194,42 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     expect(sendText).toHaveBeenCalledWith(
       'ig-angela',
       expect.stringMatching(/Запис підтверджено на 26\.08\.2026[\s\S]*Стрижка кінчиків — 10:30[\s\S]*Манікюр — 11:00/),
+    );
+  });
+
+  it('replaces «передано в обробку» tease even when a clock time is in the copy', async () => {
+    await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Анжела',
+        phone: '+380501112233',
+        date: '29.08.2026',
+        time: '10:00',
+        services: [
+          {
+            id: 'svc-mani',
+            name: 'Комплекс манікюр',
+            duration_min: 115,
+            price: 890,
+            master_id: 'm-1',
+          },
+        ],
+      },
+      {
+        clientIgUserId: 'ig-angela',
+        clientMessage:
+          'Дякую! Ваш запит на запис передано в обробку — щойно система підтвердить бронювання, я одразу надішлю Вам деталі візиту 🌸\n📅 29.08.2026 о 10:00',
+      },
+    );
+
+    expect(sendText).toHaveBeenCalledWith(
+      'ig-angela',
+      expect.stringMatching(/Запис підтверджено на 29\.08\.2026[\s\S]*Комплекс манікюр — 10:00/),
+    );
+    expect(sendText).not.toHaveBeenCalledWith(
+      'ig-angela',
+      expect.stringMatching(/передано в обробку|доставк/i),
     );
   });
 

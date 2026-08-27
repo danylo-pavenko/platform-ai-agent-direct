@@ -593,7 +593,8 @@ async function upsertBookingOrderMirror(params: {
       customerName,
       phone,
       note: noteParts.join('\n'),
-      status: 'submitted',
+      // Already booked in CRM + confirmed to the client — no manager approve gate.
+      status: 'confirmed',
       submittedToManagerAt: new Date(),
       crmSyncStatus: 'skipped',
     },

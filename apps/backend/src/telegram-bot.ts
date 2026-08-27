@@ -214,7 +214,7 @@ const HELP_TEXT = `Доступні команди:
 
 Після привʼязки ви будете отримувати:
 • Сповіщення про ескалації та замовлення (у цей чат або в групу менеджерів)
-• Картки замовлень з кнопками Підтвердити / Відхилити
+• Картки товарних замовлень з кнопками Підтвердити / Відхилити (записи в CRM — лише сповіщення)
 • Повідомлення від клієнтів у режимі хендофу`;
 
 // /start - Welcome message
@@ -664,18 +664,23 @@ bot.on('callback_query:data', async (ctx) => {
         data: { status: 'confirmed' },
       });
 
-      if (order.client.igUserId) {
+      // Booking was already confirmed to the client by the agent — do not spam IG.
+      // Soft/local orders: neutral note (no delivery / salon-specific copy).
+      if (order.client.igUserId && order.kind !== 'booking') {
         await sendText(
           order.client.igUserId,
-          'Ваше замовлення підтверджено! Менеджер зв\'яжеться з Вами для уточнення деталей доставки.',
+          'Ваше звернення підтверджено. За потреби менеджер напише вам додатково.',
         );
       }
 
       const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
-      log.info({ orderId, tgUserId: ctx.from.id }, 'Order approved via callback');
+      log.info(
+        { orderId, kind: order.kind, tgUserId: ctx.from.id },
+        'Order approved via callback',
+      );
 
       await ctx.answerCallbackQuery({ text: 'Підтверджено!' });
-      await ctx.editMessageText(`\u{2705} Замовлення підтверджено менеджером @${username}`);
+      await ctx.editMessageText(`\u{2705} Підтверджено менеджером @${username}`);
     } else if (data.startsWith('decline:')) {
       if (!(await isManagerAuthorized(ctx.from.id))) {
         await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
@@ -708,18 +713,21 @@ bot.on('callback_query:data', async (ctx) => {
         },
       });
 
-      if (order.client.igUserId) {
+      if (order.client.igUserId && order.kind !== 'booking') {
         await sendText(
           order.client.igUserId,
-          'На жаль, Ваше замовлення не може бути оброблене. Менеджер зв\'яжеться з Вами.',
+          'На жаль, зараз не можемо продовжити це звернення. Менеджер напише вам, якщо потрібно уточнити деталі.',
         );
       }
 
       const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
-      log.info({ orderId, tgUserId: ctx.from.id }, 'Order declined via callback');
+      log.info(
+        { orderId, kind: order.kind, tgUserId: ctx.from.id },
+        'Order declined via callback',
+      );
 
       await ctx.answerCallbackQuery({ text: 'Відхилено.' });
-      await ctx.editMessageText(`\u{274C} Замовлення відхилено менеджером @${username}`);
+      await ctx.editMessageText(`\u{274C} Відхилено менеджером @${username}`);
     } else {
       await ctx.answerCallbackQuery();
     }

@@ -11,13 +11,24 @@ export function normalizeServiceStartTime(raw: string | undefined | null): strin
   return `${m[1]!.padStart(2, '0')}:${m[2]}`;
 }
 
+/** Claude promised a later confirm / system processing — host must send the real one. */
 export function looksLikeBookingConfirmationTease(text: string): boolean {
   const t = text.trim();
   if (!t) return true;
+  return /зараз\s+надішл|надішлю\s+(вам\s+)?(підтверджен|деталі)|оформлюю\s+ваш\s+запис|обробл(яю|ю)\s+ваш\s+запис|передано\s+в\s+обробку|щойно\s+(система\s+)?(підтверд|отримаю)|система\s+підтверд|зараз\s+підтверджу|бронюванн/i.test(
+    t,
+  );
+}
+
+/** Model already stated a firm booking (not a tease). */
+export function looksLikeFirmBookingConfirmation(text: string): boolean {
+  const t = text.trim();
+  if (!t || looksLikeBookingConfirmationTease(t)) return false;
   return (
-    /зараз\s+надішл|надішлю\s+підтверджен|оформлюю\s+ваш\s+запис|обробл(яю|ю)\s+ваш\s+запис|щойно\s+отримаю\s+підтверджен|зараз\s+підтверджу/i.test(
+    /\d{1,2}:\d{2}/.test(t) &&
+    /запис\s+підтвердж|підтверджено|чекаємо\s+(на\s+)?(вас|тебе)|бачимось|записала\s+вас|записали\s+вас/i.test(
       t,
-    ) && !/\d{1,2}:\d{2}/.test(t)
+    )
   );
 }
 
@@ -31,11 +42,8 @@ export function buildBookingConfirmationText(params: {
   const { date, time, services } = params;
   const clientMessage = params.clientMessage?.trim() ?? '';
 
-  if (clientMessage && !looksLikeBookingConfirmationTease(clientMessage)) {
-    // Prefer model copy when it already includes concrete time details.
-    if (/\d{1,2}:\d{2}/.test(clientMessage) && /запис|чекаємо|підтвердж/i.test(clientMessage)) {
-      return clientMessage;
-    }
+  if (clientMessage && looksLikeFirmBookingConfirmation(clientMessage)) {
+    return clientMessage;
   }
 
   const lines =

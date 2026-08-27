@@ -87,6 +87,24 @@ describe('buildBeautyproAppointmentCreateBody', () => {
     });
   });
 
+  it('chains same-master services even when start_time is repeated', () => {
+    const body = buildBeautyproAppointmentCreateBody({
+      isoDate: '2026-08-29',
+      locationId: 'loc-1',
+      clientId: 'client-1',
+      professional: 'master-anna',
+      start: '10:00',
+      services: [
+        { id: 'svc-complex', durationMin: 115, masterId: 'master-anna', startTime: '10:00' },
+        { id: 'svc-strengthen', durationMin: 60, masterId: 'master-anna', startTime: '10:00' },
+        { id: 'svc-french', durationMin: 20, masterId: 'master-anna', startTime: '10:00' },
+      ],
+    });
+    const services = body.services as Array<Record<string, unknown>>;
+    expect(services.map((s) => s.start)).toEqual(['10:00:00', '11:55:00', '12:55:00']);
+    expect(services.map((s) => s.duration)).toEqual([115, 60, 20]);
+  });
+
   it('detects TIME_CONFLICT and picks the client visit on that day', () => {
     expect(
       isBeautyproTimeConflictError(

@@ -284,23 +284,37 @@ export async function notifyOrder(params: {
               : null;
 
   const title =
-    kind && kind !== 'product'
-      ? `Нова заявка (${kindLabel}) #${escapeHtml(shortId)}`
-      : `Нове замовлення #${escapeHtml(shortId)}`;
+    kind === 'booking'
+      ? `Запис оформлено #${escapeHtml(shortId)}`
+      : kind && kind !== 'product'
+        ? `Нова заявка (${kindLabel}) #${escapeHtml(shortId)}`
+        : `Нове замовлення #${escapeHtml(shortId)}`;
+
+  const bookingDoneLine =
+    kind === 'booking'
+      ? `Агент оформив запис (локально + CRM). Клієнту вже надіслано підтвердження.`
+      : null;
 
   const text = [
-    `📦 <b>${title}</b>`,
+    kind === 'booking' ? `✅ <b>${title}</b>` : `📦 <b>${title}</b>`,
     ``,
+    bookingDoneLine,
     summary ? `Суть: ${escapeHtml(summary)}` : '',
     `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
     `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
     `Ім'я: ${escapeHtml(customerName)}`,
     `Телефон: ${escapeHtml(phone)}`,
-    `Місто: ${escapeHtml(city?.trim() || '—')}`,
-    `НП: ${escapeHtml(npBranch?.trim() || '—')}`,
-    `Оплата: ${escapeHtml(
-      paymentMethod ? formatPaymentMethodLabel(paymentMethod) : '—',
-    )}`,
+    kind === 'booking' ? null : `Місто: ${escapeHtml(city?.trim() || '—')}`,
+    kind === 'booking'
+      ? npBranch?.trim()
+        ? `Дата/час: ${escapeHtml(npBranch.trim())}`
+        : null
+      : `НП: ${escapeHtml(npBranch?.trim() || '—')}`,
+    kind === 'booking'
+      ? null
+      : `Оплата: ${escapeHtml(
+          paymentMethod ? formatPaymentMethodLabel(paymentMethod) : '—',
+        )}`,
     ``,
     `<b>Позиції:</b>`,
     itemsBlock || '<i>(немає позицій)</i>',
@@ -308,8 +322,14 @@ export async function notifyOrder(params: {
     ``,
     `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
   ]
-    .filter((line) => line !== '')
+    .filter((line) => line !== '' && line != null)
     .join('\n');
+
+  // Booking is already confirmed to the client by the agent — notify only, no approve/decline.
+  if (kind === 'booking') {
+    await sendToManagerGroup(text, undefined, 'order');
+    return;
+  }
 
   const keyboard = new InlineKeyboard()
     .text('✅ Підтвердити', `approve:${orderId}`)
