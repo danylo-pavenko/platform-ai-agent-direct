@@ -17,6 +17,7 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 - Tenant timezone = `agent_config.timezone` (default `Europe/Kyiv`). Session clock, working hours, and BeautyPro free_time day bounds use this IANA zone — not the server’s (often DE).
 - CRM only via `getCrmAdapter` + `resolveCrmProvider(action)` — never HTTP in `conversation.ts`.
 - Platform capability map lives in `lib/platform-capabilities-prompt.ts` — inject into **meta-agent** and **insights (AI-помічник)**. Keep in sync when changing modes/tools/CRM.
+- Agent modes: `sales` | `leadgen` | `booking` | **`general`** (union of the three). New tools go into the specialized builder only — general picks them up via `mergeToolsByName` (see `.cursor/rules/agent-mode-general.mdc`).
 - Spawn CWD is isolated (`claude-spawn-cwd`) — tenant disk `CLAUDE.md` is **not** the customer system prompt; DB `system_prompts` + runtime injections are.
 - Telegram manager alerts are **side effects**, not a customer-facing tool.
 

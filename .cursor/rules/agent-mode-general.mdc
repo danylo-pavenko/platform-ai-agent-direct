@@ -1,0 +1,22 @@
+---
+description: Agent mode general = union of specialized mode tools
+globs: apps/backend/src/lib/tool-definitions.ts,apps/backend/src/lib/agent-tools-prompt.ts,apps/backend/src/lib/platform-capabilities-prompt.ts,docs/AGENT_RUNTIME.md,apps/workspace/templates/**
+alwaysApply: false
+---
+
+# Agent mode `general` — keep tools in sync
+
+`general` is **not** a hand-maintained tool list.
+
+- Specialized builders: `buildSalesModeTools` / `buildLeadgenModeTools` / `buildBookingModeTools` inside [`tool-definitions.ts`](apps/backend/src/lib/tool-definitions.ts).
+- `buildAgentTools('general')` = `mergeToolsByName(sales + leadgen + booking)`.
+
+## When you add or change a mode tool
+
+1. Add the tool **only** to the specialized mode builder (sales / leadgen / booking).
+2. Do **not** duplicate it into a separate general array.
+3. Ensure host wiring in `conversation.ts` uses `modeHasSalesTools` / `modeHasLeadgenTools` / `modeHasBookingTools` (these include `general`).
+4. Update `platform-capabilities-prompt.ts`, `docs/AGENT_RUNTIME.md`, and template `CLAUDE.md` if the capability map mentions modes.
+5. Unit test `general contains every tool from sales+leadgen+booking` must stay green.
+
+Refund / payment cancel stays `request_handoff` in all modes.

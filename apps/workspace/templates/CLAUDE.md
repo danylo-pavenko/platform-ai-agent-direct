@@ -10,6 +10,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 | **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write) |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
 | **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
+| **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
 

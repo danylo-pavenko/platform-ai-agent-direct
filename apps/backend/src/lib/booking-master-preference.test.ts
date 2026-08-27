@@ -29,13 +29,16 @@ describe('booking preferred-master tools and docs', () => {
     );
   });
 
-  it('does not expose salon slot tools in sales or leadgen', () => {
+  it('does not expose salon slot tools in sales or leadgen (general does)', () => {
     for (const mode of ['sales', 'leadgen'] as const) {
       const names = buildAgentTools(mode).map((t) => t.name);
       expect(names).not.toContain('get_available_slots');
       expect(names).not.toContain('book_appointment');
       expect(names).not.toContain('cancel_appointment');
     }
+    expect(buildAgentTools('general').map((t) => t.name)).toEqual(
+      expect.arrayContaining(['get_available_slots', 'book_appointment', 'cancel_appointment']),
+    );
   });
 
   it('documents UC1/UC2 in platform capabilities for meta-agent', () => {

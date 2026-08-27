@@ -25,7 +25,14 @@ import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { notifyAgentFailure, notifyHandoff } from './telegram-notify.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
-import { buildAgentTools, isLookupToolName, type AgentMode } from '../lib/tool-definitions.js';
+import {
+  buildAgentTools,
+  isLookupToolName,
+  modeHasBookingTools,
+  modeHasLeadgenTools,
+  modeHasSalesTools,
+  type AgentMode,
+} from '../lib/tool-definitions.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig, resolveResponseDelayMs,
   normalizeClaudeReplyModel,
@@ -750,8 +757,7 @@ async function handleIncomingMessageImpl(
   /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
   const sessions = createTurnClaudeSessions();
   const replyModel = normalizeClaudeReplyModel(agentCfg.claudeModel);
-  const existingBookingRow =
-    agentCfg.mode === 'booking'
+  const existingBookingRow = modeHasBookingTools(agentCfg.mode)
       ? await prisma.appointment.findFirst({
           where: {
             conversationId,
@@ -764,7 +770,7 @@ async function handleIncomingMessageImpl(
   const lookupCtx = {
     clientId: client.id,
     branchCrmExternalId: conversation.branch?.crmExternalId,
-    crmHistoryAllowed: agentCfg.mode === 'booking' && Boolean(client.crmBuyerId),
+    crmHistoryAllowed: modeHasBookingTools(agentCfg.mode) && Boolean(client.crmBuyerId),
     clientMessage: messageText,
     mutationsAllowed: true,
     timeZone: agentCfg.timezone,
@@ -930,7 +936,7 @@ async function handleIncomingMessageImpl(
     // brief and firing notifications, we still let the bot's text reply
     // fall through so the client sees the closing message (with SLA /
     // out-of-hours copy from the prompt-builder).
-    if (submitBrief && agentCfg.mode === 'leadgen') {
+    if (submitBrief && modeHasLeadgenTools(agentCfg.mode)) {
       await handleSubmitBrief(
         conversationId,
         client.id,
@@ -1853,7 +1859,7 @@ async function handleIncomingMessageImpl(
 
   if (
     !agentFallback &&
-    agentCfg.mode === 'booking' &&
+    modeHasBookingTools(agentCfg.mode) &&
     canBookAppointment &&
     !bookSucceeded &&
     !debug.falseBookingRecovery &&
@@ -2041,7 +2047,7 @@ async function handleIncomingMessageImpl(
   }
 
   // Safety net: bot wrote a full order summary but omitted collect_order.
-  if (agentCfg.mode === 'sales' && client.igUserId) {
+  if (modeHasSalesTools(agentCfg.mode) && client.igUserId) {
     const parsedSummary = parseOrderSummaryFromText(clientFacingText);
     if (parsedSummary) {
       const orderId = await handleCollectOrder(
@@ -2289,7 +2295,7 @@ async function persistVisionDebugNote(params: {
 
   // If Claude never called search_catalog on a sales vision turn, run a
   // diagnostic lookup for the admin note only (does not change the client reply).
-  if (!catalogDebug && agentMode === 'sales' && !agentFallback) {
+  if (!catalogDebug && modeHasSalesTools(agentMode) && !agentFallback) {
     const seed =
       extractKeywordsFromCaption(clientMessage) ||
       extractKeywordsFromCaption(firstClaudeText || finalBotText);
@@ -2509,7 +2515,7 @@ async function tryTerminalToolCalls(
   }
 
   const collectOrder = toolCalls.find((tc) => tc.name === 'collect_order');
-  if (collectOrder && agentMode === 'sales' && client.igUserId) {
+  if (collectOrder && modeHasSalesTools(agentMode) && client.igUserId) {
     if (turnDebug) {
       recordTurnTool(turnDebug, 'collect_order', collectOrder.args, '[collect_order] …');
     }
@@ -2531,7 +2537,7 @@ async function tryTerminalToolCalls(
     }
   }
 
-  if (agentMode === 'booking' && client.igUserId) {
+  if (modeHasBookingTools(agentMode) && client.igUserId) {
     const cancelAppt = toolCalls.find((tc) => tc.name === 'cancel_appointment');
     if (cancelAppt) {
       if (turnDebug) {
@@ -2613,7 +2619,7 @@ async function tryTerminalToolCalls(
   }
 
   const bookAppointment = toolCalls.find((tc) => tc.name === 'book_appointment');
-  if (bookAppointment && agentMode === 'booking' && client.igUserId) {
+  if (bookAppointment && modeHasBookingTools(agentMode) && client.igUserId) {
     if (turnDebug) {
       recordTurnTool(turnDebug, 'book_appointment', bookAppointment.args, '[book_appointment] …');
     }

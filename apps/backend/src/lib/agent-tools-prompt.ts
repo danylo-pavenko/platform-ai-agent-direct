@@ -170,6 +170,15 @@ export function formatAgentToolsPrompt(
       'Не плутай: create_local_order = м\'яка згода / послуга / дзвінок; collect_order = повне оформлення з НП.',
     );
   }
+  if (
+    names.has('collect_order') &&
+    names.has('book_appointment') &&
+    names.has('submit_brief')
+  ) {
+    rules.push(
+      'Режим general (усі tools): обирай tool за наміром клієнта — товар/НП → search_catalog + collect_order; запис у салон → search_services + slots + book/cancel/reschedule; кваліфікація ліда → submit_brief. Не змішуй сценарії в одній відповіді без потреби.',
+    );
+  }
 
   const rulesBlock = rules.map((r) => `- ${r}`).join('\n');
 

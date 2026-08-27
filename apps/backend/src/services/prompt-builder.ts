@@ -439,9 +439,9 @@ function buildOutOfHoursBlock(
 
   // warn_early (default — matches previous sales behaviour)
   const orderFlowLine =
-    mode === 'sales'
+    mode === 'sales' || mode === 'general'
       ? '- Якщо клієнт хоче оформити замовлення - збери всі дані як зазвичай (товар, ПІБ, телефон, місто, НП, оплата), але додай: "Менеджер підтвердить Ваше замовлення у робочий час."'
-      : '- Якщо клієнт готовий — збери бриф як зазвичай, у фінальному повідомленні нагадай, що менеджер вийде на звʼязок у робочий час.';
+      : '- Якщо клієнт готовий — збери бриф / запис як зазвичай, у фінальному повідомленні нагадай, що менеджер вийде на звʼязок у робочий час.';
 
   return `
 
@@ -627,6 +627,7 @@ export async function loadCatalogSnippetForMode(mode: AgentMode): Promise<string
       mastersMaxChars: 1_000,
     });
   }
+  // sales + leadgen + general: full knowledge dump (general needs catalog + services).
   return loadCatalogSnippet();
 }
 

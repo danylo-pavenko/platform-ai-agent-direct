@@ -10,7 +10,7 @@
  * kick in so a fresh tenant works without explicit configuration.
  *
  *   {
- *     mode: 'sales' | 'leadgen' | 'booking',
+ *     mode: 'sales' | 'leadgen' | 'booking' | 'general',
  *     outOfHoursStrategy: 'warn_early' | 'defer_to_end',
  *     managerSlaHoursBusiness: number,  // hours within working time
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
@@ -25,6 +25,7 @@ import { config } from '../config.js';
 import { prisma } from './prisma.js';
 import { DEFAULT_TENANT_TIMEZONE, normalizeTenantTimezone } from './tenant-timezone.js';
 import type { AgentMode } from './tool-definitions.js';
+import { isAgentMode } from './tool-definitions.js';
 import {
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
@@ -210,12 +211,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
   const envFallback = envClaudeReplyModelFallback();
 
   _cache = {
-    mode:
-      raw.mode === 'leadgen'
-        ? 'leadgen'
-        : raw.mode === 'booking'
-          ? 'booking'
-          : 'sales',
+    mode: isAgentMode(raw.mode) ? raw.mode : 'sales',
     outOfHoursStrategy:
       raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
     managerSlaHoursBusiness:

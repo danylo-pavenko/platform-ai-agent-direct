@@ -300,9 +300,9 @@ const suggestions = [
   {
     icon: 'mdi-cog-play-outline',
     title: 'Режими платформи',
-    copy: 'sales / leadgen / booking і tools',
+    copy: 'sales / leadgen / booking / general і tools',
     prompt:
-      'Поясни різницю режимів sales, leadgen і booking на нашій платформі: для чого кожен, які tools доступні, і який режим зараз увімкнено в мене. Що варто змінити?',
+      'Поясни різницю режимів sales, leadgen, booking і general на нашій платформі: для чого кожен, які tools доступні, і який режим зараз увімкнено в мене. Що варто змінити?',
   },
   {
     icon: 'mdi-database-sync-outline',

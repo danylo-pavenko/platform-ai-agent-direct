@@ -1,7 +1,33 @@
 import type { ToolDefinition } from './claude-runtime.js';
 import type { CrmFieldMapping } from '../generated/prisma/client.js';
 
-export type AgentMode = 'sales' | 'leadgen' | 'booking';
+export type AgentMode = 'sales' | 'leadgen' | 'booking' | 'general';
+
+export const AGENT_MODES: readonly AgentMode[] = [
+  'sales',
+  'leadgen',
+  'booking',
+  'general',
+] as const;
+
+export function isAgentMode(value: unknown): value is AgentMode {
+  return typeof value === 'string' && (AGENT_MODES as readonly string[]).includes(value);
+}
+
+/** Sales catalog / collect_order path (also general). */
+export function modeHasSalesTools(mode: AgentMode): boolean {
+  return mode === 'sales' || mode === 'general';
+}
+
+/** Leadgen brief path (also general). */
+export function modeHasLeadgenTools(mode: AgentMode): boolean {
+  return mode === 'leadgen' || mode === 'general';
+}
+
+/** Salon booking path (also general). */
+export function modeHasBookingTools(mode: AgentMode): boolean {
+  return mode === 'booking' || mode === 'general';
+}
 
 /** Readonly lookup tools — Phase 2 in-process MCP on the SDK path. */
 export const LOOKUP_TOOL_NAMES = [
@@ -729,22 +755,46 @@ export interface BuildAgentToolsOptions {
 /**
  * Builds the per-turn tool surface for a given agent mode.
  *
- * Sales mode  → update_client_info, tag_client, request_handoff,
- *               get_delivery_cost, collect_order.
- * Leadgen mode → classify_intent, update_client_info, tag_client,
- *                request_handoff, submit_brief.
+ * Specialized modes own their tool lists. **general** = union of sales +
+ * leadgen + booking (deduped by name). When you add a tool to any specialized
+ * mode builder below, general picks it up automatically — do not maintain a
+ * separate general list.
  *
  * `update_client_info` always gains a dynamic `custom_fields` object
- * from buyer-scope CRM mappings (both modes).
+ * from buyer-scope CRM mappings.
  * `submit_brief` gains a dynamic `custom_fields` object from lead-scope
- * CRM mappings (leadgen only) — these land on the pipeline card.
+ * CRM mappings (leadgen / general) — these land on the pipeline card.
  */
 export function buildAgentTools(
   mode: AgentMode,
   opts: BuildAgentToolsOptions = {},
 ): ToolDefinition[] {
+  if (mode === 'general') {
+    return mergeToolsByName([
+      ...buildSalesModeTools(opts),
+      ...buildLeadgenModeTools(opts),
+      ...buildBookingModeTools(opts),
+    ]);
+  }
+  if (mode === 'leadgen') return buildLeadgenModeTools(opts);
+  if (mode === 'booking') return buildBookingModeTools(opts);
+  return buildSalesModeTools(opts);
+}
+
+/** Deduplicate by tool name, keeping first occurrence (sales → leadgen → booking order). */
+export function mergeToolsByName(tools: ToolDefinition[]): ToolDefinition[] {
+  const seen = new Set<string>();
+  const out: ToolDefinition[] = [];
+  for (const tool of tools) {
+    if (seen.has(tool.name)) continue;
+    seen.add(tool.name);
+    out.push(tool);
+  }
+  return out;
+}
+
+function buildSharedBaseTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
   const buyer = opts.buyerScopeMappings ?? [];
-  const lead = opts.leadScopeMappings ?? [];
   const hasBranches = opts.hasBranches ?? false;
 
   const updateClientInfo = injectCustomFields(
@@ -756,36 +806,34 @@ export function buildAgentTools(
   const sharedBase: ToolDefinition[] = [updateClientInfo];
   if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
   sharedBase.push(TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
+  return sharedBase;
+}
 
-  if (mode === 'leadgen') {
-    const submitBrief = injectCustomFields(
-      SUBMIT_BRIEF,
-      lead,
-      'Додаткові поля пресейл-брифу з CRM-мапінгу (lead scope). Заповнюй лише те, про що клієнт явно сказав.',
-    );
-    return [CLASSIFY_INTENT, ...sharedBase, submitBrief];
-  }
+function buildSalesModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
+  return [...buildSharedBaseTools(opts), SEARCH_CATALOG, GET_DELIVERY_COST, COLLECT_ORDER];
+}
 
-  if (mode === 'booking') {
-    return [
-      CLASSIFY_INTENT,
-      ...sharedBase,
-      SEARCH_SERVICES,
-      GET_AVAILABLE_SLOTS,
-      GET_CLIENT_CRM_HISTORY,
-      ATTACH_REFERENCE_PHOTO,
-      BOOK_APPOINTMENT,
-      CANCEL_APPOINTMENT,
-      REMOVE_APPOINTMENT_SERVICE,
-      RESCHEDULE_APPOINTMENT,
-    ];
-  }
+function buildLeadgenModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
+  const lead = opts.leadScopeMappings ?? [];
+  const submitBrief = injectCustomFields(
+    SUBMIT_BRIEF,
+    lead,
+    'Додаткові поля пресейл-брифу з CRM-мапінгу (lead scope). Заповнюй лише те, про що клієнт явно сказав.',
+  );
+  return [CLASSIFY_INTENT, ...buildSharedBaseTools(opts), submitBrief];
+}
 
-  // sales
+function buildBookingModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
   return [
-    ...sharedBase,
-    SEARCH_CATALOG,
-    GET_DELIVERY_COST,
-    COLLECT_ORDER,
+    CLASSIFY_INTENT,
+    ...buildSharedBaseTools(opts),
+    SEARCH_SERVICES,
+    GET_AVAILABLE_SLOTS,
+    GET_CLIENT_CRM_HISTORY,
+    ATTACH_REFERENCE_PHOTO,
+    BOOK_APPOINTMENT,
+    CANCEL_APPOINTMENT,
+    REMOVE_APPOINTMENT_SERVICE,
+    RESCHEDULE_APPOINTMENT,
   ];
 }

@@ -14,10 +14,11 @@ export function buildPlatformCapabilitiesBlock(): string {
 | sales | E-commerce продаж | collect_order → локальне Замовлення (+ CRM якщо увімкнено); create_local_order при м'якій згоді |
 | leadgen | Кваліфікація / бриф | submit_brief → локально + Telegram (+ KeyCRM lead якщо write увімкнено); create_local_order при згоді |
 | booking | Запис у салон | book_appointment → CRM запису; create_local_order якщо погодили послугу/дзвінок без слоту |
+| general | Усі сценарії | Union tools sales+leadgen+booking (без окремого списку — додаєш tool у спеціалізований режим → general підхоплює) |
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише booking + привʼязаний CRM-клієнт.
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт.
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
@@ -26,6 +27,7 @@ Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost,
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
+general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
 Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment).
 
 Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff).
@@ -86,7 +88,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
 - **Live catalog** → knowledge/catalog.txt, services-live.txt, masters-live.txt (CRM sync) + tools search_catalog / search_services.
-- Seed files: prompts/{sales|leadgen|booking}-agent.txt (first DB seed only).
+- Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed only).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
 ## Правила редагування промпту
