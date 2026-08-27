@@ -140,9 +140,13 @@ export function formatAgentToolsPrompt(
       'Для слотів/запису довіряй тривалості з tool result (історія actual/booked); не вигадуй і не став сліпо лише каталожну duration_min, якщо історія каже інакше.',
     );
   }
-  if (names.has('submit_brief')) {
+  if (names.has('submit_brief') && !names.has('collect_order')) {
     rules.push(
       'submit_brief — коли зібрано достатньо кваліфікації ліда (див. опис інструменту); не викликай collect_order — його немає в цьому режимі.',
+    );
+  } else if (names.has('submit_brief')) {
+    rules.push(
+      'submit_brief — коли зібрано достатньо кваліфікації ліда (див. опис інструменту); для повного e-commerce замовлення з НП використовуй collect_order, не brief.',
     );
   }
   if (names.has('classify_intent')) {

@@ -546,15 +546,18 @@ async function handleIncomingMessageImpl(
 
   // B.3 — returning-lead context: surface a recap of the most recent
   // finalized brief so the agent doesn't re-ask qualification questions.
+  // Only useful when leadgen tools are in the surface (leadgen / general).
   // Gate R6 (per FEATURE_AGENT_MODE_PLAN): prior brief must still be
   // "fresh enough" (≤ sessionFreshnessDays × 3) AND of decent quality.
   // Quality proxy = completenessPct ≥ 60 until B.2 ships manager star
   // ratings; swap the proxy for `briefQuality ≥ 3` once that lands.
-  const previousBriefSummary = await loadPreviousBriefSummary(
-    client.id,
-    conversationId,
-    agentCfg.sessionFreshnessDays,
-  );
+  const previousBriefSummary = modeHasLeadgenTools(agentCfg.mode)
+    ? await loadPreviousBriefSummary(
+        client.id,
+        conversationId,
+        agentCfg.sessionFreshnessDays,
+      )
+    : undefined;
 
   const branchesList = await formatBranchesForPrompt();
   const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });

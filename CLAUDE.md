@@ -4,7 +4,7 @@ Guidance for Claude Code / Cursor when working in **platform-ai-agent-direct**.
 
 ## Проєкт
 
-Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking). Кожен tenant = окремий Linux user + DB + `~/tenant_knowledge/`.
+Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking / general). Кожен tenant = окремий Linux user + DB + `~/tenant_knowledge/`.
 
 Мова з розробником: **українська**. Код / коміти: **англійська**.
 
@@ -37,7 +37,7 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking). Кожен t
 ## Документація в репо
 
 - `README.md`, `docs/AGENT_RUNTIME.md`, `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, `docs/BEAUTYPRO_CRM_INTEGRATION.md`
-- Seed prompts: `apps/workspace/templates/prompts/{sales,leadgen,booking}-agent.txt`
+- Seed prompts: `apps/workspace/templates/prompts/{sales,leadgen,booking,general}-agent.txt`
 - Батьківські `../IMPLEMENTATION.md` / `../PLAN.md` — історичний контекст MVP; **поточна правда — код + docs/ у цьому репо**.
 
 ## Конвенції

@@ -1024,13 +1024,13 @@
               <v-select
                 v-model="agentConfig.mode"
                 :items="[
-                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
-                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
-                  { title: 'Запис (booking) — салон, послуги, CleverBOX/BeautyPro', value: 'booking' },
                   {
                     title: 'General — усі tools (sales + leadgen + booking)',
                     value: 'general',
                   },
+                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
+                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
+                  { title: 'Запис (booking) — салон, послуги, CleverBOX/BeautyPro', value: 'booking' },
                 ]"
                 item-title="title"
                 item-value="value"
@@ -1040,9 +1040,9 @@
                 hide-details
               />
               <div class="text-caption text-medium-emphasis mt-1">
+                <strong>general</strong> (за замовчуванням): усі tools разом;
                 <strong>sales</strong>: collect_order; <strong>leadgen</strong>: submit_brief;
-                <strong>booking</strong>: search_services + book/cancel/reschedule;
-                <strong>general</strong>: усі tools разом (union спеціалізованих режимів).
+                <strong>booking</strong>: search_services + book/cancel/reschedule.
               </div>
             </v-col>
             <v-col cols="12" sm="6">
@@ -4188,7 +4188,7 @@ interface AgentConfigShape {
 }
 
 const agentConfig = ref<AgentConfigShape>({
-  mode: 'sales',
+  mode: 'general',
   outOfHoursStrategy: 'warn_early',
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
@@ -4354,7 +4354,7 @@ async function fetchSettings() {
           raw.mode === 'general' ||
           raw.mode === 'sales'
             ? (raw.mode as AgentModeValue)
-            : 'sales',
+            : 'general',
         outOfHoursStrategy:
           raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
         managerSlaHoursBusiness:

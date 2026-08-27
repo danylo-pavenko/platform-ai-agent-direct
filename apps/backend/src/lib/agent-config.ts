@@ -10,7 +10,7 @@
  * kick in so a fresh tenant works without explicit configuration.
  *
  *   {
- *     mode: 'sales' | 'leadgen' | 'booking' | 'general',
+ *     mode: 'sales' | 'leadgen' | 'booking' | 'general',  // default: general
  *     outOfHoursStrategy: 'warn_early' | 'defer_to_end',
  *     managerSlaHoursBusiness: number,  // hours within working time
  *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
@@ -97,7 +97,7 @@ export const DEFAULT_FALLBACK_MESSAGES: FallbackMessages = {
 };
 
 const DEFAULTS: AgentConfig = {
-  mode: 'sales',
+  mode: 'general',
   outOfHoursStrategy: 'warn_early',
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
@@ -211,7 +211,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
   const envFallback = envClaudeReplyModelFallback();
 
   _cache = {
-    mode: isAgentMode(raw.mode) ? raw.mode : 'sales',
+    mode: isAgentMode(raw.mode) ? raw.mode : 'general',
     outOfHoursStrategy:
       raw.outOfHoursStrategy === 'defer_to_end' ? 'defer_to_end' : 'warn_early',
     managerSlaHoursBusiness:

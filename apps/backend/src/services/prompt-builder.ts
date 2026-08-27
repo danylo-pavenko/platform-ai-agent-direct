@@ -8,6 +8,7 @@ import {
 } from '../lib/paths.js';
 import { config } from '../config.js';
 import type { AgentMode } from '../lib/tool-definitions.js';
+import { modeHasSalesTools } from '../lib/tool-definitions.js';
 import type { OutOfHoursStrategy } from '../lib/agent-config.js';
 import {
   DEFAULT_TENANT_TIMEZONE,
@@ -209,7 +210,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     conversationIdShort,
     isOutOfHours = false,
     customFieldHints,
-    agentMode = 'sales',
+    agentMode = 'general',
     outOfHoursStrategy = 'warn_early',
     managerSlaHoursBusiness = 2,
     workingHoursSummary,
@@ -438,8 +439,7 @@ function buildOutOfHoursBlock(
   }
 
   // warn_early (default — matches previous sales behaviour)
-  const orderFlowLine =
-    mode === 'sales' || mode === 'general'
+  const orderFlowLine = modeHasSalesTools(mode)
       ? '- Якщо клієнт хоче оформити замовлення - збери всі дані як зазвичай (товар, ПІБ, телефон, місто, НП, оплата), але додай: "Менеджер підтвердить Ваше замовлення у робочий час."'
       : '- Якщо клієнт готовий — збери бриф / запис як зазвичай, у фінальному повідомленні нагадай, що менеджер вийде на звʼязок у робочий час.';
 

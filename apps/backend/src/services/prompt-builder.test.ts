@@ -77,6 +77,20 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toContain('Анна');
   });
 
+  it('in general mode keeps full catalog rule (sales + services tools)', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        agentMode: 'general',
+        catalogSnippet: '### PRODUCTS\nx\n### SERVICES\ny',
+      }),
+    );
+    expect(prompt).toMatch(
+      /Товари \/ послуги \/ ціни \/ майстри — з блоку нижче або через tools/,
+    );
+    expect(prompt).toContain('search_catalog / search_services');
+    expect(prompt).not.toMatch(/лише через tools \(search_services/);
+  });
+
   it('formats session clock in tenant timezone, not server local', () => {
     const utcNoon = new Date('2026-08-26T12:00:00.000Z');
     const kyiv = buildRuntimePrompt(

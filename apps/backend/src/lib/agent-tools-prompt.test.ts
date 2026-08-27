@@ -22,8 +22,18 @@ describe('formatAgentToolsPrompt', () => {
     const prompt = formatAgentToolsPrompt(leadgen);
     expect(prompt).toContain('submit_brief');
     expect(prompt).toContain('classify_intent');
+    expect(prompt).toContain('його немає в цьому режимі');
     expect(prompt).not.toContain('ПОВНИЙ підсумок e-commerce');
-    expect(prompt).not.toMatch(/виклич collect_order/);
+    expect(prompt).not.toContain('Режим general');
+  });
+
+  it('general prompt routes by intent and allows collect_order + submit_brief', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('general'));
+    expect(prompt).toContain('Режим general');
+    expect(prompt).toContain('collect_order');
+    expect(prompt).toContain('submit_brief');
+    expect(prompt).not.toContain('його немає в цьому режимі');
+    expect(prompt).toMatch(/для повного e-commerce замовлення/);
   });
 
   it('never instructs tools that are not in the list', () => {

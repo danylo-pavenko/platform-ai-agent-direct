@@ -182,6 +182,7 @@ describe('insights routes', () => {
     expect(prompt).toContain('sales');
     expect(prompt).toContain('leadgen');
     expect(prompt).toContain('booking');
+    expect(prompt).toContain('general');
     expect(prompt).toContain('Не вигадуй tools');
   });
 });

@@ -23,7 +23,7 @@
 | **Філії** | OK | Таблиця `branches` — runtime не залежить від CRM; CRM лише джерело імпорту |
 | **Sync metadata** | OK | `crm_sync_runs` з `provider`, `syncType`, `artifacts.sources` |
 | **Admin UI** | OK | `CrmRoutingCard`, `CleverboxCard`, `BranchesCard`, `SyncView` |
-| **Agent modes** | OK | `sales` / `leadgen` / `booking` — tools через `buildAgentTools(mode)` |
+| **Agent modes** | OK | `sales` / `leadgen` / `booking` / `general` — tools через `buildAgentTools(mode)`; general = union спеціалізованих |
 
 ### ✅ Call sites, що вже використовують routing
 

@@ -14,7 +14,7 @@ export function buildPlatformCapabilitiesBlock(): string {
 | sales | E-commerce продаж | collect_order → локальне Замовлення (+ CRM якщо увімкнено); create_local_order при м'якій згоді |
 | leadgen | Кваліфікація / бриф | submit_brief → локально + Telegram (+ KeyCRM lead якщо write увімкнено); create_local_order при згоді |
 | booking | Запис у салон | book_appointment → CRM запису; create_local_order якщо погодили послугу/дзвінок без слоту |
-| general | Усі сценарії | Union tools sales+leadgen+booking (без окремого списку — додаєш tool у спеціалізований режим → general підхоплює) |
+| general | Усі сценарії (default) | Union tools sales+leadgen+booking (без окремого списку — додаєш tool у спеціалізований режим → general підхоплює) |
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
@@ -88,7 +88,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
 - **Live catalog** → knowledge/catalog.txt, services-live.txt, masters-live.txt (CRM sync) + tools search_catalog / search_services.
-- Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed only).
+- Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
 ## Правила редагування промпту

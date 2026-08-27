@@ -77,7 +77,7 @@ Order in `buildRuntimePrompt` / `askClaude`:
 | Layer | Injected at runtime? |
 |-------|----------------------|
 | DB system prompt | Yes |
-| Seed `prompts/{sales,leadgen,booking}-agent.txt` | First DB seed only |
+| Seed `prompts/{sales,leadgen,booking,general}-agent.txt` | First DB seed uses **general** (matches default `agent_config.mode`) |
 | Live catalog / services / masters files | Yes (mode-aware snippet) |
 | Full CRM visit history | **No** on cold prompt — tool `get_client_crm_history` |
 | Legacy `knowledge/contacts|faq|…` | **No** |
@@ -95,7 +95,7 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 | **sales** | E-commerce | `search_catalog`, `get_delivery_cost`, `collect_order` | Local order (+ optional CRM mirror) |
 | **leadgen** | Qualification / brief | `classify_intent`, `submit_brief` | Brief + Telegram (+ optional KeyCRM lead) |
 | **booking** | Salon appointment | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | CRM appointment |
-| **general** | All scenarios | Union of sales + leadgen + booking (deduped) | Same handlers; pick tool by client intent |
+| **general** | All scenarios (**default**) | Union of sales + leadgen + booking (deduped) | Same handlers; pick tool by client intent |
 
 **general** is not a separate tool list: `buildAgentTools('general')` merges the specialized builders. When you add a tool to sales/leadgen/booking, it appears in general automatically (enforced by unit test).
 

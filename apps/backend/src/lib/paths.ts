@@ -10,7 +10,7 @@
  *
  * Example for a tenant running as the `blessed` Linux user:
  *   /home/blessed/tenant_knowledge/
- *   ├── prompts/sales-agent.txt
+ *   ├── prompts/{general,sales,leadgen,booking}-agent.txt
  *   └── knowledge/{brand,contacts,delivery,faq,categories,catalog}.txt
  */
 
@@ -64,6 +64,11 @@ export function getReferencePhotosDir(): string {
   return resolve(getTenantKnowledgeDir(), 'reference_photos');
 }
 
+/** Shortcut: default seed prompt (general) inside the tenant knowledge dir. */
+export function getGeneralAgentPromptPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'prompts', 'general-agent.txt');
+}
+
 /** Shortcut: sales-agent.txt path inside the tenant knowledge dir. */
 export function getSalesAgentPromptPath(): string {
   return resolve(getTenantKnowledgeDir(), 'prompts', 'sales-agent.txt');
@@ -72,6 +77,11 @@ export function getSalesAgentPromptPath(): string {
 /** Shortcut: CLAUDE.md orientation file for the sales agent workspace. */
 export function getWorkspaceClaudeMdPath(): string {
   return resolve(getTenantKnowledgeDir(), 'CLAUDE.md');
+}
+
+/** Repo template for the default (general) system prompt seed. */
+export function getGeneralAgentTemplatePath(): string {
+  return resolve(TEMPLATES_DIR, 'prompts', 'general-agent.txt');
 }
 
 /** Shortcut: the corresponding template path (used by seed / bootstrap). */
