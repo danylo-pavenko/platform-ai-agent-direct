@@ -31,7 +31,12 @@ import { getAgentConfig, resolveResponseDelayMs,
   normalizeClaudeReplyModel,
 } from '../lib/agent-config.js';
 import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
-import { handleBookAppointment } from './appointment.js';
+import {
+  handleBookAppointment,
+  handleCancelAppointment,
+  handleRemoveAppointmentService,
+  handleRescheduleAppointment,
+} from './appointment.js';
 import { saveClientReferencePhoto } from './reference-photos.js';
 import {
   cancelPendingFollowUpsSafe,
@@ -2523,6 +2528,87 @@ async function tryTerminalToolCalls(
         }
       }
       return true;
+    }
+  }
+
+  if (agentMode === 'booking' && client.igUserId) {
+    const cancelAppt = toolCalls.find((tc) => tc.name === 'cancel_appointment');
+    if (cancelAppt) {
+      if (turnDebug) {
+        recordTurnTool(turnDebug, 'cancel_appointment', cancelAppt.args, '[cancel_appointment] …');
+      }
+      const result = await handleCancelAppointment(
+        conversationId,
+        client.id,
+        cancelAppt.args,
+        {
+          clientIgUserId: client.igUserId,
+          clientMessage: ctx.clientMessage,
+        },
+      );
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'cancel_appointment') {
+          last.resultPreview = result?.toolResult ?? '[cancel_appointment] failed';
+        }
+      }
+      if (result) return true;
+    }
+
+    const removeSvc = toolCalls.find((tc) => tc.name === 'remove_appointment_service');
+    if (removeSvc) {
+      if (turnDebug) {
+        recordTurnTool(
+          turnDebug,
+          'remove_appointment_service',
+          removeSvc.args,
+          '[remove_appointment_service] …',
+        );
+      }
+      const result = await handleRemoveAppointmentService(
+        conversationId,
+        client.id,
+        removeSvc.args,
+        {
+          clientIgUserId: client.igUserId,
+          clientMessage: ctx.clientMessage,
+        },
+      );
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'remove_appointment_service') {
+          last.resultPreview = result?.toolResult ?? '[remove_appointment_service] failed';
+        }
+      }
+      if (result) return true;
+    }
+
+    const reschedule = toolCalls.find((tc) => tc.name === 'reschedule_appointment');
+    if (reschedule) {
+      if (turnDebug) {
+        recordTurnTool(
+          turnDebug,
+          'reschedule_appointment',
+          reschedule.args,
+          '[reschedule_appointment] …',
+        );
+      }
+      const result = await handleRescheduleAppointment(
+        conversationId,
+        client.id,
+        reschedule.args,
+        {
+          clientIgUserId: client.igUserId,
+          clientMessage: ctx.clientMessage,
+        },
+      );
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'reschedule_appointment') {
+          last.resultPreview = result?.toolResult ?? '[reschedule_appointment] failed';
+        }
+      }
+      if (result) return true;
     }
   }
 

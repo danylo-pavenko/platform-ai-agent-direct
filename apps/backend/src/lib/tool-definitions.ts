@@ -36,6 +36,9 @@ export function isProfileToolName(name: string): name is ProfileToolName {
 /** Side-effect terminal tools — host-executed; canUseTool is the gate. */
 export const TERMINAL_TOOL_NAMES = [
   'book_appointment',
+  'cancel_appointment',
+  'remove_appointment_service',
+  'reschedule_appointment',
   'collect_order',
   'create_local_order',
   'submit_brief',
@@ -130,7 +133,7 @@ const TAG_CLIENT: ToolDefinition = {
 const REQUEST_HANDOFF: ToolDefinition = {
   name: 'request_handoff',
   description:
-    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, запит на повернення/скасування оплати, скасування або перенесення запису, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні.',
+    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
   parameters: {
     type: 'object',
     properties: {
@@ -226,7 +229,7 @@ const SEARCH_SERVICES: ToolDefinition = {
 const GET_AVAILABLE_SLOTS: ToolDefinition = {
   name: 'get_available_slots',
   description:
-    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id (або services[].master_id) — лише ці майстри; у результаті може бути блок «Ціни для обраного майстра». Кілька послуг до різних майстрів на той самий час — передай master_id на кожному рядку services; бекенд шукає спільні години. Без master_id — найближчі вікна різних майстрів. Повторний клієнт: передай master_id з історії.',
+    'Вільні слоти на дату. Потрібні філія (set_conversation_branch) і послуги з id + duration_min з search_services. З master_id на КОЖНОМУ рядку різних майстрів — MODE: PARALLEL (спільний start). Без master_id / один майстер на кілька послуг — MODE: SEQUENTIAL (сума хв); не продавай як паралель. Пропонуй лише години з останнього lookup по всіх послугах візиту.',
   parameters: {
     type: 'object',
     properties: {
@@ -264,10 +267,87 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
   },
 };
 
+const CANCEL_APPOINTMENT: ToolDefinition = {
+  name: 'cancel_appointment',
+  description:
+    'Скасувати весь поточний запис клієнта в CRM (повний візит). Викликай після явної згоди скасувати. Не для refund/оплати — тоді request_handoff. Не кажи «скасовано» без успішного result.',
+  parameters: {
+    type: 'object',
+    properties: {
+      reason: {
+        type: 'string',
+        description: 'Коротка причина для CRM/менеджера (опційно)',
+      },
+    },
+    required: [],
+  },
+};
+
+const REMOVE_APPOINTMENT_SERVICE: ToolDefinition = {
+  name: 'remove_appointment_service',
+  description:
+    'Прибрати одну послугу з поточного запису (інші лишаються). Передай service_id з search_services / поточного візиту. Якщо це була остання послуга — платформа скасує весь запис. Не кажи «прибрала» без успішного result. Якщо CRM відмовить (оплачено тощо) — request_handoff.',
+  parameters: {
+    type: 'object',
+    properties: {
+      service_id: {
+        type: 'string',
+        description: 'CRM id послуги (каталог), яку прибрати з візиту',
+      },
+      service_name: {
+        type: 'string',
+        description: 'Назва послуги, якщо id ще немає (лише якщо однозначно)',
+      },
+    },
+    required: [],
+  },
+};
+
+const RESCHEDULE_APPOINTMENT: ToolDefinition = {
+  name: 'reschedule_appointment',
+  description:
+    'Перенести поточний запис на іншу дату/час: платформа скасує старий візит у CRM і створить новий. НЕ використовуй повторний book_appointment для перенесення. Спочатку get_available_slots на нову дату (з тими ж послугами/майстрами), потім після згоди клієнта — цей tool. services[] можна опустити — візьмуться з поточного візиту. Не кажи «перенесла» без успішного result.',
+  parameters: {
+    type: 'object',
+    properties: {
+      date: {
+        type: 'string',
+        description: 'Нова дата ДД.ММ.РРРР',
+      },
+      time: {
+        type: 'string',
+        description: 'Новий час ГГ:ХХ',
+      },
+      customer_name: { type: 'string', description: 'Якщо треба оновити ПІБ; інакше з поточного візиту' },
+      phone: { type: 'string', description: 'Якщо треба оновити телефон; інакше з поточного візиту' },
+      services: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            name: { type: 'string' },
+            price: { type: 'number' },
+            duration_min: { type: 'number' },
+            master_id: { type: 'string' },
+            start_time: { type: 'string' },
+          },
+          required: ['id', 'duration_min'],
+        },
+        description: 'Опційно: новий набір послуг; без цього — послуги поточного візиту',
+      },
+      master_id: { type: 'string' },
+      comment: { type: 'string' },
+      reason: { type: 'string', description: 'Причина перенесення (опційно)' },
+    },
+    required: ['date', 'time'],
+  },
+};
+
 const BOOK_APPOINTMENT: ToolDefinition = {
   name: 'book_appointment',
   description:
-    'Підтвердити запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Усі послуги одного візиту — одним викликом у масиві services[] (одне замовлення). Якщо додав ще послугу на той самий слот — можна повторити виклик: платформа змерджить у один запис. Один майстер на всі послуги — top-level master_id або той самий master_id на кожному рядку; кілька послуг одного майстра — окремі рядки з duration_min з каталогу (платформа вибудує їх підряд, навіть якщо start_time однаковий). Різні майстри: services[].master_id на кожному рядку. Різні години старту між різними майстрами (напр. 10:30 і 11:00) — обовʼязково services[].start_time на кожному рядку. price — з цитати слотів для того майстра.',
+    'Підтвердити НОВИЙ запис у CRM. Викликай лише після згоди клієнта і коли є: ПІБ, телефон, дата, час, послуги, філія (set_conversation_branch). Не для перенесення існуючого візиту — тоді reschedule_appointment. Усі послуги одного візиту — одним масивом services[] (одне замовлення). Якщо додав ще послугу на той самий слот — можна повторити виклик: платформа змерджить у один запис. Один майстер на всі послуги — top-level master_id або той самий master_id на кожному рядку; кілька послуг одного майстра — окремі рядки з duration_min з каталогу (платформа вибудує їх підряд, навіть якщо start_time однаковий). Різні майстри: services[].master_id на кожному рядку. Різні години старту між різними майстрами (напр. 10:30 і 11:00) — обовʼязково services[].start_time на кожному рядку. price — з цитати слотів для того майстра.',
   parameters: {
     type: 'object',
     properties: {
@@ -695,6 +775,9 @@ export function buildAgentTools(
       GET_CLIENT_CRM_HISTORY,
       ATTACH_REFERENCE_PHOTO,
       BOOK_APPOINTMENT,
+      CANCEL_APPOINTMENT,
+      REMOVE_APPOINTMENT_SERVICE,
+      RESCHEDULE_APPOINTMENT,
     ];
   }
 

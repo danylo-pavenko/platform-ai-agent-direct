@@ -19,7 +19,14 @@ describe('booking preferred-master tools and docs', () => {
     expect(book!.parameters.properties.services.items.properties).toHaveProperty('master_id');
     expect(slots!.description).toMatch(/master_id/);
     const handoff = tools.find((t) => t.name === 'request_handoff');
-    expect(handoff!.description).toMatch(/перенесення запису|скасування або перенесення/);
+    expect(handoff!.description).toMatch(/cancel_appointment|reschedule_appointment|refund/i);
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining([
+        'cancel_appointment',
+        'remove_appointment_service',
+        'reschedule_appointment',
+      ]),
+    );
   });
 
   it('does not expose salon slot tools in sales or leadgen', () => {
@@ -27,6 +34,7 @@ describe('booking preferred-master tools and docs', () => {
       const names = buildAgentTools(mode).map((t) => t.name);
       expect(names).not.toContain('get_available_slots');
       expect(names).not.toContain('book_appointment');
+      expect(names).not.toContain('cancel_appointment');
     }
   });
 
@@ -40,7 +48,7 @@ describe('booking preferred-master tools and docs', () => {
     expect(block).toContain('Повторний клієнт');
     expect(block).toContain('Новий клієнт');
     expect(block).toMatch(/request_handoff/);
-    expect(block).toMatch(/cancel\/reschedule\/refund/);
+    expect(block).toMatch(/cancel_appointment|reschedule_appointment/);
     expect(block).toMatch(/services\[\]\.master_id/);
   });
 
@@ -65,6 +73,7 @@ describe('booking preferred-master tools and docs', () => {
     expect(seed).toMatch(/недоступно для цього майстра/);
     expect(seed).toMatch(/request_handoff/);
     expect(seed).toMatch(/другий візит/);
+    expect(seed).toMatch(/cancel_appointment|reschedule_appointment/);
     expect(seed).toMatch(/різних майстрів/);
   });
 });

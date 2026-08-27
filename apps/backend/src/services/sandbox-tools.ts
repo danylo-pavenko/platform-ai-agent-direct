@@ -155,6 +155,16 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
           `Підтвердь клієнтці слот текстом так, ніби запис успішний.`,
       };
 
+    case 'cancel_appointment':
+    case 'remove_appointment_service':
+    case 'reschedule_appointment':
+      return {
+        dryRun: true,
+        content:
+          `[${tc.name}] DRY-RUN (CRM не змінено).\n` +
+          `Payload preview:\n${JSON.stringify(tc.args, null, 2)}`,
+      };
+
     case 'collect_order':
     case 'create_local_order':
       return {
@@ -207,6 +217,9 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
     'get_client_crm_history',
     'update_client_info',
     'book_appointment',
+    'cancel_appointment',
+    'remove_appointment_service',
+    'reschedule_appointment',
     'collect_order',
     'create_local_order',
     'submit_brief',
@@ -233,6 +246,12 @@ export function stageLabelForTool(name: string): string {
       return 'Дивлюсь історію клієнта…';
     case 'book_appointment':
       return 'Готую запис (dry-run)…';
+    case 'cancel_appointment':
+      return 'Скасовую запис (dry-run)…';
+    case 'remove_appointment_service':
+      return 'Прибираю послугу (dry-run)…';
+    case 'reschedule_appointment':
+      return 'Переношу запис (dry-run)…';
     case 'collect_order':
     case 'create_local_order':
       return 'Готую замовлення (dry-run)…';

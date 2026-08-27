@@ -9,13 +9,13 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 |------|------------------------|-------|
 | **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write) |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
-| **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment` | запис → CleverBOX / BeautyPro |
+| **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
 
-Немає tools на скасування / перенесення запису / повернення оплати — лише `request_handoff`. Не «переносити» повторним `book_appointment` (інша дата = другий візит).
+Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
 
-Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment`. Один майстер — top-level `master_id`.
+Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment` (MODE: PARALLEL). Без master_id на рядках — MODE: SEQUENTIAL (не продавай як паралель).
 
 `create_local_order` — коли клієнт погодився на товар/послугу/дзвінок (локальна заявка в адмінці, без CRM mirror).
 

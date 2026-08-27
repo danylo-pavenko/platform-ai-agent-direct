@@ -17,7 +17,7 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (без другого book як reschedule). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише booking + привʼязаний CRM-клієнт.
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише booking + привʼязаний CRM-клієнт.
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
@@ -25,8 +25,8 @@ Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost,
 
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief
-booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment
-Немає cancel/reschedule/refund tools. Скасувати візит, перенести слот або повернути оплату → request_handoff (повторний book_appointment на іншу дату створює другий запис, не move).
+booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
+Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment).
 
 Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff).
 

@@ -88,11 +88,13 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/чекаємо тебе/);
   });
 
-  it('routes cancel/reschedule/refund to handoff, not a second book_appointment', () => {
+  it('documents cancel/reschedule tools and forbids second book as move', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
-    expect(prompt).toMatch(/request_handoff/);
-    expect(prompt).toMatch(/перенесення|перенести/);
-    expect(prompt).toMatch(/другий запис/);
+    expect(prompt).toMatch(/cancel_appointment/);
+    expect(prompt).toMatch(/reschedule_appointment/);
+    expect(prompt).toMatch(/remove_appointment_service/);
+    expect(prompt).toMatch(/не другий book|Не використовуй повторний book|reschedule_appointment/);
+    expect(prompt).toMatch(/Refund|оплати/);
   });
 
   it('requires per-service master_id for parallel booking', () => {

@@ -37,7 +37,8 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 | Services | `GET /services` + `/services/categories` | `fetchServices` / `searchServices` |
 | Slots | `GET /employees/free_time` | `getAvailableSlots` |
 | Book | `POST /appointments` (`state: planned`) | `createBooking` |
-| Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` (adapter only — **not** an agent tool) |
+| Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` → agent `cancel_appointment` / reschedule |
+| Remove service | `PUT` `services[].action=delete` | `removeBookingService` → `remove_appointment_service` |
 | Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
 | History | `GET /clients/{id}/history` | `fetchClientHistory` |
 
@@ -45,7 +46,7 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 
 Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no Instagram filter**. We try UA phone variants (`+380` / `380` / `0XX`), then email, then `name` + `IG:@handle` in GET **`comment`** (singular; live `fields` rejects `comments`). Do **not** write `comment` on POST/PUT `/clients` — live 400 `Unknown parameter 'comment'`. Visit notes go on appointment **`comments`**.
 
-**Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks, **agent cancel/reschedule/refund** (`POST /sales:refund` exists in vendor API but is not wired). Client asks to cancel/move/refund → `request_handoff`. Do not second `book_appointment` as a move (merge is only same date+location+client).
+**Not in MVP:** catalog/orders/leads (KeyCRM), cards/абонементи, group lessons, prepayment, dentures, webhooks, **refund** (`POST /sales:refund` not wired). Cancel/move: agent tools `cancel_appointment` / `remove_appointment_service` / `reschedule_appointment`. Do not second `book_appointment` as a move (merge is only same date+location+client). Refund → `request_handoff`.
 
 ## Booking nuances (from official docs)
 

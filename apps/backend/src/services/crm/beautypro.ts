@@ -50,6 +50,11 @@ import {
   pickSameDayAppointmentId,
 } from './beautypro-appointment.js';
 import {
+  buildBeautyproServiceDeleteBody,
+  matchBeautyproServiceLine,
+  parseBeautyproAppointmentServices,
+} from './beautypro-appointment-services.js';
+import {
   BP_CLIENT_LIST_FIELDS,
   buildBeautyproClientWriteBody,
   buildClientPhoneSearchVariants,
@@ -1104,6 +1109,51 @@ export const beautyproAdapter: CrmAdapter = {
         cancelReason: 'Cancelled via Instagram agent',
       },
     });
+  },
+
+  async fetchAppointmentServices(crmRecordId: string) {
+    const raw = await bpFetch<unknown>('GET', `/appointments/${crmRecordId}`, {
+      query: {
+        fields: 'state,services(id,service,serviceName,start,duration,professional)',
+      },
+    });
+    return parseBeautyproAppointmentServices(raw).map((row) => ({
+      lineId: row.lineId,
+      serviceId: row.serviceId,
+      serviceName: row.serviceName,
+      start: row.start,
+      durationMin: row.durationMin,
+      professionalId: row.professionalId,
+    }));
+  },
+
+  async removeBookingService(input: {
+    crmRecordId: string;
+    serviceCatalogId: string;
+  }) {
+    const lines = await this.fetchAppointmentServices!(input.crmRecordId);
+    const hit = matchBeautyproServiceLine(lines, {
+      serviceCatalogId: input.serviceCatalogId,
+    });
+    if (!hit) {
+      throw new Error(
+        `BeautyPro: service ${input.serviceCatalogId} not found on appointment ${input.crmRecordId}`,
+      );
+    }
+    if (lines.length <= 1) {
+      await this.cancelBooking!(input.crmRecordId, 'cancel');
+      return { remainingCount: 0, cancelledVisit: true };
+    }
+    await bpFetch('PUT', `/appointments/${input.crmRecordId}`, {
+      query: { force: true },
+      body: buildBeautyproServiceDeleteBody(hit.lineId),
+    });
+    const remaining = lines.length - 1;
+    log.info(
+      { crmRecordId: input.crmRecordId, serviceCatalogId: input.serviceCatalogId, remaining },
+      'BeautyPro booking service removed',
+    );
+    return { remainingCount: remaining, cancelledVisit: false };
   },
 
   async fetchClientHistory(

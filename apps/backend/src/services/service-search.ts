@@ -245,6 +245,25 @@ export async function getAvailableSlotsForContext(args: {
   if (personal.notes.length > 0) {
     lines.push(...personal.notes, '');
   }
+
+  const totalDurationMin = assigned.reduce(
+    (sum, s) => sum + (Number.isFinite(s.durationMin) && s.durationMin > 0 ? s.durationMin : 60),
+    0,
+  );
+  const multiService = assigned.length > 1;
+  if (parallelMasters) {
+    lines.push(
+      'MODE: PARALLEL — різні майстри, спільний start (послуги одночасно). Пропонуй клієнту лише ці години як паралельний запис.',
+      '',
+    );
+  } else if (multiService) {
+    lines.push(
+      `MODE: SEQUENTIAL — один майстер (або без master_id), сумарно ~${totalDurationMin} хв підряд.`,
+      'НЕ пропонуй цей результат як «кілька майстрів одночасно». Для PARALLEL — свіжий get_available_slots з services[].master_id на КОЖНОМУ рядку.',
+      '',
+    );
+  }
+
   const masterMap = new Map(result.masters.map((m) => [m.id, m.name]));
   const excludeKey = args.excludeTime
     ? normalizeSlotTimeKey(args.excludeTime)
@@ -276,7 +295,11 @@ export async function getAvailableSlotsForContext(args: {
         lines.push(`- ${slot.time} | ${byService} | tools: ${ids}`);
       } else {
         const mastersLabel = formatSlotMastersLine(slot.masterIds, masterMap);
-        lines.push(`- ${slot.time} | майстри: ${mastersLabel || '—'}`);
+        const endHint =
+          multiService && !parallelMasters
+            ? ` | блок ~${totalDurationMin} хв`
+            : '';
+        lines.push(`- ${slot.time}${endHint} | майстри: ${mastersLabel || '—'}`);
       }
     }
     if (daysShown >= 5) break;
@@ -304,10 +327,16 @@ export async function getAvailableSlotsForContext(args: {
     const binding = formatParallelServiceMasterLines(assigned, masterMap);
     lines.push(
       '',
-      'Паралельний запис (різні майстри, один start):',
+      'PARALLEL binding (різні майстри, один start):',
       ...binding,
       'Swap майстрів між послугами або додавання ще однієї послуги → НОВИЙ get_available_slots з оновленими services[].master_id, потім book_appointment.',
       'Перед book_appointment після паузи клієнта — свіжий get_available_slots (слот міг зайнятись).',
+      'Пропонуй клієнту лише години з цього результату — не змішуй з іншим викликом tool.',
+    );
+  } else if (multiService) {
+    lines.push(
+      '',
+      'SEQUENTIAL: послуги одного майстра йдуть підряд (платформа на book вибудує start). Не продавай як паралель.',
     );
   }
 

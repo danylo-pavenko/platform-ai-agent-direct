@@ -271,6 +271,16 @@ export interface CrmBookingAppendInput {
   previousServiceCount: number;
 }
 
+/** Service line on an existing CRM appointment (BeautyPro). */
+export interface CrmAppointmentServiceLine {
+  lineId: string;
+  serviceId: string;
+  serviceName?: string;
+  start?: string;
+  durationMin?: number;
+  professionalId?: string;
+}
+
 /** Past visit / sale from CRM client history (BeautyPro last ~2 months). */
 export interface CrmVisitHistoryItem {
   id: string;
@@ -356,6 +366,15 @@ export interface CrmAdapter {
   /** Add services to an existing CRM booking after a local merge. */
   appendBookingServices?(input: CrmBookingAppendInput): Promise<void>;
   cancelBooking?(recordId: string, reason?: 'move' | 'cancel'): Promise<void>;
+  /** BeautyPro: list service lines on an appointment (for delete by catalog id). */
+  fetchAppointmentServices?(
+    crmRecordId: string,
+  ): Promise<CrmAppointmentServiceLine[]>;
+  /** Remove one catalog service from a booking; may cancel visit if last line. */
+  removeBookingService?(input: {
+    crmRecordId: string;
+    serviceCatalogId: string;
+  }): Promise<{ remainingCount: number; cancelledVisit: boolean }>;
 
   /** Past visits for duration / preference context (BeautyPro history, etc.). */
   fetchClientHistory?(

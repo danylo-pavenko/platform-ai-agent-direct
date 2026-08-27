@@ -94,13 +94,13 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 |------|---------|---------------------|------------------|
 | **sales** | E-commerce | `search_catalog`, `get_delivery_cost`, `collect_order` | Local order (+ optional CRM mirror) |
 | **leadgen** | Qualification / brief | `classify_intent`, `submit_brief` | Brief + Telegram (+ optional KeyCRM lead) |
-| **booking** | Salon appointment | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment` | CRM appointment |
+| **booking** | Salon appointment | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | CRM appointment |
 
-There are **no** cancel / reschedule / refund tools. If the client asks to cancel a visit, move a slot, or reverse a payment → `request_handoff`. Adapter `cancelBooking` exists on BeautyPro/CleverBOX but is **not** wired to the agent. A second `book_appointment` on another date creates a **new** CRM visit (BeautyPro merges only same date+location+client); it does not move the old one.
+**Cancel / reschedule:** `cancel_appointment` (full visit), `remove_appointment_service` (one line; last line → full cancel), `reschedule_appointment` (cancel old + book new). Do **not** use a second `book_appointment` as a move (SDK denies when an active visit exists on another date/time). **Refund / payment cancel** → still `request_handoff`. BeautyPro supports `PUT` cancel and `services[].action=delete`.
 
-Parallel services at the same clock time need **per-line** `services[].master_id` (different professionals). A single top-level `master_id` is copied only onto lines that omit their own id; same master → sequential starts in BeautyPro. Old failed bookings: admin sets masters per Appointment service line, then retry CRM (`PATCH /orders/:id/booking-services` → `POST /orders/:id/sync-crm`).
+Parallel services at the same clock time need **per-line** `services[].master_id` (different professionals). Slot tool labels `MODE: PARALLEL` vs `MODE: SEQUENTIAL`. A single top-level `master_id` is copied only onto lines that omit their own id; same master → sequential starts in BeautyPro. Old failed bookings: admin sets masters per Appointment service line, then retry CRM (`PATCH /orders/:id/booking-services` → `POST /orders/:id/sync-crm`).
 
-**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / agent failure (`services/telegram-notify.ts`).
+**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / cancel / reschedule / agent failure (`services/telegram-notify.ts`).
 
 ---
 

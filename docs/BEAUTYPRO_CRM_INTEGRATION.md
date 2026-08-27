@@ -62,18 +62,18 @@
 | `fetchServices` / `searchServices` | `GET /services` + `/services/categories` |
 | `getAvailableSlots` | `GET /employees/free_time` (+ `GET /employees`) |
 | `createBooking` | `POST /clients` + `POST /appointments` (`state: planned`, **`?force=true` за замовчуванням**). Не передавати `fields=id` на POST. **Один майстер** — послуги підряд (12:00 + 115 хв → 13:55). **Різні майстри** — той самий `start`, різний `professional`. `force=true` пропускає 409 `TIME_CONFLICT`. Opt-out: `forceTimeConflict: false`. Якщо 409 без force і в клієнта вже є planned/confirmed на цей день+філію — привʼязуємо існуючий id. |
-| `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. **Агент цього не викликає** — немає tool. Скасування/перенесення/оплата → `request_handoff`. |
+| `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. Agent tool: `cancel_appointment` / part of `reschedule_appointment`. |
+| `removeBookingService` | `GET` services on appointment → `PUT` `services: [{ id: lineId, action: 'delete' }]`. Agent: `remove_appointment_service`. Last line → full cancel. |
 | `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: `comment` (не `comments`). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email` (як у docs create). Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
 
 ## Agent: cancel / move / pay
 
-Агент у booking **не** вміє скасувати візит, перенести слот або повернути оплату.
-
-| Клієнт просить | Що має статись | Чому не «просто book знову» |
-|----------------|----------------|-----------------------------|
-| Скасувати запис | `request_handoff` (менеджер у BeautyPro) | `cancelBooking` є в adapter, але не в tools |
-| Перенести на інший день/час | `request_handoff` | BeautyPro **мержить** лише той самий `date + location + client`; інша дата = **другий** запис |
-| Скасувати/повернути оплату | `request_handoff` | Prepayment / `POST /sales:refund` / `POST /sales:cancel` **не в MVP** |
+| Клієнт просить | Tool | Примітка |
+|----------------|------|----------|
+| Скасувати весь запис | `cancel_appointment` | `cancelBooking` → `state: cancelled` |
+| Прибрати одну послугу | `remove_appointment_service` | `action=delete`; остання → full cancel |
+| Перенести день/час | `reschedule_appointment` | cancel old + new `createBooking` (не другий `book_appointment`) |
+| Скасувати/повернути оплату | `request_handoff` | Prepayment / `POST /sales:refund` **не в MVP** |
 
 ## `fields` (живий API суворіший за docs)
 

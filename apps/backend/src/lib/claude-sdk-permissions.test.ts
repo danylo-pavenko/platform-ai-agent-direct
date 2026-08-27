@@ -8,6 +8,9 @@ const bookingAllow = new Set([
   'search_services',
   'get_available_slots',
   'book_appointment',
+  'cancel_appointment',
+  'remove_appointment_service',
+  'reschedule_appointment',
   'request_handoff',
   'update_client_info',
 ]);
@@ -75,7 +78,34 @@ describe('evaluateSdkToolPermission', () => {
       existingBooking: { date: '21.08.2026', time: '10:00' },
     });
     expect(r.behavior).toBe('deny');
-    if (r.behavior === 'deny') expect(r.message).toMatch(/request_handoff/);
+    if (r.behavior === 'deny') expect(r.message).toMatch(/reschedule_appointment/);
+  });
+
+  it('allows reschedule_appointment with date and time', () => {
+    const r = evaluateSdkToolPermission(
+      'reschedule_appointment',
+      { date: '22.08.2026', time: '11:00' },
+      { allowNames: bookingAllow, existingBooking: { date: '21.08.2026', time: '10:00' } },
+    );
+    expect(r.behavior).toBe('allow');
+  });
+
+  it('allows cancel_appointment', () => {
+    const r = evaluateSdkToolPermission(
+      'cancel_appointment',
+      { reason: 'клієнт просить' },
+      { allowNames: bookingAllow },
+    );
+    expect(r.behavior).toBe('allow');
+  });
+
+  it('denies remove_appointment_service without service id/name', () => {
+    const r = evaluateSdkToolPermission(
+      'remove_appointment_service',
+      {},
+      { allowNames: bookingAllow },
+    );
+    expect(r.behavior).toBe('deny');
   });
 
   it('allows book retry on the same date+time (merge / idempotent)', () => {

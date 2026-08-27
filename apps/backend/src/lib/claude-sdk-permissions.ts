@@ -26,7 +26,7 @@ export interface SdkToolPermissionPolicy {
 }
 
 const RESCHEDULE_DENY =
-  'Немає reschedule tool. Інша дата/час = новий візит у CRM, старий лишиться. Викликай request_handoff.';
+  'Не перенось через book_appointment (інша дата = другий запис). Викликай reschedule_appointment після get_available_slots.';
 
 const FORCE_DENY =
   'force=true заборонено на агентному шляху. Запропонуй інший слот або request_handoff.';
@@ -116,7 +116,7 @@ export function evaluateSdkToolPermission(
 
   if (policy.mutationsAllowed === false) {
     return deny(
-      'Terminal mutation already applied this turn. Reply to the client; do not call book/collect/create_local_order/submit_brief again.',
+      'Terminal mutation already applied this turn. Reply to the client; do not call book/cancel/reschedule/collect/create_local_order/submit_brief again.',
     );
   }
 
@@ -138,6 +138,24 @@ export function evaluateSdkToolPermission(
     }
     const { force: _force, ...rest } = args;
     return allow(rest);
+  }
+
+  if (name === 'cancel_appointment') {
+    return allow(args);
+  }
+
+  if (name === 'remove_appointment_service') {
+    if (!asNonEmptyString(args.service_id) && !asNonEmptyString(args.service_name)) {
+      return deny('remove_appointment_service потребує service_id або service_name.');
+    }
+    return allow(args);
+  }
+
+  if (name === 'reschedule_appointment') {
+    if (!asNonEmptyString(args.date) || !asNonEmptyString(args.time)) {
+      return deny('reschedule_appointment потребує date (ДД.ММ.РРРР) і time.');
+    }
+    return allow(args);
   }
 
   if (name === 'collect_order') {

@@ -339,6 +339,64 @@ export async function notifyOrder(params: {
 }
 
 /**
+ * Notify-only card when agent cancels / removes a service / reschedules a booking.
+ */
+export async function notifyBookingLifecycle(params: {
+  kind: 'cancelled' | 'service_removed' | 'rescheduled';
+  appointmentId: string;
+  conversationId: string;
+  clientIgUserId?: string | null;
+  summary: string;
+  customerName: string;
+  phone: string;
+  reason?: string | null;
+}): Promise<void> {
+  const {
+    kind,
+    appointmentId,
+    conversationId,
+    clientIgUserId,
+    summary,
+    customerName,
+    phone,
+    reason,
+  } = params;
+  const shortId = appointmentId.slice(0, 8);
+  const shortConv = conversationId.slice(0, 8);
+  const adminUrl = adminConversationUrl(conversationId);
+  const title =
+    kind === 'cancelled'
+      ? `Запис скасовано #${escapeHtml(shortId)}`
+      : kind === 'rescheduled'
+        ? `Запис перенесено #${escapeHtml(shortId)}`
+        : `Послугу прибрано з запису #${escapeHtml(shortId)}`;
+  const lead =
+    kind === 'cancelled'
+      ? 'Агент скасував запис у CRM.'
+      : kind === 'rescheduled'
+        ? 'Агент переніс запис (старий скасовано, новий створено).'
+        : 'Агент прибрав одну послугу з візиту.';
+
+  const text = [
+    `✅ <b>${title}</b>`,
+    ``,
+    lead,
+    reason ? `Причина: ${escapeHtml(reason)}` : null,
+    `Суть: ${escapeHtml(summary)}`,
+    clientIgUserId ? `Клієнт: IG @${escapeHtml(clientIgUserId)}` : null,
+    `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
+    `Ім'я: ${escapeHtml(customerName)}`,
+    `Телефон: ${escapeHtml(phone)}`,
+    ``,
+    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
+  ]
+    .filter((line) => line !== '' && line != null)
+    .join('\n');
+
+  await sendToManagerGroup(text, undefined, 'order');
+}
+
+/**
  * Sends a presale-brief card to the manager group when the leadgen agent
  * submits a brief for a new lead. Lightweight shape — full brief lives in
  * the DB + CRM; the notification is the "you have a warm lead" nudge.

@@ -72,6 +72,9 @@ export function platformToolsForMcp(
     if (
       !mutationsAllowed &&
       (name === 'book_appointment' ||
+        name === 'cancel_appointment' ||
+        name === 'remove_appointment_service' ||
+        name === 'reschedule_appointment' ||
         name === 'collect_order' ||
         name === 'create_local_order' ||
         name === 'submit_brief')
@@ -274,7 +277,7 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'request_handoff',
-        'Передати розмову менеджеру. Скасування / перенесення запису / refund — лише цей tool.',
+        'Передати розмову менеджеру. Refund / скарга / tool cancel-reschedule failed. Скасування візиту — cancel_appointment; перенесення — reschedule_appointment.',
         { reason: z.string(), priority: z.enum(['normal', 'urgent']).optional() },
         hostQueuedHandler('request_handoff'),
         { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
@@ -285,7 +288,7 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'book_appointment',
-        'Підтвердити запис у CRM після згоди клієнта. Не використовуй як reschedule. Не світи UUID клієнту. Не кажи «записала» без успішного result.',
+        'Підтвердити НОВИЙ запис у CRM після згоди клієнта. Не використовуй як reschedule (тоді reschedule_appointment). Не світи UUID клієнту. Не кажи «записала» без успішного result.',
         {
           customer_name: z.string(),
           phone: z.string(),
@@ -306,6 +309,62 @@ export function createLookupMcpServer(
           crm_provider: z.enum(['cleverbox', 'beautypro', 'keycrm']).optional(),
         },
         hostQueuedHandler('book_appointment'),
+        { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
+  if (allowed.has('cancel_appointment')) {
+    tools.push(
+      tool(
+        'cancel_appointment',
+        'Скасувати весь поточний запис у CRM. Не для refund. Не кажи «скасовано» без ok.',
+        { reason: z.string().optional() },
+        hostQueuedHandler('cancel_appointment'),
+        { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
+  if (allowed.has('remove_appointment_service')) {
+    tools.push(
+      tool(
+        'remove_appointment_service',
+        'Прибрати одну послугу з поточного візиту. Якщо остання — скасує весь запис.',
+        {
+          service_id: z.string().optional(),
+          service_name: z.string().optional(),
+        },
+        hostQueuedHandler('remove_appointment_service'),
+        { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
+  if (allowed.has('reschedule_appointment')) {
+    tools.push(
+      tool(
+        'reschedule_appointment',
+        'Перенести запис: скасує старий візит і створить новий на date/time. Не через book_appointment.',
+        {
+          date: z.string(),
+          time: z.string(),
+          customer_name: z.string().optional(),
+          phone: z.string().optional(),
+          services: z
+            .array(
+              z.object({
+                id: z.string(),
+                name: z.string().optional(),
+                price: z.number().optional(),
+                duration_min: z.number().optional(),
+                master_id: z.string().optional(),
+                start_time: z.string().optional(),
+              }),
+            )
+            .optional(),
+          master_id: z.string().optional(),
+          comment: z.string().optional(),
+          reason: z.string().optional(),
+        },
+        hostQueuedHandler('reschedule_appointment'),
         { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
       ),
     );

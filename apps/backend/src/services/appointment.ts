@@ -10,7 +10,7 @@ import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { asCrmId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
-import { notifyCrmFallback, notifyOrder } from './telegram-notify.js';
+import { notifyCrmFallback, notifyOrder, notifyBookingLifecycle } from './telegram-notify.js';
 import {
   applyServiceMasterAssignments,
   normalizeAppointmentServices,
@@ -918,6 +918,426 @@ export async function updateAppointmentServiceMasters(params: {
     data: { services: toInputJsonValue(servicesToJson(next))! },
   });
   return { services: next };
+}
+
+async function findActiveBookingAppointment(conversationId: string) {
+  return prisma.appointment.findFirst({
+    where: {
+      conversationId,
+      status: { in: ['confirmed', 'synced'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: { client: true, branch: true },
+  });
+}
+
+async function markLocalAppointmentCancelled(appointmentId: string): Promise<void> {
+  await prisma.appointment.update({
+    where: { id: appointmentId },
+    data: { status: 'cancelled' },
+  });
+  await prisma.order.updateMany({
+    where: { kind: 'booking', note: { contains: `appointmentId=${appointmentId}` } },
+    data: {
+      status: 'cancelled',
+      isArchived: true,
+      archivedAt: new Date(),
+    },
+  });
+}
+
+async function sendClientLifecycleMessage(
+  conversationId: string,
+  igUserId: string | null | undefined,
+  text: string,
+  skip?: boolean,
+): Promise<void> {
+  if (skip || !igUserId?.trim()) return;
+  try {
+    await sendText(igUserId, text);
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'out',
+        sender: 'bot',
+        text,
+      },
+    });
+    markFirstOutboundAt(conversationId).catch(() => undefined);
+  } catch (err) {
+    log.error({ err, conversationId }, 'Failed to send booking lifecycle IG message');
+  }
+}
+
+export async function handleCancelAppointment(
+  conversationId: string,
+  clientId: string,
+  args: Record<string, unknown>,
+  options?: BookAppointmentOptions,
+): Promise<BookAppointmentResult | null> {
+  const appointment = await findActiveBookingAppointment(conversationId);
+  if (!appointment || appointment.clientId !== clientId) {
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult:
+        '[cancel_appointment] failed: немає активного запису в цій розмові. Уточни деталі або request_handoff.',
+    };
+  }
+
+  const reason =
+    typeof args.reason === 'string' && args.reason.trim()
+      ? args.reason.trim()
+      : 'Скасовано клієнтом через Instagram';
+
+  if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
+    try {
+      const provider = await resolveCrmProvider('booking');
+      const crm = getCrmAdapter(provider);
+      if (!crm.cancelBooking) {
+        return {
+          appointmentId: appointment.id,
+          crmSynced: false,
+          toolResult: `[cancel_appointment] failed: CRM ${provider} не підтримує скасування. request_handoff.`,
+        };
+      }
+      await crm.cancelBooking(appointment.crmRecordId, 'cancel');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error({ err, conversationId, appointmentId: appointment.id }, 'cancel_appointment CRM failed');
+      return {
+        appointmentId: appointment.id,
+        crmSynced: false,
+        toolResult: `[cancel_appointment] failed: ${msg.slice(0, 400)}. Якщо оплачено або CRM відхилив — request_handoff.`,
+      };
+    }
+  }
+
+  await markLocalAppointmentCancelled(appointment.id);
+  notifyBookingLifecycle({
+    kind: 'cancelled',
+    appointmentId: appointment.id,
+    conversationId,
+    clientIgUserId: options?.clientIgUserId ?? appointment.client.igUserId,
+    summary: `${appointment.scheduledDate} ${appointment.scheduledTime}`,
+    customerName: appointment.customerName,
+    phone: appointment.phone,
+    reason,
+  }).catch(() => undefined);
+
+  await sendClientLifecycleMessage(
+    conversationId,
+    options?.clientIgUserId ?? appointment.client.igUserId,
+    `Запис на ${appointment.scheduledDate} о ${appointment.scheduledTime} скасовано. Якщо захочете записатись знову — напишіть, підберемо зручний час.`,
+    options?.skipClientMessage,
+  );
+
+  return {
+    appointmentId: appointment.id,
+    crmSynced: true,
+    toolResult: `[cancel_appointment] ok id=${appointment.id}`,
+  };
+}
+
+export async function handleRemoveAppointmentService(
+  conversationId: string,
+  clientId: string,
+  args: Record<string, unknown>,
+  options?: BookAppointmentOptions,
+): Promise<BookAppointmentResult | null> {
+  const appointment = await findActiveBookingAppointment(conversationId);
+  if (!appointment || appointment.clientId !== clientId) {
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult:
+        '[remove_appointment_service] failed: немає активного запису. Уточни або request_handoff.',
+    };
+  }
+
+  const serviceId = asCrmId(args.service_id);
+  const serviceName =
+    typeof args.service_name === 'string' ? args.service_name.trim() : '';
+  if (!serviceId && !serviceName) {
+    return {
+      appointmentId: appointment.id,
+      crmSynced: false,
+      toolResult: '[remove_appointment_service] failed: потрібен service_id або service_name.',
+    };
+  }
+
+  const localServices = normalizeAppointmentServices(appointment.services);
+  let targetLocal = serviceId
+    ? localServices.find((s) => s.id === serviceId)
+    : undefined;
+  if (!targetLocal && serviceName) {
+    const matches = localServices.filter((s) =>
+      (s.name ?? '').toLowerCase().includes(serviceName.toLowerCase()),
+    );
+    if (matches.length === 1) targetLocal = matches[0];
+  }
+  if (!targetLocal && serviceId) {
+    // Still try CRM match by catalog id even if local name differs.
+    targetLocal = { id: serviceId, durationMin: 60, name: serviceName || undefined };
+  }
+  if (!targetLocal) {
+    return {
+      appointmentId: appointment.id,
+      crmSynced: false,
+      toolResult:
+        '[remove_appointment_service] failed: послугу не знайдено у візиті. Уточни назву/id або request_handoff.',
+    };
+  }
+
+  let cancelledVisit = false;
+  let remainingLocal = localServices.filter((s) => s.id !== targetLocal!.id);
+
+  if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
+    try {
+      const provider = await resolveCrmProvider('booking');
+      const crm = getCrmAdapter(provider);
+      if (!crm.removeBookingService) {
+        if (localServices.length <= 1 && crm.cancelBooking) {
+          await crm.cancelBooking(appointment.crmRecordId, 'cancel');
+          cancelledVisit = true;
+          remainingLocal = [];
+        } else {
+          return {
+            appointmentId: appointment.id,
+            crmSynced: false,
+            toolResult: `[remove_appointment_service] failed: CRM ${provider} не вміє знімати окрему послугу. Скасуйте весь запис (cancel_appointment) або request_handoff.`,
+          };
+        }
+      } else {
+        const result = await crm.removeBookingService({
+          crmRecordId: appointment.crmRecordId,
+          serviceCatalogId: targetLocal.id,
+        });
+        cancelledVisit = result.cancelledVisit;
+        if (cancelledVisit) remainingLocal = [];
+        else remainingLocal = localServices.filter((s) => s.id !== targetLocal!.id);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, conversationId, appointmentId: appointment.id },
+        'remove_appointment_service CRM failed',
+      );
+      return {
+        appointmentId: appointment.id,
+        crmSynced: false,
+        toolResult: `[remove_appointment_service] failed: ${msg.slice(0, 400)}. Якщо оплачено — request_handoff.`,
+      };
+    }
+  } else if (remainingLocal.length === 0) {
+    cancelledVisit = true;
+  }
+
+  if (cancelledVisit || remainingLocal.length === 0) {
+    await markLocalAppointmentCancelled(appointment.id);
+    notifyBookingLifecycle({
+      kind: 'cancelled',
+      appointmentId: appointment.id,
+      conversationId,
+      clientIgUserId: options?.clientIgUserId ?? appointment.client.igUserId,
+      summary: `${appointment.scheduledDate} ${appointment.scheduledTime}`,
+      customerName: appointment.customerName,
+      phone: appointment.phone,
+      reason: `Прибрано останню послугу: ${targetLocal.name ?? targetLocal.id}`,
+    }).catch(() => undefined);
+    await sendClientLifecycleMessage(
+      conversationId,
+      options?.clientIgUserId ?? appointment.client.igUserId,
+      `Запис на ${appointment.scheduledDate} о ${appointment.scheduledTime} скасовано (не лишилось послуг).`,
+      options?.skipClientMessage,
+    );
+    return {
+      appointmentId: appointment.id,
+      crmSynced: true,
+      toolResult: `[remove_appointment_service] ok cancelled_visit id=${appointment.id}`,
+    };
+  }
+
+  await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: { services: toInputJsonValue(servicesToJson(remainingLocal))! },
+  });
+  const removedName = targetLocal.name ?? targetLocal.id;
+  const marker = `appointmentId=${appointment.id}`;
+  const order = await prisma.order.findFirst({
+    where: { kind: 'booking', note: { contains: marker } },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (order) {
+    const items = normalizeOrderItems(order.items, removedName).filter(
+      (item) => item.name !== removedName && !item.name.includes(targetLocal!.id),
+    );
+    const nextItems =
+      items.length > 0
+        ? items
+        : remainingLocal.map((s) => ({
+            name: s.name || 'Послуга',
+            price: Number(s.price) || 0,
+            qty: 1,
+          }));
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { items: toInputJsonValue(nextItems)! },
+    });
+  }
+
+  notifyBookingLifecycle({
+    kind: 'service_removed',
+    appointmentId: appointment.id,
+    conversationId,
+    clientIgUserId: options?.clientIgUserId ?? appointment.client.igUserId,
+    summary: `${appointment.scheduledDate} ${appointment.scheduledTime}`,
+    customerName: appointment.customerName,
+    phone: appointment.phone,
+    reason: `Прибрано: ${removedName}`,
+  }).catch(() => undefined);
+
+  await sendClientLifecycleMessage(
+    conversationId,
+    options?.clientIgUserId ?? appointment.client.igUserId,
+    `З запису на ${appointment.scheduledDate} о ${appointment.scheduledTime} прибрано: ${removedName}. Інші послуги лишаються.`,
+    options?.skipClientMessage,
+  );
+
+  return {
+    appointmentId: appointment.id,
+    crmSynced: true,
+    toolResult: `[remove_appointment_service] ok id=${appointment.id} removed=${targetLocal.id} remaining=${remainingLocal.length}`,
+  };
+}
+
+export async function handleRescheduleAppointment(
+  conversationId: string,
+  clientId: string,
+  args: Record<string, unknown>,
+  options?: BookAppointmentOptions,
+): Promise<BookAppointmentResult | null> {
+  const appointment = await findActiveBookingAppointment(conversationId);
+  if (!appointment || appointment.clientId !== clientId) {
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult:
+        '[reschedule_appointment] failed: немає активного запису для перенесення. Уточни або request_handoff.',
+    };
+  }
+
+  const rawDate = typeof args.date === 'string' ? args.date.trim() : '';
+  const time = typeof args.time === 'string' ? args.time.trim() : '';
+  const date = normalizeToUaDate(rawDate);
+  if (!parseAgentDate(date) || !time) {
+    return {
+      appointmentId: appointment.id,
+      crmSynced: false,
+      toolResult: '[reschedule_appointment] failed: потрібні date (ДД.ММ.РРРР) і time.',
+    };
+  }
+
+  if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
+    try {
+      const provider = await resolveCrmProvider('booking');
+      const crm = getCrmAdapter(provider);
+      if (!crm.cancelBooking) {
+        return {
+          appointmentId: appointment.id,
+          crmSynced: false,
+          toolResult: `[reschedule_appointment] failed: CRM ${provider} не підтримує скасування старого візиту. request_handoff.`,
+        };
+      }
+      await crm.cancelBooking(appointment.crmRecordId, 'move');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, conversationId, appointmentId: appointment.id },
+        'reschedule_appointment cancel-old CRM failed',
+      );
+      return {
+        appointmentId: appointment.id,
+        crmSynced: false,
+        toolResult: `[reschedule_appointment] failed (cancel old): ${msg.slice(0, 400)}. request_handoff.`,
+      };
+    }
+  }
+
+  await markLocalAppointmentCancelled(appointment.id);
+
+  const existingServices = normalizeAppointmentServices(appointment.services);
+  const hasNewServices = Array.isArray(args.services) && args.services.length > 0;
+  const bookArgs: Record<string, unknown> = {
+    customer_name:
+      typeof args.customer_name === 'string' && args.customer_name.trim()
+        ? args.customer_name.trim()
+        : appointment.customerName,
+    phone:
+      typeof args.phone === 'string' && args.phone.trim()
+        ? args.phone.trim()
+        : appointment.phone,
+    date,
+    time,
+    comment:
+      typeof args.comment === 'string'
+        ? args.comment
+        : appointment.comment ?? undefined,
+    master_id: args.master_id,
+    services: hasNewServices
+      ? args.services
+      : existingServices.map((s) => ({
+          id: s.id,
+          name: s.name,
+          price: s.price,
+          duration_min: s.durationMin,
+          master_id: s.masterId,
+          start_time: s.startTime,
+        })),
+  };
+
+  const bookResult = await handleBookAppointment(conversationId, clientId, bookArgs, {
+    clientIgUserId: options?.clientIgUserId ?? appointment.client.igUserId,
+    clientMessage: options?.clientMessage,
+    skipClientMessage: options?.skipClientMessage,
+  });
+
+  if (!bookResult) {
+    return {
+      appointmentId: appointment.id,
+      crmSynced: false,
+      toolResult:
+        '[reschedule_appointment] failed: старий візит скасовано, але новий не створено (перевір поля). request_handoff.',
+    };
+  }
+
+  if (!bookResult.crmSynced) {
+    return {
+      appointmentId: bookResult.appointmentId || appointment.id,
+      crmSynced: false,
+      toolResult: bookResult.toolResult.replace(
+        '[book_appointment]',
+        '[reschedule_appointment]',
+      ),
+    };
+  }
+
+  notifyBookingLifecycle({
+    kind: 'rescheduled',
+    appointmentId: bookResult.appointmentId,
+    conversationId,
+    clientIgUserId: options?.clientIgUserId ?? appointment.client.igUserId,
+    summary: `${appointment.scheduledDate} ${appointment.scheduledTime} → ${date} ${time}`,
+    customerName: String(bookArgs.customer_name),
+    phone: String(bookArgs.phone),
+    reason: typeof args.reason === 'string' ? args.reason : undefined,
+  }).catch(() => undefined);
+
+  return {
+    appointmentId: bookResult.appointmentId,
+    crmSynced: true,
+    toolResult: `[reschedule_appointment] ok id=${bookResult.appointmentId} from=${appointment.id}`,
+  };
 }
 
 export async function listBookingMasters(): Promise<Array<{ id: string; name: string }>> {

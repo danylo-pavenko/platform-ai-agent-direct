@@ -168,9 +168,32 @@ describe('getAvailableSlotsForContext preferred master', () => {
     );
     expect(text).toContain('12:00');
     expect(text).not.toContain('13:00');
+    expect(text).toContain('MODE: PARALLEL');
     expect(text).toMatch(/services\[\]\.master_id/);
     expect(text).toContain('[master_id=nails] Анна');
     expect(text).toContain('[master_id=brows] Оля');
+  });
+
+  it('labels SEQUENTIAL when multi-service without per-line masters', async () => {
+    getAvailableSlots.mockResolvedValue({
+      slots: {
+        '04.08.2026': [{ date: '04.08.2026', time: '10:00', masterIds: ['a'] }],
+      },
+      masters: [{ id: 'a', name: 'Anna' }],
+    });
+
+    const text = await getAvailableSlotsForContext({
+      date: '04.08.2026',
+      branchCrmId: 'loc-1',
+      services: [
+        { id: 'svc-1', durationMin: 115 },
+        { id: 'svc-2', durationMin: 60 },
+      ],
+    });
+
+    expect(text).toContain('MODE: SEQUENTIAL');
+    expect(text).toMatch(/сумарно ~175 хв|блок ~175 хв/);
+    expect(text).toMatch(/НЕ пропонуй цей результат як/);
   });
 
   it('returns at most 3 slot times per day', async () => {
