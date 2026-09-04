@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Direct AI Agents — Customer Support Operating System for Verba Creative Inc. | Proposal v2.0</title>
+  <style>
+    :root {
+      --ink: #1a2332;
+      --muted: #5b6573;
+      --line: #d7dde6;
+      --paper: #ffffff;
+      --wash: #f4f6f9;
+      --navy: #1e3a5f;
+      --navy-2: #16304d;
+      --accent: #1e3a5f;
+      --ok: #1b6b4a;
+      --warn: #8a5a12;
+      --no: #9b2c2c;
+      --soft: #eef2f7;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #e6e9ee; color: var(--ink); }
+    body { font-family: "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 14.5px; line-height: 1.55; }
+    .page { max-width: 880px; margin: 0 auto; background: var(--paper); }
+    .inner { padding: 56px 64px 48px; }
+    header.cover {
+      background: var(--navy);
+      color: #fff;
+      padding: 72px 64px 56px;
+      min-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .brand { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; opacity: 0.72; margin: 0 0 28px; }
+    header.cover h1 { font-size: 36px; line-height: 1.18; font-weight: 600; margin: 0 0 18px; letter-spacing: -0.02em; max-width: 18ch; }
+    header.cover .sub { font-size: 17px; line-height: 1.45; max-width: 38rem; opacity: 0.92; margin: 0 0 36px; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 32px; font-size: 13px; }
+    .meta-grid span { display: block; opacity: 0.6; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 2px; }
+    .classif { font-size: 12px; letter-spacing: 0.01em; line-height: 1.45; opacity: 0.78; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 16px; margin-top: 40px; max-width: 42rem; }
+    h2 { font-size: 22px; line-height: 1.25; color: var(--navy); margin: 40px 0 14px; font-weight: 650; letter-spacing: -0.015em; }
+    h3 { font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--navy); margin: 26px 0 10px; font-weight: 700; }
+    h4 { font-size: 15px; margin: 16px 0 8px; color: var(--ink); font-weight: 650; }
+    p { margin: 0 0 12px; }
+    .lede { font-size: 16.5px; line-height: 1.5; color: var(--ink); max-width: 46rem; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12.5px; color: var(--muted); }
+    ul, ol { margin: 0 0 14px; padding-left: 18px; }
+    li { margin: 0 0 6px; }
+    a { color: var(--navy); }
+    .box { background: var(--wash); border: 1px solid var(--line); padding: 16px 18px; margin: 16px 0 20px; }
+    .box.navy { background: var(--navy); color: #fff; border: none; }
+    .box.navy p, .box.navy li { color: #fff; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0 18px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 14px 0 18px; }
+    .card { border: 1px solid var(--line); padding: 14px 16px; background: #fff; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0 18px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 700; background: var(--wash); }
+    .tag { display: inline-block; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--line); font-weight: 700; white-space: nowrap; }
+    .tag.ok { color: var(--ok); border-color: #b7d7c5; }
+    .tag.warn { color: var(--warn); border-color: #e2c98a; }
+    .tag.no { color: var(--no); border-color: #e0b4b4; }
+    .tag.navy { color: var(--navy); border-color: #b7c4d6; }
+    .kicker { font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; font-weight: 700; }
+    .toc a { text-decoration: none; color: var(--ink); }
+    .toc td:first-child { width: 2.4rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    hr { border: none; border-top: 1px solid var(--line); margin: 28px 0; }
+    .foot { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 36px; }
+    .callout { border-left: 3px solid var(--navy); padding: 8px 0 8px 14px; margin: 16px 0 20px; }
+    .price { font-size: 26px; font-weight: 650; color: var(--navy); margin: 0 0 2px; letter-spacing: -0.02em; }
+    .arch { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; background: var(--navy-2); color: #e8eef6; padding: 18px 20px; overflow-x: auto; white-space: pre; margin: 12px 0 18px; }
+    ol.steps { padding-left: 22px; }
+    ol.steps li { margin-bottom: 10px; }
+    @media print {
+      html, body {
+        background: #fff;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      body { padding: 0; }
+      .page { max-width: none; margin: 0; }
+      header.cover {
+        min-height: 297mm;
+        page-break-after: always;
+        break-after: page;
+        padding: 22mm 18mm 16mm;
+      }
+      .inner { padding: 12mm 4mm 8mm; }
+      h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+      .card, .box, .arch, .callout { break-inside: avoid; page-break-inside: avoid; }
+      table { break-inside: auto; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      a { text-decoration: none; color: inherit; }
+      .foot { margin-top: 20px; }
+      @page { size: A4; margin: 12mm 12mm 14mm; }
+      @page :first { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<header class="cover">
+  <div>
+    <p class="brand">DEP Software · Direct AI Agents</p>
+    <h1>Customer Support Operating System for Verba</h1>
+    <p class="sub">A dedicated instance of Direct AI Agents, extended with email, Stripe billing operations, and an engineering ticket loop. Prepared for Verba Creative Inc.</p>
+    <div class="meta-grid">
+      <div><span>Prepared for</span>Verba Creative Inc.</div>
+      <div><span>Prepared by</span>DEP Software (Direct AI Agents)</div>
+      <div><span>Document</span>Proposal v2.0 · supersedes v1.0 (August 2026)</div>
+      <div><span>Date</span>4 September 2026</div>
+      <div><span>Classification</span>Confidential · Client use only</div>
+      <div><span>Decision requested</span>Proceed to paid discovery, then select a commercial option</div>
+    </div>
+  </div>
+  <p class="classif">This document is a commercial and technical proposal. It is not a statement of work until countersigned. Figures are indicative pending discovery.</p>
+</header>
+
+<div class="inner">
+
+  <div class="section">
+    <p class="kicker">Contents</p>
+    <table class="toc">
+      <tbody>
+        <tr><td>01</td><td><a href="#s1">Executive summary</a></td></tr>
+        <tr><td>02</td><td><a href="#s2">Situation assessment</a></td></tr>
+        <tr><td>03</td><td><a href="#s3">Assessment of proposal v1.0</a></td></tr>
+        <tr><td>04</td><td><a href="#s4">Recommended operating model</a></td></tr>
+        <tr><td>05</td><td><a href="#s5">Channel architecture</a></td></tr>
+        <tr><td>06</td><td><a href="#s6">Stripe: what is possible, what is not</a></td></tr>
+        <tr><td>07</td><td><a href="#s7">Ticketing: Jira, Linear, or neither</a></td></tr>
+        <tr><td>08</td><td><a href="#s8">Build a copy versus extend the platform</a></td></tr>
+        <tr><td>09</td><td><a href="#s9">Solution design</a></td></tr>
+        <tr><td>10</td><td><a href="#s10">Delivery programme</a></td></tr>
+        <tr><td>11</td><td><a href="#s11">Security, privacy, and controls</a></td></tr>
+        <tr><td>12</td><td><a href="#s12">Success measures and governance</a></td></tr>
+        <tr><td>13</td><td><a href="#s13">Commercial options</a></td></tr>
+        <tr><td>14</td><td><a href="#s14">Risks, assumptions, and exclusions</a></td></tr>
+        <tr><td>15</td><td><a href="#s15">Decision and next steps</a></td></tr>
+        <tr><td>A</td><td><a href="#sa">Appendix — sources and technical notes</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section" id="s1">
+    <h2>1. Executive summary</h2>
+    <p class="lede">Verba does not need a chatbot bolted onto Instagram. It needs a single support operating system that can answer product questions, collect defect reports, explain Apple versus Stripe billing, execute refunds only when policy allows, and open an engineering ticket when the product is actually broken.</p>
+    <p>Direct AI Agents already does this for Instagram Direct: isolated tenant, versioned prompts, sandbox, Telegram handoff, audit trail. For Verba we do <strong>not</strong> fork the product. We provision a dedicated tenant and extend the platform with three capabilities that the current core does not have: a first-class <strong>email</strong> channel, a <strong>Stripe billing adapter</strong> (tools + webhooks, not Dashboard chat), and an optional <strong>ticket adapter</strong> into Linear or Jira Software.</p>
+    <div class="grid-3">
+      <div class="card"><h4>What we recommend</h4><p>Dedicated tenant. Customer-facing channels: email (official App Store path) and Instagram Direct. Billing truth: Apple IAP and Stripe, treated as separate ledgers. Engineering loop: Linear or Jira issues created by the agent — not a second customer portal.</p></div>
+      <div class="card"><h4>What we will not sell</h4><p>Two-way chat inside the Stripe Dashboard. Scraping Stripe’s internal UI. Refunding an App Store charge through Stripe. Replacing Apple’s refund decision. A Jira Service Management customer portal that competes with the agent.</p></div>
+      <div class="card"><h4>How to buy it</h4><p>A one-week paid discovery, then a sequenced programme measured in weeks, not days. Indicative full programme: <strong>$16,800</strong> one-time and <strong>$320/month</strong> platform, plus Anthropic usage at cost. Discovery is credited if Verba proceeds.</p></div>
+    </div>
+    <div class="callout">
+      <p><strong>Decision this document asks for.</strong> Approve a 5-day discovery workshop ($1,800, credited). In that week we confirm IAP versus Stripe mix, where receipt replies actually land, which tracker the engineering team already uses, and whether Instagram is a material queue. Commercial options below are then confirmed in a short statement of work.</p>
+    </div>
+  </div>
+
+  <div class="section" id="s2">
+    <h2>2. Situation assessment</h2>
+    <p>Verba is an iOS short-form video editor (captions, teleprompter, 4K export, translation, voiceover) sold by <strong>Verba Creative Inc.</strong>, a Delaware corporation. Public store listing: App Store id <code>6467481048</code>, seller Verba Creative Inc., support address <strong>support@verba.digital</strong>. The product site claims 100,000+ users. Independent store intelligence (MWM, August 2026) reports 250k+ downloads and a 4.9 store rating. Written reviews are more mixed: subscription friction, export failures, and “the app changed after I paid” appear repeatedly. That gap — high store score, noisy written complaints — is exactly where unattended support burns rating and cash.</p>
+    <p>The April 2026 privacy policy is explicit: purchases, subscriptions, refunds, and billing support are processed through <strong>Apple, Stripe, or other payment providers</strong>, including web-to-app checkout. That is the operating fact this proposal is built on. Most iPhone revenue will never appear in Stripe. Most web checkout revenue will never be refundable by Apple.</p>
+
+    <h3>2.1 Where customers already write</h3>
+    <table>
+      <thead><tr><th>Surface</th><th>Role today</th><th>Implication for this programme</th></tr></thead>
+      <tbody>
+        <tr><td>Email · support@verba.digital</td><td>Official App Store support contact. Also listed on legal pages.</td><td><strong>Primary inbound channel.</strong> Must be a first-class conversation in the agent inbox, not a side-car of Stripe.</td></tr>
+        <tr><td>Instagram Direct</td><td>Brand channel. Bugs, how-to, “I was charged”, refunds, public-risk complaints.</td><td>Production path on Direct AI Agents today. Reputation risk if silent at night.</td></tr>
+        <tr><td>Stripe Dashboard</td><td>Receipts, invoices, hosted Customer Portal, disputes, failed payments. Some merchants also see a Dashboard “customer messages / refund requests” inbox.</td><td>Billing system of record for <em>Stripe-billed</em> customers. Not a messenger API. Events and tools, not a cloned Direct channel.</td></tr>
+        <tr><td>Apple / reportaproblem.apple.com</td><td>IAP refunds, Family Sharing, subscription cancel in iOS Settings.</td><td>Agent explains the path and, later, consumes App Store Server Notifications. Agent cannot refund IAP via Stripe.</td></tr>
+        <tr><td>vk@verba.digital / App Store replies</td><td>Product feedback and founder-tone replies.</td><td>Keep as a human brand surface. Agent must match tone without impersonating a founder on legal or refund edge cases.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>2.2 Why this is expensive for a five-person company</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Fragmented queues</h4>
+        <p>The same person may email support, DM Instagram, tap “request a refund” on a Stripe receipt, and open an Apple refund — with no shared customer record. Humans re-type FAQ answers; real crashes bounce without device / iOS / app version.</p>
+      </div>
+      <div class="card">
+        <h4>Two ledgers, one customer sentence</h4>
+        <p>Listed IAP prices include weekly, monthly, and yearly Pro/Premium (for example yearly $49.99). A reply that says “I refunded your card” on an Apple charge is false. The next step is often a bank dispute.</p>
+      </div>
+      <div class="card">
+        <h4>Policy lives in people’s heads</h4>
+        <p>One teammate refunds a yearly plan; another refuses. Abuse follows the softer answer. Night coverage is a second salary. Headcount does not scale with featuring or ads.</p>
+      </div>
+      <div class="card">
+        <h4>Product ships continuously</h4>
+        <p>Store listing at review time: version 3.66.0 (dual-camera teleprompter). Knowledge that is not tied to release notes goes stale between versions. Incomplete bug reports waste engineering time.</p>
+      </div>
+    </div>
+    <p class="small">Public company signals used for sizing only: LinkedIn lists Verba as ~5 people, Delaware HQ, Google for Startups backing, modest disclosed funding. These are not audited financials. Discovery will replace them with Verba’s own ticket volume and revenue mix.</p>
+  </div>
+
+  <div class="section" id="s3">
+    <h2>3. Assessment of proposal v1.0</h2>
+    <p>Version 1.0 (August 2026) was a correct <em>technical instinct</em> and an incomplete <em>operating design</em>. We keep the hard constraints. We change the product shape, the timeline honesty, and the commercial packaging.</p>
+    <table>
+      <thead><tr><th>v1.0 position</th><th>Verdict</th><th>v2.0 correction</th></tr></thead>
+      <tbody>
+        <tr><td>Stripe Dashboard chat can be cloned like Instagram Direct</td><td><span class="tag no">Reject</span></td><td>Unchanged: no public Conversations API. No scraping. Tools + webhooks + email.</td></tr>
+        <tr><td>Apple IAP and Stripe are different money</td><td><span class="tag ok">Keep</span></td><td>Strengthen: IAP is likely the majority path for an iOS-only store app. Stripe is web-to-app / web checkout (privacy policy).</td></tr>
+        <tr><td>Refunds gated in code, not only in the prompt</td><td><span class="tag ok">Keep</span></td><td>Unchanged. Policy engine + audit log + Telegram approve above cap.</td></tr>
+        <tr><td>Instagram from week one as the hero channel</td><td><span class="tag warn">Rebalance</span></td><td>App Store official support is email. Instagram is brand and reputation. Both are in scope; email is not optional.</td></tr>
+        <tr><td>Email treated as “Stripe layer C”</td><td><span class="tag no">Rework</span></td><td>Email is a platform channel for all support, including Stripe receipt replies if Public details point at support@.</td></tr>
+        <tr><td>No ticket system</td><td><span class="tag no">Gap</span></td><td>Add an engineering adapter (Linear preferred for this company size; Jira Software if already in use). Not JSM as a second customer portal.</td></tr>
+        <tr><td>Implementation in 3–8 calendar days per phase</td><td><span class="tag warn">Too aggressive</span></td><td>Email and Stripe are new conversation types in a core that today only has <code>ig | tg</code>. Plan in weeks, with a discovery gate.</td></tr>
+        <tr><td>$440 Instagram package next to $12k Stripe work</td><td><span class="tag warn">Mis-signals</span></td><td>Package as a programme. Do not look like a $50 bot beside a custom billing build.</td></tr>
+        <tr><td>First-person “I set this up this week”</td><td><span class="tag warn">Tone</span></td><td>Corporate delivery: named workstreams, RACI, DPA, exclusions.</td></tr>
+        <tr><td>Platform metrics (response time, reply success) presented as Verba outcomes</td><td><span class="tag warn">Credibility</span></td><td>Those are platform operating stats, not a Verba SLA until measured on Verba traffic.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section" id="s4">
+    <h2>4. Recommended operating model</h2>
+    <p>One agent. One customer record. Several inbound pipes. One policy. Humans only on exceptions.</p>
+    <div class="arch">Customer
+  ├─ Email (support@verba.digital)     ← official App Store path
+  ├─ Instagram Direct                  ← brand / public-risk path
+  ├─ Stripe events (webhooks)          ← dispute, payment_failed, refund.failed
+  └─ Apple ASSN v2 (optional)          ← CONSUMPTION_REQUEST, REFUND
+           │
+           ▼
+Direct AI Agents  ·  dedicated Verba tenant
+  · Claude runtime + versioned support prompt
+  · Knowledge (FAQ, release notes, policy)
+  · Identity graph (email as primary key)
+  · Policy engine (refund / cancel / dispute)
+           │
+           ├─ Reply on the same customer channel
+           ├─ Stripe API (restricted key): lookup, portal, gated refund, cancel
+           ├─ Ticket adapter: Linear or Jira Software (bugs / product)
+           └─ Telegram: approve refund, take over, receive a brief</div>
+    <h3>4.1 Intent model (what the agent is for)</h3>
+    <table>
+      <thead><tr><th>Intent</th><th>Agent action</th><th>Human required?</th></tr></thead>
+      <tbody>
+        <tr><td>How-to (fonts, SRT, 4K, teleprompter, captions)</td><td>Answer from current knowledge. Cite the path in-app. Offer a follow-up if it still fails.</td><td>No, unless the article is missing.</td></tr>
+        <tr><td>Defect / crash / export failure</td><td>Collect device, iOS, app version, reproduction. Known issue → workaround. Novel → ticket + customer acknowledgement.</td><td>Engineering owns the ticket. Agent owns the customer.</td></tr>
+        <tr><td>Billing — Apple</td><td>Explain Settings / reportaproblem.apple.com. Never call Stripe Refunds. Tag the thread IAP.</td><td>Only for abuse, legal, or PR risk.</td></tr>
+        <tr><td>Billing — Stripe</td><td>Lookup customer. Portal link for cancel / card update. Auto-refund inside policy. Else Telegram approve.</td><td>Above cap, yearly, repeat, open dispute.</td></tr>
+        <tr><td>Chargeback / dispute</td><td>Open an internal case from the webhook. Do not issue a parallel refund. Draft evidence pack.</td><td>Yes. Finance / founder.</td></tr>
+        <tr><td>Abuse, legal, press, data deletion</td><td>Immediate handoff. No autonomous money movement.</td><td>Always.</td></tr>
+      </tbody>
+    </table>
+    <h3>4.2 Identity</h3>
+    <p>Email is the join key. Instagram username, Stripe <code>cus_</code>, Apple original transaction id (if Verba stores <code>appAccountToken</code>), and ticket id are linked attributes. The agent must not show raw processor ids to the customer. Discovery will confirm whether web checkout already writes email onto a Verba account — without that, Stripe lookup is “email the customer typed in the thread,” which is weaker but still useful.</p>
+  </div>
+
+  <div class="section" id="s5">
+    <h2>5. Channel architecture</h2>
+    <p>Today the Direct AI Agents conversation model is <code>instagram | telegram</code>. Telegram is a <em>team</em> channel, not a customer channel. Verba requires two new customer pipes in the core: <code>email</code> and <code>stripe_event</code>. That is platform work, done once, then available to this tenant.</p>
+
+    <h3>5.1 Email — first-class customer channel</h3>
+    <p>Inbound: Google Workspace / Gmail API, or inbound parse (Postmark, Mailgun, SendGrid) on <strong>support@verba.digital</strong>. Threading via <code>In-Reply-To</code> / <code>References</code>. Outbound from the same address so Stripe receipt replies and App Store-originated mail sit in one conversation.</p>
+    <p>Stripe Public details (support email on receipts and invoices) should point at this same address. That is how “chats from Stripe” become email conversations without a Dashboard API. If Verba later uses a dedicated <code>billing@</code>, it is an alias into the same inbox, not a second product.</p>
+    <p class="small">Risk to verify in discovery: some Stripe hosted UIs collect a refund request without sending mail. Those requests are Dashboard-only. We will not scrape them. Mitigation: Customer Portal + email path + Instagram, and a weekly Dashboard exception check until Stripe exposes an event (they have not, as of this review).</p>
+
+    <h3>5.2 Instagram Direct — production channel</h3>
+    <p>Official Meta Graph API, Page token, OAuth, webhook hub. Same runtime as other Direct AI Agents tenants: coalesce, typing, story replies, handoff, smart-trigger, sandbox. Requires an Instagram Business account linked to a Facebook Page and Live-app Advanced Access for <code>instagram_manage_messages</code> if the asset is a third-party business account.</p>
+
+    <h3>5.3 Stripe — adapter, not a messenger</h3>
+    <p>Three layers, none of which impersonate Dashboard chat:</p>
+    <table>
+      <thead><tr><th>Layer</th><th>Purpose</th><th>Reply path</th></tr></thead>
+      <tbody>
+        <tr><td>A · Copilot tools</td><td>During an email or IG thread: find customer, list charges/invoices/subscriptions, create Customer Portal session, cancel subscription, create refund if policy passes.</td><td>Same thread the customer wrote in.</td></tr>
+        <tr><td>B · Event channel</td><td>Signed webhooks: <code>invoice.payment_failed</code>, <code>customer.subscription.*</code>, <code>charge.dispute.*</code>, <code>refund.failed</code>, <code>charge.refunded</code>. Become conversations or internal cases.</td><td>Customer email on the Stripe Customer, or IG if already linked.</td></tr>
+        <tr><td>C · Email coincidence</td><td>Receipt / invoice replies land on support@ because Public details say so.</td><td>Email thread. Not the Stripe Dashboard composer.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>5.4 Apple — optional, high value if IAP dominates</h3>
+    <p>App Store Server Notifications V2: <code>CONSUMPTION_REQUEST</code> (respond within 12 hours with consumption data and an optional refund preference), <code>REFUND</code>, <code>REFUND_DECLINED</code>. This does not let Verba refund IAP. It lets Verba <em>participate</em> in Apple’s decision and keep the inbox aligned with what Apple already did.</p>
+  </div>
+
+  <div class="section" id="s6">
+    <h2>6. Stripe: what is possible, what is not</h2>
+    <p>Stripe is a billing platform with a public API, webhooks, Customer Portal, and restricted keys. Instagram Direct is a messenger with an official inbound and outbound Graph API. Those are different classes of channel. The right build is an adapter.</p>
+    <table>
+      <thead><tr><th>Business ask</th><th>What Stripe exposes</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr><td>Read Dashboard “Customer messages” as chat</td><td>Inbox in Dashboard. No public Conversations API.</td><td><span class="tag no">Out of scope</span> We will not scrape the Dashboard. It breaks terms and will rot.</td></tr>
+        <tr><td>See a refund request before money moves</td><td>Hosted receipt / invoice button is often UI-only. Zapier-class tools typically fire after <code>charge.refunded</code>.</td><td><span class="tag warn">Partial</span> Email + IG + Portal. Confirm in discovery with a Dashboard screenshot.</td></tr>
+        <tr><td>Find customer, invoice, subscription; issue refund; cancel</td><td><code>Customers</code>, <code>Subscriptions</code>, <code>Invoices</code>, <code>Refunds</code> API. <code>POST /v1/refunds</code>. <code>POST /v1/billing_portal/sessions</code>.</td><td><span class="tag ok">In scope</span> Official path. Restricted key.</td></tr>
+        <tr><td>Know they cancelled, failed a payment, or opened a dispute</td><td>Documented webhook events, signed with <code>Stripe-Signature</code>.</td><td><span class="tag ok">In scope</span> Event channel.</td></tr>
+        <tr><td>Reply in the same Stripe Dashboard thread</td><td>No <code>sendMessage</code>. Merchant reply is email or your own channel. Third-party Stripe Apps (e.g. inbox overlays) are not a public messaging API.</td><td><span class="tag ok">Substitute</span> Email + IG, not Dashboard chat.</td></tr>
+        <tr><td>Customer self-serve cancel / update card</td><td>Billing Customer Portal.</td><td><span class="tag ok">Preferred</span> Agent sends a portal link instead of performing every mutation.</td></tr>
+      </tbody>
+    </table>
+    <h3>6.1 Refund safety</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Automatic, if all gates pass</h4>
+        <ul>
+          <li>Stripe Customer + charge or PaymentIntent, not yet refunded</li>
+          <li>Inside a written window and at or under a written cap</li>
+          <li>No open dispute on the charge</li>
+          <li>Rate limit: one auto-refund per customer per N days</li>
+          <li>Reason on a whitelist (duplicate, unused, billing error, crash)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h4>Human approve (Telegram)</h4>
+        <ul>
+          <li>Amount above cap, or yearly plan</li>
+          <li>Repeat request or suspected abuse</li>
+          <li>Material usage of generation limits (if Verba can supply the signal)</li>
+          <li>Anything billed by Apple</li>
+          <li>Open chargeback — dispute process, not a second refund</li>
+        </ul>
+      </div>
+    </div>
+    <p>Every <code>create_refund</code> is written to the tenant audit log (charge id, amount, reason, actor = agent or approver). Keys stay in tenant environment, never in logs, never in the prompt. Refund <code>reason</code> on the Stripe object uses Stripe’s enum (<code>duplicate</code>, <code>fraudulent</code>, <code>requested_by_customer</code>); Verba’s richer reason lives in metadata and the ticket.</p>
+  </div>
+
+  <div class="section" id="s7">
+    <h2>7. Ticketing: Jira, Linear, or neither</h2>
+    <p>A support agent without an engineering loop creates beautifully written bugs that still die in Telegram. A full helpdesk (Zendesk, Intercom, Jira Service Management as a customer portal) creates a <em>second</em> inbox and competes with the agent. Verba should pick one customer-facing brain (Direct AI Agents) and one engineering tracker.</p>
+    <table>
+      <thead><tr><th>Option</th><th>Fit for Verba (~5 people, consumer app)</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td>Linear</td><td>API-first, fast, cheap, designed for product teams. Issues, comments, labels, cycles.</td><td><span class="tag ok">Default</span> if Verba has no tracker, or already uses Linear / similar.</td></tr>
+        <tr><td>Jira Software</td><td>Create Bug/Task, comment, transition. Familiar if the team is already on Atlassian.</td><td><span class="tag ok">If already in use</span> Adapter to existing project. Do not introduce Jira “because enterprise.”</td></tr>
+        <tr><td>Jira Service Management</td><td>ITSM, request types, customer portal, SLAs, agent seats. Strong for internal IT; weak as an Instagram/email CX layer. Customers would file into a portal the agent is supposed to replace.</td><td><span class="tag no">Not default</span> Only if Verba already runs JSM and insists. Even then: agent writes issues; customers do not use the JSM portal.</td></tr>
+        <tr><td>Zendesk / Intercom / Freshdesk</td><td>Excellent omnichannel helpdesks. They are alternative products, not complementary adapters. Buying one <em>and</em> Direct AI Agents duplicates cost and policy.</td><td><span class="tag warn">Buy one stack</span> If Verba wants Zendesk as system of record, this proposal is the wrong shape.</td></tr>
+        <tr><td>GitHub Issues</td><td>Fine if engineering already lives in GitHub and volume is low.</td><td><span class="tag navy">Acceptable</span> Fallback adapter.</td></tr>
+      </tbody>
+    </table>
+    <h3>7.1 What the adapter actually does</h3>
+    <ul>
+      <li>Create an issue when the agent classifies a novel defect, with device / iOS / app version / logs / customer language / channel link.</li>
+      <li>Comment when the customer sends a follow-up (deduped by conversation id).</li>
+      <li>Read status so the agent can say “the team has this as VER-142, still open” without leaking internals the customer should not see.</li>
+      <li>Never auto-close a customer thread solely because an engineer hit Done — the agent confirms with the customer.</li>
+    </ul>
+    <p>This mirrors how Direct AI Agents already talks to CRMs: <code>getCrmAdapter</code> + action routing. Ticketing gets the same pattern. HTTP does not live in the conversation orchestrator.</p>
+  </div>
+
+  <div class="section" id="s8">
+    <h2>8. Build a copy versus extend the platform</h2>
+    <p>The brief asked: integrate Verba into Direct AI Agents, or build a copy of the system with extra channels. There are three real options.</p>
+    <table>
+      <thead><tr><th></th><th>A. Dedicated tenant + platform extensions</th><th>B. Fork / white-label copy</th><th>C. Buy Intercom / Zendesk AI</th></tr></thead>
+      <tbody>
+        <tr><td>What Verba gets</td><td>Isolated Linux user, database, admin, Claude login. New channels built in the shared core, enabled only for this tenant until stable.</td><td>A separate codebase Verba would eventually own and operate.</td><td>A generic helpdesk with AI add-ons. Instagram Direct is not the same product.</td></tr>
+        <tr><td>Time to first customer reply</td><td>Weeks (IG can go live after discovery; email follows the channel build).</td><td>Months. You re-buy every bugfix the platform already has.</td><td>Days for email; Instagram and Stripe policy engines still custom.</td></tr>
+        <tr><td>Money movement</td><td>Policy engine we control. Restricted Stripe key. Audit log.</td><td>You must rebuild the same gates.</td><td>Macros and humans in Dashboard, unless you still build Stripe tools.</td></tr>
+        <tr><td>Cost shape</td><td>This proposal.</td><td>High six figures to reach parity, then Verba owns ops.</td><td>Per-agent + AI resolution fees. Weak fit for IG + Apple/Stripe split.</td></tr>
+        <tr><td>IP / lock-in</td><td>Verba owns prompts, knowledge, transcripts (exportable). Platform remains DEP Software.</td><td>Verba can own the stack if that is the commercial. Support burden moves to Verba.</td><td>Vendor lock-in on tickets and AI billing.</td></tr>
+      </tbody>
+    </table>
+    <div class="box navy">
+      <p><strong>Recommendation: Option A.</strong> Do not fork Direct AI Agents for Verba. A copy looks attractive (“it’s ours”) and becomes a frozen sales/booking platform plus a half-finished support fork. Channel work (email, Stripe events) belongs in the core as adapters — the same way CRM adapters were added — then this tenant turns them on.</p>
+    </div>
+    <p>If Verba later requires source escrow or a buy-out of the Verba-specific adapters, that is a separate legal schedule. It is not required to go live.</p>
+  </div>
+
+  <div class="section" id="s9">
+    <h2>9. Solution design</h2>
+    <h3>9.1 What is reused unchanged</h3>
+    <ul>
+      <li>Isolated tenant provisioning (separate OS user, database, admin domain, process tree).</li>
+      <li>Claude Agent SDK runtime, versioned system prompts, meta-agent (prompt editor), sandbox.</li>
+      <li>Telegram as manager channel: takeover, return, refund approve.</li>
+      <li>Handoff, tags, client profile, audit-minded logging (no secrets in prompts or logs).</li>
+    </ul>
+    <h3>9.2 What we add in the platform core</h3>
+    <ul>
+      <li>Conversation channels <code>email</code> and <code>stripe_event</code> (schema, queue, inbox filters).</li>
+      <li>Support tool pack: Stripe lookup / portal / gated refund / cancel; <code>create_ticket</code> / <code>update_ticket</code>.</li>
+      <li>Policy engine as code (window, cap, allowlist, dispute guard) — prompts cannot bypass it.</li>
+      <li>Ticket adapter interface (Linear, Jira Software).</li>
+      <li>Optional App Store Server Notifications receiver.</li>
+    </ul>
+    <h3>9.3 What is tenant configuration, not engineering</h3>
+    <ul>
+      <li>Support prompt in Verba’s tone, including hard no’s (no fake Stripe refunds on IAP).</li>
+      <li>Knowledge: FAQ, in-app paths, current version caveats, refund policy text.</li>
+      <li>Release-note ingestion process after each App Store version.</li>
+      <li>Sandbox pack: how-to, Apple refund, Stripe duplicate charge, crash with missing version, angry yearly refund.</li>
+    </ul>
+    <h3>9.4 Agent mode</h3>
+    <p>Direct AI Agents modes today: <code>sales</code>, <code>leadgen</code>, <code>booking</code>, <code>general</code>. Verba should not run booking or catalogue sales tools. We add support tools on a dedicated support configuration (or a narrow <code>general</code> with sales/booking tools disabled). Refund remains impossible without the policy engine — the same principle as today’s <code>request_handoff</code> for payments, opened only through gated tools.</p>
+  </div>
+
+  <div class="section" id="s10">
+    <h2>10. Delivery programme</h2>
+    <p>Work is gated. Phase 0 produces a short findings memo and a firm statement of work. Later phases can be bought separately. Instagram can go live before Stripe money movement is enabled.</p>
+    <table>
+      <thead><tr><th>Phase</th><th>Outcome</th><th>Duration</th><th>Depends on Verba</th></tr></thead>
+      <tbody>
+        <tr><td><strong>0. Discovery</strong></td><td>Volume by channel (30 days). IAP vs Stripe revenue mix. Screenshot of Stripe customer requests / messages. Proof that receipt replies hit support@. Tracker choice (Linear / Jira / none). Written refund policy. RACI. Firm quote.</td><td>5 business days</td><td>Stripe Dashboard (read), App Store Connect access or export, mailbox admin, 20–30 real historical replies for tone.</td></tr>
+        <tr><td><strong>1. Tenant and Instagram</strong></td><td>Isolated instance live. Meta OAuth. Support prompt v1. Knowledge v1. Telegram. Sandbox signed off. IG answering in brand voice. Handoff working.</td><td>1–2 weeks</td><td>Instagram Business + Page. Tone samples. FAQ / release notes.</td></tr>
+        <tr><td><strong>2. Email channel</strong></td><td>support@ is a conversation in the same inbox. Agent replies in-thread. Stripe Public details pointed here. Inbox filter Email | Instagram.</td><td>2–3 weeks</td><td>DNS / Google Workspace (or inbound parse). Decision that this address is the single support identity.</td></tr>
+        <tr><td><strong>3. Stripe copilot</strong></td><td>Lookup, portal, gated refund, cancel, audit, Telegram approve. Test mode then live restricted key.</td><td>2–3 weeks</td><td>Restricted API key (test, then live). Written policy (window, cap, allowlist). Customer Portal enabled.</td></tr>
+        <tr><td><strong>4. Stripe events</strong></td><td>Disputes, failed payments, refund failures appear as cases. No Dashboard surprise.</td><td>1–2 weeks</td><td>Webhook endpoint allow-list. Who owns chargebacks.</td></tr>
+        <tr><td><strong>5. Engineering loop</strong></td><td>Novel bugs become Linear or Jira issues with a complete report. Customer stays on email/IG.</td><td>1–2 weeks</td><td>Tracker API token and project. Label conventions.</td></tr>
+        <tr><td><strong>6. Apple notifications (optional)</strong></td><td>CONSUMPTION_REQUEST handled within Apple’s window. REFUND events in the same inbox.</td><td>1–2 weeks</td><td>App Store Connect API key, ASSN URL, whether Verba stores appAccountToken.</td></tr>
+      </tbody>
+    </table>
+    <p>Indicative elapsed time for phases 1–5, with overlap: <strong>8–10 weeks</strong> from discovery sign-off. Phase 1 can produce value on Instagram in the first two weeks while email and Stripe are in build. We do not staff this as an anonymous agency bench; platform extensions are done by the Direct AI Agents engineering owner, with Verba product/support as the counterpart.</p>
+    <h3>10.1 RACI (steady state)</h3>
+    <table>
+      <thead><tr><th>Activity</th><th>Agent</th><th>Verba support / founder</th><th>Verba engineering</th><th>DEP Software</th></tr></thead>
+      <tbody>
+        <tr><td>How-to replies</td><td>A</td><td>C (policy/tone)</td><td>I</td><td>I</td></tr>
+        <tr><td>Refund inside policy (Stripe)</td><td>A</td><td>I (audit)</td><td>—</td><td>C (gates)</td></tr>
+        <tr><td>Refund above cap / yearly</td><td>C (brief)</td><td>A (approve)</td><td>—</td><td>I</td></tr>
+        <tr><td>Apple IAP explanation</td><td>A</td><td>C</td><td>—</td><td>I</td></tr>
+        <tr><td>Novel defect</td><td>C (report)</td><td>I (customer)</td><td>A (fix)</td><td>I</td></tr>
+        <tr><td>Chargeback</td><td>C (pack)</td><td>A</td><td>C</td><td>I</td></tr>
+        <tr><td>Prompt / knowledge update after a release</td><td>—</td><td>A</td><td>C</td><td>C (if tooling breaks)</td></tr>
+        <tr><td>Platform uptime, Meta/Stripe API compatibility</td><td>—</td><td>I</td><td>—</td><td>A</td></tr>
+      </tbody>
+    </table>
+    <p class="small">R = Responsible is merged into A (Accountable) for a company of this size. C = Consulted, I = Informed.</p>
+  </div>
+
+  <div class="section" id="s11">
+    <h2>11. Security, privacy, and controls</h2>
+    <ul>
+      <li><strong>Isolation.</strong> Dedicated tenant: separate OS user, database, admin, processes. Verba transcripts are not visible to other brands.</li>
+      <li><strong>Stripe.</strong> Restricted API key (RAK), least privilege: read customers/charges/subscriptions; write refunds and portal sessions only after gates exist. Test mode first. Key in tenant secret store, not in git, not in prompts. IP allow-list if Verba’s Stripe account supports it.</li>
+      <li><strong>Apple.</strong> App Store Connect key used only for ASSN and consumption API. No attempt to refund IAP through Stripe.</li>
+      <li><strong>Meta.</strong> OAuth Page token. Scopes limited to messaging. No password collection.</li>
+      <li><strong>Mailbox.</strong> Domain remains Verba’s. We receive via API or inbound parse; we do not take over the Google account.</li>
+      <li><strong>Personal data.</strong> Verba is controller (privacy policy). DEP Software is processor for the tenant. DPA available before live Stripe keys. Support content may include user media metadata — we do not need video binaries in the agent context.</li>
+      <li><strong>Residency / subprocessors.</strong> Claude (Anthropic), Meta, Stripe, Apple, optional Linear/Atlassian, email provider. Listed in the DPA.</li>
+      <li><strong>Human override.</strong> Takeover freezes the agent on that thread. Refunds above cap cannot execute without Telegram approve.</li>
+      <li><strong>Export / exit.</strong> Conversations, customers, tickets references exportable as JSON/CSV. Cancellation does not hold data hostage.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="s12">
+    <h2>12. Success measures and governance</h2>
+    <p>We will not promise Verba a 92% autonomous close rate. That number, where cited historically, is a platform operating statistic on other tenants and other intents (sales FAQ), not a support SLA. After 30 days of production we set a baseline, then targets.</p>
+    <table>
+      <thead><tr><th>Measure</th><th>Why it matters</th><th>Initial expectation (not a warranty)</th></tr></thead>
+      <tbody>
+        <tr><td>First response time (email and IG)</td><td>Night and weekend coverage is the purchase reason.</td><td>Median under 1 minute for agent-handled turns; human SLA separate.</td></tr>
+        <tr><td>Share of how-to closed without human</td><td>This is the volume sink.</td><td>Target 60–75% after knowledge is current. Measured, then contracted.</td></tr>
+        <tr><td>Share of Stripe billing closed without human</td><td>Portal + policy refunds.</td><td>Target ~50% of Stripe-billed billing intents, policy-dependent.</td></tr>
+        <tr><td>Defect reports with complete diagnostics</td><td>Engineering time.</td><td>&gt;90% of tickets created by the agent include device, iOS, app version, steps.</td></tr>
+        <tr><td>IAP threads where agent attempted a Stripe refund</td><td>Chargeback and trust.</td><td>Zero. Guarded in code.</td></tr>
+        <tr><td>Knowledge lag after App Store release</td><td>Stale how-to creates 1-star reviews.</td><td>Same-day prompt/knowledge patch for breaking changes, owner = Verba.</td></tr>
+      </tbody>
+    </table>
+    <p>Weekly 30-minute ops review for the first six weeks: failed tools, policy exceptions, tickets opened, refunds issued, handoffs. Prompt changes go through sandbox cases before production activate.</p>
+  </div>
+
+  <div class="section" id="s13">
+    <h2>13. Commercial options</h2>
+    <p>Figures are in USD, invoiced as agreed (including UAH at NBU rate if that is Verba’s preference). Anthropic Claude usage is billed by Anthropic to the tenant account, without DEP markup; support-volume tenants typically see low tens of dollars per month, traffic-dependent. Meta and Stripe fees remain Verba’s.</p>
+
+    <div class="box">
+      <h4>Discovery (required)</h4>
+      <p class="price">$1,800</p>
+      <p>Five business days. Findings memo, channel volumes, IAP/Stripe mix, mailbox proof, tracker recommendation, written policy gaps, firm SOW. <strong>100% credited</strong> against the first implementation invoice if Verba proceeds within 30 days.</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>Option 1 — Customer operations</h4>
+        <p class="price">$4,800 <span class="small">one-time</span></p>
+        <p class="price" style="font-size:20px">$180<span class="small"> / month platform</span></p>
+        <p>Dedicated tenant, Instagram Direct, email channel, support prompt, knowledge, Telegram, sandbox, admin inbox with channel filter. No money movement.</p>
+        <p class="small">Maps to phases 1–2. Email is included because it is the official App Store path — not an add-on.</p>
+      </div>
+      <div class="card">
+        <h4>Option 2 — Billing operations</h4>
+        <p class="price">+$6,400 <span class="small">one-time</span></p>
+        <p class="price" style="font-size:20px">+$140<span class="small"> / month</span></p>
+        <p>Stripe copilot, policy engine, audit, Telegram approve, webhook event channel, Customer Portal deep links. Requires Option 1.</p>
+        <p class="small">Maps to phases 3–4. Does not include Apple ASSN.</p>
+      </div>
+      <div class="card">
+        <h4>Option 3 — Engineering loop</h4>
+        <p class="price">+$3,200 <span class="small">one-time</span></p>
+        <p>One adapter: Linear <em>or</em> Jira Software. Issue create/comment/status read. Requires Option 1. Monthly included in Option 1.</p>
+        <p class="small">Jira Service Management customer portal is not this option.</p>
+      </div>
+      <div class="card">
+        <h4>Option 4 — Apple IAP notifications</h4>
+        <p class="price">+$2,400 <span class="small">one-time</span></p>
+        <p>ASSN V2 receiver, CONSUMPTION_REQUEST handler, REFUND events in inbox. Recommended if discovery shows IAP is the dominant ledger.</p>
+        <p class="small">Priced after the mix is confirmed; figure above is the planning number.</p>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Package</th><th>One-time</th><th>Monthly</th><th>When to choose it</th></tr></thead>
+      <tbody>
+        <tr><td>Pilot · Option 1</td><td>$4,800</td><td>$180</td><td>Need coverage on email + IG now; billing still manual.</td></tr>
+        <tr><td>Recommended · Options 1+2</td><td>$11,200</td><td>$320</td><td>Stripe web checkout is real volume and refunds are eating time.</td></tr>
+        <tr><td>Full programme · 1+2+3+4</td><td>$16,800</td><td>$320</td><td>Want the operating system: customers, money, engineering.</td></tr>
+      </tbody>
+    </table>
+    <p>Subscription covers hosting, isolated runtime, admin, channel connectors, and compatibility with Meta / Stripe API versions we have implemented. It does not cover new vendors, WhatsApp, or a Zendesk migration. First month of platform subscription is waived on Option 1 go-live. Either party may cancel the subscription with 30 days’ notice after the first paid month; implementation fees are not refundable once the corresponding phase is accepted.</p>
+    <p class="small">v1.0 quoted $440 + $5,800 + $6,800 ($13,040) with Instagram underpriced and email buried inside Stripe. v2.0 reallocates that effort: email is in Option 1, Stripe is Option 2, tickets and Apple are explicit. Discovery replaces guesswork before Stripe keys are issued.</p>
+  </div>
+
+  <div class="section" id="s14">
+    <h2>14. Risks, assumptions, and exclusions</h2>
+    <h3>14.1 Assumptions</h3>
+    <ul>
+      <li>Verba can appoint a single counterpart (product or founder) for policy, tone, and weekly review.</li>
+      <li>support@verba.digital can be pointed at an inbound we control technically, without changing the public address customers already use.</li>
+      <li>A written refund policy will exist before live Stripe refunds (discovery can draft it; Verba must approve it).</li>
+      <li>Instagram asset can complete Meta OAuth. If it cannot, Option 1 still delivers email.</li>
+    </ul>
+    <h3>14.2 Material risks</h3>
+    <table>
+      <thead><tr><th>Risk</th><th>Likelihood</th><th>Mitigation</th></tr></thead>
+      <tbody>
+        <tr><td>Most revenue is IAP; Stripe work has low ROI</td><td>Medium-high for an iOS-only app</td><td>Discovery mix check. Sequence Option 4 before Option 2 if IAP dominates.</td></tr>
+        <tr><td>Stripe refund requests never leave Dashboard</td><td>Medium</td><td>Email + Portal + IG. Explicitly out of scope to scrape. Weekly human Dashboard sweep if needed.</td></tr>
+        <tr><td>Email deliverability / threading breaks</td><td>Medium</td><td>SPF/DKIM/DMARC on verba.digital. Inbound parse as fallback to Gmail API.</td></tr>
+        <tr><td>Model refunds the wrong ledger</td><td>Low if gates ship; high if prompt-only</td><td>Policy engine in code. IAP tag. Sandbox cases. Zero-tolerance metric.</td></tr>
+        <tr><td>Knowledge stale after a release</td><td>High on this product cadence</td><td>Release checklist owned by Verba. Agent refuses to invent new UI paths.</td></tr>
+        <tr><td>Meta Advanced Access delay</td><td>Medium for third-party IG</td><td>Email-first go-live. IG as soon as OAuth succeeds.</td></tr>
+      </tbody>
+    </table>
+    <h3>14.3 Exclusions</h3>
+    <ul>
+      <li>Two-way chat inside the Stripe Dashboard inbox; scraping Stripe internal APIs.</li>
+      <li>Refunding Apple In-App Purchases via Stripe, or guaranteeing Apple will approve a refund.</li>
+      <li>WhatsApp, SMS, in-app chat SDK, or App Store review reply automation.</li>
+      <li>A Jira Service Management or Zendesk deployment as the customer-facing helpdesk.</li>
+      <li>Legal defence, chargeback representment as a managed service, or tax/VAT advice.</li>
+      <li>Training Verba’s models on customer video content (not required; not requested).</li>
+      <li>100% autonomous close on abuse, legal, or press cases.</li>
+    </ul>
+  </div>
+
+  <div class="section" id="s15">
+    <h2>15. Decision and next steps</h2>
+    <ol class="steps">
+      <li><strong>Approve discovery</strong> ($1,800, credited). Calendar: 2×90-minute working sessions plus async access (Stripe read, mailbox, App Store Connect or a billing export, tracker).</li>
+      <li><strong>Select a package</strong> in the SOW: Pilot (Option 1), Recommended (1+2), or Full (1–4), with phase gates.</li>
+      <li><strong>Sign DPA and issue test keys</strong> before any live refund tool is enabled.</li>
+      <li><strong>Sandbox sign-off</strong> on the case pack, then production on email and/or Instagram.</li>
+      <li><strong>Thirty-day baseline</strong>, then agree numeric targets if Verba wants them in the subscription.</li>
+    </ol>
+    <div class="box">
+      <p><strong>Counterparties.</strong> DEP Software · Direct AI Agents · help@depsoftware.com · direct-ai-agents.com</p>
+      <p><strong>Prepared for.</strong> Verba Creative Inc. · support@verba.digital · verba.digital / verbasubtitles.com</p>
+      <p class="small" style="margin-bottom:0">A live demonstration of the current Instagram agent is available on request. It is the same runtime this tenant would use; email, Stripe, and tickets are the extensions described above.</p>
+    </div>
+  </div>
+
+  <div class="section" id="sa">
+    <h2>Appendix A — Sources and technical notes</h2>
+    <h3>A.1 Verba (public)</h3>
+    <ul>
+      <li>App Store listing, id 6467481048: support@verba.digital; IAP weekly/monthly/yearly Pro and Premium price points; version 3.66.0 at time of review.</li>
+      <li>Privacy Policy, 27 April 2026, static.verba.digital: Apple, Stripe, web-to-app purchase flows; controller Verba Creative Inc., 131 Continental Drive, Suite 301, Newark, DE.</li>
+      <li>verbasubtitles.com: “Trusted by 100.000+ people.”</li>
+      <li>MWM app intelligence (accessed September 2026): 250k+ downloads; 4.9 store rating; mixed written-review themes (subscriptions, crashes, export).</li>
+    </ul>
+    <h3>A.2 Stripe (public API)</h3>
+    <ul>
+      <li>Refunds: <code>POST /v1/refunds</code> on Charge or PaymentIntent. Reasons: duplicate, fraudulent, requested_by_customer.</li>
+      <li>Customer Portal: <code>POST /v1/billing_portal/sessions</code>.</li>
+      <li>Webhooks: subscription lifecycle, <code>invoice.payment_failed</code>, <code>charge.dispute.*</code>, refund events. Verify <code>Stripe-Signature</code>.</li>
+      <li>Authentication: restricted API keys with least privilege; secret keys must not be used for this integration (<a href="https://docs.stripe.com/keys">docs.stripe.com/keys</a>).</li>
+      <li>Receipts carry Public details support email (<a href="https://docs.stripe.com/receipts">docs.stripe.com/receipts</a>). That is the supported way to receive customer replies related to Stripe mail. There is no documented public Conversations API for Dashboard customer messages as of this review.</li>
+    </ul>
+    <h3>A.3 Apple</h3>
+    <ul>
+      <li>App Store Server Notifications V2: CONSUMPTION_REQUEST (respond within 12 hours via Send Consumption Information; sandbox window is shorter), REFUND, REFUND_DECLINED.</li>
+      <li>Merchants do not issue IAP refunds through Stripe. Apple decides. Consumption data and refundPreference are advisory.</li>
+    </ul>
+    <h3>A.4 Ticketing APIs</h3>
+    <ul>
+      <li>Jira Service Management Cloud: service desk request types, queues, customer accounts — appropriate for ITSM, not selected as Verba’s customer inbox.</li>
+      <li>Jira Software: issue create/comment/transition — selected only if Verba already runs it.</li>
+      <li>Linear: GraphQL issue API — default recommendation for a small product team.</li>
+    </ul>
+    <h3>A.5 Direct AI Agents (current product constraints relevant to this SOW)</h3>
+    <ul>
+      <li>Customer channels in schema today: Instagram and Telegram only. Email and Stripe events are net-new work.</li>
+      <li>Payment cancel / refund on the stock agent is handoff-only. Verba opens a gated tool, not a prompt-only refund.</li>
+      <li>CRM HTTP is forbidden in the conversation orchestrator; Stripe and tickets will follow the same adapter rule.</li>
+    </ul>
+    <p class="small">Industry CX statistics used in v1.0 (instant-reply expectations, abandonment) are omitted here. They are not Verba measurements. If needed for an internal business case, we can attach a short research note after discovery using Verba’s own volumes.</p>
+  </div>
+
+  <div class="foot">
+    <span>DEP Software · Direct AI Agents · Proposal v2.0 · 4 September 2026</span>
+    <span>Confidential</span>
+  </div>
+
+</div>
+</div>
+</body>
+</html>

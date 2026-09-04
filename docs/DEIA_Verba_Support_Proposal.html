@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DEIA x Verba Support Agent Proposal 2026</title>
+  <style>
+    :root {
+      --ink: #141414;
+      --muted: #5c5c5c;
+      --line: #d9d4cb;
+      --paper: #f7f4ee;
+      --card: #ffffff;
+      --accent: #c45a1a;
+      --ok: #1f6b45;
+      --warn: #8a5a00;
+      --no: #8b2e2e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: #e8e4dc; color: var(--ink); font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif; }
+    body { padding: 32px 16px 80px; }
+    .deck { max-width: 1100px; margin: 0 auto; }
+    .slide {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      padding: 48px 56px 40px;
+      margin: 0 0 28px;
+      min-height: 620px;
+      display: flex;
+      flex-direction: column;
+      page-break-after: always;
+      break-after: page;
+    }
+    .kicker { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; font-weight: 600; }
+    h1 { font-size: 42px; line-height: 1.12; margin: 0 0 16px; font-weight: 600; letter-spacing: -0.02em; }
+    h2 { font-size: 32px; line-height: 1.18; margin: 0 0 18px; font-weight: 600; letter-spacing: -0.02em; }
+    h3 { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; margin: 0 0 10px; color: var(--muted); font-weight: 700; }
+    p, li { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 15.5px; line-height: 1.5; color: var(--ink); }
+    p { margin: 0 0 12px; }
+    .lede { font-size: 18px; line-height: 1.45; max-width: 46rem; }
+    .muted { color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 28px 0 0; }
+    .stats-3 { grid-template-columns: repeat(3, 1fr); }
+    .stat { background: var(--card); border: 1px solid var(--line); padding: 18px 16px; }
+    .stat b { display: block; font-family: Georgia, serif; font-size: 28px; margin-bottom: 4px; }
+    .stat span { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12.5px; color: var(--muted); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .card { background: var(--card); border: 1px solid var(--line); padding: 18px 18px 16px; }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    ul { margin: 0 0 12px; padding-left: 18px; }
+    li { margin: 0 0 6px; }
+    table { width: 100%; border-collapse: collapse; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+    .tag { display: inline-block; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border: 1px solid var(--line); }
+    .tag.ok { color: var(--ok); border-color: #b7d7c5; }
+    .tag.warn { color: var(--warn); border-color: #e2c98a; }
+    .tag.no { color: var(--no); border-color: #e0b4b4; }
+    .foot { margin-top: auto; padding-top: 28px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+    .chat { background: var(--card); border: 1px solid var(--line); padding: 16px; }
+    .bubble { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13.5px; line-height: 1.4; padding: 8px 10px; margin: 0 0 8px; max-width: 92%; }
+    .in { background: #ece8e0; }
+    .out { background: #1f1f1f; color: #fff; margin-left: auto; }
+    .meta { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+    .note { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; margin-top: 16px; }
+    .price { font-family: Georgia, serif; font-size: 36px; margin: 0 0 4px; }
+    .cover-brand { font-family: Georgia, serif; font-size: 18px; letter-spacing: 0.28em; text-transform: uppercase; margin-bottom: 40px; }
+    @page {
+      size: 13.333in 7.5in;
+      margin: 0;
+    }
+    @media print {
+      html, body {
+        background: #f7f4ee;
+        padding: 0;
+        margin: 0;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      .deck { max-width: none; margin: 0; width: auto; }
+      .slide {
+        border: none;
+        margin: 0;
+        width: 13.333in;
+        height: 7.5in;
+        min-height: 7.5in;
+        max-height: 7.5in;
+        padding: 0.48in 0.62in 0.38in;
+        page-break-after: always;
+        break-after: page;
+        page-break-inside: avoid;
+        overflow: hidden;
+      }
+      .slide:last-child { page-break-after: auto; break-after: auto; }
+      h1 { font-size: 38px; }
+      h2 { font-size: 30px; }
+      .lede { font-size: 17px; }
+      table { font-size: 13px; }
+      th, td { padding: 8px 10px; }
+      .foot { padding-top: 18px; }
+    }
+  </style>
+</head>
+<body>
+<div class="deck">
+
+  <section class="slide">
+    <div class="cover-brand">Deia · Direct AI Manager</div>
+    <p class="kicker">Proposal · August 2026</p>
+    <h1>A support agent for Verba<br>in Instagram Direct<br>and a Stripe billing channel</h1>
+    <p class="lede">I set Verba up as a separate Deia tenant and run the implementation myself. The agent handles customer requests: app issues, subscriptions, refunds. Instagram from week one. Stripe as its own channel for events and conversations, not as another chatbot inside the Dashboard.</p>
+    <div class="stats">
+      <div class="stat"><b>3.2 s</b><span>median agent response</span></div>
+      <div class="stat"><b>92%</b><span>successful replies in production</span></div>
+      <div class="stat"><b>24/7</b><span>no weekends, no time off</span></div>
+      <div class="stat"><b>1 tenant</b><span>isolated admin, database, prompt</span></div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 01</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Problem</p>
+    <h2>Customers write when you<br>are not online, and they leave</h2>
+    <p class="lede">Evening, weekend, ad spike, another time zone. Support is not 24/7. A refund request and “the app is broken” do not wait until morning. Every minute of silence costs a review, a chargeback, or a cancelled renewal.</p>
+    <div class="stats">
+      <div class="stat"><b>83%</b><span>of customers expect an instant reply</span></div>
+      <div class="stat"><b>64%</b><span>name 24/7 as the best trait of an AI assistant</span></div>
+      <div class="stat"><b>60%</b><span>abandon a request if they wait too long</span></div>
+      <div class="stat"><b>+14%</b><span>support productivity with AI (+34% for new hires)</span></div>
+    </div>
+    <p class="note">Sources: CX research; Harvard Business Review / InsideSales on speed-to-lead; support-AI productivity studies. Verba: 100,000+ users claimed, App Store 4.9 (id 6467481048), support@verba.digital.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 02</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Problem</p>
+    <h2>Support is split across four<br>places. None of them talk.</h2>
+    <p class="lede">A Verba customer does not pick one official queue. They write wherever the brand is visible. Today that is four disconnected surfaces, each with a different clock and a different person answering.</p>
+    <div class="grid-2" style="margin-top:8px">
+      <div class="card">
+        <h3>Instagram Direct</h3>
+        <p>The public brand channel. Bugs, “how do I add a font”, “I was charged twice”, and “refund my yearly plan” land in DM. A late or inconsistent reply becomes a story, a comment, or a 1-star review. The 4.9 rating is an asset at risk.</p>
+      </div>
+      <div class="card">
+        <h3>Email · support@verba.digital</h3>
+        <p>App Store listings and receipts point here. Threads sit in a mailbox, outside Instagram history. The same person may already have written in Direct. Nobody sees both threads as one customer.</p>
+      </div>
+      <div class="card">
+        <h3>Stripe Dashboard inbox</h3>
+        <p>Refund requests and customer messages from hosted receipts and invoices live in Stripe. There is no public Conversations API. This is not Instagram Direct. The team has to sit inside Stripe to read them. Zapier only fires after money is already refunded.</p>
+      </div>
+      <div class="card">
+        <h3>App Store / Apple</h3>
+        <p>Verba bills iOS through In-App Purchases. Apple owns those refunds, not Stripe. If nobody explains reportaproblem.apple.com, the customer writes in Direct and opens a bank dispute anyway.</p>
+      </div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 03</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Problem</p>
+    <h2>The expensive cases are<br>refunds, bugs, and policy drift</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Apple and Stripe are not the same money</h3>
+        <p>Stripe Dashboard only sees charges that actually ran through Stripe (web, B2B, any non-IAP path). Most iOS revenue never appears there. A human, or a naive bot, who says “I refunded your card” on an App Store charge is lying. Apple may already have refused. The next step is a chargeback.</p>
+      </div>
+      <div class="card">
+        <h3>A chargeback costs more than a refund</h3>
+        <p>Unseen Stripe disputes, failed payments, and refund.failed events sit in Dashboard until someone opens it. You lose the payment, you pay the fee, and you still owe the customer an answer. There is no ticket in Instagram when that happens.</p>
+      </div>
+      <div class="card">
+        <h3>How-to repeats. Real bugs do not.</h3>
+        <p>Fonts, export, teleprompter, captions, SRT, 4K: the site FAQ already answers this. People still DM. Humans retype it at 1am with different wording. A real crash needs device, iOS, and app version. Incomplete reports bounce between support and engineering. Verba ships updates often. Knowledge goes stale between releases.</p>
+      </div>
+      <div class="card">
+        <h3>Refund policy lives in people’s heads</h3>
+        <p>One teammate refunds a yearly plan. Another refuses. Abuse follows the softer answer. There is no encoded window, amount cap, or “Apple vs Stripe” rule. Night coverage is a second salary. Headcount does not scale with featuring or ads.</p>
+      </div>
+    </div>
+    <p class="note">Share of Instagram vs email vs Stripe vs Apple IAP is unknown until a short call. That mix decides whether Apple notifications matter more than a Stripe email channel.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 04</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Solution</p>
+    <h2>Not a chatbot. A Verba<br>support agent.</h2>
+    <p class="lede">DEIA runs full conversations in your brand voice: understands context, reacts to the situation, and initiates the right action, without a manager on shift.</p>
+    <div class="grid-3">
+      <div class="card"><h3>Live conversation</h3><p>Not buttons and scripts. A real dialogue that adapts to the customer.</p></div>
+      <div class="card"><h3>Instant reply</h3><p>The customer does not wait. An answer in seconds, day and night.</p></div>
+      <div class="card"><h3>Product facts</h3><p>Answers from your FAQ and release notes, not a model guessing how Verba works.</p></div>
+      <div class="card"><h3>Brand voice</h3><p>Speaks in your style. Knows the product, the tone, and the hard no’s.</p></div>
+      <div class="card"><h3>Closes the loop</h3><p>Does not “inform”. Refunds inside policy, sends a portal link, or hands off with a brief.</p></div>
+      <div class="card"><h3>Does not vanish</h3><p>If the customer goes quiet, the agent follows up once, in the context of the thread.</p></div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 05</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">The core USP</p>
+    <h2>An agent you can see<br>and control yourself</h2>
+    <p class="lede">In most products the agent is a black box: “we will configure it, trust us.” In DEIA the logic is text in your admin. You change the refund policy, test it in the sandbox, roll back. No developer for a tone tweak.</p>
+    <div class="grid-3">
+      <div class="card"><h3>Prompts</h3><p>A custom support script: Verba tone, bans, when money can be returned and when it cannot. Version library.</p></div>
+      <div class="card"><h3>Testing</h3><p>Sandbox before go-live: a bug, an Apple refund, a Stripe refund, “I cannot export 4K.”</p></div>
+      <div class="card"><h3>Admin</h3><p>Instagram threads and Stripe events in one inbox. Handoff to Telegram with a summary.</p></div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 06</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Stripe verdict</p>
+    <h2>Yes, we can integrate it.<br>No, not like Instagram Direct.</h2>
+    <p class="lede">Stripe is a billing system with webhooks and a Billing API. Instagram Direct is a messenger with an official inbound and outbound Graph API. Those are different classes of channel. The right build is an adapter, not a copy of Direct.</p>
+    <table>
+      <thead>
+        <tr><th>What you want</th><th>What Stripe actually exposes</th><th>Verdict for Deia</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Read Dashboard “Customer messages” as a chat</td>
+          <td>Inbox in the Dashboard. No public Conversations API</td>
+          <td><span class="tag no">No API</span> we will not scrape the Dashboard</td>
+        </tr>
+        <tr>
+          <td>See a refund request before money moves</td>
+          <td>Button on hosted receipt / invoice. Often UI-only</td>
+          <td><span class="tag warn">Partial</span> email forward plus the agent in IG</td>
+        </tr>
+        <tr>
+          <td>Find a customer, invoice, subscription; issue a refund</td>
+          <td>Customers, Subscriptions, Invoices, Refunds API and webhooks</td>
+          <td><span class="tag ok">Yes</span> agent tools, official path</td>
+        </tr>
+        <tr>
+          <td>Know they cancelled, failed a payment, or opened a dispute</td>
+          <td>subscription.*, invoice.payment_failed, charge.dispute.*, refund.*</td>
+          <td><span class="tag ok">Yes</span> event channel in the Deia inbox</td>
+        </tr>
+        <tr>
+          <td>Reply in the same Stripe Dashboard thread</td>
+          <td>No sendMessage. Reply is email or your own channel</td>
+          <td><span class="tag ok">Yes</span> email channel plus IG, not Dashboard chat</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">Scraping Stripe’s internal Dashboard API breaks their terms and will rot. It is not in this proposal.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 07</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Channels</p>
+    <h2>One agent. Two inboxes<br>in. One inbox out.</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Channel 1 · Instagram Direct</h3>
+        <p>Same as every Deia tenant. Official Meta Graph API, OAuth, webhook. History, typing, story replies, handoff, smart-trigger.</p>
+        <p class="muted">Status: production on the platform. For Verba: a new tenant and a support prompt.</p>
+      </div>
+      <div class="card">
+        <h3>Channel 2 · Stripe adapter</h3>
+        <p>Not a messenger. Three layers: <b>tools</b> (the agent queries Stripe during an IG thread), <b>events</b> (webhooks become a conversation in admin), <b>email</b> (replies to Stripe receipts arrive as inbound).</p>
+        <p class="muted">Status: custom for Verba. Conversation channels in the core today: ig | tg.</p>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>Flow</h3>
+      <p style="margin:0">Customer writes in Instagram DM, or replies to a Stripe receipt, or Stripe fires a dispute / failed-payment webhook. Deia queues the turn. Claude plus Verba knowledge plus Stripe tools. Reply on the same channel. If needed, Telegram to your team: who they are, what they paid, what they want, what is already done.</p>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 08</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Stripe · how we actually build it</p>
+    <h2>Three layers. No fake<br>“Stripe chat.”</h2>
+    <table>
+      <thead>
+        <tr><th></th><th>Layer A · Copilot</th><th>Layer B · Event channel</th><th>Layer C · Email channel</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>Why</b></td>
+          <td>Customer DMs “I want a refund.” The agent sees the Stripe payment and acts.</td>
+          <td>Stripe knocks: dispute, failed payment, refund.failed. A ticket appears.</td>
+          <td>Customer replied to a receipt or invoice email. That is “Customer Messaging.”</td>
+        </tr>
+        <tr>
+          <td><b>How</b></td>
+          <td>Restricted key. Tools: lookup customer, list charges, create refund, cancel subscription, create portal session.</td>
+          <td>Tenant webhook endpoint. Stripe-Signature. New conversation channel = stripe.</td>
+          <td>Support email in Stripe Public details, inbound parse, conversation channel = stripe.</td>
+        </tr>
+        <tr>
+          <td><b>Reply</b></td>
+          <td>Instagram Direct</td>
+          <td>Customer email from Stripe, or IG if we already linked them</td>
+          <td>Email reply in the same thread</td>
+        </tr>
+        <tr>
+          <td><b>Risk</b></td>
+          <td>Low. Official API.</td>
+          <td>Low. Official events.</td>
+          <td>Medium. Depends on where Stripe forwards replies. We verify on the call.</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 09</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Refund safety</p>
+    <h2>The agent can return money.<br>Not however the model feels.</h2>
+    <p class="lede">On the platform today, refund always goes to a human handoff. For Verba we open the action, with a hard gate in code, not only in the prompt.</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Automatic, if policy matches</h3>
+        <ul>
+          <li>Stripe Customer plus a charge or invoice, not yet refunded</li>
+          <li>Inside the window (example: 14 days) and at or under the cap (example: $29.99)</li>
+          <li>No open dispute</li>
+          <li>One refund per customer per N days</li>
+          <li>Reason on the whitelist: unused, billing error, crash</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Human only (Telegram approve)</h3>
+        <ul>
+          <li>Amount above the cap, or a yearly plan</li>
+          <li>Repeat request or suspected abuse</li>
+          <li>Customer already used generation limits</li>
+          <li>Apple IAP: the agent does not refund via Stripe</li>
+          <li>Chargeback: dispute process, not a parallel refund</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Every create_refund is written to the tenant audit log. Your manager sees charge id, amount, reason. Stripe keys stay in tenant env, never in logs, never in the prompt.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 10</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Apple vs Stripe</p>
+    <h2>Most iOS refunds never<br>show up in Stripe</h2>
+    <p class="lede">Verba on the App Store sells In-App Purchases. That money goes through Apple. Stripe only covers payments that actually ran on Stripe.</p>
+    <div class="grid-2">
+      <div class="card">
+        <h3>If Apple billed it</h3>
+        <p>The agent does not call Stripe Refunds. It explains reportaproblem.apple.com, collects Apple ID or email, and tags the thread. Optional phase 4: App Store Server Notifications V2 (CONSUMPTION_REQUEST, REFUND) as another inbound into the same inbox.</p>
+      </div>
+      <div class="card">
+        <h3>If Stripe billed it</h3>
+        <p>The agent looks the customer up, applies policy, refunds or sends a Customer Portal link (cancel renewal, update card), then confirms in DM or email with a 5 to 10 business day statement window.</p>
+      </div>
+    </div>
+    <p class="note">Without this split the agent promises “refunded to your card” after Apple already said no, and you inherit a dispute. Revenue mix Stripe vs IAP is part of the first call.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 11</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">What DEIA does, specifically</p>
+    <h2>Support scenarios, not a<br>generic help widget</h2>
+    <div class="grid-3">
+      <div class="card"><h3>Product</h3><p>Styles, word vs caption, fonts, SRT, 4K, teleprompter, translation. Answers from your knowledge base, not a guess.</p></div>
+      <div class="card"><h3>Bug</h3><p>Collects device, iOS, app version, what fails to export. Typical: a fix path. Novel: handoff with a ready bug report.</p></div>
+      <div class="card"><h3>Billing</h3><p>Where to cancel, why they were charged, next renewal, how to update the card. Portal link for Stripe. A separate script for Apple.</p></div>
+      <div class="card"><h3>Refund</h3><p>Qualify the reason, look up the payment, auto inside policy or a manager button. Plain language to the customer. No raw transaction ids.</p></div>
+      <div class="card"><h3>Language</h3><p>Mirrors the customer. Verba is a global store. IG and Stripe mail arrive in English, Ukrainian, and others.</p></div>
+      <div class="card"><h3>Escalation</h3><p>Telegram: who, channel, intent, Stripe customer, amount, the agent’s recommendation. Take the thread or approve the refund.</p></div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 12</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">What it looks like for the customer</p>
+    <h2>Live dialogues, not a<br>menu of buttons</h2>
+    <div class="grid-3">
+      <div class="chat">
+        <p class="meta">Instagram · 23:41 · how-to</p>
+        <div class="bubble in">how do I add my own font?</div>
+        <div class="bubble out">Select the subtitle, then Edit Style, pick a preset, Edit, Text, Font. You can choose a built-in font or import your own.</div>
+        <div class="bubble in">imported but it didn’t show</div>
+        <div class="bubble out">That usually means the file is not a supported font. Try .ttf or .otf, then close and reopen the style. If it still does not appear, send me your iOS and app version and I will pass it to the team.</div>
+      </div>
+      <div class="chat">
+        <p class="meta">Instagram · 02:17 · Stripe refund</p>
+        <div class="bubble in">I was charged twice, I want my money back</div>
+        <div class="bubble out">I can check that. What email is on the payment?</div>
+        <div class="bubble in">anna@mail.com</div>
+        <div class="bubble out">Found two charges 3 minutes apart, $9.99 each. I will refund the duplicate now. It should show on your statement in 5 to 10 business days.</div>
+      </div>
+      <div class="chat">
+        <p class="meta">Instagram · 11:04 · Apple IAP</p>
+        <div class="bubble in">refund my yearly plan</div>
+        <div class="bubble out">This plan was billed by Apple, so I cannot refund it from our card processor. Fastest path: reportaproblem.apple.com, find the Verba charge, Request a refund. Tell me what went wrong and I can also pass a note to the team.</div>
+      </div>
+    </div>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 13</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Process</p>
+    <h2>From the first message<br>to a closed request</h2>
+    <div class="grid-2">
+      <div class="card"><h3>Step 01</h3><p>The customer writes in Direct, or replies to a Stripe receipt, or Stripe sends a billing event.</p></div>
+      <div class="card"><h3>Step 02</h3><p>The agent reads context, checks Verba knowledge and Stripe (if billed there), and forms a precise reply.</p></div>
+      <div class="card"><h3>Step 03</h3><p>It troubleshoots, explains Apple vs Stripe, or qualifies a refund the way a trained support lead would.</p></div>
+      <div class="card"><h3>Step 04</h3><p>It closes inside policy, or hands off with a ready brief: who, what they paid, what they want.</p></div>
+    </div>
+    <p class="note">Channels and integrations: Instagram Direct · Telegram (team) · Stripe adapter · email inbound. Any extra CRM later, via API.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 14</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Comparison</p>
+    <h2>Why DEIA, not a helpdesk<br>chatbot</h2>
+    <table>
+      <thead>
+        <tr><th>Criterion</th><th>Chatbot / helpdesk AI</th><th>DEIA for Verba</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Understanding context</td><td>Keywords and branches</td><td>Full dialogue on Claude</td></tr>
+        <tr><td>Agent logic</td><td>Vendor black box or a flow chart</td><td>Custom prompt in your admin</td></tr>
+        <tr><td>Instagram Direct</td><td>Often widgets or unofficial sessions</td><td>Official Meta API, isolated tenant</td></tr>
+        <tr><td>Stripe</td><td>Macros / Zapier “new refund”</td><td>Tools + webhooks + email as a conversation channel</td></tr>
+        <tr><td>Refund</td><td>A human in the Dashboard</td><td>Policy in code + approve in Telegram</td></tr>
+        <tr><td>Testing before launch</td><td>Weak or none</td><td>Sandbox with your cases</td></tr>
+        <tr><td>Data isolation</td><td>Shared SaaS</td><td>Separate Linux user, database, Claude login</td></tr>
+      </tbody>
+    </table>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 15</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Implementation</p>
+    <h2>Phases. What turns on when.</h2>
+    <table>
+      <thead>
+        <tr><th>Phase</th><th>What you get</th><th>Time</th><th>Depends on</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>0. Discovery</b></td>
+          <td>Stripe inbox screenshot, IAP vs Stripe mix, refund policy, tone, FAQ, who approves.</td>
+          <td>1 day</td>
+          <td>Stripe Dashboard (read) and IG Business</td>
+        </tr>
+        <tr>
+          <td><b>1. Tenant + IG</b></td>
+          <td>Isolated instance, Instagram OAuth, support prompt, knowledge, Telegram, sandbox, go-live on Direct.</td>
+          <td>3 to 4 days</td>
+          <td>Meta App / Page / IG, tone, FAQ</td>
+        </tr>
+        <tr>
+          <td><b>2. Stripe Copilot</b></td>
+          <td>Lookup, portal link, gated refund, cancel subscription, audit, Telegram approve.</td>
+          <td>5 to 6 days</td>
+          <td>Restricted API key, test mode, written policy</td>
+        </tr>
+        <tr>
+          <td><b>3. Stripe channel</b></td>
+          <td>Webhooks become conversations. Email inbound as channel stripe. Inbox filter Instagram | Stripe.</td>
+          <td>6 to 8 days</td>
+          <td>Webhook secret, support email, proof that replies forward</td>
+        </tr>
+        <tr>
+          <td><b>4. Apple (optional)</b></td>
+          <td>App Store Server Notifications: refund and consumption request in the same inbox.</td>
+          <td>3 to 5 days</td>
+          <td>App Store Connect key, if IAP is the main pain</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">I run implementation myself, no subcontract. Phase 1 stands alone and already covers peak Direct. Phases 2 and 3 are custom in the platform core (a new conversation channel).</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 16</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">What we promise</p>
+    <h2>What is in, and what is out</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>In</h3>
+        <ul>
+          <li>A separate Verba tenant on standard provisioning</li>
+          <li>A 24/7 support agent in Instagram Direct from week one</li>
+          <li>Stripe as source of truth for web billing</li>
+          <li>Auto-refund in a narrow corridor, approve above the cap</li>
+          <li>Disputes and failed payments as tickets, not a Dashboard surprise</li>
+          <li>One inbox and analytics by channel</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Out</h3>
+        <ul>
+          <li>Two-way chat inside the Stripe Dashboard inbox</li>
+          <li>Reading every “Refund request” if Stripe does not expose it via API</li>
+          <li>Refunding an Apple subscription through Stripe</li>
+          <li>100% auto-close on legal or abuse cases</li>
+          <li>WhatsApp as a customer channel (not in the core yet)</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Phase 1 likelihood: high (current product). Phase 2: high (public API). Phase 3 email: high after one forward test. Dashboard-parity inbox: low. We do not build it.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 17</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Economics</p>
+    <h2>Cheaper than a night<br>support shift, and it stays</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>A live support seat</h3>
+        <ul>
+          <li>US / EU timezone, weekends, story spikes</li>
+          <li>Retraining after every Verba release</li>
+          <li>Tone slips, different refund answers</li>
+          <li>A missed Stripe dispute is a lost chargeback</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>DEIA instead</h3>
+        <ul>
+          <li>One refund policy on every channel</li>
+          <li>A reply at 03:00, fewer 1-stars and chargebacks</li>
+          <li>A human only on exceptions</li>
+          <li>Each app release updates knowledge, not headcount</li>
+        </ul>
+      </div>
+    </div>
+    <p class="lede" style="margin-top:20px">Even if the agent closes 60 to 70% of how-to and half of billing without a human, that removes the night and weekend layer. Hard cases stay with Verba, already packaged: who, what they bought, what they want.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 18</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Pricing</p>
+    <h2>A Verba package, not a<br>$50 bot</h2>
+    <div class="grid-3">
+      <div class="card">
+        <h3>A · Instagram Support</h3>
+        <p class="price">$440</p>
+        <p class="muted">one-time, turnkey</p>
+        <p class="price" style="font-size:28px;margin-top:12px">$126<span style="font-size:16px">/mo</span></p>
+        <p>Tenant, IG OAuth, prompt, FAQ, Telegram, sandbox. First month of the subscription is $0. Claude tokens billed by Anthropic directly, no Deia markup (~$20/mo at their rates, traffic-dependent).</p>
+      </div>
+      <div class="card">
+        <h3>B · + Stripe Copilot</h3>
+        <p class="price">+$5,800</p>
+        <p class="muted">one-time · tools, gates, approve</p>
+        <p class="price" style="font-size:28px;margin-top:12px">+$140<span style="font-size:16px">/mo</span></p>
+        <p>Lookup, portal, gated refund, cancel, audit, Telegram approve. Stripe API version support.</p>
+      </div>
+      <div class="card">
+        <h3>C · + Stripe channel</h3>
+        <p class="price">+$6,800</p>
+        <p class="muted">one-time · webhooks + email inbound</p>
+        <p class="price" style="font-size:28px;margin-top:12px">included in B</p>
+        <p>Stripe channel in the inbox, email reply. Apple notifications priced after the call if IAP is the main load.</p>
+      </div>
+    </div>
+    <p class="note">Invoiced in UAH at the NBU rate. I recommend starting with A+B. Channel C after we confirm receipt replies land on the support email. Turnkey A+B+C: $13,040 one-time + $266/mo.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba</span><span>deia.agent · 19</span></div>
+  </section>
+
+  <section class="slide">
+    <p class="kicker">Ready to try?</p>
+    <h2>Write to me. I will put<br>the agent in Direct this week.</h2>
+    <div class="grid-3">
+      <div class="card"><h3>01</h3><p><b>Fill a 45-minute brief.</b> You show the Stripe inbox. We confirm IAP vs Stripe. We pick A, A+B, or A+B+C.</p></div>
+      <div class="card"><h3>02</h3><p><b>Get the agent.</b> I set the prompt in Verba’s voice. We run how-to, Apple refund, Stripe refund in the sandbox.</p></div>
+      <div class="card"><h3>03</h3><p><b>Launch and cover.</b> Instagram goes live. Then I build Copilot and the Stripe channel against your written refund policy.</p></div>
+    </div>
+    <p class="lede" style="margin-top:22px">Want the demo in one step: write in Direct to @deia.agent. You will be talking to the agent. Then I put the same one on Verba.</p>
+    <p class="muted" style="margin-top:16px"><b>Before Stripe work I need:</b> a Dashboard screenshot of Customer requests / Messages / Refund requests; IAP vs Stripe revenue mix; a written refund policy; a restricted key (test, then live); the support email on receipts; Instagram Business access; 20 to 30 real replies in Victoria’s tone.</p>
+    <div class="foot"><span>DEIA · Support agent for Verba · August 2026</span><span>deia.agent · 20</span></div>
+  </section>
+
+</div>
+</body>
+</html>
