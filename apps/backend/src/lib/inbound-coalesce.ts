@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { config } from '../config.js';
 import { prisma } from './prisma.js';
-import { beginIgTypingIndicator } from '../services/ig-typing-indicator.js';
+import { beginIgTypingIndicator, stopIgTypingBeforeSend } from '../services/ig-typing-indicator.js';
 import { runConversationTurnSerialized } from './conversation-turn-queue.js';
 import {
   computeCoalesceDelayMs,
@@ -11,6 +11,10 @@ import {
   resolveCoalesceWindowMs,
   resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
+  shouldRearmCoalesceAfterFlush,
+  shouldStartCoalesceTypingBootstrap,
+  shouldStopCoalesceTypingAfterFlush,
+  shouldStopLateCoalesceTypingBootstrap,
   type JoinedInboundBatch,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
@@ -22,6 +26,7 @@ export {
   resolveCoalesceWindowMs,
   resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
+  shouldRearmCoalesceAfterFlush,
   type JoinedInboundBatch,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
@@ -224,6 +229,20 @@ export async function clearInboundClaims(messageIds: string[]): Promise<void> {
   });
 }
 
+async function stopCoalesceTyping(conversationId: string): Promise<void> {
+  try {
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { client: { select: { igUserId: true } } },
+    });
+    const recipientId = conversation?.client.igUserId;
+    if (!recipientId) return;
+    await stopIgTypingBeforeSend(recipientId);
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to stop coalesce typing (non-fatal)');
+  }
+}
+
 async function bootstrapTyping(conversationId: string): Promise<void> {
   try {
     const conversation = await prisma.conversation.findUnique({
@@ -243,10 +262,22 @@ async function bootstrapTyping(conversationId: string): Promise<void> {
       );
       return;
     }
+
+    const before = getState(conversationId);
+    if (!shouldStartCoalesceTypingBootstrap(before)) {
+      return;
+    }
+
     await beginIgTypingIndicator({
       channel: conversation.channel,
       recipientId: conversation.client.igUserId,
     });
+
+    // Slow DB/Meta: burst already flushed and drain is not running — drop leaked keepalive.
+    const after = getState(conversationId);
+    if (shouldStopLateCoalesceTypingBootstrap(after)) {
+      await stopIgTypingBeforeSend(conversation.client.igUserId);
+    }
   } catch (err) {
     log.warn({ err, conversationId }, 'Coalesce typing bootstrap failed (non-fatal)');
   }
@@ -281,13 +312,24 @@ async function flushConversation(conversationId: string): Promise<void> {
     log.error({ err, conversationId }, 'Inbound coalesce flush threw');
     throw err;
   } finally {
+    const wasDirty = state.dirty;
     state.flushing = false;
-    if (state.dirty) {
-      state.dirty = false;
+    state.dirty = false;
+
+    let pendingCount = 0;
+    try {
+      pendingCount = (await loadPendingInbound(conversationId)).length;
+    } catch (err) {
+      log.warn({ err, conversationId }, 'Failed to load pending inbound after flush');
+    }
+
+    const rearm = shouldRearmCoalesceAfterFlush({ dirty: wasDirty, pendingCount });
+    if (rearm) {
       log.info(
         {
           conversationId,
           coalesceEnabled: config.INBOUND_COALESCE_ENABLED,
+          pendingCount,
         },
         'Inbound arrived during flush — re-arming coalesce',
       );
@@ -300,6 +342,16 @@ async function flushConversation(conversationId: string): Promise<void> {
       }
     } else {
       state.partialBurst = false;
+      // Empty drain never hits conversation.ts, so it never ends bootstrap typing.
+      // Absorbed dirty inbound used to re-arm here and leak typing_on keepalive.
+      if (
+        shouldStopCoalesceTypingAfterFlush({
+          rearm: false,
+          burstStartedAt: state.burstStartedAt,
+        })
+      ) {
+        await stopCoalesceTyping(conversationId);
+      }
     }
   }
 }

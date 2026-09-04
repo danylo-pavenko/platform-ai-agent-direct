@@ -41,6 +41,48 @@ export function shouldBootstrapIgTyping(state: string): boolean {
 }
 
 /**
+ * Re-arm coalesce after a flush only when inbound arrived during the turn
+ * *and* those mids are still unclaimed. Absorbed bubbles set dirty but leave
+ * nothing to drain — re-arming would bootstrap typing with no owner to stop it.
+ */
+export function shouldRearmCoalesceAfterFlush(opts: {
+  dirty: boolean;
+  pendingCount: number;
+}): boolean {
+  return opts.dirty && opts.pendingCount > 0;
+}
+
+/** Typing bootstrap is only valid while this burst is still waiting to flush. */
+export function shouldStartCoalesceTypingBootstrap(opts: {
+  burstStartedAt: number | null;
+  flushing: boolean;
+}): boolean {
+  return opts.burstStartedAt != null && !opts.flushing;
+}
+
+/**
+ * A late bootstrap (slow DB / Meta) finished after the burst already flushed
+ * and drain is not running — stop typing so keepalive cannot leak.
+ */
+export function shouldStopLateCoalesceTypingBootstrap(opts: {
+  burstStartedAt: number | null;
+  flushing: boolean;
+}): boolean {
+  return opts.burstStartedAt == null && !opts.flushing;
+}
+
+/**
+ * After a flush, stop coalesce typing only when we are not waiting on another
+ * burst. A new inbound can arm timers while we await pending rows.
+ */
+export function shouldStopCoalesceTypingAfterFlush(opts: {
+  rearm: boolean;
+  burstStartedAt: number | null;
+}): boolean {
+  return !opts.rearm && opts.burstStartedAt == null;
+}
+
+/**
  * Delay until the next coalesce flush.
  * Fires on silence after the last mid, capped by max-wait from burst start.
  */

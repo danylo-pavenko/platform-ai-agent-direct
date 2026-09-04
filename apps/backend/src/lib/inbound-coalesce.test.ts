@@ -6,6 +6,10 @@ import {
   resolveCoalesceWindowMs,
   resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
+  shouldRearmCoalesceAfterFlush,
+  shouldStartCoalesceTypingBootstrap,
+  shouldStopCoalesceTypingAfterFlush,
+  shouldStopLateCoalesceTypingBootstrap,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
 
@@ -15,6 +19,43 @@ describe('shouldBootstrapIgTyping', () => {
     expect(shouldBootstrapIgTyping('handoff')).toBe(false);
     expect(shouldBootstrapIgTyping('closed')).toBe(false);
     expect(shouldBootstrapIgTyping('paused')).toBe(false);
+  });
+});
+
+describe('shouldRearmCoalesceAfterFlush', () => {
+  it('does not re-arm when inbound was absorbed and nothing is pending', () => {
+    expect(shouldRearmCoalesceAfterFlush({ dirty: true, pendingCount: 0 })).toBe(false);
+  });
+
+  it('re-arms only when dirty inbound is still unclaimed', () => {
+    expect(shouldRearmCoalesceAfterFlush({ dirty: true, pendingCount: 2 })).toBe(true);
+    expect(shouldRearmCoalesceAfterFlush({ dirty: false, pendingCount: 2 })).toBe(false);
+  });
+});
+
+describe('coalesce typing bootstrap guards', () => {
+  it('starts typing only while a burst is waiting (not during drain)', () => {
+    expect(shouldStartCoalesceTypingBootstrap({ burstStartedAt: 1, flushing: false })).toBe(true);
+    expect(shouldStartCoalesceTypingBootstrap({ burstStartedAt: 1, flushing: true })).toBe(false);
+    expect(shouldStartCoalesceTypingBootstrap({ burstStartedAt: null, flushing: false })).toBe(false);
+  });
+
+  it('stops a late bootstrap after the burst is idle', () => {
+    expect(
+      shouldStopLateCoalesceTypingBootstrap({ burstStartedAt: null, flushing: false }),
+    ).toBe(true);
+    expect(
+      shouldStopLateCoalesceTypingBootstrap({ burstStartedAt: null, flushing: true }),
+    ).toBe(false);
+    expect(
+      shouldStopLateCoalesceTypingBootstrap({ burstStartedAt: 1, flushing: false }),
+    ).toBe(false);
+  });
+
+  it('stops typing after flush unless a new burst already started', () => {
+    expect(shouldStopCoalesceTypingAfterFlush({ rearm: false, burstStartedAt: null })).toBe(true);
+    expect(shouldStopCoalesceTypingAfterFlush({ rearm: true, burstStartedAt: null })).toBe(false);
+    expect(shouldStopCoalesceTypingAfterFlush({ rearm: false, burstStartedAt: 1 })).toBe(false);
   });
 });
 

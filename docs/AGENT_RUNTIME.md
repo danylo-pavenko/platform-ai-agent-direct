@@ -42,6 +42,8 @@ Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversatio
 
 Instagram clients often split one answer across several bubbles (`10:00` then name then phone). Coalesce waits for silence (longer when the last bubble looks like a fragment), joins them as one user turn, and absorbs late mids that arrive during `responseDelay` / Claude. Do not re-ask for data already in those bubbles.
 
+IG `typing_on` is owned by the coalesce wait (bootstrap) and then by `conversation.ts`. After a flush, re-arm (and keep typing) only if unclaimed inbound remains; empty drains must send `typing_off` so Meta keepalive cannot run forever.
+
 ---
 
 ## Claude runtime
