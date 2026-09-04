@@ -6,13 +6,21 @@ import { beginIgTypingIndicator } from '../services/ig-typing-indicator.js';
 import { runConversationTurnSerialized } from './conversation-turn-queue.js';
 import {
   computeCoalesceDelayMs,
+  joinInboundBatch,
+  looksLikePartialUtterance,
+  resolveCoalesceWindowMs,
+  resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
+  type JoinedInboundBatch,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
 
 export {
   computeCoalesceDelayMs,
   joinInboundBatch,
+  looksLikePartialUtterance,
+  resolveCoalesceWindowMs,
+  resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
   type JoinedInboundBatch,
   type PendingInboundMessage,
@@ -34,6 +42,8 @@ interface CoalesceState {
   flushing: boolean;
   /** Set when inbound arrived during an in-flight flush — re-arm after. */
   dirty: boolean;
+  /** Any bubble in this burst looks like a fragment (time / name / phone). */
+  partialBurst: boolean;
 }
 
 const states = new Map<string, CoalesceState>();
@@ -47,6 +57,7 @@ function getState(conversationId: string): CoalesceState {
       burstStartedAt: null,
       flushing: false,
       dirty: false,
+      partialBurst: false,
     };
     states.set(conversationId, state);
   }
@@ -65,9 +76,12 @@ function clearTimers(state: CoalesceState): void {
 }
 
 /**
- * Inbound client messages not yet claimed by a Claude turn, after the last
- * real (non-fallback) bot/manager outbound. Optional `onlyAfter` limits to
- * messages that arrived during an in-flight turn (drain follow-up).
+ * Inbound client messages not yet claimed by a Claude turn.
+ *
+ * Floor is last *claimed* inbound (not last bot outbound) so bubbles that
+ * arrived during an in-flight turn are not orphaned when the bot reply is
+ * persisted with a later timestamp. Optional `onlyAfter` limits drain
+ * follow-ups to mids that arrived during the current turn.
  */
 export async function loadPendingInbound(
   conversationId: string,
@@ -75,28 +89,41 @@ export async function loadPendingInbound(
 ): Promise<PendingInboundMessage[]> {
   const take = options?.take ?? MAX_PENDING_INBOUND_BATCH;
 
-  const lastRealOutbound = await prisma.message.findFirst({
-    where: {
-      conversationId,
-      direction: 'out',
-      OR: [
-        { sender: 'manager' },
-        { sender: 'bot', botFailureCode: null },
-      ],
-    },
-    orderBy: { createdAt: 'desc' },
-    select: { createdAt: true },
-  });
+  const [lastRealOutbound, lastClaimedInbound] = await Promise.all([
+    prisma.message.findFirst({
+      where: {
+        conversationId,
+        direction: 'out',
+        OR: [
+          { sender: 'manager' },
+          { sender: 'bot', botFailureCode: null },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    }),
+    prisma.message.findFirst({
+      where: {
+        conversationId,
+        direction: 'in',
+        sender: 'client',
+        claudeTurnId: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    }),
+  ]);
 
-  const createdAtFilter: { gt?: Date } = {};
-  if (lastRealOutbound) {
-    createdAtFilter.gt = lastRealOutbound.createdAt;
-  }
-  if (options?.onlyAfter) {
-    const floor = options.onlyAfter;
-    if (!createdAtFilter.gt || floor > createdAtFilter.gt) {
-      createdAtFilter.gt = floor;
-    }
+  // gte: IG bubbles in the same second as the claimed mid must still be
+  // eligible (claimed rows are excluded by claudeTurnId: null).
+  const createdAtFilter: { gte?: Date } = {};
+  const floor = resolvePendingInboundFloor({
+    lastClaimedInboundAt: lastClaimedInbound?.createdAt ?? null,
+    lastRealOutboundAt: lastRealOutbound?.createdAt ?? null,
+    onlyAfter: options?.onlyAfter,
+  });
+  if (floor) {
+    createdAtFilter.gte = floor;
   }
 
   return prisma.message.findMany({
@@ -105,7 +132,7 @@ export async function loadPendingInbound(
       direction: 'in',
       sender: 'client',
       claudeTurnId: null,
-      ...(createdAtFilter.gt ? { createdAt: createdAtFilter } : {}),
+      ...(createdAtFilter.gte ? { createdAt: createdAtFilter } : {}),
     },
     orderBy: { createdAt: 'asc' },
     take,
@@ -120,6 +147,46 @@ export async function loadPendingInbound(
       createdAt: true,
     },
   });
+}
+
+const PENDING_INBOUND_SELECT = {
+  id: true,
+  text: true,
+  mediaUrls: true,
+  mediaAttachments: true,
+  sharedPost: true,
+  igContext: true,
+  igMessageId: true,
+  createdAt: true,
+} as const;
+
+export async function loadClaimedTurnInbound(turnId: string): Promise<PendingInboundMessage[]> {
+  return prisma.message.findMany({
+    where: { claudeTurnId: turnId },
+    orderBy: { createdAt: 'asc' },
+    take: MAX_PENDING_INBOUND_BATCH,
+    select: PENDING_INBOUND_SELECT,
+  });
+}
+
+/**
+ * Claim unclaimed inbound that arrived after this turn started and rebuild
+ * the joined user message so Claude sees time + name + phone as one utterance.
+ */
+export async function absorbLateInboundIntoTurn(
+  conversationId: string,
+  turnId: string,
+): Promise<JoinedInboundBatch | null> {
+  const extra = await loadPendingInbound(conversationId);
+  if (extra.length === 0) return null;
+  const claimed = await claimInboundMessages(
+    extra.map((m) => m.id),
+    turnId,
+  );
+  if (claimed === 0) return null;
+  const all = await loadClaimedTurnInbound(turnId);
+  if (all.length === 0) return null;
+  return joinInboundBatch(all);
 }
 
 export async function claimInboundMessages(
@@ -193,6 +260,7 @@ async function flushConversation(conversationId: string): Promise<void> {
   state.burstStartedAt = null;
   state.flushing = true;
   state.dirty = false;
+  // Keep partialBurst: inbound during this flush may still be a fragment.
 
   log.info(
     {
@@ -230,6 +298,8 @@ async function flushConversation(conversationId: string): Promise<void> {
           log.error({ err, conversationId }, 'Re-flush after dirty inbound failed');
         });
       }
+    } else {
+      state.partialBurst = false;
     }
   }
 }
@@ -245,26 +315,39 @@ function armTimers(conversationId: string): void {
 
   clearTimers(state);
 
+  const window = resolveCoalesceWindowMs(
+    state.partialBurst,
+    {
+      silenceMs: config.INBOUND_COALESCE_SILENCE_MS,
+      maxWaitMs: config.INBOUND_COALESCE_MAX_WAIT_MS,
+    },
+    {
+      silenceMs: config.INBOUND_COALESCE_PARTIAL_SILENCE_MS,
+      maxWaitMs: config.INBOUND_COALESCE_PARTIAL_MAX_WAIT_MS,
+    },
+  );
+
   const delay = computeCoalesceDelayMs(
     now,
     state.burstStartedAt!,
-    config.INBOUND_COALESCE_SILENCE_MS,
-    config.INBOUND_COALESCE_MAX_WAIT_MS,
+    window.silenceMs,
+    window.maxWaitMs,
   );
   const burstAgeMs = now - state.burstStartedAt!;
   const maxRemaining = Math.max(
     0,
-    state.burstStartedAt! + config.INBOUND_COALESCE_MAX_WAIT_MS - now,
+    state.burstStartedAt! + window.maxWaitMs - now,
   );
 
   log.info(
     {
       conversationId,
       isNewBurst,
+      partialBurst: state.partialBurst,
       delayMs: delay,
       burstAgeMs,
-      silenceMs: config.INBOUND_COALESCE_SILENCE_MS,
-      maxWaitMs: config.INBOUND_COALESCE_MAX_WAIT_MS,
+      silenceMs: window.silenceMs,
+      maxWaitMs: window.maxWaitMs,
       maxRemainingMs: maxRemaining,
       armMaxWaitTimer: maxRemaining < delay,
     },
@@ -285,17 +368,32 @@ function armTimers(conversationId: string): void {
   }
 }
 
+function notePartialBurst(state: CoalesceState, text?: string | null): void {
+  if (looksLikePartialUtterance(text)) {
+    state.partialBurst = true;
+  }
+}
+
 /**
  * Schedule a coalesced bot turn after inbound persist.
  * When coalesce is disabled, flushes immediately (still via drain).
  */
-export function scheduleInboundBotTurn(conversationId: string): void {
+export function scheduleInboundBotTurn(
+  conversationId: string,
+  hint?: { text?: string | null },
+): void {
   const state = getState(conversationId);
+  const isNewBurst = state.burstStartedAt == null && !state.flushing;
+  if (isNewBurst) {
+    state.partialBurst = looksLikePartialUtterance(hint?.text);
+  } else {
+    notePartialBurst(state, hint?.text);
+  }
 
   if (state.flushing) {
     state.dirty = true;
     log.info(
-      { conversationId },
+      { conversationId, partialBurst: state.partialBurst },
       'Inbound during active flush — marked dirty for re-arm',
     );
     return;

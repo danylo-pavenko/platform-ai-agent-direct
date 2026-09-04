@@ -111,5 +111,21 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(isWithinWorkingHours(at, HOURS, 'Europe/Kyiv')).toBe(false);
     expect(isWithinWorkingHours(at, HOURS, 'Europe/Berlin')).toBe(true);
   });
+
+  it('instructs the agent to treat consecutive client bubbles as one reply', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        clientProfile: {
+          displayName: 'Анжела Тимофіїв',
+          phone: '+380930152179',
+        },
+      }),
+    );
+    expect(prompt).toMatch(/ОДНА репліка/);
+    expect(prompt).toMatch(/написала вище/);
+    expect(prompt).toContain('Імʼя: Анжела Тимофіїв');
+    expect(prompt).toContain('Телефон: +380930152179');
+    expect(prompt).toContain('не питай знову');
+  });
 });
 

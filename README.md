@@ -82,7 +82,7 @@ server
 - **Agent modes** — `sales` / `leadgen` / `booking` (admin: Settings → agent mode); shared runtime, different tools and prompts
 - **Instagram DM automation** — webhook receiver, Claude-powered replies, message splitting for >1000 chars; outbound text is stripped of Markdown (`**`, links, etc.) because Instagram does not render it
 - **Typing indicator** — IG `typing_on` while the bot generates a reply
-- **Inbound coalesce** — rapid client messages are merged into one Claude turn (fewer fragmented replies)
+- **Inbound coalesce** — rapid client messages (including split time + name + phone bubbles) are merged into one Claude turn; fragments wait longer than complete questions
 - **Instagram Stories & reactions** — Story replies (with vision when CDN media is available) and emoji reactions become inbound context for the agent
 - **Instagram `standby` webhooks** — when another messaging surface (e.g. Meta Business Suite) holds primary control, new customer messages may arrive under `entry[].standby[]`; the backend merges `standby` with `messaging` and OAuth subscribes the Page to the `standby` field alongside `messages`
 - **Smart conversation routing** — bot / handoff / paused states, working hours awareness, optional auto-return from handoff

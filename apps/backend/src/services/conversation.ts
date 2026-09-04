@@ -98,6 +98,7 @@ import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
 import { executeLookupTool, lookupResultFromResponse, hasNativeLookupResult } from './agent-lookup-tools.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
+  absorbLateInboundIntoTurn,
   claimInboundMessages,
   joinInboundBatch,
   loadPendingInbound,
@@ -135,7 +136,7 @@ const MAX_HISTORY_MESSAGES = 30;
 const CUSTOMER_CHANNELS = new Set(['ig', 'tg']);
 
 /** Outcome of one Claude turn — drives inbound claim keep / skip / release. */
-export type BotTurnOutcome = 'completed' | 'skipped' | 'released';
+export type BotTurnOutcome = 'completed' | 'skipped' | 'released' | 'deferred';
 
 // ---------------------------------------------------------------------------
 // Handoff helper
@@ -270,6 +271,8 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
         batch.mediaAttachments,
         batch.igMessageIds,
         batch.igContext,
+        turnId,
+        { skipResponseDelay: i > 0 },
       );
     } catch (err) {
       await releaseInboundClaim(turnId);
@@ -282,7 +285,7 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
 
     if (outcome === 'skipped') {
       await markInboundSkipped(turnId);
-    } else if (outcome === 'released') {
+    } else if (outcome === 'released' || outcome === 'deferred') {
       await releaseInboundClaim(turnId);
     }
 
@@ -294,13 +297,24 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
         claimDisposition:
           outcome === 'skipped'
             ? 'skipped'
-            : outcome === 'released'
+            : outcome === 'released' || outcome === 'deferred'
               ? 'released'
               : 'kept',
         drainIteration: i,
       },
       'Finished coalesced inbound bot turn',
     );
+
+    if (outcome === 'deferred') {
+      // Late bubbles arrived during Claude — drop this outbound and join
+      // the original batch with the new mids on the next drain pass.
+      log.info(
+        { conversationId, turnId, drainIteration: i },
+        'Deferred bot outbound — re-draining with late inbound',
+      );
+      onlyAfter = undefined;
+      continue;
+    }
 
     // Follow-up iterations only pick up mids that arrived during this turn.
     onlyAfter = turnGateAt;
@@ -315,6 +329,8 @@ async function handleIncomingMessageImpl(
   mediaAttachments?: StoredMediaAttachment[],
   sourceIgMessageIds?: string[],
   igContext?: IgInboundContext,
+  turnId?: string,
+  opts?: { skipResponseDelay?: boolean },
 ): Promise<BotTurnOutcome> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
@@ -414,6 +430,7 @@ async function handleIncomingMessageImpl(
   }
 
   const clientProfile: ClientProfile = {
+    displayName: client.displayName ?? undefined,
     igUsername: client.igUsername ?? undefined,
     igFullName: client.igFullName ?? undefined,
     phone: client.phone ?? undefined,
@@ -506,13 +523,38 @@ async function handleIncomingMessageImpl(
 
   try {
   // Human-like pause before Claude (typing indicator already on).
-  const responseDelayMs = resolveResponseDelayMs(agentCfg);
+  const responseDelayMs = opts?.skipResponseDelay ? 0 : resolveResponseDelayMs(agentCfg);
   if (responseDelayMs > 0) {
     log.debug({ conversationId, responseDelayMs }, 'Applying response delay before Claude');
     await new Promise<void>((resolve) => {
       setTimeout(resolve, responseDelayMs);
     });
   }
+
+  const absorbLateInbound = async (reason: string): Promise<boolean> => {
+    if (!turnId) return false;
+    const batch = await absorbLateInboundIntoTurn(conversationId, turnId);
+    if (!batch) return false;
+    messageText = batch.text;
+    if (batch.mediaUrls) mediaUrls = batch.mediaUrls;
+    if (batch.mediaAttachments) mediaAttachments = batch.mediaAttachments;
+    if (batch.sharedPost) sharedPost = batch.sharedPost;
+    if (batch.igContext) igContext = batch.igContext;
+    sourceIgMessageIds = batch.igMessageIds;
+    log.info(
+      {
+        conversationId,
+        turnId,
+        reason,
+        batchSize: batch.messageIds.length,
+        textChars: batch.text.length,
+      },
+      'Absorbed late inbound into in-flight turn',
+    );
+    return true;
+  };
+
+  await absorbLateInbound('after_response_delay');
 
   // ── 4. Working hours check ────────────────────────────────────────
   const hours = await getWorkingHours();
@@ -638,6 +680,30 @@ async function handleIncomingMessageImpl(
   const history = buildClaudeHistoryTurns(dedupedAsc, messageText, {
     excludeIgMessageIds: sourceIgMessageIds,
   });
+
+  if (await absorbLateInbound('before_claude')) {
+    const refreshed = await prisma.message.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'desc' },
+      take: MAX_HISTORY_MESSAGES,
+      select: {
+        id: true,
+        direction: true,
+        text: true,
+        sender: true,
+        createdAt: true,
+        igMessageId: true,
+      },
+    });
+    const refreshedAsc = dedupeConversationMessages([...refreshed].reverse());
+    history.splice(
+      0,
+      history.length,
+      ...buildClaudeHistoryTurns(refreshedAsc, messageText, {
+        excludeIgMessageIds: sourceIgMessageIds,
+      }),
+    );
+  }
 
   // ── 7. Resolve visual media for Claude (images/video only — not audio) ──
   const visualKeys = visualStorageKeys(mediaAttachments, mediaUrls);
@@ -1989,6 +2055,22 @@ async function handleIncomingMessageImpl(
   if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
     return 'skipped';
+  }
+
+  if (turnId) {
+    const lateInbound = await loadPendingInbound(conversationId);
+    if (lateInbound.length > 0) {
+      log.info(
+        {
+          conversationId,
+          turnId,
+          lateCount: lateInbound.length,
+          igMessageIds: lateInbound.map((m) => m.igMessageId).filter(Boolean),
+        },
+        'Deferring bot outbound — late inbound during Claude',
+      );
+      return 'deferred';
+    }
   }
 
   // After several consecutive agent fallbacks, escalate to a live manager.

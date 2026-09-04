@@ -560,7 +560,7 @@ async function processReactionEvent(
     return;
   }
 
-  scheduleInboundBotTurn(conversation.id);
+  scheduleInboundBotTurn(conversation.id, { text });
 }
 
 async function processMessageEvent(
@@ -986,7 +986,7 @@ async function processMessageEvent(
   }
 
   // Enqueue coalesced Claude turn asynchronously (don't await - webhook already responded)
-  scheduleInboundBotTurn(conversation.id);
+  scheduleInboundBotTurn(conversation.id, { text: redacted });
 }
 
 // ── Helpers ──

@@ -100,6 +100,18 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/чекаємо тебе/);
   });
 
+  it('keeps offered slots stable until book fails or the visit changes', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/не роби новий get_available_slots/);
+    expect(prompt).toMatch(/Не супереч останньому get_available_slots/);
+  });
+
+  it('treats split Instagram contact bubbles as one update_client_info turn', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/окремими бульбашками Instagram/);
+    expect(prompt).toMatch(/не проси повторити/);
+  });
+
   it('documents cancel/reschedule tools and forbids second book as move', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/cancel_appointment/);

@@ -170,9 +170,16 @@ const envSchema = z.object({
     .default('true')
     .transform((v) => v.toLowerCase() === 'true'),
   /** Quiet period after the last inbound mid before starting Claude. */
-  INBOUND_COALESCE_SILENCE_MS: envCoerceNumber({ default: 600, min: 0, max: 5_000 }),
-  /** Cap wait from the first mid in a burst (keeps multi-bubble replies snappy). */
-  INBOUND_COALESCE_MAX_WAIT_MS: envCoerceNumber({ default: 1_500, min: 0, max: 10_000 }),
+  INBOUND_COALESCE_SILENCE_MS: envCoerceNumber({ default: 900, min: 0, max: 8_000 }),
+  /** Cap wait from the first mid in a burst (keeps complete replies snappy). */
+  INBOUND_COALESCE_MAX_WAIT_MS: envCoerceNumber({ default: 2_500, min: 0, max: 20_000 }),
+  /**
+   * Extra silence when the latest bubble looks like a fragment (time / name /
+   * phone) so Instagram split-typing becomes one Claude turn.
+   */
+  INBOUND_COALESCE_PARTIAL_SILENCE_MS: envCoerceNumber({ default: 2_200, min: 0, max: 8_000 }),
+  /** Cap wait from burst start when any bubble in the burst is a fragment. */
+  INBOUND_COALESCE_PARTIAL_MAX_WAIT_MS: envCoerceNumber({ default: 7_000, min: 0, max: 20_000 }),
 
   // Auth
   JWT_SECRET: z.string().min(16),

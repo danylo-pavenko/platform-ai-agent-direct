@@ -36,7 +36,7 @@ describe('buildClaudeHistoryTurns', () => {
         { direction: 'in', text: 'Привіт', igMessageId: 'm1' },
         { direction: 'in', text: 'Хочу стрижку', igMessageId: 'm2' },
       ],
-      'Клієнт надіслав кілька повідомлень підряд:\n\nПривіт\n\nХочу стрижку',
+      'Клієнт надіслав кілька повідомлень підряд — це ОДНА відповідь (читай суцільно, не як окремі репліки):\n1) Привіт\n2) Хочу стрижку',
       { excludeIgMessageIds: ['m1', 'm2'] },
     );
     expect(history).toEqual([{ role: 'assistant', content: 'Вітаю!' }]);

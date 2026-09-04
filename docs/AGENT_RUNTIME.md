@@ -40,6 +40,8 @@ flowchart TD
 
 Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversation-turn-queue.ts` → `services/conversation.ts`.
 
+Instagram clients often split one answer across several bubbles (`10:00` then name then phone). Coalesce waits for silence (longer when the last bubble looks like a fragment), joins them as one user turn, and absorbs late mids that arrive during `responseDelay` / Claude. Do not re-ask for data already in those bubbles.
+
 ---
 
 ## Claude runtime

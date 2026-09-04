@@ -88,6 +88,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 - Story mention — маркер без довготривалого кешу медіа (Meta policy).
 - Реакції (message_reactions) — синтетичний inbound + короткий теплий ack; unreact ігнорується.
 - Shared post (пересланий пост) — окремий шлях з catalog search (як і раніше).
+- Кілька бульбашок підряд (час + ПІБ + телефон) — платформа зливає в один Claude turn (coalesce + absorb late inbound). Агент не перепитує вже надіслані поля і не handoff через «написала вище».
 
 ## Knowledge / prompts (tenant)
 

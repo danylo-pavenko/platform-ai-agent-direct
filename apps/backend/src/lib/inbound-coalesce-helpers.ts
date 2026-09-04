@@ -56,6 +56,74 @@ export function computeCoalesceDelayMs(
   return Math.max(0, fireAt - nowMs);
 }
 
+/**
+ * Floor for unclaimed inbound that still need a Claude turn.
+ *
+ * Prefer the last *claimed* inbound over the last bot outbound. Messages that
+ * arrive while Claude is running are timestamped *before* the bot reply, so a
+ * last-outbound floor would orphan them (time + name + phone as separate
+ * Instagram bubbles).
+ *
+ * When nothing has been claimed yet (legacy rows / first drain), fall back to
+ * last real outbound so we do not replay the whole thread.
+ */
+export function resolvePendingInboundFloor(args: {
+  lastClaimedInboundAt?: Date | null;
+  lastRealOutboundAt?: Date | null;
+  onlyAfter?: Date;
+}): Date | undefined {
+  const candidates: Date[] = [];
+  if (args.lastClaimedInboundAt) {
+    candidates.push(args.lastClaimedInboundAt);
+  } else if (args.lastRealOutboundAt) {
+    candidates.push(args.lastRealOutboundAt);
+  }
+  if (args.onlyAfter) {
+    candidates.push(args.onlyAfter);
+  }
+  if (candidates.length === 0) return undefined;
+  return new Date(Math.max(...candidates.map((d) => d.getTime())));
+}
+
+const COMPLETE_ACK_RE =
+  /^(так|ні|неа|ок|окей|добре|гаразд|дякую|супер|ага|угу|yes|no|ok|okay|thanks|thank you)[.!?…]*$/iu;
+
+const TIME_ONLY_RE = /^(?:о\s+|на\s+)?\d{1,2}[:.]\d{2}$/u;
+const DATE_ONLY_RE = /^\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?$/u;
+const PHONE_ONLY_RE = /^[\d\s+\-()]{9,16}$/u;
+const PERSON_NAME_RE =
+  /^[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+(?:\s+[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+){1,2}$/u;
+
+/**
+ * True when this Instagram bubble is likely one piece of a multi-bubble
+ * answer (time, name, phone) rather than a complete sentence.
+ * Used to stretch coalesce silence so "10:00" + "Прізвище Ім'я" + phone
+ * become one Claude turn.
+ */
+export function looksLikePartialUtterance(text: string | null | undefined): boolean {
+  const t = (text ?? '').trim();
+  if (!t) return true;
+  if (COMPLETE_ACK_RE.test(t)) return false;
+  if (/[?!]$/.test(t)) return false;
+  if (TIME_ONLY_RE.test(t) || DATE_ONLY_RE.test(t) || PHONE_ONLY_RE.test(t)) return true;
+  if (PERSON_NAME_RE.test(t) && t.length <= 60) return true;
+  // Short fragment without sentence end — typical IG split typing.
+  if (t.length <= 24 && !/[.!?…]$/.test(t) && !/\n/.test(t)) return true;
+  return false;
+}
+
+export function resolveCoalesceWindowMs(
+  partialBurst: boolean,
+  complete: { silenceMs: number; maxWaitMs: number },
+  partial: { silenceMs: number; maxWaitMs: number },
+): { silenceMs: number; maxWaitMs: number } {
+  if (!partialBurst) return complete;
+  return {
+    silenceMs: Math.max(complete.silenceMs, partial.silenceMs),
+    maxWaitMs: Math.max(complete.maxWaitMs, partial.maxWaitMs),
+  };
+}
+
 function parseMediaUrls(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === 'string' && v.length > 0);
@@ -102,7 +170,10 @@ export function joinInboundBatch(messages: PendingInboundMessage[]): JoinedInbou
   if (texts.length <= 1) {
     text = texts[0] ?? '';
   } else {
-    text = `Клієнт надіслав кілька повідомлень підряд:\n\n${texts.join('\n\n')}`;
+    const numbered = texts.map((t, i) => `${i + 1}) ${t}`).join('\n');
+    text =
+      'Клієнт надіслав кілька повідомлень підряд — це ОДНА відповідь ' +
+      `(читай суцільно, не як окремі репліки):\n${numbered}`;
   }
 
   const mediaUrls = messages.flatMap((m) => parseMediaUrls(m.mediaUrls));

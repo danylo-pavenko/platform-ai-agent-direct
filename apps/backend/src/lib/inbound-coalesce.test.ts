@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   computeCoalesceDelayMs,
   joinInboundBatch,
+  looksLikePartialUtterance,
+  resolveCoalesceWindowMs,
+  resolvePendingInboundFloor,
   shouldBootstrapIgTyping,
   type PendingInboundMessage,
 } from './inbound-coalesce-helpers.js';
@@ -55,14 +58,15 @@ describe('joinInboundBatch', () => {
     expect(batch.messageIds).toEqual(['a']);
   });
 
-  it('joins multiple texts with a short preamble', () => {
+  it('joins multiple texts as one numbered utterance', () => {
     const batch = joinInboundBatch([
       base({ id: 'a', text: 'Привіт', igMessageId: 'm1' }),
       base({ id: 'b', text: 'Хочу стрижку', igMessageId: 'm2' }),
     ]);
     expect(batch.text).toContain('кілька повідомлень');
-    expect(batch.text).toContain('Привіт');
-    expect(batch.text).toContain('Хочу стрижку');
+    expect(batch.text).toContain('ОДНА відповідь');
+    expect(batch.text).toContain('1) Привіт');
+    expect(batch.text).toContain('2) Хочу стрижку');
     expect(batch.igMessageIds).toEqual(['m1', 'm2']);
   });
 
@@ -106,5 +110,75 @@ describe('joinInboundBatch', () => {
     ]);
     expect(batch.igContext?.kind).toBe('story_reply');
     expect(batch.text).toContain('кілька повідомлень');
+  });
+});
+
+describe('looksLikePartialUtterance', () => {
+  it('treats time, phone and ПІБ bubbles as fragments', () => {
+    expect(looksLikePartialUtterance('10:00')).toBe(true);
+    expect(looksLikePartialUtterance('0930152179')).toBe(true);
+    expect(looksLikePartialUtterance('Тимофіїв Анжела')).toBe(true);
+    expect(looksLikePartialUtterance('05.09.2026')).toBe(true);
+    expect(looksLikePartialUtterance('')).toBe(true);
+  });
+
+  it('treats complete questions and acks as finished utterances', () => {
+    expect(looksLikePartialUtterance('На завтра є вільно?')).toBe(false);
+    expect(looksLikePartialUtterance('Так')).toBe(false);
+    expect(looksLikePartialUtterance('Добре!')).toBe(false);
+    expect(looksLikePartialUtterance('Хочу записатись на манікюр і брови')).toBe(false);
+  });
+});
+
+describe('resolvePendingInboundFloor', () => {
+  it('prefers last claimed inbound so in-flight bubbles are not orphaned by the bot reply', () => {
+    const claimed = new Date('2026-09-04T12:52:00.000Z');
+    const outbound = new Date('2026-09-04T12:52:20.000Z');
+    const floor = resolvePendingInboundFloor({
+      lastClaimedInboundAt: claimed,
+      lastRealOutboundAt: outbound,
+    });
+    expect(floor?.toISOString()).toBe(claimed.toISOString());
+  });
+
+  it('falls back to last outbound when nothing has been claimed yet', () => {
+    const outbound = new Date('2026-09-04T12:50:00.000Z');
+    const floor = resolvePendingInboundFloor({
+      lastClaimedInboundAt: null,
+      lastRealOutboundAt: outbound,
+    });
+    expect(floor?.toISOString()).toBe(outbound.toISOString());
+  });
+
+  it('raises the floor to onlyAfter for drain follow-ups', () => {
+    const claimed = new Date('2026-09-04T12:52:00.000Z');
+    const onlyAfter = new Date('2026-09-04T12:52:05.000Z');
+    const floor = resolvePendingInboundFloor({
+      lastClaimedInboundAt: claimed,
+      onlyAfter,
+    });
+    expect(floor?.toISOString()).toBe(onlyAfter.toISOString());
+  });
+});
+
+describe('resolveCoalesceWindowMs', () => {
+  it('keeps complete-utterance window when the burst is not a fragment', () => {
+    expect(
+      resolveCoalesceWindowMs(
+        false,
+        { silenceMs: 900, maxWaitMs: 2500 },
+        { silenceMs: 2200, maxWaitMs: 7000 },
+      ),
+    ).toEqual({ silenceMs: 900, maxWaitMs: 2500 });
+  });
+
+  it('stretches silence and max-wait for a partial burst', () => {
+    expect(
+      resolveCoalesceWindowMs(
+        true,
+        { silenceMs: 900, maxWaitMs: 2500 },
+        { silenceMs: 2200, maxWaitMs: 7000 },
+      ),
+    ).toEqual({ silenceMs: 2200, maxWaitMs: 7000 });
   });
 });

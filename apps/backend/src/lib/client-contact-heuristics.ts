@@ -63,6 +63,7 @@ const PHONE_CANDIDATE_RES: RegExp[] = [
 export interface ContactPatches {
   phone?: string;
   email?: string;
+  displayName?: string;
   deliveryCity?: string;
   deliveryNpBranch?: string;
   deliveryNpType?: 'warehouse' | 'postamat';
@@ -187,6 +188,25 @@ function extractNpBranch(text: string): { branch?: string; city?: string; npType
   return out;
 }
 
+const PERSON_NAME_RE =
+  /^[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+(?:\s+[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+){1,2}$/u;
+
+const NAME_TOKEN_STOP =
+  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|комплекс|дизайн|френч|укріплення|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя)$/iu;
+
+/**
+ * Conservative ПІБ from a name-only Instagram bubble ("Тимофіїв Анжела").
+ * Requires 2–3 capitalized tokens and rejects service/day words.
+ */
+export function extractPersonNameFromText(text: string): string | undefined {
+  const t = text.trim().replace(/\s+/g, ' ');
+  if (t.length < 5 || t.length > 60) return undefined;
+  if (!PERSON_NAME_RE.test(t)) return undefined;
+  const tokens = t.split(' ');
+  if (tokens.some((w) => NAME_TOKEN_STOP.test(w))) return undefined;
+  return t;
+}
+
 /**
  * Parse contact fields from a single inbound message body.
  */
@@ -208,6 +228,11 @@ export function extractContactPatchesFromText(text: string): ContactPatches {
   if (np.city) patches.deliveryCity = np.city;
   if (np.npType) patches.deliveryNpType = np.npType;
 
+  if (!patches.phone && !patches.email) {
+    const name = extractPersonNameFromText(t);
+    if (name) patches.displayName = name;
+  }
+
   return patches;
 }
 
@@ -224,6 +249,7 @@ export async function persistHeuristicClientContact(
   if (
     !patches.phone &&
     !patches.email &&
+    !patches.displayName &&
     !patches.deliveryCity &&
     !patches.deliveryNpBranch &&
     !patches.deliveryNpType
@@ -236,6 +262,7 @@ export async function persistHeuristicClientContact(
     select: {
       phone: true,
       email: true,
+      displayName: true,
       deliveryCity: true,
       deliveryNpBranch: true,
       deliveryNpType: true,
@@ -251,6 +278,12 @@ export async function persistHeuristicClientContact(
 
   if (patches.phone && !phonesDigitsEqual(client.phone, patches.phone)) {
     data.phone = patches.phone;
+  }
+  if (
+    patches.displayName &&
+    !client.displayName?.trim()
+  ) {
+    data.displayName = patches.displayName;
   }
   if (patches.email && patches.email !== (client.email ?? '').toLowerCase()) {
     data.email = patches.email;
