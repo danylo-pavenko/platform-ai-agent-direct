@@ -15,6 +15,7 @@ const {
     order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     message: { create: vi.fn() },
     clientReferencePhoto: { findMany: vi.fn() },
+    setting: { findUnique: vi.fn() },
   },
   resolveBookingBranchForAppointment: vi.fn(),
   resolveCrmProvider: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock('../lib/conversation-metrics.js', () => ({
 
 vi.mock('./client-crm-link.js', () => ({
   persistCrmBuyerIdFromBooking: vi.fn(),
+  fetchClientCrmHistory: vi.fn(async () => ({ items: [], provider: null, crmBuyerId: null, text: '' })),
 }));
 
 import {
@@ -97,6 +99,10 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     prismaMock.order.findFirst.mockResolvedValue(null);
     prismaMock.order.create.mockResolvedValue({ id: 'order-1' });
     prismaMock.message.create.mockResolvedValue({ id: 'msg-1' });
+    prismaMock.setting.findUnique.mockResolvedValue({
+      key: 'agent_config',
+      value: { timezone: 'Europe/Kyiv' },
+    });
     notifyOrder.mockResolvedValue(undefined);
     sendText.mockResolvedValue(undefined);
   });
@@ -409,6 +415,10 @@ describe('reflectAppointmentCrmOnOrder + mirrorAppointmentToCrm', () => {
     prismaMock.order.updateMany.mockResolvedValue({ count: 1 });
     prismaMock.appointment.update.mockResolvedValue({});
     prismaMock.clientReferencePhoto.findMany.mockResolvedValue([]);
+    prismaMock.setting.findUnique.mockResolvedValue({
+      key: 'agent_config',
+      value: { timezone: 'Europe/Kyiv' },
+    });
   });
 
   it('copies appointment CRM status onto the booking Order', async () => {
