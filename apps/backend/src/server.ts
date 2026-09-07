@@ -104,9 +104,11 @@ const shutdown = async (signal: string) => {
   const { stopConversationRetryMonitor } = await import('./services/conversation-retry.js');
   const { stopFollowUpMonitor } = await import('./services/follow-up.js');
   const { stopClaudeAuthMonitor } = await import('./services/claude-auth-monitor.js');
+  const { stopLogRetentionMonitor } = await import('./services/log-retention.js');
   stopConversationRetryMonitor();
   stopFollowUpMonitor();
   stopClaudeAuthMonitor();
+  stopLogRetentionMonitor();
   await app.close();
   await prisma.$disconnect();
   process.exit(0);
@@ -135,6 +137,9 @@ try {
 
   const { startFollowUpMonitor } = await import('./services/follow-up.js');
   startFollowUpMonitor(app.log);
+
+  const { startLogRetentionMonitor } = await import('./services/log-retention.js');
+  startLogRetentionMonitor(app.log);
 
   if (config.CLAUDE_WARMUP_ON_START) {
     const { warmUpClaudeRuntime } = await import('./services/claude.js');

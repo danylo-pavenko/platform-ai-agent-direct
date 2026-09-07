@@ -69,6 +69,11 @@ import {
   evaluateMasterFreeTimeStatus,
 } from '../../lib/beautypro-schedule-guard.js';
 import { DEFAULT_TENANT_TIMEZONE } from '../../lib/tenant-timezone.js';
+import {
+  recordBeautyproApiCall,
+  redactQuery,
+  summarizeAuditBody,
+} from './beautypro-api-audit.js';
 
 const log = pino({ name: 'crm:beautypro' });
 
@@ -229,42 +234,84 @@ async function requestDatabaseToken(
   url.searchParams.set('application_secret', applicationSecret);
   url.searchParams.set('database_code', databaseCode);
 
-  const res = await fetch(url.toString(), { method: 'GET' });
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const t0 = Date.now();
+  let httpStatus = 0;
+  try {
+    const res = await fetch(url.toString(), { method: 'GET' });
+    httpStatus = res.status;
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const durationMs = Date.now() - t0;
 
-  if (!res.ok) {
-    throw new Error(
-      `BeautyPro auth/database HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`,
-    );
+    recordBeautyproApiCall({
+      method: 'GET',
+      path: '/auth/database',
+      query: redactQuery({
+        application_id: applicationId,
+        application_secret: applicationSecret,
+        database_code: databaseCode,
+      }),
+      httpStatus,
+      ok: res.ok && typeof body.access_token === 'string',
+      durationMs,
+      host: AUTH_HOST,
+      error: !res.ok
+        ? `HTTP ${res.status}`
+        : typeof body.status === 'string' && !body.access_token
+          ? `auth status=${body.status}`
+          : undefined,
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `BeautyPro auth/database HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`,
+      );
+    }
+
+    if (typeof body.status === 'string') {
+      const status = body.status === 'refused' ? 'refused' : 'pending';
+      await persistTokens({ authStatus: status });
+      throw new Error(
+        status === 'refused'
+          ? 'BeautyPro access refused — check Marketplace permissions'
+          : 'BeautyPro access pending — grant in BeautyPro → Settings → Marketplace',
+      );
+    }
+
+    const accessToken = typeof body.access_token === 'string' ? body.access_token : '';
+    if (!accessToken) {
+      throw new Error('BeautyPro auth/database returned no access_token');
+    }
+
+    const tokens: TokenState = {
+      accessToken,
+      refreshToken: typeof body.refresh_token === 'string' ? body.refresh_token : '',
+      expiresAt:
+        typeof body.expires_at === 'string'
+          ? body.expires_at
+          : new Date(Date.now() + 23 * 3600_000).toISOString(),
+      apiServer: typeof body.server === 'number' ? body.server : 1,
+      authStatus: 'granted',
+    };
+    await persistTokens(tokens);
+    return tokens;
+  } catch (err) {
+    if (httpStatus === 0) {
+      recordBeautyproApiCall({
+        method: 'GET',
+        path: '/auth/database',
+        query: redactQuery({
+          application_id: applicationId,
+          application_secret: applicationSecret,
+          database_code: databaseCode,
+        }),
+        ok: false,
+        durationMs: Date.now() - t0,
+        host: AUTH_HOST,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      });
+    }
+    throw err;
   }
-
-  if (typeof body.status === 'string') {
-    const status = body.status === 'refused' ? 'refused' : 'pending';
-    await persistTokens({ authStatus: status });
-    throw new Error(
-      status === 'refused'
-        ? 'BeautyPro access refused — check Marketplace permissions'
-        : 'BeautyPro access pending — grant in BeautyPro → Settings → Marketplace',
-    );
-  }
-
-  const accessToken = typeof body.access_token === 'string' ? body.access_token : '';
-  if (!accessToken) {
-    throw new Error('BeautyPro auth/database returned no access_token');
-  }
-
-  const tokens: TokenState = {
-    accessToken,
-    refreshToken: typeof body.refresh_token === 'string' ? body.refresh_token : '',
-    expiresAt:
-      typeof body.expires_at === 'string'
-        ? body.expires_at
-        : new Date(Date.now() + 23 * 3600_000).toISOString(),
-    apiServer: typeof body.server === 'number' ? body.server : 1,
-    authStatus: 'granted',
-  };
-  await persistTokens(tokens);
-  return tokens;
 }
 
 async function refreshAccessToken(
@@ -275,36 +322,72 @@ async function refreshAccessToken(
   url.searchParams.set('application_id', applicationId);
   url.searchParams.set('refresh_token', refreshToken);
 
-  const res = await fetch(url.toString(), { method: 'GET' });
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const t0 = Date.now();
+  let httpStatus = 0;
+  try {
+    const res = await fetch(url.toString(), { method: 'GET' });
+    httpStatus = res.status;
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const durationMs = Date.now() - t0;
 
-  if (!res.ok) {
-    throw new Error(
-      `BeautyPro auth/refresh HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`,
-    );
+    recordBeautyproApiCall({
+      method: 'GET',
+      path: '/auth/refresh',
+      query: redactQuery({
+        application_id: applicationId,
+        refresh_token: refreshToken,
+      }),
+      httpStatus,
+      ok: res.ok && typeof body.access_token === 'string',
+      durationMs,
+      host: AUTH_HOST,
+      error: !res.ok ? `HTTP ${res.status}` : undefined,
+    });
+
+    if (!res.ok) {
+      throw new Error(
+        `BeautyPro auth/refresh HTTP ${res.status}: ${JSON.stringify(body).slice(0, 300)}`,
+      );
+    }
+
+    const accessToken = typeof body.access_token === 'string' ? body.access_token : '';
+    if (!accessToken) {
+      throw new Error('BeautyPro auth/refresh returned no access_token');
+    }
+
+    const tokens: TokenState = {
+      accessToken,
+      refreshToken:
+        typeof body.refresh_token === 'string' ? body.refresh_token : refreshToken,
+      expiresAt:
+        typeof body.expires_at === 'string'
+          ? body.expires_at
+          : new Date(Date.now() + 23 * 3600_000).toISOString(),
+      apiServer: 0, // keep previous via persist merge — set below
+      authStatus: 'granted',
+    };
+
+    const { tokens: prev } = await loadCredentials();
+    tokens.apiServer = prev.apiServer || 1;
+    await persistTokens(tokens);
+    return tokens;
+  } catch (err) {
+    if (httpStatus === 0) {
+      recordBeautyproApiCall({
+        method: 'GET',
+        path: '/auth/refresh',
+        query: redactQuery({
+          application_id: applicationId,
+          refresh_token: refreshToken,
+        }),
+        ok: false,
+        durationMs: Date.now() - t0,
+        host: AUTH_HOST,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      });
+    }
+    throw err;
   }
-
-  const accessToken = typeof body.access_token === 'string' ? body.access_token : '';
-  if (!accessToken) {
-    throw new Error('BeautyPro auth/refresh returned no access_token');
-  }
-
-  const tokens: TokenState = {
-    accessToken,
-    refreshToken:
-      typeof body.refresh_token === 'string' ? body.refresh_token : refreshToken,
-    expiresAt:
-      typeof body.expires_at === 'string'
-        ? body.expires_at
-        : new Date(Date.now() + 23 * 3600_000).toISOString(),
-    apiServer: 0, // keep previous via persist merge — set below
-    authStatus: 'granted',
-  };
-
-  const { tokens: prev } = await loadCredentials();
-  tokens.apiServer = prev.apiServer || 1;
-  await persistTokens(tokens);
-  return tokens;
 }
 
 async function ensureAccessToken(): Promise<{ accessToken: string; apiServer: number }> {
@@ -349,39 +432,92 @@ async function bpFetch<T>(
     url.searchParams.set(k, String(v));
   }
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
-  });
+  const t0 = Date.now();
+  let httpStatus = 0;
+  try {
+    const res = await fetch(url.toString(), {
+      method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+    httpStatus = res.status;
+    const durationMs = Date.now() - t0;
 
-  if (res.status === 401 && opts?.retryAuth !== false) {
-    // Force re-auth once
-    const { applicationId, applicationSecret, databaseCode, tokens } =
-      await loadCredentials();
-    if (tokens.refreshToken) {
-      await refreshAccessToken(applicationId, tokens.refreshToken).catch(async () => {
-        await requestDatabaseToken(applicationId, applicationSecret, databaseCode);
+    if (res.status === 401 && opts?.retryAuth !== false) {
+      recordBeautyproApiCall({
+        method,
+        path: path.startsWith('/') ? path : `/${path}`,
+        query: redactQuery(opts?.query),
+        body: summarizeAuditBody(opts?.body),
+        httpStatus,
+        ok: false,
+        durationMs,
+        host: base,
+        error: '401 EXPIRED — retry after refresh',
       });
-    } else {
-      await requestDatabaseToken(applicationId, applicationSecret, databaseCode);
+      // Force re-auth once
+      const { applicationId, applicationSecret, databaseCode, tokens } =
+        await loadCredentials();
+      if (tokens.refreshToken) {
+        await refreshAccessToken(applicationId, tokens.refreshToken).catch(async () => {
+          await requestDatabaseToken(applicationId, applicationSecret, databaseCode);
+        });
+      } else {
+        await requestDatabaseToken(applicationId, applicationSecret, databaseCode);
+      }
+      return bpFetch(method, path, { ...opts, retryAuth: false });
     }
-    return bpFetch(method, path, { ...opts, retryAuth: false });
-  }
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`BeautyPro ${method} ${path} HTTP ${res.status}: ${text.slice(0, 400)}`);
-  }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      recordBeautyproApiCall({
+        method,
+        path: path.startsWith('/') ? path : `/${path}`,
+        query: redactQuery(opts?.query),
+        body: summarizeAuditBody(opts?.body),
+        httpStatus,
+        ok: false,
+        durationMs,
+        host: base,
+        error: text.slice(0, 300) || `HTTP ${res.status}`,
+      });
+      throw new Error(`BeautyPro ${method} ${path} HTTP ${res.status}: ${text.slice(0, 400)}`);
+    }
 
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  if (!text) return undefined as T;
-  return JSON.parse(text) as T;
+    recordBeautyproApiCall({
+      method,
+      path: path.startsWith('/') ? path : `/${path}`,
+      query: redactQuery(opts?.query),
+      body: summarizeAuditBody(opts?.body),
+      httpStatus,
+      ok: true,
+      durationMs,
+      host: base,
+    });
+
+    if (res.status === 204) return undefined as T;
+    const text = await res.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
+  } catch (err) {
+    if (httpStatus === 0) {
+      recordBeautyproApiCall({
+        method,
+        path: path.startsWith('/') ? path : `/${path}`,
+        query: redactQuery(opts?.query),
+        body: summarizeAuditBody(opts?.body),
+        ok: false,
+        durationMs: Date.now() - t0,
+        host: base,
+        error: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+      });
+    }
+    throw err;
+  }
 }
 
 async function fetchCategoryMap(): Promise<Map<string, string>> {

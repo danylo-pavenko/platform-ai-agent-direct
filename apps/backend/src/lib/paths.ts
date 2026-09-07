@@ -88,3 +88,16 @@ export function getGeneralAgentTemplatePath(): string {
 export function getSalesAgentTemplatePath(): string {
   return resolve(TEMPLATES_DIR, 'prompts', 'sales-agent.txt');
 }
+
+/**
+ * Append-only BeautyPro / AI Helps HTTP audit (NDJSON).
+ * Pull from tenant server to rebuild vendor API-usage reports with timestamps.
+ */
+export function getBeautyproApiAuditLogPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'logs', 'beautypro-api.jsonl');
+}
+
+/** Tenant-owned log directory (BeautyPro audit, future app logs). */
+export function getTenantLogsDir(): string {
+  return resolve(getTenantKnowledgeDir(), 'logs');
+}
