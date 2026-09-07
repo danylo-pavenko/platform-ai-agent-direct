@@ -4,79 +4,83 @@ BeautyPro / AI Helps — API test report (з audit log)
 
 Дата прогону: 07.09.2026
 Timezone: Europe/Kyiv
-Джерело: beautypro-api.jsonl (54 виклики)
-Вікно: 16:49:05 — 17:14:04
-Успішні: 38 | Помилки: 16 (усі GET /clients → 400 Unknown parameter 'comment')
+Джерело: beautypro-api.jsonl (38 викликів)
+Вікно: 17:33:11 — 17:36:50
+Успішні: 38 / 38 (0 помилок)
+
+Примітка: після фіксу GET /clients (прибрано comment з fields)
+усі пошуки клієнта → 200. У попередньому прогоні (16:49–17:14)
+ті самі GET падали з 400 Unknown parameter 'comment'.
 
 --------------------------------------------------------------------------------
 1. Хронологія (Europe/Kyiv)
 --------------------------------------------------------------------------------
 
---- 16:49 sync / probe довідників ---
-16:49:05  GET  /locations                 → 200  180ms
-16:49:05  GET  /services                  → 200   68ms
-16:49:05  GET  /positions                 → 200   74ms
-16:49:05  GET  /services/categories       → 200   78ms
-16:49:05  GET  /employees                 → 200   32ms
+--- 17:33 sync / probe довідників ---
+17:33:11  GET  /locations                 → 200   32ms
+17:33:11  GET  /services                  → 200   42ms
+17:33:11  GET  /positions                 → 200   79ms
+17:33:11  GET  /services/categories       → 200   84ms
+17:33:11  GET  /employees                 → 200   29ms
 
---- 17:03–17:06 слоти (get_available_slots) ---
-17:03:50  GET  /employees/free_time       → 200  495ms   день ≈ 10.09.2026, duration=45, step=30m
-17:03:50  GET  /employees?location=…      → 200   31ms
-17:03:50  GET  /employees (grades)        → 200   51ms
-17:03:50  GET  /employees/free_time       → 200  144ms   день ≈ 11.09.2026
-17:03:50  GET  /employees?location=…      → 200   35ms
-17:06:07  GET  /employees/free_time       → 200  320ms   день ≈ 10.09.2026
-17:06:07  GET  /employees?location=…      → 200   36ms
+--- 17:33–17:35 history + слоти ---
+17:33:17  GET  /clients/{id}/history      → 200   96ms
+17:34:34  GET  /clients/{id}/history      → 200  138ms
+17:34:34  GET  /employees/free_time       → 200  437ms   день ≈ 10.09.2026, duration=45, step=30m
+17:34:34  GET  /employees?location=…      → 200   83ms
+17:34:35  GET  /employees (grades)        → 200  522ms
+17:34:35  GET  /clients/{id}/history      → 200 1902ms
+17:34:35  GET  /employees/free_time       → 200   64ms   день ≈ 11.09.2026
+17:34:35  GET  /employees?location=…      → 200   41ms
+17:35:17  GET  /clients/{id}/history      → 200   94ms
+17:35:17  GET  /employees/free_time       → 200  106ms   день ≈ 10.09.2026
+17:35:17  GET  /employees?location=…      → 200   28ms
+17:35:23  GET  /clients/{id}/history      → 200  129ms
+17:35:23  GET  /employees/free_time       → 200  119ms   + professionals=
+17:35:23  GET  /employees?location=…      → 200   37ms
 
---- 17:06 client + history + перший book ---
-17:06:42  GET  /clients?phone/name… (×10) → 400        FAIL: Unknown parameter 'comment'
-17:06:42  POST /clients                   → 201  145ms   create
-17:06:58  GET  /clients/{id}/history      → 200   99ms
-17:06:58  GET  /employees/free_time       → 200   75ms   + professionals=
-17:06:58  GET  /employees                 → 200   29ms
-17:06:58  GET  /employees (grades)        → 200   28ms
-17:07:05  GET  /clients/{id}/history      → 200   80ms
-17:07:05  GET  /employees/free_time       → 200   40ms
-17:07:05  GET  /employees?location=…      → 200   32ms
-17:07:05  PUT  /clients/{id}              → 200  268ms   update name
-17:07:05  GET  /clients?phone… (×3)       → 400        FAIL: comment in fields
-17:07:05  POST /clients                   → 201   28ms   повторний create (після fail GET)
-17:07:05  GET  /employees/free_time       → 200   62ms   schedule guard
-17:07:06  POST /appointments?force=true   → 201  174ms   BOOK #1  state=planned
-           appointment_id=88df0ce9-4c74-b52a-645c-3a726871a6f0
+--- 17:35 book #1 (10.09.2026 10:00) ---
+17:35:23  GET  /clients?phone=+380…       → 200  180ms   fields=…,archive (без comment) ✓
+17:35:23  GET  /clients?phone=380…        → 200  134ms   ✓
+17:35:23  GET  /employees/free_time       → 200   34ms   schedule guard
+17:35:24  POST /appointments?force=true   → 201  157ms   BOOK #1
+           date=2026-09-10, state=planned, 1 service @ 10:00:00
+           appointment_id=88df0ced-4092-29d2-13f5-c24b349769b5
 
---- 17:12 cancel (cancel_appointment) ---
-17:12:55  PUT  /appointments/{id}         → 204  289ms   CANCEL
+--- 17:35–17:36 cancel + reschedule (cancel → pick → book) ---
+17:35:52  GET  /clients/{id}/history      → 200  249ms
+17:35:52  GET  /employees/free_time       → 200   83ms   день ≈ 11.09.2026
+17:35:53  GET  /employees?location=…      → 200   75ms
+17:35:59  PUT  /appointments/{id}         → 204  266ms   CANCEL #1
+           body: state=cancelled, cancelReason=Cancelled via Instagram agent
+17:36:00  GET  /clients/{id}/history      → 200   35ms
+17:36:00  GET  /employees/free_time       → 200   54ms
+17:36:00  GET  /employees?location=…      → 200   30ms
+17:36:00  GET  /clients?phone=+380…       → 200   87ms   ✓
+17:36:00  GET  /clients?phone=380…        → 200  125ms   ✓
+17:36:00  GET  /employees (для pick)      → 200   42ms   location+service filter
+17:36:00  GET  /employees/pick_professional → 200  38ms  date=2026-09-11
+17:36:00  GET  /employees/free_time       → 200   43ms   schedule guard
+17:36:00  POST /appointments?force=true   → 201  145ms   BOOK #2 (після cancel)
+           date=2026-09-11, state=planned, 1 service @ 10:00:00
+           appointment_id=88df0ced-5662-0655-13f5-c24b3939c5c0
+
+--- 17:36 cleanup ---
+17:36:21  GET  /clients/{id}/history      → 200   80ms
+17:36:50  PUT  /appointments/{id}         → 204  301ms   CANCEL #2
            body: state=cancelled, cancelReason=…
-
---- 17:13–17:14 слоти + повторний book (фактично reschedule-ланцюжок) ---
-17:13:23  GET  /clients/{id}/history      → 200  109ms
-17:13:23  GET  /employees/free_time       → 200   75ms   день ≈ 11.09.2026
-17:13:23  GET  /employees                 → 200   40ms
-17:13:23  GET  /employees (grades)        → 200   34ms
-17:13:56  GET  /clients/{id}/history      → 200  164ms
-17:13:56  GET  /employees/free_time       → 200   93ms   інший professional
-17:13:56  GET  /employees?location=…      → 200   27ms
-17:14:03  GET  /clients/{id}/history      → 200  114ms
-17:14:03  GET  /employees/free_time       → 200   45ms
-17:14:03  GET  /employees?location=…      → 200   32ms
-17:14:03  GET  /clients?phone… (×3)       → 400        FAIL: comment in fields
-17:14:04  POST /clients                   → 201   64ms   знову create після fail GET
-17:14:04  GET  /employees/free_time       → 200   33ms   schedule guard
-17:14:04  POST /appointments?force=true   → 201  133ms   BOOK #2  state=planned
 
 --------------------------------------------------------------------------------
 2. Лічильники методів
 --------------------------------------------------------------------------------
 
-  16×  GET  /clients
-  12×  GET  /employees
-  10×  GET  /employees/free_time
-   5×  GET  /clients/{id}/history
-   3×  POST /clients
+   9×  GET  /employees
+   8×  GET  /clients/{id}/history
+   8×  GET  /employees/free_time
+   4×  GET  /clients                    ← усі 200 (фікс comment)
    2×  POST /appointments?force=true
-   1×  PUT  /appointments/{id}  state=cancelled
-   1×  PUT  /clients/{id}
+   2×  PUT  /appointments/{id} cancel
+   1×  GET  /employees/pick_professional
    1×  GET  /locations
    1×  GET  /services
    1×  GET  /services/categories
@@ -93,62 +97,53 @@ Timezone: Europe/Kyiv
   ✓ GET  /services
   ✓ GET  /employees
   ✓ GET  /employees/free_time
-  ✓ GET  /clients                 (спроби є, але всі 400 — див. §4)
-  ✓ POST /clients
-  ✓ PUT  /clients/{id}
+  ✓ GET  /employees/pick_professional
+  ✓ GET  /clients                         (200, fields без comment)
   ✓ GET  /clients/{id}/history
-  ✓ POST /appointments?force=true     (×2 — book + після cancel)
-  ✓ PUT  /appointments/{id} cancel    (cancel_appointment)
+  ✓ POST /appointments?force=true         (book ×2)
+  ✓ PUT  /appointments/{id} cancel        (×2)
+  ~ reschedule = cancel #1 + pick_professional + POST book #2
 
-Частково / опосередковано:
-  ~ reschedule_appointment = cancel старого (17:12:55) + POST нового (17:14:04)
-    Окремого move endpoint немає — ланцюжок відпрацьовано.
+Не викликано (немає в цьому jsonl):
+  ✗ GET  /auth/database | /auth/refresh   — токен з кешу
+  ✗ POST /clients | PUT /clients/{id}     — клієнт уже знайдений по phone
+  ✗ GET  /sales/{sale_id}
+  ✗ GET  /appointments | GET /appointments/{id}
+  ✗ PUT  /appointments/{id} action=insert — додати послугу
+  ✗ PUT  /appointments/{id} action=delete — прибрати послугу
 
-НЕ викликано в цьому jsonl:
-  ✗ GET  /auth/database              — токен з кешу
-  ✗ GET  /auth/refresh               — токен ще валідний
-  ✗ GET  /employees/pick_professional — master_id передавався явно
-  ✗ GET  /sales/{sale_id}            — history без paid sale enrich
-  ✗ GET  /appointments               — same-day / TIME_CONFLICT lookup
-  ✗ GET  /appointments/{id}          — зчитати склад перед remove
-  ✗ PUT  /appointments/{id} insert   — додати послугу (append)
-  ✗ PUT  /appointments/{id} delete   — прибрати одну послугу
-
-Висновок по покриттю:
-  Є: sync → slots → client create/update → history → book → cancel → book знову.
-  Немає: зміна складу візиту (insert/delete), GET appointment lines, sales.
+Висновок:
+  Чистий прогін після фіксу GET /clients.
+  Покрито: sync → slots → client lookup → book → cancel →
+  pick_professional → book (reschedule-ланцюжок) → cancel.
+  Залишилось для окремого прогону: зміна складу візиту (insert/delete).
 
 --------------------------------------------------------------------------------
-4. Критична помилка в прогоні
+4. Регресія GET /clients (виправлено)
 --------------------------------------------------------------------------------
 
-Усі 16× GET /clients → HTTP 400:
-  Unknown parameter 'comment'
-
-fields містить comment (BP_CLIENT_LIST_FIELDS). Live API на цій базі
-відхиляє comment у GET fields → пошук клієнта не працює → зайві POST /clients
-(ризик дублів).
-
-Фікс з нашого боку: прибрати comment з GET /clients fields.
+Було (прогін 16:49–17:14): fields=…,comment,archive → 400 ×16
+Стало (прогін 17:33–17:36): fields=name,firstname,lastname,phone,email,archive
+                             → 200 ×4, без зайвих POST /clients
 
 --------------------------------------------------------------------------------
 5. Статус для вендора
 --------------------------------------------------------------------------------
 
-На поточному етапі цей набір запитів нас за функціоналом влаштовує
-(окрім GET /clients + fields=comment — live 400).
+На поточному етапі цей набір запитів нас за функціоналом влаштовує.
 
-У test run 07.09.2026 16:49–17:14 (Europe/Kyiv), database_code 737532,
-підтверджено:
-  sync довідників, free_time, client POST/PUT, history,
-  POST /appointments?force=true (запис),
-  PUT /appointments/{id} state=cancelled (скасування),
-  повторний POST після cancel (ланцюжок перенесення).
+У test run 07.09.2026 17:33:11 — 17:36:50 (Europe/Kyiv), database_code 737532,
+усі 38 викликів успішні. Підтверджено:
+  sync довідників, free_time, pick_professional,
+  GET /clients (phone), history,
+  POST /appointments?force=true,
+  PUT /appointments/{id} state=cancelled,
+  ланцюжок перенесення (cancel + create).
 
-Ще не зафіксовано в логу цього дня:
+Ще не зафіксовано в логу цього прогону:
   PUT action=insert / action=delete, GET /appointments/{id}.
 
-Test run: 07.09.2026 16:49:05 — 17:14:04 Europe/Kyiv
+Test run: 07.09.2026 17:33:11 — 17:36:50 Europe/Kyiv
 AIHELPS_APP_ID=eee1e6ce-14c5-4713-b4d9-8ff2ace8cda1
 AIHELPS_DATABASE_CODE=737532
 
