@@ -46,11 +46,14 @@ describe('beautypro client helpers', () => {
     expect(hit?.id).toBe('2');
   });
 
-  it('GET fields use comment; POST/PUT body never sends comment or comments', () => {
+  it('GET fields omit comment/comments/id; POST/PUT body never sends comment', () => {
     const names = BP_CLIENT_LIST_FIELDS.split(',');
-    expect(names).toContain('comment');
+    expect(names).not.toContain('comment');
     expect(names).not.toContain('comments');
     expect(names).not.toContain('id');
+    expect(names).toEqual(
+      expect.arrayContaining(['name', 'firstname', 'lastname', 'phone', 'email', 'archive']),
+    );
     const created = buildBeautyproClientWriteBody({
       mode: 'create',
       firstname: 'Анжела',

@@ -65,7 +65,7 @@
 
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. Agent tool: `cancel_appointment` / part of `reschedule_appointment`. |
 | `removeBookingService` | `GET` services on appointment → `PUT` `services: [{ id: lineId, action: 'delete' }]`. Agent: `remove_appointment_service`. Last line → full cancel. |
-| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: `comment` (не `comments`). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email` (як у docs create). Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
+| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: **без** `comment`/`comments` (live 400). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email`. Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
 
 ## Agent: cancel / move / pay
 
@@ -86,7 +86,7 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 |--------|---------|
 | `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг; нотатка = **`comments`**. У body clients **не** слати `comment`/`comments` — лише імʼя + телефон/email. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |
 | `GET /appointments` (lookup після 409) | `fields=date,location,client` + `client`/`location`/`from`/`to`/`state`. Без `fields=id`. |
-| `GET /clients` | `name,firstname,lastname,phone,email,comment,archive` — **`comment`**, не `comments`. Це лише read `fields`. |
+| `GET /clients` | `name,firstname,lastname,phone,email,archive` — **без** `comment`/`comments` (live 07.09.2026: 400 Unknown parameter 'comment'). |
 | `POST/PUT /clients` | Body як у docs create example: `firstname`, `lastname`, `phone` (scalar на POST, масив на PUT), `email`. Live 400 на `comment` у body. |
 | `GET /services` | Не слати `no_professional_price` (docs має, live 400). Ціни з `location_prices`. |
 | `GET /locations` | Лише `fields=name,city,street,phone,timezone,active`. Фільтр `active=true` є на `GET /locations/{id}`, не на списку — фільтруємо в коді. |

@@ -1061,8 +1061,8 @@ export const beautyproAdapter: CrmAdapter = {
     };
 
     /**
-     * BeautyPro has no instagram filter. Match GET `comment` (salon-typed notes)
-     * or name ≈ handle. We do not write IG onto the client card.
+     * BeautyPro has no instagram filter. Match `name` ≈ handle.
+     * Do not request `comment` in GET fields — live API 400s Unknown parameter.
      */
     const tryInstagram = async (username: string): Promise<string | null> => {
       const handle = normalizeIgUsername(username);

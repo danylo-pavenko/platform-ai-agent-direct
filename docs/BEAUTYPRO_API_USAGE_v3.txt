@@ -97,9 +97,10 @@ Auth завжди на api.aihelps.com (server 1). Data — api / api4 за по
 --------------------------------------------------------------------------------
 
   GET /v1/clients
-      ?fields=name,firstname,lastname,phone,email,comment,archive
+      ?fields=name,firstname,lastname,phone,email,archive
       &archive=false
       &phone={UA phone variants: +380… / 380… / 0XX…}
+      ← без comment у fields (live 400 Unknown parameter 'comment')
 
   (fallback) GET /v1/clients … &email=…
   (fallback) GET /v1/clients … &name=…   ← Instagram filter у API немає;

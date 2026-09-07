@@ -1,0 +1,155 @@
+================================================================================
+BeautyPro / AI Helps — API test report (з audit log)
+================================================================================
+
+Дата прогону: 07.09.2026
+Timezone: Europe/Kyiv
+Джерело: beautypro-api.jsonl (54 виклики)
+Вікно: 16:49:05 — 17:14:04
+Успішні: 38 | Помилки: 16 (усі GET /clients → 400 Unknown parameter 'comment')
+
+--------------------------------------------------------------------------------
+1. Хронологія (Europe/Kyiv)
+--------------------------------------------------------------------------------
+
+--- 16:49 sync / probe довідників ---
+16:49:05  GET  /locations                 → 200  180ms
+16:49:05  GET  /services                  → 200   68ms
+16:49:05  GET  /positions                 → 200   74ms
+16:49:05  GET  /services/categories       → 200   78ms
+16:49:05  GET  /employees                 → 200   32ms
+
+--- 17:03–17:06 слоти (get_available_slots) ---
+17:03:50  GET  /employees/free_time       → 200  495ms   день ≈ 10.09.2026, duration=45, step=30m
+17:03:50  GET  /employees?location=…      → 200   31ms
+17:03:50  GET  /employees (grades)        → 200   51ms
+17:03:50  GET  /employees/free_time       → 200  144ms   день ≈ 11.09.2026
+17:03:50  GET  /employees?location=…      → 200   35ms
+17:06:07  GET  /employees/free_time       → 200  320ms   день ≈ 10.09.2026
+17:06:07  GET  /employees?location=…      → 200   36ms
+
+--- 17:06 client + history + перший book ---
+17:06:42  GET  /clients?phone/name… (×10) → 400        FAIL: Unknown parameter 'comment'
+17:06:42  POST /clients                   → 201  145ms   create
+17:06:58  GET  /clients/{id}/history      → 200   99ms
+17:06:58  GET  /employees/free_time       → 200   75ms   + professionals=
+17:06:58  GET  /employees                 → 200   29ms
+17:06:58  GET  /employees (grades)        → 200   28ms
+17:07:05  GET  /clients/{id}/history      → 200   80ms
+17:07:05  GET  /employees/free_time       → 200   40ms
+17:07:05  GET  /employees?location=…      → 200   32ms
+17:07:05  PUT  /clients/{id}              → 200  268ms   update name
+17:07:05  GET  /clients?phone… (×3)       → 400        FAIL: comment in fields
+17:07:05  POST /clients                   → 201   28ms   повторний create (після fail GET)
+17:07:05  GET  /employees/free_time       → 200   62ms   schedule guard
+17:07:06  POST /appointments?force=true   → 201  174ms   BOOK #1  state=planned
+           appointment_id=88df0ce9-4c74-b52a-645c-3a726871a6f0
+
+--- 17:12 cancel (cancel_appointment) ---
+17:12:55  PUT  /appointments/{id}         → 204  289ms   CANCEL
+           body: state=cancelled, cancelReason=…
+
+--- 17:13–17:14 слоти + повторний book (фактично reschedule-ланцюжок) ---
+17:13:23  GET  /clients/{id}/history      → 200  109ms
+17:13:23  GET  /employees/free_time       → 200   75ms   день ≈ 11.09.2026
+17:13:23  GET  /employees                 → 200   40ms
+17:13:23  GET  /employees (grades)        → 200   34ms
+17:13:56  GET  /clients/{id}/history      → 200  164ms
+17:13:56  GET  /employees/free_time       → 200   93ms   інший professional
+17:13:56  GET  /employees?location=…      → 200   27ms
+17:14:03  GET  /clients/{id}/history      → 200  114ms
+17:14:03  GET  /employees/free_time       → 200   45ms
+17:14:03  GET  /employees?location=…      → 200   32ms
+17:14:03  GET  /clients?phone… (×3)       → 400        FAIL: comment in fields
+17:14:04  POST /clients                   → 201   64ms   знову create після fail GET
+17:14:04  GET  /employees/free_time       → 200   33ms   schedule guard
+17:14:04  POST /appointments?force=true   → 201  133ms   BOOK #2  state=planned
+
+--------------------------------------------------------------------------------
+2. Лічильники методів
+--------------------------------------------------------------------------------
+
+  16×  GET  /clients
+  12×  GET  /employees
+  10×  GET  /employees/free_time
+   5×  GET  /clients/{id}/history
+   3×  POST /clients
+   2×  POST /appointments?force=true
+   1×  PUT  /appointments/{id}  state=cancelled
+   1×  PUT  /clients/{id}
+   1×  GET  /locations
+   1×  GET  /services
+   1×  GET  /services/categories
+   1×  GET  /positions
+
+--------------------------------------------------------------------------------
+3. Покриття integration flow (v3)
+--------------------------------------------------------------------------------
+
+Викликано в цьому прогоні:
+  ✓ GET  /locations
+  ✓ GET  /services/categories
+  ✓ GET  /positions
+  ✓ GET  /services
+  ✓ GET  /employees
+  ✓ GET  /employees/free_time
+  ✓ GET  /clients                 (спроби є, але всі 400 — див. §4)
+  ✓ POST /clients
+  ✓ PUT  /clients/{id}
+  ✓ GET  /clients/{id}/history
+  ✓ POST /appointments?force=true     (×2 — book + після cancel)
+  ✓ PUT  /appointments/{id} cancel    (cancel_appointment)
+
+Частково / опосередковано:
+  ~ reschedule_appointment = cancel старого (17:12:55) + POST нового (17:14:04)
+    Окремого move endpoint немає — ланцюжок відпрацьовано.
+
+НЕ викликано в цьому jsonl:
+  ✗ GET  /auth/database              — токен з кешу
+  ✗ GET  /auth/refresh               — токен ще валідний
+  ✗ GET  /employees/pick_professional — master_id передавався явно
+  ✗ GET  /sales/{sale_id}            — history без paid sale enrich
+  ✗ GET  /appointments               — same-day / TIME_CONFLICT lookup
+  ✗ GET  /appointments/{id}          — зчитати склад перед remove
+  ✗ PUT  /appointments/{id} insert   — додати послугу (append)
+  ✗ PUT  /appointments/{id} delete   — прибрати одну послугу
+
+Висновок по покриттю:
+  Є: sync → slots → client create/update → history → book → cancel → book знову.
+  Немає: зміна складу візиту (insert/delete), GET appointment lines, sales.
+
+--------------------------------------------------------------------------------
+4. Критична помилка в прогоні
+--------------------------------------------------------------------------------
+
+Усі 16× GET /clients → HTTP 400:
+  Unknown parameter 'comment'
+
+fields містить comment (BP_CLIENT_LIST_FIELDS). Live API на цій базі
+відхиляє comment у GET fields → пошук клієнта не працює → зайві POST /clients
+(ризик дублів).
+
+Фікс з нашого боку: прибрати comment з GET /clients fields.
+
+--------------------------------------------------------------------------------
+5. Статус для вендора
+--------------------------------------------------------------------------------
+
+На поточному етапі цей набір запитів нас за функціоналом влаштовує
+(окрім GET /clients + fields=comment — live 400).
+
+У test run 07.09.2026 16:49–17:14 (Europe/Kyiv), database_code 737532,
+підтверджено:
+  sync довідників, free_time, client POST/PUT, history,
+  POST /appointments?force=true (запис),
+  PUT /appointments/{id} state=cancelled (скасування),
+  повторний POST після cancel (ланцюжок перенесення).
+
+Ще не зафіксовано в логу цього дня:
+  PUT action=insert / action=delete, GET /appointments/{id}.
+
+Test run: 07.09.2026 16:49:05 — 17:14:04 Europe/Kyiv
+AIHELPS_APP_ID=eee1e6ce-14c5-4713-b4d9-8ff2ace8cda1
+AIHELPS_DATABASE_CODE=737532
+
+================================================================================

@@ -87,9 +87,10 @@ Direct AI Agents — AI-асистент у Instagram Direct для салоні
 --------------------------------------------------------------------------------
 
   GET /v1/clients
-      ?fields=name,firstname,lastname,phone,email,comment,archive
+      ?fields=name,firstname,lastname,phone,email,archive
       &archive=false
       &phone=… | &email=… | &name=…
+      ← без comment у fields (live 400)
 
   POST /v1/clients
   body: firstname, lastname, phone, email

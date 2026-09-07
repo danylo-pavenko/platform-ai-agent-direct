@@ -1,20 +1,20 @@
 /**
  * BeautyPro client lookup/upsert helpers (phone variants, IG note marker).
  * GET /clients filters (docs): phone, email, card_number, name, location, archive.
- * There is NO instagram/username filter — match `IG:@handle` in GET `comment` if
- * the salon typed it, else `name` search. We do not write that note ourselves.
+ * There is NO instagram/username filter — try `name` ≈ handle. We do not write
+ * IG onto the client card.
  *
- * Live API 400s unknown names (`Unknown parameter 'X'`). GET `fields` list has
- * `comment` (singular), not `comments`, and no `id` (id is always returned).
- * POST/PUT **body** is not the GET fields list: official create example is only
- * firstname/lastname/phone/email. Live POST /clients 400s body `comment`.
+ * Live API 400s unknown names (`Unknown parameter 'X'`). GET `fields` must not
+ * include `comment` / `comments` / `id` (id is always returned; live 07.09.2026
+ * rejected `comment` in fields). POST/PUT **body** is only
+ * firstname/lastname/phone/email — live POST also 400s body `comment`.
  * Visit notes belong on POST /appointments `comments` (plural).
  */
 
 import { normalizeUaPhone } from '../../lib/client-contact-heuristics.js';
 
 export const BP_CLIENT_LIST_FIELDS =
-  'name,firstname,lastname,phone,email,comment,archive';
+  'name,firstname,lastname,phone,email,archive';
 
 export const BP_IG_COMMENT_PREFIX = 'IG:@';
 
