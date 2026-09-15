@@ -8,6 +8,7 @@ import { config } from './config.js';
 import { authRoutes } from './routes/auth.js';
 import { tenantsRoutes } from './routes/tenants.js';
 import { webhookRoutes } from './routes/webhooks.js';
+import { webhookInboxRoutes } from './routes/webhook-inbox.js';
 import { landingContactRoutes } from './routes/landing-contact.js';
 import { trackedLinksRoutes } from './routes/tracked-links.js';
 import { leadsRoutes } from './routes/leads.js';
@@ -52,6 +53,7 @@ await app.register(tenantsRoutes);
 // Webhook dispatcher — public (no auth), verified via Meta HMAC per tenant.
 // Responds 200 immediately then forwards to the correct tenant backend.
 await app.register(webhookRoutes);
+await app.register(webhookInboxRoutes);
 // Single Meta OAuth redirect for all platform tenants (api-{slug}.*).
 await app.register(metaOAuthHubRoutes);
 await app.register(trackedLinksRoutes);

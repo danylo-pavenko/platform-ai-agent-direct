@@ -43,6 +43,9 @@
         <div class="nav-item" :class="{'active': page==='leads'}" @click="goPage('leads')">
           <span class="icon">📩</span> Заявки
         </div>
+        <div class="nav-item" :class="{'active': page==='webhooks'}" @click="goPage('webhooks')">
+          <span class="icon">📡</span> Webhooks
+        </div>
       </nav>
       <div class="sidebar-bottom">
         <button class="logout-btn" @click="logout">
@@ -489,6 +492,93 @@
                     </select>
                   </td>
                   <td data-label="Дата" style="font-size:12px;color:var(--muted)">{{ formatDate(l.createdAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Webhooks inbox page -->
+      <template v-if="page==='webhooks'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Webhooks</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-ghost btn-sm" @click="loadWebhookInbox" :disabled="webhookInbox.loading">
+              {{ webhookInbox.loading ? '…' : '↻ Refresh' }}
+            </button>
+            <button class="btn btn-danger btn-sm" @click="clearWebhookInbox" :disabled="webhookInbox.loading || !webhookInbox.rows.length">
+              Clear
+            </button>
+          </div>
+        </div>
+        <div class="content">
+          <p style="font-size:13px;color:var(--muted);margin:0 0 14px;line-height:1.5;max-width:720px">
+            Живий inbox Meta → platform hub (<code>/webhooks/instagram</code>).
+            Тут видно, що Meta б’є в API, які routing ID прийшли, і чи event пішов на тенанта (або unmatched).
+            Auto-refresh кожні 5 с. Зберігаються останні ~500 подій.
+          </p>
+
+          <div class="card" style="padding:12px 14px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+            <label style="font-size:12px;color:var(--muted)">Status</label>
+            <select v-model="webhookInbox.filterStatus" @change="loadWebhookInbox" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px">
+              <option value="">all</option>
+              <option value="forwarded">forwarded</option>
+              <option value="unmatched">unmatched</option>
+              <option value="partial">partial</option>
+              <option value="forward_error">forward_error</option>
+              <option value="hmac_skip">hmac_skip</option>
+              <option value="ignored">ignored</option>
+              <option value="verify_ok">verify_ok</option>
+              <option value="verify_fail">verify_fail</option>
+            </select>
+            <input
+              v-model="webhookInbox.filterQ"
+              @keyup.enter="loadWebhookInbox"
+              placeholder="Search…"
+              style="flex:1;min-width:160px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:12px"
+            />
+            <span style="font-size:12px;color:var(--muted)">{{ webhookInbox.total }} events</span>
+          </div>
+
+          <div v-if="webhookInbox.error" style="color:var(--danger);font-size:13px;margin-bottom:10px">{{ webhookInbox.error }}</div>
+
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Kind</th>
+                  <th>Status</th>
+                  <th>Candidates</th>
+                  <th>Forward</th>
+                  <th>Preview</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!webhookInbox.loading && webhookInbox.rows.length===0" class="empty-row">
+                  <td colspan="6">Подій ще немає. Надішліть IG DM або перевірте callback URL у Meta.</td>
+                </tr>
+                <tr
+                  v-for="row in webhookInbox.rows"
+                  :key="row.id"
+                  style="cursor:pointer"
+                  @click="openWebhookInboxDetail(row)"
+                >
+                  <td data-label="Time" style="font-size:12px;color:var(--muted);white-space:nowrap">{{ formatDate(row.receivedAt) }}</td>
+                  <td data-label="Kind" style="font-size:12px;font-family:monospace">{{ row.kind }}</td>
+                  <td data-label="Status">
+                    <span class="badge" :class="statusBadgeClass(row.status)">{{ row.status }}</span>
+                    <span v-if="row.signaturePresent" title="X-Hub-Signature-256 present" style="margin-left:4px;font-size:11px;color:var(--muted)">🔏</span>
+                  </td>
+                  <td data-label="Candidates" style="font-size:11px;font-family:monospace;word-break:break-all">
+                    {{ formatCandidateIds(row.routingCandidateIds) }}
+                  </td>
+                  <td data-label="Forward" style="font-size:12px">{{ formatForwardSummary(row.forwardResults) }}</td>
+                  <td data-label="Preview" style="font-size:12px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                    {{ previewText(row) || '—' }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1227,6 +1317,49 @@
         <button class="btn btn-ghost" @click="closeDestroyLog()">
           {{ destroyLog.running ? 'Hide (keeps running)' : 'Close' }}
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Webhook inbox detail -->
+  <div class="modal-overlay" v-if="webhookInboxDetail.open" @click.self="closeWebhookInboxDetail()">
+    <div class="modal" style="width:720px;max-width:96vw">
+      <h2>📡 Webhook event</h2>
+      <div v-if="webhookInboxDetail.loading" style="color:var(--muted);font-size:13px">Loading…</div>
+      <div v-else-if="webhookInboxDetail.error" style="color:var(--danger);font-size:13px">{{ webhookInboxDetail.error }}</div>
+      <template v-else-if="webhookInboxDetail.row">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">
+          <span class="badge" :class="statusBadgeClass(webhookInboxDetail.row.status)">{{ webhookInboxDetail.row.status }}</span>
+          <span style="font-size:12px;font-family:monospace;color:var(--muted)">{{ webhookInboxDetail.row.kind }}</span>
+          <span style="font-size:12px;color:var(--muted)">{{ formatDate(webhookInboxDetail.row.receivedAt) }}</span>
+        </div>
+        <div class="field">
+          <label>Routing candidates</label>
+          <div style="font-family:monospace;font-size:12px;word-break:break-all">
+            {{ (webhookInboxDetail.row.routingCandidateIds || []).join(', ') || '—' }}
+          </div>
+        </div>
+        <div class="field">
+          <label>Debug candidates (incl. senders)</label>
+          <div style="font-family:monospace;font-size:12px;word-break:break-all;color:var(--muted)">
+            {{ (webhookInboxDetail.row.debugCandidateIds || []).join(', ') || '—' }}
+          </div>
+        </div>
+        <div class="field">
+          <label>Forward results</label>
+          <pre style="font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;overflow:auto;max-height:160px;margin:0">{{ JSON.stringify(webhookInboxDetail.row.forwardResults || [], null, 2) }}</pre>
+        </div>
+        <div class="field">
+          <label>Summary</label>
+          <pre style="font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;overflow:auto;max-height:180px;margin:0">{{ JSON.stringify(webhookInboxDetail.row.entrySummary || {}, null, 2) }}</pre>
+        </div>
+        <div class="field" v-if="webhookInboxDetail.row.rawBodyTruncated">
+          <label>Raw body (truncated)</label>
+          <pre style="font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;overflow:auto;max-height:240px;margin:0;white-space:pre-wrap;word-break:break-word">{{ webhookInboxDetail.row.rawBodyTruncated }}</pre>
+        </div>
+      </template>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeWebhookInboxDetail()">Close</button>
       </div>
     </div>
   </div>

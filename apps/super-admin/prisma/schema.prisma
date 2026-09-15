@@ -147,3 +147,26 @@ model LandingLead {
   @@index([status])
   @@map("landing_leads")
 }
+
+/// Inbound Meta webhook events observed by the platform hub (ops diagnostics).
+model WebhookInboxEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  receivedAt          DateTime @default(now()) @map("received_at")
+  /// post | verify_ok | verify_fail
+  kind                String
+  objectType          String?  @map("object_type")
+  /// unmatched | forwarded | partial | hmac_skip | forward_error | ignored | verify_ok | verify_fail
+  status              String
+  routingCandidateIds Json     @default("[]") @map("routing_candidate_ids")
+  debugCandidateIds   Json     @default("[]") @map("debug_candidate_ids")
+  entrySummary        Json?    @map("entry_summary")
+  matchedTenantIds    Json     @default("[]") @map("matched_tenant_ids")
+  forwardResults      Json     @default("[]") @map("forward_results")
+  signaturePresent    Boolean  @default(false) @map("signature_present")
+  rawBodyTruncated    String?  @map("raw_body_truncated") @db.Text
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([receivedAt])
+  @@index([status])
+  @@map("webhook_inbox_events")
+}

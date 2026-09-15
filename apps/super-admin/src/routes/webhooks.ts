@@ -12,6 +12,8 @@
  * Forwarding uses internal localhost routing (no external DNS / TLS needed).
  * The raw body + X-Hub-Signature-256 are forwarded unchanged so each tenant
  * backend can re-verify the signature with its own FACEBOOK_APP_SECRET.
+ *
+ * Every inbound call is also recorded in WebhookInboxEvent for Super Admin ops UI.
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
@@ -24,6 +26,12 @@ import {
   collectWebhookRoutingCandidateIds,
   tenantMatchesWebhookCandidates,
 } from '../lib/tenant-webhook-routing.js';
+import {
+  buildMessagingPreviews,
+  derivePostStatus,
+  recordWebhookInboxEvent,
+  type ForwardResultRow,
+} from '../lib/webhook-inbox.js';
 
 interface RawRequest extends FastifyRequest {
   rawBodyBuf?: Buffer;
@@ -58,6 +66,7 @@ function summarizeHubIgWebhook(body: MetaWebhookBody): Record<string, unknown> {
     standbyEvents: standby,
     changesFields: changes,
     entryIds: entries.map((x) => x.id).slice(0, 4),
+    previews: buildMessagingPreviews(body as { entry?: Array<Record<string, unknown>> }),
   };
 }
 
@@ -91,6 +100,11 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     if (mode === 'subscribe' && token === config.PLATFORM_WEBHOOK_VERIFY_TOKEN) {
       app.log.info('Platform webhook hub: Meta challenge verification succeeded');
+      void recordWebhookInboxEvent({
+        kind: 'verify_ok',
+        status: 'verify_ok',
+        entrySummary: { mode, tokenPresent: true },
+      });
       return reply.code(200).type('text/plain').send(challenge);
     }
 
@@ -98,6 +112,11 @@ export async function webhookRoutes(app: FastifyInstance) {
       { mode, tokenPresent: !!token },
       'Platform webhook hub: challenge verification failed',
     );
+    void recordWebhookInboxEvent({
+      kind: 'verify_fail',
+      status: 'verify_fail',
+      entrySummary: { mode, tokenPresent: !!token },
+    });
     return reply.code(403).send({ error: 'Forbidden' });
   });
 
@@ -113,16 +132,32 @@ export async function webhookRoutes(app: FastifyInstance) {
     const req = request as RawRequest;
     const signature = req.headers['x-hub-signature-256'] as string | undefined;
     const rawBody = req.rawBodyBuf;
+    const signaturePresent = Boolean(signature);
 
     if (!rawBody) {
       app.log.warn('Webhook hub: no raw body captured');
+      void recordWebhookInboxEvent({
+        kind: 'post',
+        status: 'no_body',
+        signaturePresent,
+        objectType: (req.body as MetaWebhookBody | undefined)?.object,
+      });
       return;
     }
 
     const body = req.body as MetaWebhookBody;
+    const summary = summarizeHubIgWebhook(body);
 
     if (body?.object !== 'instagram') {
       app.log.debug({ object: body?.object }, 'Webhook hub: ignoring non-instagram event');
+      void recordWebhookInboxEvent({
+        kind: 'post',
+        status: 'ignored',
+        objectType: body?.object ?? null,
+        entrySummary: summary,
+        signaturePresent,
+        rawBody,
+      });
       return;
     }
 
@@ -130,31 +165,49 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const routingCandidateIds = collectWebhookRoutingCandidateIds(entries);
     const debugCandidateIds = collectWebhookDebugCandidateIds(entries);
+    const routingIdsArr = [...routingCandidateIds];
+    const debugIdsArr = [...debugCandidateIds];
 
     if (routingCandidateIds.size === 0) {
       app.log.warn(
         {
-          summary: summarizeHubIgWebhook(body),
-          debugCandidateIds: [...debugCandidateIds].slice(0, 8),
+          summary,
+          debugCandidateIds: debugIdsArr.slice(0, 8),
         },
         'Webhook hub: no routing candidate ids in payload',
       );
+      void recordWebhookInboxEvent({
+        kind: 'post',
+        status: 'unmatched',
+        objectType: 'instagram',
+        routingCandidateIds: [],
+        debugCandidateIds: debugIdsArr,
+        entrySummary: summary,
+        signaturePresent,
+        rawBody,
+      });
       return;
     }
 
     // Find all active tenants matching any candidate ID. Deduplicate by tenant
     // so we forward the payload exactly once per tenant even if multiple IDs match.
     const seenTenants = new Set<string>();
+    const matchedTenantIds: string[] = [];
+    const forwardResults: ForwardResultRow[] = [];
     let forwardedCount = 0;
 
     const activeTenants = await prisma.tenant.findMany({
       where: { status: { not: 'suspended' }, instagramUserId: { not: null } },
     });
 
+    const { getServerForTenant } = await import('../lib/servers.js');
+    const { resolveTenantWebhookUrl } = await import('../lib/worker/tenant-url.js');
+
     for (const tenant of activeTenants) {
       if (!tenantMatchesWebhookCandidates(tenant, routingCandidateIds)) continue;
       if (seenTenants.has(tenant.id)) continue;
       seenTenants.add(tenant.id);
+      matchedTenantIds.push(tenant.id);
 
       const routingIds = collectTenantInstagramRoutingIds(tenant);
       const matchedId =
@@ -166,10 +219,28 @@ export async function webhookRoutes(app: FastifyInstance) {
       if (config.PLATFORM_FACEBOOK_APP_SECRET) {
         if (!signature) {
           app.log.warn({ matchedId, tenantId: tenant.id }, 'Webhook hub: missing X-Hub-Signature-256, skipping');
+          forwardResults.push({
+            tenantId: tenant.id,
+            instanceId: tenant.instanceId,
+            url: '',
+            ok: false,
+            matchedId,
+            skippedReason: 'hmac_missing',
+            error: 'missing X-Hub-Signature-256',
+          });
           continue;
         }
         if (!verifyHmac(rawBody, signature, config.PLATFORM_FACEBOOK_APP_SECRET)) {
           app.log.warn({ matchedId, tenantId: tenant.id }, 'Webhook hub: HMAC verification failed');
+          forwardResults.push({
+            tenantId: tenant.id,
+            instanceId: tenant.instanceId,
+            url: '',
+            ok: false,
+            matchedId,
+            skippedReason: 'hmac_failed',
+            error: 'HMAC verification failed',
+          });
           continue;
         }
       } else {
@@ -177,8 +248,6 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
 
       // Local workers: loopback. Remote workers: https://{apiDomain}.
-      const { getServerForTenant } = await import('../lib/servers.js');
-      const { resolveTenantWebhookUrl } = await import('../lib/worker/tenant-url.js');
       const server = await getServerForTenant(tenant.serverId);
       const targetUrl = resolveTenantWebhookUrl(tenant, server);
 
@@ -196,6 +265,14 @@ export async function webhookRoutes(app: FastifyInstance) {
 
         if (res.ok) {
           forwardedCount++;
+          forwardResults.push({
+            tenantId: tenant.id,
+            instanceId: tenant.instanceId,
+            url: targetUrl,
+            ok: true,
+            statusCode: res.status,
+            matchedId,
+          });
           app.log.info(
             {
               matchedId,
@@ -209,6 +286,15 @@ export async function webhookRoutes(app: FastifyInstance) {
           );
         } else {
           const bodyText = await res.text().catch(() => '');
+          forwardResults.push({
+            tenantId: tenant.id,
+            instanceId: tenant.instanceId,
+            url: targetUrl,
+            ok: false,
+            statusCode: res.status,
+            matchedId,
+            error: bodyText.slice(0, 200) || `HTTP ${res.status}`,
+          });
           app.log.warn(
             {
               matchedId,
@@ -222,6 +308,15 @@ export async function webhookRoutes(app: FastifyInstance) {
           );
         }
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        forwardResults.push({
+          tenantId: tenant.id,
+          instanceId: tenant.instanceId,
+          url: targetUrl,
+          ok: false,
+          matchedId,
+          error: message,
+        });
         app.log.error(
           { err, matchedId, tenantId: tenant.id, port: tenant.apiPort },
           'Webhook hub: failed to forward event to tenant',
@@ -238,14 +333,34 @@ export async function webhookRoutes(app: FastifyInstance) {
         }));
       app.log.warn(
         {
-          routingCandidateIds: [...routingCandidateIds].slice(0, 12),
-          debugCandidateIds: [...debugCandidateIds].slice(0, 12),
+          routingCandidateIds: routingIdsArr.slice(0, 12),
+          debugCandidateIds: debugIdsArr.slice(0, 12),
           matchedTenantCount: seenTenants.size,
           tenantRoutingSnapshot,
-          summary: summarizeHubIgWebhook(body),
+          summary,
         },
         'Webhook hub: event not delivered to any tenant',
       );
     }
+
+    const status = derivePostStatus({
+      objectType: body.object,
+      routingCandidateCount: routingCandidateIds.size,
+      matchedCount: seenTenants.size,
+      forwardResults,
+    });
+
+    void recordWebhookInboxEvent({
+      kind: 'post',
+      status,
+      objectType: 'instagram',
+      routingCandidateIds: routingIdsArr,
+      debugCandidateIds: debugIdsArr,
+      entrySummary: summary,
+      matchedTenantIds,
+      forwardResults,
+      signaturePresent,
+      rawBody,
+    });
   });
 }

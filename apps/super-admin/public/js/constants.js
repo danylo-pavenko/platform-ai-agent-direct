@@ -1,7 +1,7 @@
 /** Shared Super Admin constants */
 export const BASE = '/api';
 export const SA_PAGE_KEY = 'sa_page';
-export const VALID_PAGES = ['dashboard', 'tenants', 'workers', 'links', 'leads'];
+export const VALID_PAGES = ['dashboard', 'tenants', 'workers', 'links', 'leads', 'webhooks'];
 export const DEFAULT_GIT_REPO = 'git@github.com:danylo-pavenko/platform-ai-agent-direct.git';
 export const PLATFORM_BASE_DOMAIN = 'direct-ai-agents.com';
 export const SLUG_RE = /^[a-z0-9-]{2,24}$/;

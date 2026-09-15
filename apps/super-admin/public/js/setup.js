@@ -16,6 +16,7 @@ import { createDestroyLog } from './composables/destroy-log.js';
 import { createTenants } from './composables/tenants.js';
 import { createLinks } from './composables/links.js';
 import { createLeads } from './composables/leads.js';
+import { createWebhookInbox } from './composables/webhook-inbox.js';
 import { createAccess } from './composables/access.js';
 import { createChat } from './composables/chat.js';
 import { createTenantUsers } from './composables/tenant-users.js';
@@ -134,6 +135,22 @@ export function setup() {
   const leadsSummary = reactive({ total: 0, byStatus: {} });
   const leadsFilter = reactive({ status: '' });
 
+  const webhookInbox = reactive({
+    loading: false,
+    error: '',
+    rows: [],
+    total: 0,
+    limit: 50,
+    filterStatus: '',
+    filterQ: '',
+  });
+  const webhookInboxDetail = reactive({
+    open: false,
+    loading: false,
+    error: '',
+    row: null,
+  });
+
   const linkModal = reactive({
     open: false, editing: null, saving: false,
     form: emptyLinkForm(),
@@ -243,6 +260,13 @@ export function setup() {
     logout,
   });
 
+  const webhookInboxApi = createWebhookInbox({
+    webhookInbox,
+    webhookInboxDetail,
+    authHeaders,
+    logout,
+  });
+
   const accessApi = createAccess({ accessModal, tenants, headers });
 
   const chatApi = createChat({
@@ -266,18 +290,28 @@ export function setup() {
 
   function goPage(p) {
     if (!VALID_PAGES.includes(p)) return;
+    const prev = page.value;
     page.value = p;
     localStorage.setItem(SA_PAGE_KEY, p);
     sidebarOpen.value = false;
+    if (prev === 'webhooks' && p !== 'webhooks') webhookInboxApi.stopWebhookInboxPoll();
     if (p === 'links') linksApi.loadLinks();
     if (p === 'leads') leadsApi.loadLeads();
     if (p === 'workers') workersApi.loadWorkers();
+    if (p === 'webhooks') {
+      void webhookInboxApi.loadWebhookInbox();
+      webhookInboxApi.startWebhookInboxPoll();
+    }
   }
 
   async function refreshCurrentPageData() {
     if (page.value === 'links') await linksApi.loadLinks();
     if (page.value === 'leads') await leadsApi.loadLeads();
     if (page.value === 'workers') await workersApi.loadWorkers();
+    if (page.value === 'webhooks') {
+      await webhookInboxApi.loadWebhookInbox();
+      webhookInboxApi.startWebhookInboxPoll();
+    }
   }
 
   async function doLogin() {
@@ -327,6 +361,7 @@ export function setup() {
     tenantWhisperPort: tenantsApi.tenantWhisperPort,
     platformPreview: tenantsApi.platformPreview,
     links, linkModal, linkStats, linkChartCanvas, leads, leadsSummary, leadsFilter,
+    webhookInbox, webhookInboxDetail,
     totalHumanClicks: linksApi.totalHumanClicks,
     totalFormSubmissions: linksApi.totalFormSubmissions,
     doLogin, logout, goPage,
@@ -386,6 +421,14 @@ export function setup() {
     loadLeads: leadsApi.loadLeads,
     updateLeadStatus: leadsApi.updateLeadStatus,
     formatDate,
+    loadWebhookInbox: webhookInboxApi.loadWebhookInbox,
+    openWebhookInboxDetail: webhookInboxApi.openWebhookInboxDetail,
+    closeWebhookInboxDetail: webhookInboxApi.closeWebhookInboxDetail,
+    clearWebhookInbox: webhookInboxApi.clearWebhookInbox,
+    statusBadgeClass: webhookInboxApi.statusBadgeClass,
+    formatCandidateIds: webhookInboxApi.formatCandidateIds,
+    formatForwardSummary: webhookInboxApi.formatForwardSummary,
+    previewText: webhookInboxApi.previewText,
     linkHumanClicks: linksApi.linkHumanClicks,
     linkRawClicks: linksApi.linkRawClicks,
     linkFormSubmissions: linksApi.linkFormSubmissions,
