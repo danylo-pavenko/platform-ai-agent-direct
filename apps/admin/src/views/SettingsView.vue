@@ -1616,6 +1616,17 @@
             >
               Діагностика API
             </v-btn>
+            <v-btn
+              size="small"
+              color="teal"
+              variant="tonal"
+              prepend-icon="mdi-webhook"
+              :loading="igWebhookSubscribeLoading"
+              :disabled="!integrations.meta.pageId"
+              @click="subscribeIgWebhook"
+            >
+              Перевірити підписку webhook
+            </v-btn>
 
             <v-chip
               v-if="igStatus?.connected"
@@ -1730,7 +1741,40 @@
             </span>
           </v-alert>
 
-          <!-- Diagnostic output -->
+          <v-alert
+            v-if="igWebhookSubscribeResult"
+            :type="igWebhookSubscribeResult.subscribeOk ? 'success' : 'error'"
+            variant="tonal"
+            density="compact"
+            class="text-body-2 mt-2"
+          >
+            <div class="font-weight-bold mb-1">Підписка webhook (POST subscribed_apps)</div>
+            <div>{{ igWebhookSubscribeResult.messageUk }}</div>
+            <div class="text-caption text-medium-emphasis mt-1">
+              Page ID: {{ igWebhookSubscribeResult.pageId }}
+              · POST HTTP {{ igWebhookSubscribeResult.post.status ?? '—' }}
+              <span v-if="igWebhookSubscribeResult.read">
+                · GET HTTP {{ igWebhookSubscribeResult.read.status ?? '—' }}
+                <template v-if="igWebhookSubscribeResult.read.fields?.length">
+                  · поля: {{ igWebhookSubscribeResult.read.fields.join(', ') }}
+                </template>
+              </span>
+            </div>
+            <pre
+              v-if="!igWebhookSubscribeResult.subscribeOk && igWebhookSubscribeResult.post.body"
+              class="mt-2 mb-0"
+              style="
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-size: 11px;
+                background: rgba(0,0,0,0.04);
+                padding: 8px;
+                border-radius: 4px;
+                max-height: 240px;
+                overflow: auto;
+              "
+            >{{ igWebhookSubscribeResult.post.body }}</pre>
+          </v-alert>
           <v-alert
             v-if="igDebugResult"
             type="info"
@@ -3543,6 +3587,24 @@ const igDebugResult = ref<{
   probes: unknown[];
 } | null>(null);
 
+interface IgWebhookSubscribeResult {
+  pageId: string;
+  subscribeOk: boolean;
+  messageUk: string;
+  post: { ok: boolean; status?: number; body?: string };
+  read?: {
+    ok: boolean;
+    subscribed: boolean;
+    fields: string[];
+    status?: number;
+    body?: string;
+    readForbidden: boolean;
+  };
+}
+
+const igWebhookSubscribeLoading = ref(false);
+const igWebhookSubscribeResult = ref<IgWebhookSubscribeResult | null>(null);
+
 async function runIgDebug() {
   igDebugLoading.value = true;
   igDebugResult.value = null;
@@ -3555,6 +3617,27 @@ async function runIgDebug() {
     };
   } finally {
     igDebugLoading.value = false;
+  }
+}
+
+async function subscribeIgWebhook() {
+  igWebhookSubscribeLoading.value = true;
+  igWebhookSubscribeResult.value = null;
+  try {
+    const { data } = await api.post<IgWebhookSubscribeResult>('/settings/meta/webhook-subscribe');
+    igWebhookSubscribeResult.value = data;
+  } catch (e: any) {
+    igWebhookSubscribeResult.value = {
+      pageId: integrations.value.meta.pageId || '—',
+      subscribeOk: false,
+      messageUk: e.response?.data?.error ?? e.message ?? 'Не вдалося перевірити підписку webhook',
+      post: {
+        ok: false,
+        body: e.response?.data?.error ?? e.message,
+      },
+    };
+  } finally {
+    igWebhookSubscribeLoading.value = false;
   }
 }
 const igImportIsEmpty = computed(
@@ -3986,6 +4069,7 @@ async function disconnectMeta() {
     igStatus.value = null;
     igImportResult.value = null;
     igDebugResult.value = null;
+    igWebhookSubscribeResult.value = null;
 
     metaDisconnectDialog.value = false;
     showOAuthSnackbar('Instagram відвʼязано. Бот більше не обробляє повідомлення.', 'info');

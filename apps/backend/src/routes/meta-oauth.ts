@@ -10,7 +10,10 @@ import {
   checkIgConnectionStatus,
   importRecentIgConversations,
 } from '../services/ig-connection.js';
-import { subscribePageToMetaWebhooks } from '../lib/meta-page-subscribe.js';
+import {
+  runPageWebhookSubscribe,
+  subscribePageToMetaWebhooks,
+} from '../lib/meta-page-subscribe.js';
 import { clearWebhookRoutingOnHub, syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import {
   createHubOAuthState,
@@ -1120,6 +1123,34 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get('/meta/status', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
     return checkIgConnectionStatus();
+  });
+
+  /**
+   * POST /settings/meta/webhook-subscribe
+   * Explicit POST /{page-id}/subscribed_apps so admin can see success/failure
+   * without reading API logs. GET 403 without pages_manage_metadata is expected.
+   */
+  app.post('/meta/webhook-subscribe', { onRequest: [app.authenticate, app.requireOwner] }, async (_request, reply) => {
+    const { meta } = await getIntegrationConfig();
+    if (!meta.pageId || !meta.pageAccessToken) {
+      return reply.code(400).send({
+        error: 'Page не підключено — спочатку авторизуйтесь через Facebook',
+      });
+    }
+
+    const result = await runPageWebhookSubscribe(meta.pageId, meta.pageAccessToken);
+    app.log.info(
+      {
+        pageId: result.pageId,
+        subscribeOk: result.subscribeOk,
+        postStatus: result.post.status,
+        readStatus: result.read?.status ?? null,
+      },
+      result.subscribeOk
+        ? 'Page webhook subscribed successfully'
+        : 'Page webhook subscription failed (admin check)',
+    );
+    return result;
   });
 
   /**
