@@ -47,6 +47,16 @@ describe('looksLikeIgAutoPhoneCard', () => {
     ).toBe(true);
   });
 
+  it('does not match a shared Instagram post', () => {
+    expect(
+      looksLikeIgAutoPhoneCard({
+        text: '',
+        isUnsupported: true,
+        attachments: [{ type: 'ig_post' }],
+      }),
+    ).toBe(false);
+  });
+
   it('does not match a normal captioned image', () => {
     expect(
       looksLikeIgAutoPhoneCard({

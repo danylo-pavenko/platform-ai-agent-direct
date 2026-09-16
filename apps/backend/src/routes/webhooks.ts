@@ -38,19 +38,16 @@ import {
   reactionDisplay,
 } from '../lib/ig-inbound-context.js';
 import { shouldScheduleBotTurnForReaction } from '../lib/ig-reaction-policy.js';
+import {
+  extractSharedPostFromMetaMessage,
+  isShareAttachmentType,
+  type SharedPostData,
+} from '../lib/ig-shared-post.js';
+import { enrichAndPersistSharedPost, fetchSharedPostFromGraphMessage } from '../services/ig-shared-post-media.js';
+
+export type { SharedPostData };
 
 // ── Meta webhook payload types (subset we care about) ──
-
-/**
- * A "share" attachment - sent when a user forwards an Instagram post into DM.
- * Contains the image, post URL, and caption (title) of the shared content.
- */
-interface ShareAttachmentPayload {
-  url?: string;         // URL of the shared Instagram post
-  title?: string;       // Caption / post description
-  image_url?: string;   // Primary image from the shared post (may expire ~1 min)
-  link?: string;        // Alternate link (sometimes same as url)
-}
 
 /** Generic attachment for images/videos the user sends directly. */
 interface MediaAttachmentPayload {
@@ -58,8 +55,8 @@ interface MediaAttachmentPayload {
 }
 
 interface MetaAttachment {
-  type: 'share' | 'image' | 'video' | 'audio' | 'file' | string;
-  payload?: ShareAttachmentPayload | MediaAttachmentPayload;
+  type: 'share' | 'ig_post' | 'ig_reel' | 'image' | 'video' | 'audio' | 'file' | string;
+  payload?: MediaAttachmentPayload & Record<string, unknown>;
 }
 
 interface MetaMessagingEvent {
@@ -89,19 +86,6 @@ interface MetaMessagingEvent {
     reaction?: string;
     emoji?: string;
   };
-}
-
-/**
- * Structured representation of a shared Instagram post, stored in
- * Message.sharedPost (JSONB) for reference and future processing.
- *
- * Index signature required for Prisma JSONB compatibility.
- */
-export interface SharedPostData {
-  postUrl?: string;    // Original IG post link
-  imageUrl?: string;   // Image from the shared post
-  caption?: string;    // Post caption (raw, unsanitized)
-  [key: string]: unknown; // Allows Prisma to accept this as InputJsonValue
 }
 
 // Instagram API (changes[]) format — used by Meta dashboard test webhooks
@@ -674,29 +658,48 @@ async function processMessageEvent(
     );
   }
 
-  // ── Extract shared post (if user forwarded an IG post into DM) ──
-  // The "share" attachment type is sent when a user taps "Send" on a post.
-  const shareAttachment = attachments.find((a) => a.type === 'share');
-  let sharedPost: SharedPostData | null = null;
+  // ── Extract shared post (ig_post / share / reel / pasted permalink) ──
+  let sharedPost: SharedPostData | null = extractSharedPostFromMetaMessage({
+    text: message.text,
+    attachments,
+  });
+  let sharedPostAttachments: StoredMediaAttachment[] = [];
 
-  if (shareAttachment) {
-    const payload = shareAttachment.payload as ShareAttachmentPayload | undefined;
-    sharedPost = {
-      postUrl: payload?.url || payload?.link,
-      imageUrl: payload?.image_url,
-      // Caption comes in as "title" in the share payload
-      caption: payload?.title,
-    };
-    app.log.debug(
-      { igUserId, igMessageId, postUrl: sharedPost.postUrl },
+  if (
+    !sharedPost &&
+    isUnsupported &&
+    attachments.length === 0 &&
+    !rawText.trim()
+  ) {
+    sharedPost = await fetchSharedPostFromGraphMessage(igMessageId);
+    if (sharedPost) {
+      app.log.info(
+        { igUserId, igMessageId, mediaId: sharedPost.mediaId ?? null },
+        'Recovered shared Instagram post from Graph after unsupported webhook',
+      );
+    }
+  }
+
+  if (sharedPost) {
+    const enriched = await enrichAndPersistSharedPost(sharedPost);
+    sharedPost = enriched.post;
+    sharedPostAttachments = enriched.attachments;
+    app.log.info(
+      {
+        igUserId,
+        igMessageId,
+        postUrl: sharedPost.postUrl,
+        mediaId: sharedPost.mediaId,
+        hasCaption: Boolean(sharedPost.caption),
+        persistStatus: sharedPostAttachments[0]?.status ?? null,
+      },
       'Detected shared Instagram post in message',
     );
   }
 
-  // ── Extract direct media (images / video / audio / file; not share / story_mention) ──
-  // story_mention CDN is ephemeral — Meta asks not to store it; keep URL only in igContext.
+  // Direct media: skip share/ig_post — those are persisted via enrichAndPersistSharedPost.
   const directMediaItems = attachments
-    .filter((a) => a.type !== 'share' && a.type !== 'story_mention')
+    .filter((a) => !isShareAttachmentType(a.type) && a.type !== 'story_mention')
     .map((a) => {
       const url = (a.payload as MediaAttachmentPayload | undefined)?.url;
       return url ? { url, igType: a.type } : null;
@@ -707,7 +710,7 @@ async function processMessageEvent(
     text: message.text,
     isUnsupported,
     attachments,
-    hasShare: !!shareAttachment,
+    hasShare: !!sharedPost,
     hasPlayableMedia: directMediaItems.length > 0,
   });
 
@@ -750,7 +753,7 @@ async function processMessageEvent(
   if (
     isUnsupported &&
     directMediaItems.length === 0 &&
-    !attachments.some((a) => a.type === 'share') &&
+    !sharedPost &&
     !skipUnsupportedPlaceholder
   ) {
     mediaAttachments.push({
@@ -778,17 +781,8 @@ async function processMessageEvent(
     );
   }
 
-  // Shared post preview image (separate from share attachment payload)
-  if (sharedPost?.imageUrl && isRemoteMediaUrl(sharedPost.imageUrl)) {
-    const [shareImage] = await persistIncomingMediaItems([
-      { url: sharedPost.imageUrl, igType: 'share_image' },
-    ]);
-    if (shareImage?.status === 'ready' && shareImage.storageKey) {
-      sharedPost = { ...sharedPost, imageUrl: shareImage.storageKey };
-      mediaAttachments.unshift(shareImage);
-    } else if (shareImage) {
-      mediaAttachments.unshift(shareImage);
-    }
+  for (const a of sharedPostAttachments) {
+    mediaAttachments.unshift(a);
   }
 
   // Story reply frame — our business Stories; OK to download for Claude vision (expires fast).

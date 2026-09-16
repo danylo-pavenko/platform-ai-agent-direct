@@ -42,6 +42,8 @@ Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversatio
 
 Instagram clients often split one answer across several bubbles (`10:00` then name then phone). Coalesce waits for silence (longer when the last bubble looks like a fragment), joins them as one user turn, and absorbs late mids that arrive during `responseDelay` / Claude. Do not re-ask for data already in those bubbles.
 
+Instagram **post shares** in DM arrive as `ig_post` (and legacy `share`, deprecated after Feb 2026). The webhook stores caption + permalink + preview image, downloads the lookaside CDN before it expires, and injects the photo into Claude vision plus `search_catalog`. Admin chat shows a post card (image + caption + link), not an unsupported “?” placeholder.
+
 Instagram may also emit a **second empty bubble** when it auto-parses a phone number (`fallback` / `unsupported` / `tel:`). The webhook stores that as visible `📞 +380…` text (and a `detected_phone` context), so admin is not blank and heuristics/agent see the number. A duplicate chip coalesced with the typed bubble is dropped from the Claude user turn.
 
 **First contact:** if this Instagram user has never had an inbound row in our DB, the webhook pulls the last **20** Graph conversation messages (`GET /{page-id}/conversations?platform=instagram&user_id=` → `/{thread}/messages`) *before* the first Claude turn. Imported inbound is marked `claudeTurnId=skipped` so drain does not replay history as new turns. Graph typically cannot return more than ~20 message bodies. Failures/timeouts are non-fatal.

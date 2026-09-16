@@ -63,7 +63,7 @@ import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
 } from './product-search.js';
-import type { SharedPostData } from '../routes/webhooks.js';
+import type { SharedPostData } from '../lib/ig-shared-post.js';
 import {
   enrichUserMessageWithIgContext,
   isReactionOnlyInbound,
@@ -767,7 +767,11 @@ async function handleIncomingMessageImpl(
 
     // Try to find matching products from the caption keywords
     const caption = sharedPost.caption ?? '';
-    const keywords = extractKeywordsFromCaption(caption);
+    const keywords = [extractKeywordsFromCaption(caption), extractKeywordsFromCaption(messageText)]
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+      .slice(0, 80);
 
     let availabilityBlock = '';
 
@@ -3051,26 +3055,21 @@ function buildSharedPostHeader(post: SharedPostData): string {
   const parts: string[] = ['[Клієнт поділився публікацією з Instagram]'];
 
   if (post.caption) {
-    // Truncate very long captions - we only need the descriptive part
-    const truncated = post.caption.length > 200
-      ? post.caption.slice(0, 200) + '...'
-      : post.caption;
-    parts.push(`Пiдпис публiкацiї: "${truncated}"`);
+    const truncated =
+      post.caption.length > 200 ? `${post.caption.slice(0, 200)}...` : post.caption;
+    parts.push(`Підпис публікації: "${truncated}"`);
   }
 
   if (post.postUrl) {
     parts.push(`Посилання: ${post.postUrl}`);
   }
 
-  // Explicit identification task for Claude (vision + catalog matching)
   parts.push(
     'Завдання:\n' +
-    '1) Визнач ТИП ВИРОБУ з зображення/пiдпису (худi / футболка / лонгслiв / свiтшот / сорочка / кепка).\n' +
-    '2) Визнач КОЛIР виробу.\n' +
-    '3) Визнач ПРИНТ або НАПИС на виробi (це окрема позицiя в CRM).\n' +
-    '4) Знайди в каталозi нижче базовий виріб та принт окремо, порахуй загальну цiну.\n' +
-    '5) Повiдом клiєнту: назва + цiна виробу + орiєнтовна цiна нанесення = загалом.\n' +
-    '6) Запитай розмiр i надай розмiрну сiтку для цього типу виробу (є в системному промптi).',
+      '1) Подивись вкладене зображення поста (vision) — тип виробу, колір, принт/напис.\n' +
+      '2) Виклич search_catalog з цими ознаками (і з тексту клієнта, якщо він уточнює розмір/посадку).\n' +
+      '3) Якщо в каталозі є збіг — назви товар, ціну, наявні розміри; не перепитуй «який саме дизайн», якщо він уже на фото.\n' +
+      '4) Якщо збігів немає — чесно скажи і запропонуй близькі позиції або handoff.',
   );
 
   return parts.join('\n');

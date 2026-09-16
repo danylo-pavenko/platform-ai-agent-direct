@@ -34,6 +34,9 @@ export function igTypeToMediaKind(igType: string): MediaKind {
     case 'sticker':
     case 'share_image':
     case 'story_reply_image':
+    case 'share':
+    case 'ig_post':
+    case 'post':
       return 'image';
     case 'video':
     case 'ig_reel':

@@ -37,6 +37,11 @@ const IG_TYPE_EXT_HINT: Record<string, string> = {
   video: '.mp4',
   image: '.jpg',
   sticker: '.jpg',
+  share_image: '.jpg',
+  story_reply_image: '.jpg',
+  share: '.jpg',
+  ig_post: '.jpg',
+  post: '.jpg',
   file: '.bin',
 };
 

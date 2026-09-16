@@ -302,7 +302,7 @@
                   Instagram розпізнав номер
                 </v-chip>
                 <div
-                  v-else-if="!msg.text && getMessageMediaItems(msg).length === 0 && !msg.sharedPost?.postUrl"
+                  v-else-if="!msg.text && getDisplayMediaItems(msg).length === 0 && !hasSharedPostPreview(msg.sharedPost)"
                   class="text-caption text-medium-emphasis font-italic"
                 >
                   Порожнє повідомлення Instagram (картка без тексту)
@@ -320,12 +320,12 @@
                   </template>
                 </v-alert>
                 <div
-                  v-if="getMessageMediaItems(msg).length > 0"
+                  v-if="getDisplayMediaItems(msg).length > 0"
                   class="message-media d-flex flex-column ga-2"
                   :class="{ 'mt-2': msg.text }"
                 >
                   <template
-                    v-for="(item, idx) in getMessageMediaItems(msg)"
+                    v-for="(item, idx) in getDisplayMediaItems(msg)"
                     :key="`${msg.id}-media-${idx}`"
                   >
                     <video
@@ -403,18 +403,46 @@
                     </div>
                   </template>
                 </div>
-                <div v-if="msg.sharedPost?.postUrl" class="mt-2">
-                  <v-chip
-                    size="x-small"
-                    variant="outlined"
-                    :href="msg.sharedPost.postUrl"
+                <div v-if="hasSharedPostPreview(msg.sharedPost)" class="shared-post-card mt-2">
+                  <a
+                    v-if="sharedPostImageSrc(msg)"
+                    :href="
+                      isIgPermalinkHref(msg.sharedPost?.postUrl)
+                        ? msg.sharedPost!.postUrl
+                        : sharedPostImageSrc(msg)
+                    "
                     target="_blank"
                     rel="noopener noreferrer"
-                    tag="a"
-                    prepend-icon="mdi-instagram"
+                    class="shared-post-image-link"
                   >
-                    Пост Instagram
-                  </v-chip>
+                    <img
+                      :src="sharedPostImageSrc(msg)"
+                      class="message-media-image shared-post-image"
+                      alt="Пост Instagram"
+                      loading="lazy"
+                    />
+                  </a>
+                  <div class="shared-post-meta pa-2">
+                    <div class="d-flex align-center ga-2 mb-1">
+                      <v-icon size="16" icon="mdi-instagram" />
+                      <span class="text-caption font-weight-medium">Пост Instagram</span>
+                    </div>
+                    <div
+                      v-if="msg.sharedPost?.caption"
+                      class="text-caption text-medium-emphasis shared-post-caption"
+                    >
+                      {{ msg.sharedPost.caption }}
+                    </div>
+                    <a
+                      v-if="isIgPermalinkHref(msg.sharedPost?.postUrl)"
+                      :href="msg.sharedPost!.postUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-caption d-inline-block mt-1"
+                    >
+                      Відкрити в Instagram
+                    </a>
+                  </div>
                 </div>
               </v-card>
             </div>
@@ -558,8 +586,11 @@ import { useAuthStore } from '@/stores/auth';
 import { formatChatPlain } from '@/lib/chatDisplay';
 import { isAgentTurnDebugNote } from '@/lib/agentTurnDebug';
 import {
-  getMessageMediaItems,
+  getDisplayMediaItems,
+  hasSharedPostPreview,
+  isIgPermalinkHref,
   mediaKindIcon,
+  sharedPostImageSrc,
   type StoredMediaAttachment,
 } from '@/lib/messageMedia';
 
@@ -590,6 +621,8 @@ interface SharedPostData {
   postUrl?: string;
   imageUrl?: string;
   caption?: string;
+  mediaId?: string;
+  kind?: string;
 }
 
 interface Message {
@@ -1754,6 +1787,27 @@ const ClientProfilePanel = defineComponent({
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.05);
   border: 1px dashed rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+.shared-post-card {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  background: rgb(var(--v-theme-surface));
+  max-width: 280px;
+}
+
+.shared-post-image {
+  max-height: 240px;
+  width: 100%;
+  object-fit: cover;
+}
+
+.shared-post-caption {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .message-media-file-link {

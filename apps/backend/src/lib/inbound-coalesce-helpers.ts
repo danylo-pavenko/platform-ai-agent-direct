@@ -1,5 +1,8 @@
 import type { StoredMediaAttachment } from './media-attachments.js';
-import type { SharedPostData } from '../routes/webhooks.js';
+import {
+  parseStoredSharedPost,
+  type SharedPostData,
+} from './ig-shared-post.js';
 import {
   type IgInboundContext,
   type IgInboundKind,
@@ -190,8 +193,7 @@ function parseMediaAttachments(value: unknown): StoredMediaAttachment[] {
 }
 
 function parseSharedPost(value: unknown): SharedPostData | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  return value as SharedPostData;
+  return parseStoredSharedPost(value);
 }
 
 function pickIgContext(messages: PendingInboundMessage[]): IgInboundContext | undefined {

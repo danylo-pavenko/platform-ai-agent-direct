@@ -5,6 +5,7 @@
  */
 
 import { extractContactPatchesFromText } from './client-contact-heuristics.js';
+import { isShareAttachmentType } from './ig-shared-post.js';
 
 const DETECTED_PHONE_PREFIX = '📞';
 const MAX_WALK_DEPTH = 6;
@@ -90,8 +91,9 @@ export function looksLikeIgAutoPhoneCard(opts: {
 }): boolean {
   if ((opts.text ?? '').trim()) return false;
   if (opts.hasShare || opts.hasPlayableMedia) return false;
-  if (opts.isUnsupported) return true;
   const atts = opts.attachments ?? [];
+  if (atts.some((a) => isShareAttachmentType(a.type))) return false;
+  if (opts.isUnsupported) return true;
   if (atts.length === 0) return true;
   return atts.some((a) => {
     const t = (a.type ?? '').toLowerCase();

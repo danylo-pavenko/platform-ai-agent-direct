@@ -103,11 +103,69 @@ export function messageHasVisibleContent(msg: {
   text?: string | null;
   mediaAttachments?: StoredMediaAttachment[] | null;
   mediaUrls?: string[] | null;
-  sharedPost?: { postUrl?: string } | null;
+  sharedPost?: SharedPostPreview | null;
 }): boolean {
   if (msg.text?.trim()) return true;
-  if (msg.sharedPost?.postUrl) return true;
+  if (hasSharedPostPreview(msg.sharedPost)) return true;
   return getMessageMediaItems(msg).length > 0;
+}
+
+export interface SharedPostPreview {
+  postUrl?: string;
+  imageUrl?: string;
+  caption?: string;
+  mediaId?: string;
+  kind?: string;
+}
+
+export function hasSharedPostPreview(post?: SharedPostPreview | null): boolean {
+  if (!post) return false;
+  return Boolean(
+    post.postUrl?.trim() ||
+      post.imageUrl?.trim() ||
+      post.caption?.trim() ||
+      post.mediaId?.trim(),
+  );
+}
+
+export function isIgPermalinkHref(url?: string | null): boolean {
+  if (!url) return false;
+  return /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:p|reel|reels|tv)\//i.test(url);
+}
+
+/** Chat rows besides the shared-post card (hide the old "?" placeholder). */
+export function getDisplayMediaItems(msg: {
+  mediaAttachments?: StoredMediaAttachment[] | null;
+  mediaUrls?: string[] | null;
+  sharedPost?: SharedPostPreview | null;
+}): MessageMediaViewItem[] {
+  const items = getMessageMediaItems(msg);
+  if (!hasSharedPostPreview(msg.sharedPost)) return items;
+  return items.filter((item) => {
+    if (item.kind === 'unknown' && !item.playable) return false;
+    if (item.playable && item.kind === 'image') return false;
+    return true;
+  });
+}
+
+export function sharedPostImageSrc(msg: {
+  mediaAttachments?: StoredMediaAttachment[] | null;
+  mediaUrls?: string[] | null;
+  sharedPost?: SharedPostPreview | null;
+}): string | undefined {
+  const fromShare = (msg.mediaAttachments ?? []).find(
+    (a) =>
+      a.status === 'ready' &&
+      a.storageKey &&
+      (a.kind === 'image' || a.igType === 'share_image' || a.igType === 'ig_post'),
+  );
+  if (fromShare?.storageKey) return resolveMessageMediaSrc(fromShare.storageKey);
+  const key = msg.sharedPost?.imageUrl?.trim();
+  if (key && !key.startsWith('http://') && !key.startsWith('https://')) {
+    return resolveMessageMediaSrc(key);
+  }
+  const playableImage = getMessageMediaItems(msg).find((i) => i.playable && i.kind === 'image' && i.src);
+  return playableImage?.src;
 }
 
 export function mediaKindIcon(kind: MediaKind): string {
