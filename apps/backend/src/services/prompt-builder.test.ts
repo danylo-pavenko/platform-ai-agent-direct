@@ -127,5 +127,19 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toContain('Телефон: +380930152179');
     expect(prompt).toContain('не питай знову');
   });
+
+  it('asks for a tenant intro on the first bot reply', () => {
+    const prompt = buildRuntimePrompt(baseParams());
+    expect(prompt).toMatch(/ПЕРША відповідь бота/);
+    expect(prompt).toMatch(/представся імʼям і роллю|представся ім'ям і роллю/);
+    expect(prompt).not.toMatch(/Бот уже відповідав у цій розмові/);
+  });
+
+  it('forbids re-greeting after the bot already replied', () => {
+    const prompt = buildRuntimePrompt(baseParams({ botAlreadyReplied: true }));
+    expect(prompt).toMatch(/Бот уже відповідав у цій розмові/);
+    expect(prompt).toMatch(/без дзеркального привітання/);
+    expect(prompt).not.toMatch(/ПЕРША відповідь бота/);
+  });
 });
 

@@ -58,7 +58,7 @@ import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
 import { formatCrmLinkHintForPrompt, linkClientToCrm } from './client-crm-link.js';
-import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import { markFirstOutboundAt, conversationHasBotOutbound } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
@@ -631,6 +631,7 @@ async function handleIncomingMessageImpl(
   const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
   const { telegram: telegramCfg } = await getIntegrationConfig();
   const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
+  const botAlreadyReplied = await conversationHasBotOutbound(conversationId);
 
   const promptSession = createRuntimePromptSession({
     initial: activeSystemPrompt,
@@ -658,6 +659,7 @@ async function handleIncomingMessageImpl(
         branchesList,
         telegramBotsBlock,
         timeZone: agentCfg.timezone,
+        botAlreadyReplied,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,

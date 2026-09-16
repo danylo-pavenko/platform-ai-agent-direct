@@ -20,3 +20,11 @@ export async function markFirstOutboundAt(
     data: { firstOutboundAt: at },
   });
 }
+
+/** True when the bot (not imported manager IG history) already sent a message here. */
+export async function conversationHasBotOutbound(conversationId: string): Promise<boolean> {
+  const n = await prisma.message.count({
+    where: { conversationId, direction: 'out', sender: 'bot' },
+  });
+  return n > 0;
+}

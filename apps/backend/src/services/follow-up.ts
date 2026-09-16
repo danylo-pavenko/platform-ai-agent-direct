@@ -357,6 +357,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         branchesList,
         telegramBotsBlock,
         timeZone: agentCfg.timezone,
+        botAlreadyReplied: true,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,
