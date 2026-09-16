@@ -1,93 +1,138 @@
 <template>
-  <v-container fluid>
-    <v-row class="mb-4" align="center">
-      <v-col>
-        <div class="page-title">CRM-поля клієнта</div>
-        <div class="text-caption text-grey">
-          Мапінг локальних ключів на кастомні поля CRM. Активні мапінги додаються до tool
-          <code>update_client_info</code> та системного промпту — бот починає їх збирати автоматично.
-        </div>
-      </v-col>
-      <v-col cols="auto">
+  <v-container fluid class="page-shell">
+    <PageHeader
+      title="CRM-поля клієнта"
+      subtitle="Мапінг локальних ключів на кастомні поля CRM. Активні мапінги додаються до tool update_client_info."
+    >
+      <template #actions>
         <v-btn
           variant="outlined"
-          prepend-icon="mdi-refresh"
+          class="tap-target"
+          :prepend-icon="mobile ? undefined : 'mdi-refresh'"
+          :icon="mobile ? 'mdi-refresh' : undefined"
           :loading="loadingAvailable"
           @click="fetchAvailable(true)"
         >
-          Оновити список з CRM
+          <span v-if="!mobile">Оновити з CRM</span>
         </v-btn>
-      </v-col>
-      <v-col cols="auto">
-        <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreateDialog">
-          Новий мапінг
+        <v-btn
+          color="primary"
+          class="tap-target"
+          :prepend-icon="mobile ? undefined : 'mdi-plus'"
+          :icon="mobile ? 'mdi-plus' : undefined"
+          @click="openCreateDialog"
+        >
+          <span v-if="!mobile">Новий мапінг</span>
         </v-btn>
-      </v-col>
-    </v-row>
+      </template>
+    </PageHeader>
 
     <v-alert v-if="!writeEnabledHint" type="info" variant="tonal" density="compact" class="mb-4">
       Мапінги впливають на бота лише коли увімкнено запис у CRM: перемикач у Налаштування → KeyCRM або <code>CRM_WRITE_ENABLED=true</code> у .env (увімкнено за замовчуванням).
     </v-alert>
 
     <v-card>
-      <v-data-table
-        :headers="headers"
-        :items="mappings"
+      <ResponsiveDataList
         :loading="loading"
-        hover
-        item-value="id"
+        :empty="!loading && mappings.length === 0"
+        empty-text="Ще немає мапінгів. Додайте новий мапінг."
       >
-        <template #item.localKey="{ item }">
-          <code>{{ item.localKey }}</code>
+        <template #table>
+          <v-data-table
+            :headers="headers"
+            :items="mappings"
+            :loading="loading"
+            hover
+            item-value="id"
+          >
+            <template #item.localKey="{ item }">
+              <code>{{ item.localKey }}</code>
+            </template>
+
+            <template #item.scope="{ item }">
+              <v-chip size="small" :color="scopeChipColor(item.scope)" label>
+                {{ item.scope }}
+              </v-chip>
+            </template>
+
+            <template #item.crmFieldKey="{ item }">
+              <code class="text-caption">{{ item.crmFieldKey }}</code>
+            </template>
+
+            <template #item.extractType="{ item }">
+              <v-chip size="x-small" variant="outlined" label>{{ item.extractType }}</v-chip>
+            </template>
+
+            <template #item.isActive="{ item }">
+              <v-switch
+                :model-value="item.isActive"
+                color="primary"
+                hide-details
+                density="compact"
+                :loading="togglingId === item.id"
+                @update:model-value="(v) => toggleActive(item, v === true)"
+              />
+            </template>
+
+            <template #item.actions="{ item }">
+              <v-btn
+                class="tap-target"
+                variant="text"
+                icon="mdi-pencil"
+                @click="openEditDialog(item)"
+              />
+              <v-btn
+                class="tap-target"
+                variant="text"
+                icon="mdi-delete-outline"
+                color="error"
+                @click="confirmDelete(item)"
+              />
+            </template>
+
+            <template #no-data>
+              <div class="pa-6 text-center text-grey">
+                Ще немає мапінгів. Натисніть "Новий мапінг", щоб зв'язати кастомне поле CRM з локальним ключем.
+              </div>
+            </template>
+          </v-data-table>
         </template>
 
-        <template #item.scope="{ item }">
-          <v-chip size="small" :color="scopeChipColor(item.scope)" label>
-            {{ item.scope }}
-          </v-chip>
+        <template #cards>
+          <MobileListCard
+            v-for="item in mappings"
+            :key="item.id"
+            :title="item.localKey"
+            :meta="item.crmFieldKey"
+          >
+            <template #chips>
+              <v-chip size="small" :color="scopeChipColor(item.scope)" label>{{ item.scope }}</v-chip>
+              <v-chip size="small" variant="outlined" label>{{ item.extractType }}</v-chip>
+              <v-chip
+                size="small"
+                :color="item.isActive ? 'success' : 'grey'"
+                variant="tonal"
+                label
+              >
+                {{ item.isActive ? 'Активний' : 'Вимкнений' }}
+              </v-chip>
+            </template>
+            <template #actions>
+              <v-switch
+                :model-value="item.isActive"
+                color="primary"
+                hide-details
+                :density="density"
+                label="Активний"
+                :loading="togglingId === item.id"
+                @update:model-value="(v) => toggleActive(item, v === true)"
+              />
+              <v-btn variant="tonal" class="tap-target" @click="openEditDialog(item)">Редагувати</v-btn>
+              <v-btn variant="text" color="error" class="tap-target" @click="confirmDelete(item)">Видалити</v-btn>
+            </template>
+          </MobileListCard>
         </template>
-
-        <template #item.crmFieldKey="{ item }">
-          <code class="text-caption">{{ item.crmFieldKey }}</code>
-        </template>
-
-        <template #item.extractType="{ item }">
-          <v-chip size="x-small" variant="outlined" label>{{ item.extractType }}</v-chip>
-        </template>
-
-        <template #item.isActive="{ item }">
-          <v-switch
-            :model-value="item.isActive"
-            color="primary"
-            hide-details
-            density="compact"
-            :loading="togglingId === item.id"
-            @update:model-value="(v) => toggleActive(item, v === true)"
-          />
-        </template>
-
-        <template #item.actions="{ item }">
-          <v-btn
-            size="small"
-            variant="text"
-            icon="mdi-pencil"
-            @click="openEditDialog(item)"
-          />
-          <v-btn
-            size="small"
-            variant="text"
-            icon="mdi-delete-outline"
-            color="error"
-            @click="confirmDelete(item)"
-          />
-        </template>
-
-        <template #no-data>
-          <div class="pa-6 text-center text-grey">
-            Ще немає мапінгів. Натисніть "Новий мапінг", щоб зв'язати кастомне поле CRM з локальним ключем.
-          </div>
-        </template>
-      </v-data-table>
+      </ResponsiveDataList>
     </v-card>
 
     <!-- Create / edit dialog -->
@@ -256,6 +301,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '@/api';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
+import { useTouchDensity } from '@/composables/useTouchDensity';
+
+const { mobile, density } = useTouchDensity();
 
 type FieldScope = 'buyer' | 'order' | 'lead';
 

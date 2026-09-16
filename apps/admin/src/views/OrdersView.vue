@@ -1,14 +1,10 @@
 <template>
-  <v-container fluid>
-    <v-row class="mb-4" align="center">
-      <v-col>
-        <div class="page-title">Замовлення</div>
-      </v-col>
-    </v-row>
+  <v-container fluid class="page-shell">
+    <PageHeader title="Замовлення" />
 
     <v-card>
       <v-card-text>
-        <v-row dense class="mb-2">
+        <v-row dense class="mb-3">
           <v-col cols="12" sm="4" md="3">
             <v-select
               v-model="statusFilter"
@@ -16,7 +12,7 @@
               item-title="title"
               item-value="value"
               label="Статус"
-              density="compact"
+              :density="density"
               variant="outlined"
               hide-details
             />
@@ -25,287 +21,225 @@
             <v-checkbox
               v-model="includeArchived"
               label="Показати архівовані"
-              density="compact"
+              :density="density"
               hide-details
             />
           </v-col>
         </v-row>
 
-        <v-data-table-server
-          :headers="headers"
-          :items="orders"
-          :items-length="total"
-          :items-per-page="limit"
-          :page="page"
+        <ResponsiveDataList
           :loading="loading"
-          hover
-          item-value="id"
-          show-expand
+          :empty="!loading && orders.length === 0"
+          empty-text="Немає замовлень"
+          :show-pagination="!mdAndUp && total > 0"
+          :page="page"
+          :items-per-page="limit"
+          :items-length="total"
           @update:page="page = $event"
-          @update:items-per-page="limit = $event"
         >
-          <template #item.id="{ item }">
-            <code>{{ item.id?.substring(0, 8) }}</code>
-          </template>
-
-          <template #item.status="{ item }">
-            <v-chip
-              v-if="item.isArchived"
-              color="grey"
-              size="small"
-              label
-              class="mr-1"
+          <template #table>
+            <v-data-table-server
+              :headers="headers"
+              :items="orders"
+              :items-length="total"
+              :items-per-page="limit"
+              :page="page"
+              :loading="loading"
+              hover
+              item-value="id"
+              show-expand
+              @update:page="page = $event"
+              @update:items-per-page="limit = $event"
             >
-              Архів
-            </v-chip>
-            <v-chip
-              :color="statusColor(item.status)"
-              size="small"
-              label
+              <template #item.id="{ item }">
+                <code>{{ item.id?.substring(0, 8) }}</code>
+              </template>
+
+              <template #item.status="{ item }">
+                <v-chip
+                  v-if="item.isArchived"
+                  color="grey"
+                  size="small"
+                  label
+                  class="mr-1"
+                >
+                  Архів
+                </v-chip>
+                <v-chip
+                  :color="statusColor(item.status)"
+                  size="small"
+                  label
+                >
+                  {{ statusLabel(item.status) }}
+                </v-chip>
+              </template>
+
+              <template #item.kind="{ item }">
+                <v-chip
+                  :color="kindColor(item.kind)"
+                  size="small"
+                  variant="tonal"
+                  label
+                >
+                  {{ kindLabel(item.kind) }}
+                </v-chip>
+              </template>
+
+              <template #item.crmSyncStatus="{ item }">
+                <v-chip
+                  :color="crmStatusColor(item)"
+                  size="small"
+                  variant="tonal"
+                  label
+                >
+                  {{ crmStatusLabel(item) }}
+                </v-chip>
+              </template>
+
+              <template #item.total="{ item }">
+                {{ item.total ? `${item.total} ₴` : '—' }}
+              </template>
+
+              <template #item.createdAt="{ item }">
+                {{ formatDate(item.createdAt) }}
+              </template>
+
+              <template #item.actions="{ item }">
+                <v-btn
+                  v-if="item.keycrmOrderUrl"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :href="item.keycrmOrderUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                >
+                  KeyCRM
+                </v-btn>
+                <v-btn
+                  v-if="canRetry(item)"
+                  size="small"
+                  variant="text"
+                  color="primary"
+                  :loading="syncingId === item.id"
+                  @click.stop="retryCrmSync(item.id)"
+                >
+                  Відвантажити
+                </v-btn>
+                <v-btn
+                  v-if="item.conversationId"
+                  size="small"
+                  variant="text"
+                  :to="`/conversations/${item.conversationId}`"
+                  @click.stop
+                >
+                  Діалог
+                </v-btn>
+              </template>
+
+              <template #expanded-row="{ columns, item }">
+                <tr>
+                  <td :colspan="columns.length" class="pa-4">
+                    <OrderDetailPanel
+                      :item="item"
+                      :master-options="masterOptions"
+                      :syncing-id="syncingId"
+                      :saving-masters-id="savingMastersId"
+                      :mobile="false"
+                      @set-master="(i, v) => setServiceMaster(item, i, v)"
+                      @save-masters="saveBookingMasters(item)"
+                      @retry="retryCrmSync(item.id)"
+                      @retry-force="retryCrmSyncForce(item)"
+                    />
+                  </td>
+                </tr>
+              </template>
+            </v-data-table-server>
+          </template>
+
+          <template #cards>
+            <MobileListCard
+              v-for="item in orders"
+              :key="item.id"
+              @click="toggleExpanded(item.id)"
             >
-              {{ statusLabel(item.status) }}
-            </v-chip>
+              <template #title>
+                {{ item.customerName || 'Клієнт' }}
+                <span class="text-medium-emphasis font-weight-regular"> · {{ item.id?.substring(0, 8) }}</span>
+              </template>
+              <template #meta>
+                {{ formatDate(item.createdAt) }}
+                <span v-if="item.total"> · {{ item.total }} ₴</span>
+                <span v-if="item.phone"> · {{ item.phone }}</span>
+              </template>
+              <template #chips>
+                <v-chip v-if="item.isArchived" color="grey" size="small" label>Архів</v-chip>
+                <v-chip :color="statusColor(item.status)" size="small" label>
+                  {{ statusLabel(item.status) }}
+                </v-chip>
+                <v-chip :color="kindColor(item.kind)" size="small" variant="tonal" label>
+                  {{ kindLabel(item.kind) }}
+                </v-chip>
+                <v-chip :color="crmStatusColor(item)" size="small" variant="tonal" label>
+                  {{ crmStatusLabel(item) }}
+                </v-chip>
+              </template>
+              <template #actions>
+                <v-btn
+                  v-if="item.conversationId"
+                  size="small"
+                  variant="tonal"
+                  :to="`/conversations/${item.conversationId}`"
+                  @click.stop
+                >
+                  Діалог
+                </v-btn>
+                <v-btn
+                  v-if="canRetry(item)"
+                  size="small"
+                  variant="flat"
+                  color="primary"
+                  :loading="syncingId === item.id"
+                  @click.stop="retryCrmSync(item.id)"
+                >
+                  Відвантажити в CRM
+                </v-btn>
+                <v-btn
+                  v-if="canForceTimeConflict(item)"
+                  size="small"
+                  variant="tonal"
+                  color="warning"
+                  :loading="syncingId === item.id"
+                  @click.stop="retryCrmSyncForce(item)"
+                >
+                  Force
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="text"
+                  :prepend-icon="expandedId === item.id ? 'mdi-chevron-up' : 'mdi-chevron-down'"
+                  @click.stop="toggleExpanded(item.id)"
+                >
+                  Деталі
+                </v-btn>
+              </template>
+              <div v-if="expandedId === item.id" class="mt-2" @click.stop>
+                <OrderDetailPanel
+                  :item="item"
+                  :master-options="masterOptions"
+                  :syncing-id="syncingId"
+                  :saving-masters-id="savingMastersId"
+                  :mobile="true"
+                  @set-master="(i, v) => setServiceMaster(item, i, v)"
+                  @save-masters="saveBookingMasters(item)"
+                  @retry="retryCrmSync(item.id)"
+                  @retry-force="retryCrmSyncForce(item)"
+                />
+              </div>
+            </MobileListCard>
           </template>
-
-          <template #item.kind="{ item }">
-            <v-chip
-              :color="kindColor(item.kind)"
-              size="small"
-              variant="tonal"
-              label
-            >
-              {{ kindLabel(item.kind) }}
-            </v-chip>
-          </template>
-
-          <template #item.crmSyncStatus="{ item }">
-            <v-chip
-              :color="crmStatusColor(item)"
-              size="small"
-              variant="tonal"
-              label
-            >
-              {{ crmStatusLabel(item) }}
-            </v-chip>
-          </template>
-
-          <template #item.total="{ item }">
-            {{ item.total ? `${item.total} ₴` : '—' }}
-          </template>
-
-          <template #item.createdAt="{ item }">
-            {{ formatDate(item.createdAt) }}
-          </template>
-
-          <template #item.actions="{ item }">
-            <v-btn
-              v-if="item.keycrmOrderUrl"
-              size="small"
-              variant="text"
-              color="primary"
-              :href="item.keycrmOrderUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              @click.stop
-            >
-              KeyCRM
-            </v-btn>
-            <v-btn
-              v-if="canRetry(item)"
-              size="small"
-              variant="text"
-              color="primary"
-              :loading="syncingId === item.id"
-              @click.stop="retryCrmSync(item.id)"
-            >
-              Відвантажити
-            </v-btn>
-            <v-btn
-              v-if="item.conversationId"
-              size="small"
-              variant="text"
-              :to="`/conversations/${item.conversationId}`"
-              @click.stop
-            >
-              Діалог
-            </v-btn>
-          </template>
-
-          <template #expanded-row="{ columns, item }">
-            <tr>
-              <td :colspan="columns.length" class="pa-4">
-                <v-row>
-                  <v-col cols="12" md="7">
-                    <h4 class="text-subtitle-2 mb-2">Товари</h4>
-                    <v-table density="compact">
-                      <thead>
-                        <tr>
-                          <th>Назва</th>
-                          <th>Варіант</th>
-                          <th>Кількість</th>
-                          <th>Ціна</th>
-                          <th>Сума</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(lineItem, i) in (item.items || [])" :key="i">
-                          <td>{{ lineItem.name }}</td>
-                          <td>{{ lineItem.variant || '—' }}</td>
-                          <td>{{ lineItem.qty ?? 1 }}</td>
-                          <td>{{ lineItem.price }} ₴</td>
-                          <td>{{ (lineItem.price * (lineItem.qty ?? 1)) }} ₴</td>
-                        </tr>
-                        <tr v-if="!item.items?.length">
-                          <td colspan="5" class="text-center text-grey">Немає товарів</td>
-                        </tr>
-                      </tbody>
-                    </v-table>
-
-                    <div v-if="item.note" class="mt-3 text-body-2">
-                      <strong>Нотатка:</strong> {{ item.note }}
-                    </div>
-
-                    <div
-                      v-if="item.kind === 'booking' && item.appointmentServices?.length && canRetry(item)"
-                      class="mt-4"
-                    >
-                      <h4 class="text-subtitle-2 mb-2">Майстри на послуги</h4>
-                      <p class="text-caption text-medium-emphasis mb-2">
-                        Різні майстри в один час — оберіть людину на кожен рядок, збережіть, потім відвантажте в CRM.
-                      </p>
-                      <div
-                        v-for="(svc, i) in item.appointmentServices"
-                        :key="`${item.id}-${svc.id}-${i}`"
-                        class="d-flex align-center ga-2 mb-2"
-                      >
-                        <div class="text-body-2 flex-grow-1">{{ svc.name || 'Послуга' }}</div>
-                        <v-select
-                          :model-value="svc.masterId || null"
-                          :items="masterOptions"
-                          item-title="name"
-                          item-value="id"
-                          density="compact"
-                          variant="outlined"
-                          hide-details
-                          label="Майстер"
-                          style="max-width: 280px"
-                          @update:model-value="(v: string) => setServiceMaster(item, i, v)"
-                        />
-                      </div>
-                      <v-btn
-                        size="small"
-                        variant="tonal"
-                        color="primary"
-                        :loading="savingMastersId === item.id"
-                        @click="saveBookingMasters(item)"
-                      >
-                        Зберегти майстрів
-                      </v-btn>
-                    </div>
-                  </v-col>
-
-                  <v-col cols="12" md="5">
-                    <h4 class="text-subtitle-2 mb-2">Контактна інформація</h4>
-                    <v-list density="compact">
-                      <v-list-item>
-                        <template #prepend>
-                          <v-icon size="small">mdi-account</v-icon>
-                        </template>
-                        <v-list-item-title>{{ item.customerName || '—' }}</v-list-item-title>
-                        <v-list-item-subtitle>Ім'я</v-list-item-subtitle>
-                      </v-list-item>
-                      <v-list-item>
-                        <template #prepend>
-                          <v-icon size="small">mdi-phone</v-icon>
-                        </template>
-                        <v-list-item-title>{{ item.phone || '—' }}</v-list-item-title>
-                        <v-list-item-subtitle>Телефон</v-list-item-subtitle>
-                      </v-list-item>
-                      <v-list-item>
-                        <template #prepend>
-                          <v-icon size="small">mdi-map-marker</v-icon>
-                        </template>
-                        <v-list-item-title>{{ item.city || '—' }}</v-list-item-title>
-                        <v-list-item-subtitle>Місто</v-list-item-subtitle>
-                      </v-list-item>
-                      <v-list-item>
-                        <template #prepend>
-                          <v-icon size="small">mdi-truck</v-icon>
-                        </template>
-                        <v-list-item-title>{{ item.npBranch || '—' }}</v-list-item-title>
-                        <v-list-item-subtitle>Відділення НП</v-list-item-subtitle>
-                      </v-list-item>
-                      <v-list-item>
-                        <template #prepend>
-                          <v-icon size="small">mdi-credit-card</v-icon>
-                        </template>
-                        <v-list-item-title>{{ paymentLabel(item.paymentMethod) }}</v-list-item-title>
-                        <v-list-item-subtitle>Спосіб оплати</v-list-item-subtitle>
-                      </v-list-item>
-                    </v-list>
-
-                    <h4 class="text-subtitle-2 mb-2 mt-4">{{ item.crmProviderLabel || 'CRM' }}</h4>
-                    <v-list density="compact">
-                      <v-list-item>
-                        <v-list-item-title>
-                          {{ crmStatusLabel(item) }}
-                        </v-list-item-title>
-                        <v-list-item-subtitle v-if="item.crmRecordId && !item.keycrmOrderId">
-                          ID в CRM: {{ item.crmRecordId }}
-                        </v-list-item-subtitle>
-                        <v-list-item-subtitle v-if="item.crmSyncedAt">
-                          Синхронізовано: {{ formatDate(item.crmSyncedAt) }}
-                        </v-list-item-subtitle>
-                        <v-list-item-subtitle v-if="item.crmSyncError" class="text-error">
-                          {{ item.crmSyncError }}
-                        </v-list-item-subtitle>
-                        <v-list-item-subtitle v-else-if="canRetry(item) && item.kind === 'booking'">
-                          Запис ще не відвантажено в CRM — можна спробувати ще раз
-                        </v-list-item-subtitle>
-                        <v-list-item-subtitle v-else-if="canRetry(item)">
-                          Замовлення ще не відвантажено в CRM — можна спробувати ще раз
-                        </v-list-item-subtitle>
-                      </v-list-item>
-                    </v-list>
-                    <div class="d-flex flex-wrap ga-2 mt-2">
-                      <v-btn
-                        v-if="item.keycrmOrderUrl"
-                        size="small"
-                        variant="tonal"
-                        color="primary"
-                        :href="item.keycrmOrderUrl"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Відкрити в KeyCRM
-                      </v-btn>
-                      <v-btn
-                        v-if="canRetry(item)"
-                        size="small"
-                        variant="flat"
-                        color="primary"
-                        :loading="syncingId === item.id"
-                        @click="retryCrmSync(item.id)"
-                      >
-                        Відвантажити в CRM
-                      </v-btn>
-                      <v-btn
-                        v-if="canForceTimeConflict(item)"
-                        size="small"
-                        variant="tonal"
-                        color="warning"
-                        :loading="syncingId === item.id"
-                        @click="retryCrmSyncForce(item)"
-                      >
-                        Все одно в CRM (force)
-                      </v-btn>
-                    </div>
-                  </v-col>
-                </v-row>
-              </td>
-            </tr>
-          </template>
-        </v-data-table-server>
+        </ResponsiveDataList>
       </v-card-text>
     </v-card>
 
@@ -317,7 +251,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
+import { useDisplay } from 'vuetify';
 import api from '@/api';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
+import OrderDetailPanel from '@/components/OrderDetailPanel.vue';
+import { useTouchDensity } from '@/composables/useTouchDensity';
 
 interface OrderItem {
   name: string;
@@ -364,6 +304,9 @@ interface Order {
   createdAt: string;
 }
 
+const { mdAndUp } = useDisplay();
+const { density } = useTouchDensity();
+
 const orders = ref<Order[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -373,6 +316,7 @@ const statusFilter = ref('');
 const includeArchived = ref(false);
 const syncingId = ref<string | null>(null);
 const savingMastersId = ref<string | null>(null);
+const expandedId = ref<string | null>(null);
 const masterOptions = ref<Array<{ id: string; name: string }>>([]);
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -399,6 +343,10 @@ const headers = [
   { title: '', key: 'actions', sortable: false, width: '260px' },
 ];
 
+function toggleExpanded(id: string) {
+  expandedId.value = expandedId.value === id ? null : id;
+}
+
 function statusColor(status: string): string {
   const colors: Record<string, string> = {
     draft: 'grey',
@@ -417,16 +365,6 @@ function statusLabel(status: string): string {
     cancelled: 'Скасовано',
   };
   return labels[status] || status;
-}
-
-function paymentLabel(method: string | null | undefined): string {
-  if (!method) return '—';
-  const labels: Record<string, string> = {
-    card: 'Картка',
-    transfer: 'Переказ',
-    cod: 'Накладений платіж',
-  };
-  return labels[method] || method;
 }
 
 function kindLabel(kind: string | null | undefined): string {
@@ -478,7 +416,6 @@ function canRetry(item: Order): boolean {
   return !item.keycrmOrderId && !item.crmRecordId && item.crmSyncStatus !== 'synced';
 }
 
-/** BeautyPro TIME_CONFLICT on previous sync — admin may POST ?force=true. */
 function canForceTimeConflict(item: Order): boolean {
   if (item.kind !== 'booking' || !canRetry(item)) return false;
   const err = (item.crmSyncError ?? '').toUpperCase();

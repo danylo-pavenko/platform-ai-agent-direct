@@ -1,0 +1,192 @@
+<template>
+  <div class="order-detail-panel">
+    <h4 class="text-subtitle-2 mb-2">Товари</h4>
+    <div v-if="item.items?.length" class="text-body-2 mb-3">
+      <div v-for="(line, i) in item.items" :key="i" class="mb-1">
+        {{ line.name }}{{ line.variant ? ` (${line.variant})` : '' }}
+        × {{ line.qty ?? 1 }} — {{ line.price * (line.qty ?? 1) }} ₴
+      </div>
+    </div>
+    <div v-else class="text-medium-emphasis text-body-2 mb-3">Немає товарів</div>
+
+    <div v-if="item.note" class="mb-3 text-body-2">
+      <strong>Нотатка:</strong> {{ item.note }}
+    </div>
+
+    <div
+      v-if="item.kind === 'booking' && item.appointmentServices?.length && canRetry"
+      class="mb-3"
+    >
+      <h4 class="text-subtitle-2 mb-2">Майстри на послуги</h4>
+      <p class="text-caption text-medium-emphasis mb-2">
+        Різні майстри в один час — оберіть людину на кожен рядок, збережіть, потім відвантажте в CRM.
+      </p>
+      <div
+        v-for="(svc, i) in item.appointmentServices"
+        :key="`${item.id}-${svc.id}-${i}`"
+        class="mb-3"
+        :class="mobile ? 'd-flex flex-column ga-2' : 'd-flex align-center ga-2 flex-wrap'"
+      >
+        <div class="text-body-2 flex-grow-1">{{ svc.name || 'Послуга' }}</div>
+        <v-select
+          :model-value="svc.masterId || null"
+          :items="masterOptions"
+          item-title="name"
+          item-value="id"
+          :density="mobile ? 'comfortable' : 'compact'"
+          variant="outlined"
+          hide-details
+          label="Майстер"
+          :style="mobile ? 'width: 100%' : 'max-width: 280px'"
+          @update:model-value="(v: string) => $emit('set-master', i, v)"
+        />
+      </div>
+      <v-btn
+        :size="mobile ? 'default' : 'small'"
+        variant="tonal"
+        color="primary"
+        :block="mobile"
+        :class="{ 'tap-target': mobile }"
+        :loading="savingMastersId === item.id"
+        @click="$emit('save-masters')"
+      >
+        Зберегти майстрів
+      </v-btn>
+    </div>
+
+    <h4 class="text-subtitle-2 mb-2">Контакт</h4>
+    <div class="text-body-2 mb-3">
+      <div>{{ item.customerName || '—' }} · {{ item.phone || '—' }}</div>
+      <div class="text-medium-emphasis">{{ item.city || '—' }} · НП: {{ item.npBranch || '—' }}</div>
+      <div class="text-medium-emphasis">Оплата: {{ paymentLabel }}</div>
+    </div>
+
+    <h4 class="text-subtitle-2 mb-2">{{ item.crmProviderLabel || 'CRM' }}</h4>
+    <div class="text-body-2 mb-2">{{ crmStatusLabel }}</div>
+    <div v-if="item.crmSyncError" class="text-error text-body-2 mb-2">{{ item.crmSyncError }}</div>
+
+    <div :class="mobile ? 'd-flex flex-column ga-2' : 'd-flex flex-wrap ga-2'">
+      <v-btn
+        v-if="item.keycrmOrderUrl"
+        :size="mobile ? 'default' : 'small'"
+        variant="tonal"
+        color="primary"
+        :href="item.keycrmOrderUrl"
+        target="_blank"
+        rel="noopener noreferrer"
+        :block="mobile"
+      >
+        Відкрити в KeyCRM
+      </v-btn>
+      <v-btn
+        v-if="canRetry"
+        :size="mobile ? 'default' : 'small'"
+        variant="flat"
+        color="primary"
+        :loading="syncingId === item.id"
+        :block="mobile"
+        :class="{ 'tap-target': mobile }"
+        @click="$emit('retry')"
+      >
+        Відвантажити в CRM
+      </v-btn>
+      <v-btn
+        v-if="canForce"
+        :size="mobile ? 'default' : 'small'"
+        variant="tonal"
+        color="warning"
+        :loading="syncingId === item.id"
+        :block="mobile"
+        @click="$emit('retry-force')"
+      >
+        Все одно в CRM (force)
+      </v-btn>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+
+export interface OrderDetailItem {
+  id: string;
+  kind?: string;
+  customerName: string;
+  phone: string;
+  city?: string | null;
+  npBranch?: string | null;
+  paymentMethod?: string | null;
+  note?: string | null;
+  items?: Array<{ name: string; variant?: string; qty: number; price: number }>;
+  keycrmOrderId?: string | null;
+  keycrmOrderUrl?: string | null;
+  crmSyncStatus?: string;
+  crmSyncError?: string | null;
+  crmProvider?: string | null;
+  crmProviderLabel?: string | null;
+  crmRecordId?: string | null;
+  appointmentServices?: Array<{
+    id: string;
+    name?: string;
+    masterId?: string;
+  }>;
+  canRetryCrm?: boolean;
+}
+
+const props = defineProps<{
+  item: OrderDetailItem;
+  masterOptions: Array<{ id: string; name: string }>;
+  syncingId?: string | null;
+  savingMastersId?: string | null;
+  mobile?: boolean;
+}>();
+
+defineEmits<{
+  'set-master': [index: number, masterId: string];
+  'save-masters': [];
+  retry: [];
+  'retry-force': [];
+}>();
+
+const canRetry = computed(() => {
+  if (typeof props.item.canRetryCrm === 'boolean') return props.item.canRetryCrm;
+  return (
+    !props.item.keycrmOrderId &&
+    !props.item.crmRecordId &&
+    props.item.crmSyncStatus !== 'synced'
+  );
+});
+
+const canForce = computed(() => {
+  if (props.item.kind !== 'booking' || !canRetry.value) return false;
+  const err = (props.item.crmSyncError ?? '').toUpperCase();
+  return err.includes('TIME_CONFLICT') || err.includes('TIME CONFLICT');
+});
+
+const paymentLabel = computed(() => {
+  const method = props.item.paymentMethod;
+  if (!method) return '—';
+  const labels: Record<string, string> = {
+    card: 'Картка',
+    transfer: 'Переказ',
+    cod: 'Накладений платіж',
+  };
+  return labels[method] || method;
+});
+
+const crmStatusLabel = computed(() => {
+  const item = props.item;
+  const provider = item.crmProviderLabel || 'CRM';
+  if (item.crmRecordId && item.crmProvider === 'keycrm') {
+    return `${provider} #${item.crmRecordId}`;
+  }
+  if (item.keycrmOrderId) return `KeyCRM #${item.keycrmOrderId}`;
+  const labels: Record<string, string> = {
+    pending: 'Очікує CRM',
+    synced: `У ${provider}`,
+    failed: 'Помилка CRM',
+    skipped: 'Без CRM',
+  };
+  return labels[item.crmSyncStatus ?? ''] ?? item.crmSyncStatus ?? '—';
+});
+</script>

@@ -9,6 +9,9 @@
 :root {
   --sidebar-width: 240px;
   --header-height: 56px;
+  --bottom-nav-height: 56px;
+  --tap-min: 44px;
+  --page-pad: 16px;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 12px;

@@ -1,108 +1,189 @@
 <template>
-  <v-container fluid>
-    <v-row class="mb-4" align="center">
-      <v-col>
-        <div class="page-title">Користувачі</div>
-        <div class="text-body-2 text-medium-emphasis">
-          Менеджери з обмеженим доступом до панелі. Логін і пароль генеруються автоматично.
-        </div>
-      </v-col>
-      <v-col cols="auto">
-        <v-btn color="primary" prepend-icon="mdi-account-plus" @click="openCreate">
-          Додати менеджера
+  <v-container fluid class="page-shell">
+    <PageHeader
+      title="Користувачі"
+      subtitle="Менеджери з обмеженим доступом до панелі. Логін і пароль генеруються автоматично."
+    >
+      <template #actions>
+        <v-btn
+          color="primary"
+          :prepend-icon="mobile ? undefined : 'mdi-account-plus'"
+          :icon="mobile ? 'mdi-account-plus' : undefined"
+          class="tap-target"
+          @click="openCreate"
+        >
+          <span v-if="!mobile">Додати менеджера</span>
         </v-btn>
-      </v-col>
-    </v-row>
+      </template>
+    </PageHeader>
 
     <v-alert v-if="error" type="error" density="compact" class="mb-4" closable @click:close="error = ''">
       {{ error }}
     </v-alert>
 
     <v-card>
-      <v-data-table
-        :headers="headers"
-        :items="users"
+      <ResponsiveDataList
         :loading="loading"
-        hover
-        item-value="id"
+        :empty="!loading && users.length === 0"
+        empty-text="Немає користувачів"
       >
-        <template #item.displayName="{ item }">
-          <div class="text-body-2 font-weight-medium">
-            {{ item.displayName || '—' }}
-          </div>
-          <div class="text-caption text-medium-emphasis">{{ item.username }}</div>
+        <template #table>
+          <v-data-table
+            :headers="headers"
+            :items="users"
+            :loading="loading"
+            hover
+            item-value="id"
+          >
+            <template #item.displayName="{ item }">
+              <div class="text-body-2 font-weight-medium">
+                {{ item.displayName || '—' }}
+              </div>
+              <div class="text-caption text-medium-emphasis">{{ item.username }}</div>
+            </template>
+
+            <template #item.role="{ item }">
+              <v-select
+                :model-value="item.role"
+                :items="roleOptions"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="max-width: 150px"
+                :disabled="roleSavingId === item.id || isLastActiveOwner(item)"
+                :loading="roleSavingId === item.id"
+                @update:model-value="(v: string) => changeRole(item, v)"
+              />
+            </template>
+
+            <template #item.telegram="{ item }">
+              <div v-if="item.tgUserId" class="text-body-2">
+                <span v-if="item.tgUsername">@{{ item.tgUsername }}</span>
+                <span v-else class="text-medium-emphasis">привʼязано</span>
+                <div class="text-caption text-medium-emphasis">id {{ item.tgUserId }}</div>
+              </div>
+              <span v-else class="text-caption text-medium-emphasis">не привʼязано</span>
+            </template>
+
+            <template #item.isActive="{ item }">
+              <v-switch
+                :model-value="item.isActive"
+                :disabled="isLastActiveOwner(item) || togglingId === item.id"
+                :loading="togglingId === item.id"
+                color="success"
+                density="compact"
+                hide-details
+                inset
+                @update:model-value="(v: boolean | null) => toggleActive(item, !!v)"
+              />
+            </template>
+
+            <template #item.actions="{ item }">
+              <v-menu>
+                <template #activator="{ props: menuProps }">
+                  <v-btn
+                    v-bind="menuProps"
+                    icon="mdi-dots-vertical"
+                    variant="text"
+                    class="tap-target"
+                  />
+                </template>
+                <v-list density="comfortable">
+                  <v-list-item
+                    prepend-icon="mdi-send"
+                    title="Telegram"
+                    :disabled="!item.isActive"
+                    @click="generateLinkCode(item)"
+                  />
+                  <v-list-item
+                    prepend-icon="mdi-lock-reset"
+                    title="Скинути пароль"
+                    @click="resetPassword(item)"
+                  />
+                  <v-list-item
+                    prepend-icon="mdi-pencil"
+                    title="Змінити імʼя"
+                    @click="openEdit(item)"
+                  />
+                </v-list>
+              </v-menu>
+            </template>
+          </v-data-table>
         </template>
 
-        <template #item.role="{ item }">
-          <v-select
-            :model-value="item.role"
-            :items="roleOptions"
-            item-title="title"
-            item-value="value"
-            density="compact"
-            variant="outlined"
-            hide-details
-            style="max-width: 150px"
-            :disabled="roleSavingId === item.id || isLastActiveOwner(item)"
-            :loading="roleSavingId === item.id"
-            @update:model-value="(v: string) => changeRole(item, v)"
-          />
+        <template #cards>
+          <MobileListCard
+            v-for="item in users"
+            :key="item.id"
+            :title="item.displayName || item.username"
+            :meta="item.username"
+          >
+            <template #chips>
+              <v-chip size="small" :color="item.role === 'owner' ? 'primary' : 'secondary'" label>
+                {{ item.role === 'owner' ? 'Власник' : 'Менеджер' }}
+              </v-chip>
+              <v-chip
+                size="small"
+                :color="item.isActive ? 'success' : 'grey'"
+                variant="tonal"
+                label
+              >
+                {{ item.isActive ? 'Активний' : 'Вимкнений' }}
+              </v-chip>
+              <v-chip v-if="item.tgUsername" size="small" variant="outlined">
+                @{{ item.tgUsername }}
+              </v-chip>
+            </template>
+            <template #actions>
+              <v-select
+                :model-value="item.role"
+                :items="roleOptions"
+                item-title="title"
+                item-value="value"
+                :density="density"
+                variant="outlined"
+                hide-details
+                label="Роль"
+                style="min-width: 140px; flex: 1"
+                :disabled="roleSavingId === item.id || isLastActiveOwner(item)"
+                :loading="roleSavingId === item.id"
+                @update:model-value="(v: string) => changeRole(item, v)"
+              />
+              <v-switch
+                :model-value="item.isActive"
+                :disabled="isLastActiveOwner(item) || togglingId === item.id"
+                :loading="togglingId === item.id"
+                color="success"
+                :density="density"
+                hide-details
+                inset
+                label="Активний"
+                @update:model-value="(v: boolean | null) => toggleActive(item, !!v)"
+              />
+              <v-btn
+                variant="tonal"
+                class="tap-target"
+                :disabled="!item.isActive"
+                :loading="linkCodeLoadingId === item.id"
+                @click="generateLinkCode(item)"
+              >
+                Telegram
+              </v-btn>
+              <v-btn
+                variant="text"
+                class="tap-target"
+                :loading="resetLoadingId === item.id"
+                @click="resetPassword(item)"
+              >
+                Пароль
+              </v-btn>
+              <v-btn variant="text" class="tap-target" @click="openEdit(item)">Імʼя</v-btn>
+            </template>
+          </MobileListCard>
         </template>
-
-        <template #item.telegram="{ item }">
-          <div v-if="item.tgUserId" class="text-body-2">
-            <span v-if="item.tgUsername">@{{ item.tgUsername }}</span>
-            <span v-else class="text-medium-emphasis">привʼязано</span>
-            <div class="text-caption text-medium-emphasis">id {{ item.tgUserId }}</div>
-          </div>
-          <span v-else class="text-caption text-medium-emphasis">не привʼязано</span>
-        </template>
-
-        <template #item.isActive="{ item }">
-          <v-switch
-            :model-value="item.isActive"
-            :disabled="isLastActiveOwner(item) || togglingId === item.id"
-            :loading="togglingId === item.id"
-            color="success"
-            density="compact"
-            hide-details
-            inset
-            @update:model-value="(v: boolean | null) => toggleActive(item, !!v)"
-          />
-        </template>
-
-        <template #item.actions="{ item }">
-          <div class="d-flex flex-wrap ga-1">
-            <v-btn
-              size="small"
-              variant="tonal"
-              prepend-icon="mdi-send"
-              :disabled="!item.isActive"
-              :loading="linkCodeLoadingId === item.id"
-              @click="generateLinkCode(item)"
-            >
-              Telegram
-            </v-btn>
-            <v-btn
-              size="small"
-              variant="text"
-              prepend-icon="mdi-lock-reset"
-              :loading="resetLoadingId === item.id"
-              @click="resetPassword(item)"
-            >
-              Пароль
-            </v-btn>
-            <v-btn
-              size="small"
-              variant="text"
-              prepend-icon="mdi-pencil"
-              @click="openEdit(item)"
-            >
-              Імʼя
-            </v-btn>
-          </div>
-        </template>
-      </v-data-table>
+      </ResponsiveDataList>
     </v-card>
 
     <v-dialog v-model="createOpen" max-width="480" persistent>
@@ -197,6 +278,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import api from '@/api';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
+import { useTouchDensity } from '@/composables/useTouchDensity';
 
 interface AdminUserRow {
   id: string;
@@ -207,6 +292,8 @@ interface AdminUserRow {
   tgUsername: string | null;
   isActive: boolean;
 }
+
+const { mobile, density } = useTouchDensity();
 
 const users = ref<AdminUserRow[]>([]);
 const loading = ref(false);

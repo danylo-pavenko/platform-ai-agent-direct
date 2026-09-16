@@ -127,11 +127,11 @@
               <span v-else class="text-grey">—</span>
             </td>
             <td class="text-right">
-              <v-btn icon size="x-small" variant="text" @click="openEdit(b)">
-                <v-icon size="18">mdi-pencil</v-icon>
+              <v-btn icon variant="text" class="tap-target" @click="openEdit(b)">
+                <v-icon size="20">mdi-pencil</v-icon>
               </v-btn>
-              <v-btn icon size="x-small" variant="text" color="error" @click="removeBranch(b)">
-                <v-icon size="18">mdi-delete-outline</v-icon>
+              <v-btn icon variant="text" color="error" class="tap-target" @click="removeBranch(b)">
+                <v-icon size="20">mdi-delete-outline</v-icon>
               </v-btn>
             </td>
           </tr>

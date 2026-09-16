@@ -5,7 +5,7 @@
       <v-btn
         icon="mdi-menu"
         variant="text"
-        size="small"
+        class="tap-target"
         @click="showCasesDrawer = true"
       />
       <div class="flex-grow-1 min-width-0">
@@ -15,13 +15,13 @@
       <v-btn-toggle
         v-model="mobileTab"
         mandatory
-        density="compact"
+        density="comfortable"
         variant="outlined"
         divided
         class="sandbox-mobile-tabs"
       >
-        <v-btn size="x-small" value="chat">Чат</v-btn>
-        <v-btn size="x-small" value="prompt">Промпт</v-btn>
+        <v-btn value="chat" class="tap-target">Чат</v-btn>
+        <v-btn value="prompt" class="tap-target">Промпт</v-btn>
       </v-btn-toggle>
     </div>
 

@@ -21,6 +21,7 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking / general). К
 | AI-помічник (insights) | `routes/insights.ts` — snapshot + той самий `platform_capabilities` |
 | Tenant seed knowledge | `apps/workspace/templates/` → bootstrap у `$TENANT_KNOWLEDGE_DIR` |
 | IG webhook routing case | `.cursor/rules/instagram-webhook-routing-case.mdc` |
+| **Admin UI (mobile-first)** | `.cursor/rules/admin-mobile-first.mdc` — bottom nav, cards on mobile, 44px taps |
 
 **Claude invocation = Agent SDK `query()` (default), НЕ Anthropic Messages API. `CLAUDE_RUNTIME=cli` — hotfix `claude -p`.**
 

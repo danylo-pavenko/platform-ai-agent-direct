@@ -1,16 +1,14 @@
 <template>
-  <v-container fluid>
-    <v-row class="mb-4" align="center">
-      <v-col>
-        <div class="page-title">Синхронізація</div>
-        <div class="text-body-2 text-medium-emphasis">
-          Каталог товарів, послуг, цін і майстрів з підключених CRM.
-          Автозапуск раз на добу (~04:00) + ручний тригер. Деталі кожного run — джерело даних.
-        </div>
-      </v-col>
-      <v-col cols="auto">
+  <v-container fluid class="page-shell">
+    <PageHeader
+      title="Синхронізація"
+      subtitle="Каталог товарів, послуг, цін і майстрів з підключених CRM. Автозапуск раз на добу (~04:00) + ручний тригер."
+    >
+      <template #actions>
         <v-btn
           color="primary"
+          class="tap-target"
+          :block="mobile"
           :prepend-icon="isRunning ? 'mdi-progress-clock' : 'mdi-sync'"
           :loading="triggering"
           :disabled="isRunning"
@@ -18,8 +16,8 @@
         >
           {{ isRunning ? 'Виконується…' : 'Синхронізувати зараз' }}
         </v-btn>
-      </v-col>
-    </v-row>
+      </template>
+    </PageHeader>
 
     <v-alert v-if="triggerSuccess" type="success" density="compact" class="mb-4" closable>
       {{ triggerSuccess }}
@@ -57,7 +55,35 @@
 
     <v-card>
       <v-card-title>Останні синхронізації</v-card-title>
+      <div v-if="mobile" class="pa-3 mobile-list-stack">
+        <MobileListCard
+          v-for="(item, idx) in runs"
+          :key="idx"
+          :title="`${providerLabel(item.provider)} · ${syncTypeLabel(item.syncType)}`"
+          :meta="formatDate(item.startedAt)"
+        >
+          <template #chips>
+            <v-chip :color="statusColor(item.status)" size="small" label>
+              {{ statusLabel(item.status) }}
+            </v-chip>
+            <v-chip
+              v-if="item.counts?.services != null"
+              size="small"
+              variant="outlined"
+            >
+              Послуг: {{ item.counts.services }}
+            </v-chip>
+          </template>
+          <div v-if="item.status === 'error' && item.errorMessage" class="text-error text-caption mt-1">
+            {{ item.errorMessage }}
+          </div>
+        </MobileListCard>
+        <div v-if="!loading && !runs.length" class="text-center text-medium-emphasis py-6">
+          Ще немає синхронізацій
+        </div>
+      </div>
       <v-data-table
+        v-else
         :headers="headers"
         :items="runs"
         :loading="loading"
@@ -254,6 +280,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import { useTouchDensity } from '@/composables/useTouchDensity';
+
+const { mobile } = useTouchDensity();
 
 interface SyncCounts {
   categories?: number;

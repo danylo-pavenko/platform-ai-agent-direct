@@ -1,9 +1,11 @@
 <template>
-  <v-row class="mb-2 mt-2">
-    <v-col cols="auto">
+  <v-row class="mb-2 mt-2 sticky-action-bar sticky-action-bar--stack">
+    <v-col cols="12" sm="auto">
       <v-btn
         color="primary"
         size="large"
+        block
+        class="tap-target"
         :loading="saving"
         @click="$emit('save')"
       >
@@ -11,11 +13,13 @@
         Зберегти інтеграції
       </v-btn>
     </v-col>
-    <v-col cols="auto">
+    <v-col cols="12" sm="auto">
       <v-btn
         color="orange-darken-2"
         variant="tonal"
         size="large"
+        block
+        class="tap-target"
         :loading="restarting"
         :disabled="restarting"
         @click="$emit('restart')"
@@ -24,7 +28,7 @@
         Перезапустити додатки
       </v-btn>
     </v-col>
-    <v-col cols="auto" class="d-flex align-center">
+    <v-col cols="12" sm="auto" class="d-flex align-center">
       <v-chip
         v-if="saved"
         color="success"

@@ -435,13 +435,13 @@
 
         <!-- Reply input -->
         <v-divider />
-        <div class="pa-2 pa-md-3">
+        <div class="pa-2 pa-md-3 agent-chat-input">
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="replyText"
               placeholder="Повідомлення від менеджера..."
               variant="outlined"
-              density="compact"
+              :density="mobile ? 'comfortable' : 'compact'"
               rows="1"
               max-rows="4"
               auto-grow
@@ -453,9 +453,9 @@
             <v-btn
               color="green"
               icon="mdi-send"
+              class="agent-send-btn tap-target"
               :loading="sending"
               :disabled="!replyText.trim()"
-              size="small"
               @click="sendReply"
             />
           </div>
@@ -1633,7 +1633,8 @@ const ClientProfilePanel = defineComponent({
 }
 
 .detail-root {
-  height: calc(100vh - 64px);
+  height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
+  max-height: calc(100dvh - var(--v-layout-top, 0px) - var(--v-layout-bottom, 0px));
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1965,8 +1966,9 @@ const ClientProfilePanel = defineComponent({
 
 /* Mobile */
 @media (max-width: 960px) {
-  .detail-root {
-    height: calc(100vh - 56px);
+  .detail-mobile-header .v-btn {
+    min-width: var(--tap-min, 44px);
+    min-height: var(--tap-min, 44px);
   }
 }
 </style>

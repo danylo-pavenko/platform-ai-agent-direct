@@ -1,0 +1,63 @@
+---
+description: Tenant admin UI — mobile-first layout, nav, touch, lists
+globs: apps/admin/**
+alwaysApply: false
+---
+
+# Admin UI — mobile-first (tenant `apps/admin`)
+
+Any UI change in `apps/admin` is **mobile-first**. Desktop (≥960 / `mdAndUp`) may keep tables and permanent drawer; phone must be fast, tappable, and complete.
+
+## Shell
+
+- Mobile: **bottom nav** (Розмови · Замовлення · Дашборд · Ще) + temporary drawer for the rest.
+- Desktop: permanent sidebar (unchanged).
+- Do **not** add a nav item only to the long drawer without deciding bottom-nav vs «Ще».
+- Chat-like routes set `meta.hideBottomNav: true`: `conversation-detail`, `teach`, `sandbox`, `insights` (and login).
+- App bar title = `route.meta.title` (section name), not only brand.
+- Content that shares the screen with bottom nav uses `.bottom-nav-pad` (or shell padding).
+
+## Touch & density
+
+- Min tap target **44×44** (`--tap-min`). Nav list items / icon buttons on mobile must meet this.
+- On mobile: form fields and primary actions use `density="comfortable"` (via `useTouchDensity()`), not `compact`.
+- Compact density is OK for dense **desktop** tables only.
+- Respect `env(safe-area-inset-*)` for bottom bars, chat inputs, sticky CTAs.
+
+## Lists & tables
+
+- **Cards on mobile** (`.mobile-list-card` / `MobileListCard` / `ResponsiveDataList` `#cards`).
+- Tables only on `mdAndUp` or explicitly desktop-only — never rely on horizontal scroll as the main mobile UX.
+- Prefer shared components: `PageHeader`, `MobileListCard`, `ResponsiveDataList`, `StickyActionBar`.
+
+## Dialogs & actions
+
+- Mobile dialogs: fullscreen or bottom-sheet; primary CTA full-width in footer (`.sticky-action-bar` / `dialog-actions-stack`).
+- Action rows must wrap; no single-line button strips that overflow the viewport.
+- No hover-only affordances for critical actions.
+
+## CSS tokens / classes
+
+| Token / class | Use |
+|---------------|-----|
+| `--bottom-nav-height`, `--tap-min`, `--page-pad` | Shell spacing |
+| `.bottom-nav-pad` | Main content offset above bottom nav |
+| `.mobile-list-card` | List row card |
+| `.sticky-action-bar` | Fixed/sticky CTA + safe-area |
+| `.page-shell` | Optional page root flex column |
+
+Styles live in `apps/admin/src/styles/global.css` and `mobile-shell.css`. Chat helpers: `mobile-agent-ui.css`.
+
+## Forbidden
+
+- Fixed `min-width` / column widths that exceed the viewport on phones without a card alternative.
+- Global switch of all inputs to `compact` on touch devices.
+- Inventing a second nav system that ignores bottom nav + drawer.
+
+## Pre-merge checklist (admin UI)
+
+1. ≤390px width: no horizontal shell overflow; bottom nav 4 items visible (unless `hideBottomNav`).
+2. List screens: usable without table horizontal scroll.
+3. Chat/detail: bottom nav hidden; input above home indicator.
+4. Primary actions ≥44px tap; fields comfortable on mobile.
+5. Desktop (≥960): sidebar + tables still work.

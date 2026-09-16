@@ -1,17 +1,13 @@
 <template>
-  <v-container fluid class="conversations-page pa-4 pa-md-6">
-    <header class="page-header mb-6">
-      <div class="page-header-text">
-        <h1 class="page-title">Розмови</h1>
-        <p class="page-subtitle text-medium-emphasis">
-          Діалоги з Instagram та статус обробки
-        </p>
-      </div>
-    </header>
+  <v-container fluid class="conversations-page pa-4 pa-md-6 page-shell">
+    <PageHeader
+      title="Розмови"
+      subtitle="Діалоги з Instagram та статус обробки"
+    />
 
     <v-card class="conversations-card" elevation="0" border rounded="xl">
       <v-card-text class="pa-4 pa-md-5">
-        <v-row dense class="filters-row mb-1">
+        <v-row dense class="filters-row mb-3">
           <v-col cols="12" sm="5" md="4" lg="3">
             <v-select
               v-model="stateFilter"
@@ -19,7 +15,7 @@
               item-title="title"
               item-value="value"
               label="Статус"
-              density="comfortable"
+              :density="density"
               variant="outlined"
               hide-details
               class="filter-field"
@@ -30,7 +26,7 @@
               v-model="search"
               label="Пошук за імʼям, @username або IGSID"
               prepend-inner-icon="mdi-magnify"
-              density="comfortable"
+              :density="density"
               variant="outlined"
               hide-details
               clearable
@@ -40,86 +36,138 @@
           </v-col>
         </v-row>
 
-        <v-data-table-server
-          :headers="headers"
-          :items="conversations"
-          :items-length="total"
-          :items-per-page="limit"
-          :page="page"
+        <ResponsiveDataList
           :loading="loading"
-          hover
-          density="comfortable"
+          :empty="!loading && conversations.length === 0"
+          empty-text="Немає розмов"
+          :show-pagination="!mdAndUp && total > 0"
+          :page="page"
+          :items-per-page="limit"
+          :items-length="total"
           @update:page="page = $event"
-          @update:items-per-page="limit = $event"
-          @click:row="(_: unknown, row: { item: Conversation }) => goToConversation(row.item)"
-          class="conversations-table cursor-pointer"
         >
-          <template #item.id="{ item }">
-            <span class="conv-id">{{ item.id?.substring(0, 8) }}</span>
-          </template>
+          <template #table>
+            <v-data-table-server
+              :headers="headers"
+              :items="conversations"
+              :items-length="total"
+              :items-per-page="limit"
+              :page="page"
+              :loading="loading"
+              hover
+              density="comfortable"
+              @update:page="page = $event"
+              @update:items-per-page="limit = $event"
+              @click:row="(_: unknown, row: { item: Conversation }) => goToConversation(row.item)"
+              class="conversations-table cursor-pointer"
+            >
+              <template #item.id="{ item }">
+                <span class="conv-id">{{ item.id?.substring(0, 8) }}</span>
+              </template>
 
-          <template #item.client="{ item }">
-            <div class="client-cell d-flex align-center ga-3 py-1">
-              <v-avatar size="40" class="client-avatar" rounded="lg">
-                <span class="text-caption font-weight-medium">{{ clientInitials(item) }}</span>
-              </v-avatar>
-              <div class="client-cell-text min-w-0">
-                <div class="client-primary text-body-2 font-weight-medium text-truncate">
-                  {{ clientPrimaryName(item) }}
+              <template #item.client="{ item }">
+                <div class="client-cell d-flex align-center ga-3 py-1">
+                  <v-avatar size="40" class="client-avatar" rounded="lg">
+                    <span class="text-caption font-weight-medium">{{ clientInitials(item) }}</span>
+                  </v-avatar>
+                  <div class="client-cell-text min-w-0">
+                    <div class="client-primary text-body-2 font-weight-medium text-truncate">
+                      {{ clientPrimaryName(item) }}
+                    </div>
+                    <div class="client-secondary text-caption text-medium-emphasis text-truncate">
+                      {{ clientSecondaryLine(item) || '—' }}
+                    </div>
+                    <div v-if="item.hasManagerReply" class="mt-1">
+                      <v-chip
+                        color="orange-darken-2"
+                        size="x-small"
+                        variant="tonal"
+                        prepend-icon="mdi-account-voice"
+                        class="manager-chip"
+                      >
+                        Менеджер відповів
+                      </v-chip>
+                    </div>
+                  </div>
                 </div>
-                <div class="client-secondary text-caption text-medium-emphasis text-truncate">
-                  {{ clientSecondaryLine(item) || '—' }}
+              </template>
+
+              <template #item.channel="{ item }">
+                <div class="channel-cell d-inline-flex align-center ga-1 text-body-2">
+                  <v-icon size="18" class="channel-icon">mdi-instagram</v-icon>
+                  <span>{{ channelLabel(item.channel) }}</span>
                 </div>
-                <div v-if="item.hasManagerReply" class="mt-1">
+              </template>
+
+              <template #item.state="{ item }">
+                <div class="d-flex flex-column ga-1">
                   <v-chip
-                    color="orange-darken-2"
-                    size="x-small"
-                    variant="tonal"
-                    prepend-icon="mdi-account-voice"
-                    class="manager-chip"
+                    :color="stateColor(item.state)"
+                    size="small"
+                    label
+                    class="state-chip font-weight-medium"
                   >
-                    Менеджер відповів
+                    {{ stateLabel(item.state) }}
                   </v-chip>
+                  <div
+                    v-if="item.state === 'handoff' && item.assigneeLabel"
+                    class="text-caption text-medium-emphasis"
+                  >
+                    {{ item.assigneeLabel }}
+                  </div>
                 </div>
-              </div>
-            </div>
+              </template>
+
+              <template #item.lastMessageAt="{ item }">
+                <div class="time-cell">
+                  <div class="time-primary text-body-2">{{ formatRelative(item.lastMessageAt) }}</div>
+                  <div class="time-secondary text-caption text-medium-emphasis">
+                    {{ formatAbsolute(item.lastMessageAt) }}
+                  </div>
+                </div>
+              </template>
+            </v-data-table-server>
           </template>
 
-          <template #item.channel="{ item }">
-            <div class="channel-cell d-inline-flex align-center ga-1 text-body-2">
-              <v-icon size="18" class="channel-icon">mdi-instagram</v-icon>
-              <span>{{ channelLabel(item.channel) }}</span>
-            </div>
+          <template #cards>
+            <MobileListCard
+              v-for="item in conversations"
+              :key="item.id"
+              @click="goToConversation(item)"
+            >
+              <template #prepend>
+                <v-avatar size="44" class="client-avatar" rounded="lg">
+                  <span class="text-caption font-weight-medium">{{ clientInitials(item) }}</span>
+                </v-avatar>
+              </template>
+              <template #title>{{ clientPrimaryName(item) }}</template>
+              <template #meta>
+                {{ formatRelative(item.lastMessageAt) }}
+                <span v-if="clientSecondaryLine(item)"> · {{ clientSecondaryLine(item) }}</span>
+              </template>
+              <template #chips>
+                <v-chip :color="stateColor(item.state)" size="small" label>
+                  {{ stateLabel(item.state) }}
+                </v-chip>
+                <v-chip size="small" variant="tonal" prepend-icon="mdi-instagram">
+                  {{ channelLabel(item.channel) }}
+                </v-chip>
+                <v-chip
+                  v-if="item.hasManagerReply"
+                  color="orange-darken-2"
+                  size="small"
+                  variant="tonal"
+                  prepend-icon="mdi-account-voice"
+                >
+                  Менеджер
+                </v-chip>
+              </template>
+              <template #append>
+                <v-icon color="medium-emphasis">mdi-chevron-right</v-icon>
+              </template>
+            </MobileListCard>
           </template>
-
-          <template #item.state="{ item }">
-            <div class="d-flex flex-column ga-1">
-              <v-chip
-                :color="stateColor(item.state)"
-                size="small"
-                label
-                class="state-chip font-weight-medium"
-              >
-                {{ stateLabel(item.state) }}
-              </v-chip>
-              <div
-                v-if="item.state === 'handoff' && item.assigneeLabel"
-                class="text-caption text-medium-emphasis"
-              >
-                {{ item.assigneeLabel }}
-              </div>
-            </div>
-          </template>
-
-          <template #item.lastMessageAt="{ item }">
-            <div class="time-cell">
-              <div class="time-primary text-body-2">{{ formatRelative(item.lastMessageAt) }}</div>
-              <div class="time-secondary text-caption text-medium-emphasis">
-                {{ formatAbsolute(item.lastMessageAt) }}
-              </div>
-            </div>
-          </template>
-        </v-data-table-server>
+        </ResponsiveDataList>
       </v-card-text>
     </v-card>
   </v-container>
@@ -128,7 +176,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useDisplay } from 'vuetify';
 import api from '@/api';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
+import { useTouchDensity } from '@/composables/useTouchDensity';
 
 interface Client {
   igUserId?: string;
@@ -149,6 +202,8 @@ interface Conversation {
 
 const router = useRouter();
 const route = useRoute();
+const { mdAndUp } = useDisplay();
+const { density } = useTouchDensity();
 
 const conversations = ref<Conversation[]>([]);
 const total = ref(0);

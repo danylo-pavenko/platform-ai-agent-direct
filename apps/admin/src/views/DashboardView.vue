@@ -673,6 +673,7 @@ onMounted(() => {
   flex-wrap: nowrap;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x mandatory;
   padding-bottom: 4px;
   gap: 6px;
 }
@@ -685,6 +686,8 @@ onMounted(() => {
   border-color: #d7dee8 !important;
   font-weight: 500;
   flex-shrink: 0;
+  scroll-snap-align: start;
+  min-height: var(--tap-min, 44px);
 }
 
 .period-chip--selected {
@@ -740,10 +743,28 @@ onMounted(() => {
   font-size: 12px;
   opacity: 0.9;
   line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .health-dot {
   margin: 0 4px;
+}
+
+@media (max-width: 600px) {
+  .health-banner {
+    align-items: flex-start;
+  }
+
+  .health-meta .health-dot {
+    display: none;
+  }
+
+  .health-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
 }
 
 .kpi-row {

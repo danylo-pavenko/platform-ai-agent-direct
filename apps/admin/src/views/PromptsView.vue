@@ -1,30 +1,34 @@
 <template>
-  <v-container fluid>
-    <v-row class="mb-4" align="center">
-      <v-col>
-        <div class="page-title">Промпти</div>
-      </v-col>
-      <v-col cols="auto">
+  <v-container fluid class="page-shell">
+    <PageHeader title="Промпти">
+      <template #actions>
         <v-btn
           color="primary"
+          class="tap-target"
           :prepend-icon="mobile ? undefined : 'mdi-plus'"
           :icon="mobile ? 'mdi-plus' : undefined"
           @click="openNewDialog"
         >
           <span v-if="!mobile">Нова версія</span>
         </v-btn>
-      </v-col>
-    </v-row>
+      </template>
+    </PageHeader>
 
     <v-card>
-      <v-data-table
-        :headers="headers"
-        :items="prompts"
+      <ResponsiveDataList
         :loading="loading"
-        hover
-        item-value="id"
-        show-expand
+        :empty="!loading && prompts.length === 0"
+        empty-text="Немає версій промпту"
       >
+        <template #table>
+          <v-data-table
+            :headers="headers"
+            :items="prompts"
+            :loading="loading"
+            hover
+            item-value="id"
+            show-expand
+          >
         <template #item.version="{ item }">
           <strong>v{{ item.version }}</strong>
         </template>
@@ -95,6 +99,37 @@
           </tr>
         </template>
       </v-data-table>
+        </template>
+        <template #cards>
+          <MobileListCard
+            v-for="item in prompts"
+            :key="item.id"
+            :title="`v${item.version}`"
+            :meta="formatDate(item.createdAt)"
+          >
+            <template #chips>
+              <v-chip :color="item.isActive ? 'green' : 'grey'" size="small" label>
+                {{ item.isActive ? 'Активний' : 'Неактивний' }}
+              </v-chip>
+            </template>
+            <div v-if="item.changeSummary" class="text-caption text-medium-emphasis mt-1">
+              {{ item.changeSummary }}
+            </div>
+            <template #actions>
+              <v-btn
+                v-if="!item.isActive"
+                variant="tonal"
+                color="primary"
+                class="tap-target"
+                :loading="activatingId === item.id"
+                @click="activatePrompt(item.id)"
+              >
+                Активувати
+              </v-btn>
+            </template>
+          </MobileListCard>
+        </template>
+      </ResponsiveDataList>
     </v-card>
 
     <!-- New/Edit prompt dialog -->
@@ -349,6 +384,9 @@ import { ref, nextTick, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
+import PageHeader from '@/components/PageHeader.vue';
+import MobileListCard from '@/components/MobileListCard.vue';
+import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
 
 const { mobile } = useDisplay();
 

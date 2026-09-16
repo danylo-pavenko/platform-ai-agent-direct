@@ -1,5 +1,5 @@
 <template>
-  <v-container fluid class="agent-page-shell insights-page pa-2 pa-md-4">
+  <v-container fluid class="agent-page-shell page-shell insights-page pa-2 pa-md-4">
     <header class="insights-header px-1 mb-2 mb-md-3">
       <div class="insights-header-row d-flex align-center ga-3">
         <div class="flex-grow-1 min-width-0">
@@ -12,13 +12,14 @@
           <v-btn-toggle
             v-model="period"
             mandatory
-            density="compact"
+            density="comfortable"
             variant="outlined"
             divided
             :disabled="loading"
             aria-label="Період аналітики"
+            class="insights-period-toggle"
           >
-            <v-btn v-for="option in periodOptions" :key="option.value" :value="option.value">
+            <v-btn v-for="option in periodOptions" :key="option.value" :value="option.value" class="tap-target">
               {{ option.label }}
             </v-btn>
           </v-btn-toggle>
@@ -800,7 +801,8 @@ onMounted(() => {
   }
 
   .insights-header .v-btn-toggle .v-btn {
-    min-width: 42px;
+    min-width: var(--tap-min, 44px);
+    min-height: var(--tap-min, 44px);
     padding-inline: 8px;
     font-size: 0.72rem;
   }

@@ -1,0 +1,134 @@
+/* Mobile-first shell tokens and list/action patterns for tenant admin */
+
+:root {
+  --bottom-nav-height: 56px;
+  --tap-min: 44px;
+  --page-pad: 16px;
+}
+
+@media (max-width: 960px) {
+  :root {
+    --page-pad: 12px;
+  }
+
+  .v-navigation-drawer .v-list-item {
+    min-height: var(--tap-min) !important;
+  }
+
+  .v-btn:not(.v-btn--size-x-small):not(.v-btn--density-compact) {
+    min-height: var(--tap-min);
+  }
+}
+
+/* Offset main content above bottom navigation (+ safe area) */
+.bottom-nav-pad {
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px) + 8px) !important;
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Unified mobile list row card */
+.mobile-list-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--color-border, #e6ebf1);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(15, 23, 42, 0.04));
+  cursor: pointer;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-list-card:active {
+  box-shadow: none;
+}
+
+.mobile-list-card__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mobile-list-card__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.mobile-list-card__title {
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-text, #0a2540);
+  line-height: 1.3;
+}
+
+.mobile-list-card__meta {
+  font-size: 12.5px;
+  color: var(--color-text-secondary, #6c7688);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.mobile-list-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.mobile-list-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mobile-list-card__actions .v-btn {
+  min-height: var(--tap-min);
+}
+
+/* Sticky CTA bar above home indicator / bottom nav */
+.sticky-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid var(--color-border, #e6ebf1);
+  backdrop-filter: blur(8px);
+}
+
+.sticky-action-bar .v-btn {
+  min-height: var(--tap-min);
+}
+
+@media (max-width: 960px) {
+  .sticky-action-bar .v-btn.v-btn--block,
+  .sticky-action-bar.sticky-action-bar--stack .v-btn {
+    width: 100%;
+  }
+}
+
+.mobile-list-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tap-target {
+  min-width: var(--tap-min) !important;
+  min-height: var(--tap-min) !important;
+}

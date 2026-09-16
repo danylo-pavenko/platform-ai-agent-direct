@@ -947,34 +947,34 @@
             <v-col cols="12" sm="2" class="text-body-1 font-weight-medium">
               {{ day.label }}
             </v-col>
-            <v-col cols="4" sm="2">
+            <v-col cols="12" sm="2">
               <v-switch
                 v-model="workingHours[day.key].enabled"
                 :label="workingHours[day.key].enabled ? 'Працює' : 'Вихідний'"
                 hide-details
-                density="compact"
+                density="comfortable"
                 color="primary"
               />
             </v-col>
-            <v-col cols="3" sm="2">
+            <v-col cols="5" sm="2">
               <v-text-field
                 v-model="workingHours[day.key].start"
                 label="Початок"
                 type="time"
                 variant="outlined"
-                density="compact"
+                density="comfortable"
                 hide-details
                 :disabled="!workingHours[day.key].enabled"
               />
             </v-col>
-            <v-col cols="1" sm="1" class="text-center text-body-2">-</v-col>
-            <v-col cols="3" sm="2">
+            <v-col cols="2" sm="1" class="text-center text-body-2 d-flex align-center justify-center">-</v-col>
+            <v-col cols="5" sm="2">
               <v-text-field
                 v-model="workingHours[day.key].end"
                 label="Кінець"
                 type="time"
                 variant="outlined"
-                density="compact"
+                density="comfortable"
                 hide-details
                 :disabled="!workingHours[day.key].enabled"
               />

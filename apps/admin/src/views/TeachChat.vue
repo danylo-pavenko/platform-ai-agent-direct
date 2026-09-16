@@ -1,7 +1,7 @@
 <template>
   <v-container
     fluid
-    class="agent-page-shell pa-2 pa-md-4"
+    class="agent-page-shell page-shell pa-2 pa-md-4"
   >
     <div class="agent-page-header-compact d-flex align-center ga-2 mb-2 mb-md-3 px-1 flex-shrink-0">
       <div class="flex-grow-1 min-width-0">
