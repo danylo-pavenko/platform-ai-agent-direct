@@ -100,6 +100,14 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/чекаємо тебе/);
   });
 
+  it('does not force book_appointment with empty contact placeholders', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/порожн/);
+    expect(prompt).toMatch(/спитай/);
+    expect(prompt).toMatch(/Вже відомо про клієнта|профіл/);
+    expect(prompt).toMatch(/слоти можна показувати без контактів/i);
+  });
+
   it('keeps offered slots stable until book fails or the visit changes', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/не роби новий get_available_slots/);
