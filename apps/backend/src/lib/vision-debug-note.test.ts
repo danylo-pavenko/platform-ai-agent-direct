@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   extractVisionInterpretation,
   formatVisionDebugNote,
+  isVisionDebugNote,
+  VISION_DEBUG_PREFIX,
 } from './vision-debug-note.js';
 
 describe('extractVisionInterpretation', () => {
+  it('identifies vision debug notes', () => {
+    expect(isVisionDebugNote(`${VISION_DEBUG_PREFIX}\n• Vision: 1`)).toBe(true);
+    expect(isVisionDebugNote('Хочу футболку')).toBe(false);
+  });
+
   it('returns trimmed short text', () => {
     expect(extractVisionInterpretation('  Футболка I DON\'T PANIC  ')).toBe(
       "Футболка I DON'T PANIC",

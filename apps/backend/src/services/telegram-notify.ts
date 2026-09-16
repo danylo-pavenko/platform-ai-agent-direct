@@ -1,7 +1,11 @@
 import pino from 'pino';
 import { InlineKeyboard } from 'grammy';
 import { getBotWithToken } from '../lib/telegram.js';
-import { getNotificationChatIdsForBot } from '../lib/telegram-groups.js';
+import {
+  filterChatIdsForAudience,
+  getNotificationChatIdsForBot,
+  type TelegramNotifyAudience,
+} from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
 import { adminConversationUrl, adminSettingsUrl } from '../lib/admin-urls.js';
@@ -9,6 +13,15 @@ import {
   resolveTelegramBotsForChannel,
   type TelegramNotifyChannel,
 } from '../lib/telegram-bots.js';
+import {
+  formatTelegramClientLabel,
+  isHandoffServiceNote,
+  selectHandoffServiceNotes,
+  selectManagerFacingHandoffLines,
+  unwrapCoalescePreamble,
+  type TelegramClientRef,
+} from '../lib/handoff-format.js';
+import { isSyntheticReactionText } from '../lib/ig-reaction-policy.js';
 
 const log = pino({ name: 'telegram-notify' });
 
@@ -38,12 +51,62 @@ function formatPaymentMethodLabel(method: string): string {
   }
 }
 
+function lastMessagesBlock(
+  lastMessages: Array<{ sender: string; text: string; isVoice?: boolean }>,
+): string {
+  if (lastMessages.length === 0) return '<i>(немає тексту)</i>';
+  return lastMessages
+    .map((m) => {
+      const icon =
+        m.sender === 'bot'
+          ? '🤖 Бот'
+          : m.sender === 'system'
+            ? '🛠 Сервіс'
+            : m.isVoice
+              ? '👤 Клієнт (🎤)'
+              : '👤 Клієнт';
+      return `${icon}: ${escapeHtml(m.text)}`;
+    })
+    .join('\n');
+}
+
+function buildHandoffCard(params: {
+  reason: string;
+  clientLabel: string;
+  lastMessages: Array<{ sender: string; text: string; isVoice?: boolean }>;
+  adminUrl: string;
+}): string {
+  return [
+    `🔔 <b>Ескалація до менеджера</b>`,
+    ``,
+    `Клієнт: ${escapeHtml(params.clientLabel)}`,
+    `Причина: ${escapeHtml(params.reason)}`,
+    ``,
+    `<b>Останні повідомлення:</b>`,
+    lastMessagesBlock(params.lastMessages),
+    ``,
+    `<a href="${escapeHtml(params.adminUrl)}">Відкрити діалог в адмінці</a>`,
+  ].join('\n');
+}
+
+function clientLabelFrom(params: TelegramClientRef): string {
+  return formatTelegramClientLabel(params);
+}
+
 // ── Internal helper ─────────────────────────────────────────────────────
+
+const TELEGRAM_TEXT_MAX = 3900;
+
+function truncateTelegramText(text: string, max = TELEGRAM_TEXT_MAX): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
+}
 
 async function sendToManagerGroup(
   text: string,
   keyboard?: InlineKeyboard,
   channel: TelegramNotifyChannel = 'ops',
+  audience: TelegramNotifyAudience = 'all',
 ): Promise<void> {
   const { telegram } = await getIntegrationConfig();
   const bots = resolveTelegramBotsForChannel(telegram, channel);
@@ -66,12 +129,15 @@ async function sendToManagerGroup(
   let totalTargets = 0;
 
   for (const botCfg of bots) {
-    const groupIds = await getNotificationChatIdsForBot(botCfg);
+    const rawIds = await getNotificationChatIdsForBot(botCfg);
+    const groupIds = filterChatIdsForAudience(rawIds, audience);
     if (groupIds.length === 0) {
-      log.warn(
-        { botId: botCfg.id, label: botCfg.label, channel },
-        'No Telegram targets for bot — /login or set Manager Group ID',
-      );
+      if (rawIds.length === 0) {
+        log.warn(
+          { botId: botCfg.id, label: botCfg.label, channel },
+          'No Telegram targets for bot — /login or set Manager Group ID',
+        );
+      }
       continue;
     }
 
@@ -90,7 +156,7 @@ async function sendToManagerGroup(
           totalSuccess++;
         } catch (err) {
           log.error(
-            { err, groupId, botId: botCfg.id, channel },
+            { err, groupId, botId: botCfg.id, channel, audience },
             'Failed to send Telegram notification',
           );
         }
@@ -100,7 +166,13 @@ async function sendToManagerGroup(
 
   if (totalSuccess > 0) {
     log.info(
-      { successCount: totalSuccess, totalTargets, channel, bots: bots.map((b) => b.id) },
+      {
+        successCount: totalSuccess,
+        totalTargets,
+        channel,
+        audience,
+        bots: bots.map((b) => b.id),
+      },
       'Telegram notification delivered',
     );
   } else if (totalTargets > 0) {
@@ -187,39 +259,86 @@ export async function notifyClaudeUsageLimit(params: {
 export async function notifyHandoff(params: {
   conversationId: string;
   clientIgUserId: string;
+  clientDisplayName?: string | null;
+  clientIgUsername?: string | null;
   reason: string;
   lastMessages: Array<{ sender: string; text: string; isVoice?: boolean }>;
 }): Promise<void> {
-  const { conversationId, clientIgUserId, reason, lastMessages } = params;
-  const shortId = conversationId.slice(0, 8);
+  const { conversationId, reason, lastMessages } = params;
   const adminUrl = adminConversationUrl(conversationId);
+  const clientLabel = clientLabelFrom({
+    displayName: params.clientDisplayName,
+    igUsername: params.clientIgUsername,
+    igUserId: params.clientIgUserId,
+  });
 
-  const messagesBlock = lastMessages
-    .map((m) => {
-      const icon =
-        m.sender === 'bot' ? '🤖 Бот' : m.isVoice ? '👤 Клієнт (🎤)' : '👤 Клієнт';
-      return `${icon}: ${escapeHtml(m.text)}`;
-    })
-    .join('\n');
-
-  const text = [
-    `🔔 <b>Ескалація до менеджера</b>`,
-    ``,
-    `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
-    `Розмова: <code>#${escapeHtml(shortId)}</code>`,
-    `Причина: ${escapeHtml(reason)}`,
-    ``,
-    `<b>Останні повідомлення:</b>`,
-    messagesBlock || '<i>(немає тексту)</i>',
-    ``,
-    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
-  ].join('\n');
+  const lines = lastMessages.map((m) => ({
+    sender: m.sender,
+    text: m.text,
+    isVoice: Boolean(m.isVoice),
+  }));
+  const managerLines = selectManagerFacingHandoffLines(lines);
+  const serviceNotes = selectHandoffServiceNotes(lines);
 
   const keyboard = new InlineKeyboard()
     .text('👤 Взяти', `takeover:${conversationId}`)
     .text('🤖 Повернути боту', `return:${conversationId}`);
 
-  await sendToManagerGroup(text, keyboard, 'handoff');
+  const groupText = truncateTelegramText(
+    buildHandoffCard({
+      reason,
+      clientLabel,
+      lastMessages: managerLines,
+      adminUrl,
+    }),
+  );
+
+  if (serviceNotes.length === 0) {
+    await sendToManagerGroup(groupText, keyboard, 'handoff');
+    return;
+  }
+
+  const verboseText = truncateTelegramText(
+    buildHandoffCard({
+      reason,
+      clientLabel,
+      lastMessages: [...managerLines, ...serviceNotes],
+      adminUrl,
+    }),
+  );
+
+  await sendToManagerGroup(groupText, keyboard, 'handoff', 'groups');
+  await sendToManagerGroup(verboseText, keyboard, 'handoff', 'private');
+}
+
+/**
+ * Admin-only agent/vision dump. Private chat with the bot (`/login`), never
+ * groups the bot was added to.
+ */
+export async function notifyAgentTurnDebug(params: {
+  conversationId: string;
+  note: string;
+  clientDisplayName?: string | null;
+  clientIgUsername?: string | null;
+}): Promise<void> {
+  const note = params.note.trim();
+  if (!note) return;
+
+  const clientLabel = clientLabelFrom({
+    displayName: params.clientDisplayName,
+    igUsername: params.clientIgUsername,
+  });
+  const adminUrl = adminConversationUrl(params.conversationId);
+  const text = truncateTelegramText(
+    [
+      escapeHtml(note),
+      ``,
+      `Клієнт: ${escapeHtml(clientLabel)}`,
+      `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
+    ].join('\n'),
+  );
+
+  await sendToManagerGroup(text, undefined, 'handoff', 'private');
 }
 
 /**
@@ -229,19 +348,28 @@ export async function notifyHandoff(params: {
 export async function notifyHandoffFollowUp(params: {
   conversationId: string;
   clientIgUserId: string;
+  clientDisplayName?: string | null;
+  clientIgUsername?: string | null;
   text: string;
   isVoice?: boolean;
 }): Promise<void> {
-  const { conversationId, clientIgUserId, text: body, isVoice } = params;
-  const shortId = conversationId.slice(0, 8);
-  const adminUrl = adminConversationUrl(conversationId);
-  const icon = isVoice ? '👤🎤' : '👤';
+  const body = unwrapCoalescePreamble(params.text).trim();
+  if (!body) return;
+  if (isHandoffServiceNote(body, 'client')) return;
+  if (isSyntheticReactionText(body)) return;
+
+  const adminUrl = adminConversationUrl(params.conversationId);
+  const clientLabel = clientLabelFrom({
+    displayName: params.clientDisplayName,
+    igUsername: params.clientIgUsername,
+    igUserId: params.clientIgUserId,
+  });
+  const icon = params.isVoice ? '👤🎤' : '👤';
 
   const text = [
     `💬 <b>Клієнт написав під час ескалації</b>`,
     ``,
-    `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
-    `Розмова: <code>#${escapeHtml(shortId)}</code>`,
+    `Клієнт: ${escapeHtml(clientLabel)}`,
     ``,
     `${icon} ${escapeHtml(body)}`,
     ``,
@@ -281,7 +409,6 @@ export async function notifyOrder(params: {
     summary,
   } = params;
   const shortId = orderId.slice(0, 8);
-  const shortConv = conversationId.slice(0, 8);
   const adminUrl = adminConversationUrl(conversationId);
 
   const total = items.reduce(
@@ -329,8 +456,12 @@ export async function notifyOrder(params: {
     ``,
     bookingDoneLine,
     summary ? `Суть: ${escapeHtml(summary)}` : '',
-    `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
-    `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
+    `Клієнт: ${escapeHtml(
+      formatTelegramClientLabel({
+        displayName: customerName,
+        igUserId: clientIgUserId,
+      }),
+    )}`,
     `Ім'я: ${escapeHtml(customerName)}`,
     `Телефон: ${escapeHtml(phone)}`,
     kind === 'booking' ? null : `Місто: ${escapeHtml(city?.trim() || '—')}`,
@@ -391,7 +522,6 @@ export async function notifyBookingLifecycle(params: {
     reason,
   } = params;
   const shortId = appointmentId.slice(0, 8);
-  const shortConv = conversationId.slice(0, 8);
   const adminUrl = adminConversationUrl(conversationId);
   const title =
     kind === 'cancelled'
@@ -412,8 +542,14 @@ export async function notifyBookingLifecycle(params: {
     lead,
     reason ? `Причина: ${escapeHtml(reason)}` : null,
     `Суть: ${escapeHtml(summary)}`,
-    clientIgUserId ? `Клієнт: IG @${escapeHtml(clientIgUserId)}` : null,
-    `Розмова: <code>#${escapeHtml(shortConv)}</code>`,
+    clientIgUserId
+      ? `Клієнт: ${escapeHtml(
+          formatTelegramClientLabel({
+            displayName: customerName,
+            igUserId: clientIgUserId,
+          }),
+        )}`
+      : null,
     `Ім'я: ${escapeHtml(customerName)}`,
     `Телефон: ${escapeHtml(phone)}`,
     ``,
@@ -459,13 +595,11 @@ export async function notifyBrief(params: {
     completenessPct,
   } = params;
   const shortBrief = briefId.slice(0, 8);
-  const shortConv = conversationId.slice(0, 8);
 
   const lines: string[] = [];
   lines.push(`📋 <b>Новий пресейл-бриф #${escapeHtml(shortBrief)}</b>`);
   lines.push('');
-  lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
-  lines.push(`Розмова: <code>#${escapeHtml(shortConv)}</code>`);
+  lines.push(`Клієнт: ${escapeHtml(formatTelegramClientLabel({ igUserId: clientIgUserId }))}`);
   if (priority) lines.push(`Пріоритет: ${escapeHtml(priority)}`);
   if (completenessPct != null) {
     lines.push(`Повнота брифу: ${completenessPct}%`);
@@ -512,7 +646,9 @@ export async function notifyCrmFallback(params: {
   lines.push(`<i>Переношу повний снепшот для ручного введення.</i>`);
   lines.push('');
   if (clientIgUserId) {
-    lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
+    lines.push(
+      `Клієнт: ${escapeHtml(formatTelegramClientLabel({ igUserId: clientIgUserId }))}`,
+    );
   }
   lines.push(`Причина: <code>${escapeHtml(reason)}</code>`);
   lines.push('');
@@ -554,6 +690,8 @@ const lastAgentFailureNotifyAt = new Map<string, number>();
 export async function notifyAgentFailure(params: {
   conversationId: string;
   clientIgUserId?: string | null;
+  clientDisplayName?: string | null;
+  clientIgUsername?: string | null;
   failureCode: 'busy' | 'timeout' | 'output_validation';
   failureDetail: string;
   clientMessage?: string | null;
@@ -561,6 +699,8 @@ export async function notifyAgentFailure(params: {
   const {
     conversationId,
     clientIgUserId,
+    clientDisplayName,
+    clientIgUsername,
     failureCode,
     failureDetail,
     clientMessage,
@@ -574,7 +714,6 @@ export async function notifyAgentFailure(params: {
   }
   lastAgentFailureNotifyAt.set(conversationId, now);
 
-  const shortId = conversationId.slice(0, 8);
   const adminUrl = adminConversationUrl(conversationId);
   const codeLabel =
     failureCode === 'busy'
@@ -593,10 +732,14 @@ export async function notifyAgentFailure(params: {
     `🚨 <b>Агент не відповів</b> [${escapeHtml(config.INSTANCE_ID)}]`,
     ``,
     `Код: <code>${escapeHtml(failureCode)}</code> (${escapeHtml(codeLabel)})`,
-    `Розмова: <code>#${escapeHtml(shortId)}</code>`,
   ];
-  if (clientIgUserId) {
-    lines.push(`Клієнт: IG @${escapeHtml(clientIgUserId)}`);
+  const label = formatTelegramClientLabel({
+    displayName: clientDisplayName,
+    igUsername: clientIgUsername,
+    igUserId: clientIgUserId,
+  });
+  if (clientDisplayName?.trim() || clientIgUsername?.trim() || clientIgUserId) {
+    lines.push(`Клієнт: ${escapeHtml(label)}`);
   }
   if (clientPreview) {
     lines.push(`Запит: «${escapeHtml(clientPreview)}»`);

@@ -23,7 +23,7 @@ import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
-import { notifyAgentFailure, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
+import { notifyAgentFailure, notifyAgentTurnDebug, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import {
@@ -145,7 +145,12 @@ export type BotTurnOutcome = 'completed' | 'skipped' | 'released' | 'deferred';
 
 async function performManagerHandoff(params: {
   conversationId: string;
-  client: { id: string; igUserId: string | null };
+  client: {
+    id: string;
+    igUserId: string | null;
+    displayName?: string | null;
+    igUsername?: string | null;
+  };
   reason: string;
   turnStartedAt?: Date;
 }): Promise<void> {
@@ -215,6 +220,8 @@ async function performManagerHandoff(params: {
     notifyHandoff({
       conversationId,
       clientIgUserId: client.igUserId,
+      clientDisplayName: client.displayName,
+      clientIgUsername: client.igUsername,
       reason,
       lastMessages,
     }).catch((err) => log.error({ err }, 'Failed to send handoff notification'));
@@ -498,6 +505,8 @@ async function handleIncomingMessageImpl(
         notifyHandoffFollowUp({
           conversationId,
           clientIgUserId: client.igUserId,
+          clientDisplayName: client.displayName,
+          clientIgUsername: client.igUsername,
           text: handoffLine.text,
           isVoice: handoffLine.isVoice,
         }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
@@ -2132,6 +2141,8 @@ async function handleIncomingMessageImpl(
       notifyAgentFailure({
         conversationId,
         clientIgUserId: client.igUserId,
+        clientDisplayName: client.displayName,
+        clientIgUsername: client.igUsername,
         failureCode: agentFallback,
         failureDetail,
         clientMessage: messageText,
@@ -2297,6 +2308,8 @@ async function handleIncomingMessageImpl(
     notifyAgentFailure({
       conversationId,
       clientIgUserId: client.igUserId,
+      clientDisplayName: client.displayName,
+      clientIgUsername: client.igUsername,
       failureCode: botFailureCode,
       failureDetail: botFailureDetail,
       clientMessage: messageText,
@@ -2344,7 +2357,7 @@ async function handleIncomingMessageImpl(
             text: note,
           },
         })
-        .then(() => {
+        .then(async () => {
           log.info(
             {
               conversationId,
@@ -2353,6 +2366,19 @@ async function handleIncomingMessageImpl(
               stallRecovery: debugSnapshot.stallRecovery,
             },
             'Agent turn debug system note persisted',
+          );
+          const convState = await prisma.conversation.findUnique({
+            where: { id: conversationId },
+            select: { state: true },
+          });
+          if (convState?.state !== 'handoff') return;
+          await notifyAgentTurnDebug({
+            conversationId,
+            note,
+            clientDisplayName: client.displayName,
+            clientIgUsername: client.igUsername,
+          }).catch((err) =>
+            log.warn({ err, conversationId }, 'notifyAgentTurnDebug failed (non-fatal)'),
           );
         })
         .catch((err) =>

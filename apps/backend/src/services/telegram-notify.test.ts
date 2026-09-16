@@ -11,6 +11,12 @@ vi.mock('../lib/telegram.js', () => ({
 vi.mock('../lib/telegram-groups.js', () => ({
   getNotificationChatIds: vi.fn().mockResolvedValue(['-100123']),
   getNotificationChatIdsForBot: vi.fn().mockResolvedValue(['-100123']),
+  filterChatIdsForAudience: (ids: string[], audience: 'all' | 'private' | 'groups') => {
+    if (audience === 'all') return ids;
+    const isPrivate = (id: string) => Number(id) > 0;
+    if (audience === 'private') return ids.filter(isPrivate);
+    return ids.filter((id) => !isPrivate(id));
+  },
 }));
 vi.mock('../lib/integration-config.js', () => ({
   getIntegrationConfig: vi.fn().mockResolvedValue({
@@ -23,7 +29,9 @@ vi.mock('../config.js', () => ({
 }));
 
 import { getBotWithToken } from '../lib/telegram.js';
-import { notifyHandoffFollowUp, notifyOrder } from './telegram-notify.js';
+import { getNotificationChatIdsForBot } from '../lib/telegram-groups.js';
+import { notifyHandoff, notifyHandoffFollowUp, notifyOrder } from './telegram-notify.js';
+import { AGENT_TURN_DEBUG_PREFIX } from '../lib/agent-turn-debug.js';
 
 describe('notifyOrder', () => {
   beforeEach(() => {
@@ -31,6 +39,7 @@ describe('notifyOrder', () => {
     vi.mocked(getBotWithToken).mockReturnValue({
       api: { sendMessage },
     } as never);
+    vi.mocked(getNotificationChatIdsForBot).mockResolvedValue(['-100123']);
   });
 
   it('sends HTML card even when item name is missing', async () => {
@@ -53,6 +62,8 @@ describe('notifyOrder', () => {
     expect(text).toContain('Нове замовлення');
     expect(text).toContain('Товар');
     expect(text).toContain('Післяплата');
+    expect(text).toContain('Тест');
+    expect(text).not.toContain('17841410659012767');
     expect(text).toContain('agent.example.com/conversations/');
     expect(options?.reply_markup).toBeDefined();
   });
@@ -89,12 +100,14 @@ describe('notifyHandoffFollowUp', () => {
     vi.mocked(getBotWithToken).mockReturnValue({
       api: { sendMessage },
     } as never);
+    vi.mocked(getNotificationChatIdsForBot).mockResolvedValue(['-100123']);
   });
 
   it('sends a short card without takeover buttons', async () => {
     await notifyHandoffFollowUp({
       conversationId: 'ffffffff-1111-2222-3333-444444444444',
       clientIgUserId: '17841410659012767',
+      clientIgUsername: 'cultura',
       text: '📞 +380979931530',
     });
 
@@ -102,6 +115,53 @@ describe('notifyHandoffFollowUp', () => {
     const [, text, options] = sendMessage.mock.calls[0];
     expect(text).toContain('під час ескалації');
     expect(text).toContain('+380979931530');
+    expect(text).toContain('@cultura');
+    expect(text).not.toContain('17841410659012767');
+    expect(text).not.toContain('Розмова:');
     expect(options?.reply_markup).toBeUndefined();
+  });
+});
+
+describe('notifyHandoff', () => {
+  beforeEach(() => {
+    sendMessage.mockClear();
+    vi.mocked(getBotWithToken).mockReturnValue({
+      api: { sendMessage },
+    } as never);
+    vi.mocked(getNotificationChatIdsForBot).mockResolvedValue(['-100123', '987654321']);
+  });
+
+  it('sends debug dumps only to private bot DMs, not groups', async () => {
+    await notifyHandoff({
+      conversationId: 'ffffffff-1111-2222-3333-444444444444',
+      clientIgUserId: '3380613918779953',
+      clientDisplayName: 'Оля',
+      clientIgUsername: 'ola.fit',
+      reason: 'Потрібна консультація',
+      lastMessages: [
+        { sender: 'client', text: 'Бачила у інстаграм', isVoice: false },
+        { sender: 'bot', text: 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.', isVoice: false },
+        {
+          sender: 'system',
+          text: `${AGENT_TURN_DEBUG_PREFIX}\n• Режим: sales\n• Claude spawns: 1`,
+          isVoice: false,
+        },
+      ],
+    });
+
+    const byChat = Object.fromEntries(
+      sendMessage.mock.calls.map(([chatId, text]) => [chatId, text as string]),
+    );
+    expect(Object.keys(byChat).sort()).toEqual(['-100123', '987654321']);
+
+    expect(byChat['-100123']).toContain('Ескалація до менеджера');
+    expect(byChat['-100123']).toContain('Оля');
+    expect(byChat['-100123']).toContain('Бачила у інстаграм');
+    expect(byChat['-100123']).not.toContain(AGENT_TURN_DEBUG_PREFIX);
+    expect(byChat['-100123']).not.toContain('3380613918779953');
+    expect(byChat['-100123']).not.toContain('Розмова:');
+
+    expect(byChat['987654321']).toContain(AGENT_TURN_DEBUG_PREFIX);
+    expect(byChat['987654321']).toContain('Claude spawns');
   });
 });

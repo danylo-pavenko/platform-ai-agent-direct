@@ -20,8 +20,14 @@ export interface VisionDebugNoteInput {
   skippedNonImageCount?: number;
 }
 
+export const VISION_DEBUG_PREFIX = '🔍 Аналіз зображення';
+
 const MAX_INTERPRETATION = 320;
 const MAX_CATALOG_LINES = 6;
+
+export function isVisionDebugNote(text: string | null | undefined): boolean {
+  return Boolean(text?.startsWith(VISION_DEBUG_PREFIX));
+}
 
 /** Pull a short admin-facing interpretation from Claude's first reply. */
 export function extractVisionInterpretation(text: string | null | undefined): string | null {
@@ -53,7 +59,7 @@ function truncateCatalogBlock(block: string): string {
  * Format a multiline system message for the admin chat transcript.
  */
 export function formatVisionDebugNote(input: VisionDebugNoteInput): string {
-  const lines: string[] = ['🔍 Аналіз зображення'];
+  const lines: string[] = [VISION_DEBUG_PREFIX];
 
   lines.push(
     `• Vision: опрацьовано ${input.imageCount} зображен${input.imageCount === 1 ? 'ня' : 'ь'}`,

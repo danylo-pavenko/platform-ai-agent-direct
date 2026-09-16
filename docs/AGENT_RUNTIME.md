@@ -46,7 +46,7 @@ Instagram may also emit a **second empty bubble** when it auto-parses a phone nu
 
 **First contact:** if this Instagram user has never had an inbound row in our DB, the webhook pulls the last **20** Graph conversation messages (`GET /{page-id}/conversations?platform=instagram&user_id=` → `/{thread}/messages`) *before* the first Claude turn. Imported inbound is marked `claudeTurnId=skipped` so drain does not replay history as new turns. Graph typically cannot return more than ~20 message bodies. Failures/timeouts are non-fatal.
 
-**Handoff Telegram:** `request_handoff` sends one full escalation card. After that, at most **one** short follow-up when the client writes again. Further inbound stays in admin only. Idle TTL (`handoff_return_to_bot_minutes`, default 60) returns the thread to the bot on the **next inbound**; it does **not** close orders. A manager reply resets the idle timer.
+**Handoff Telegram:** `request_handoff` sends one escalation card to manager **groups**. Agent-turn / vision debug (`🛠 Хід агента`) goes only to a **private chat with the bot** (admins after `/login`) — never to groups the bot was added to. Cards use the client name or `@username`, not IGSID. After the first card, at most **one** short follow-up when the client writes again. Further inbound stays in admin only. Idle TTL (`handoff_return_to_bot_minutes`, default 60) returns the thread to the bot on the **next inbound**; it does **not** close orders. A manager reply resets the idle timer.
 
 IG `typing_on` is owned by the coalesce wait (bootstrap) and then by `conversation.ts`. After a flush, re-arm (and keep typing) only if unclaimed inbound remains; empty drains must send `typing_off` so Meta keepalive cannot run forever.
 
@@ -113,7 +113,7 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 Parallel services at the same clock time need **per-line** `services[].master_id` (different professionals). Slot tool labels `MODE: PARALLEL` vs `MODE: SEQUENTIAL`. A single top-level `master_id` is copied only onto lines that omit their own id; same master → sequential starts in BeautyPro. Preferred master from history applies **only to a similar service**; same display names are disambiguated with positions / short id in slot labels. `book_appointment` refuses `MASTER_SERVICE_MISMATCH` when CRM grades mark the master unavailable for that service. Old failed bookings: admin sets masters per Appointment service line, then retry CRM (`PATCH /orders/:id/booking-services` → `POST /orders/:id/sync-crm`).
 
-**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / cancel / reschedule / agent failure (`services/telegram-notify.ts`).
+**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / cancel / reschedule / agent failure (`services/telegram-notify.ts`). Operational cards go to groups + linked DMs; `🛠 Хід агента` / vision debug only to private bot chats.
 
 ---
 

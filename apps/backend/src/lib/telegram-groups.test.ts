@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isGroupChatType, mergeNotificationChatIds } from './telegram-groups.js';
+import { isGroupChatType, mergeNotificationChatIds, filterChatIdsForAudience, isPrivateTelegramChatId } from './telegram-groups.js';
 
 describe('isGroupChatType', () => {
   it('accepts group and supergroup', () => {
@@ -11,6 +11,33 @@ describe('isGroupChatType', () => {
     expect(isGroupChatType('private')).toBe(false);
     expect(isGroupChatType('channel')).toBe(false);
     expect(isGroupChatType(undefined)).toBe(false);
+  });
+});
+
+describe('isPrivateTelegramChatId', () => {
+  it('treats positive ids as private DMs', () => {
+    expect(isPrivateTelegramChatId('987654321')).toBe(true);
+  });
+
+  it('treats negative ids as groups', () => {
+    expect(isPrivateTelegramChatId('-100123')).toBe(false);
+    expect(isPrivateTelegramChatId('-42')).toBe(false);
+  });
+});
+
+describe('filterChatIdsForAudience', () => {
+  const ids = ['-100123', '987654321', '-100456'];
+
+  it('keeps all ids for all audience', () => {
+    expect(filterChatIdsForAudience(ids, 'all')).toEqual(ids);
+  });
+
+  it('keeps only private DMs', () => {
+    expect(filterChatIdsForAudience(ids, 'private')).toEqual(['987654321']);
+  });
+
+  it('keeps only groups', () => {
+    expect(filterChatIdsForAudience(ids, 'groups')).toEqual(['-100123', '-100456']);
   });
 });
 

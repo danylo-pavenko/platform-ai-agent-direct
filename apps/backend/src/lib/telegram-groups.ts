@@ -37,6 +37,26 @@ async function readStoredGroupIds(): Promise<string[]> {
   return ids;
 }
 
+/**
+ * Telegram private user chats are positive numeric ids.
+ * Groups, supergroups, and channels are negative (often `-100…`).
+ */
+export function isPrivateTelegramChatId(chatId: string): boolean {
+  const n = Number(String(chatId).trim());
+  return Number.isFinite(n) && n > 0;
+}
+
+export type TelegramNotifyAudience = 'all' | 'private' | 'groups';
+
+export function filterChatIdsForAudience(
+  ids: string[],
+  audience: TelegramNotifyAudience,
+): string[] {
+  if (audience === 'all') return ids;
+  if (audience === 'private') return ids.filter(isPrivateTelegramChatId);
+  return ids.filter((id) => !isPrivateTelegramChatId(id));
+}
+
 /** Merge notification targets without duplicates. */
 export function mergeNotificationChatIds(params: {
   managerGroupId?: string;
