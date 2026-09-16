@@ -1,39 +1,94 @@
 <template>
-  <v-container fluid class="detail-root pa-0">
-    <!-- Mobile header -->
-    <div class="detail-mobile-header d-flex align-center pa-2 ga-2" v-if="mobile">
-      <v-btn icon variant="text" size="small" @click="router.push({ name: 'conversations' })">
-        <v-icon>mdi-arrow-left</v-icon>
-      </v-btn>
-      <div class="flex-grow-1 text-truncate text-subtitle-2">
-        {{ clientName }}
+  <v-container fluid class="detail-root pa-0" :class="{ 'detail-root--mobile': mobile }">
+    <!-- Mobile: slim immersive chat chrome -->
+    <header v-if="mobile" class="chat-mobile-top">
+      <div class="chat-mobile-bar">
+        <v-btn
+          icon
+          variant="text"
+          class="tap-target"
+          aria-label="Назад до розмов"
+          @click="router.push({ name: 'conversations' })"
+        >
+          <v-icon>mdi-arrow-left</v-icon>
+        </v-btn>
+        <button
+          type="button"
+          class="chat-mobile-identity"
+          @click="showProfile = true"
+        >
+          <span class="chat-mobile-name text-truncate">{{ clientName }}</span>
+          <span class="chat-mobile-status">
+            <span
+              class="chat-status-dot"
+              :class="`chat-status-dot--${conversation?.state || 'bot'}`"
+              aria-hidden="true"
+            />
+            <span class="text-truncate">{{ mobileStatusLine }}</span>
+            <span v-if="livePollActive" class="chat-live-dot" title="На звʼязку" />
+          </span>
+        </button>
+        <v-btn
+          icon
+          variant="text"
+          class="tap-target"
+          aria-label="Профіль"
+          @click="showProfile = true"
+        >
+          <v-icon>mdi-account-circle-outline</v-icon>
+        </v-btn>
+        <v-menu location="bottom end">
+          <template #activator="{ props: menuProps }">
+            <v-btn
+              v-bind="menuProps"
+              icon
+              variant="text"
+              class="tap-target"
+              aria-label="Ще"
+            >
+              <v-icon>mdi-dots-vertical</v-icon>
+            </v-btn>
+          </template>
+          <v-list density="comfortable" min-width="220">
+            <v-list-item
+              prepend-icon="mdi-robot-outline"
+              title="Керування ботом"
+              @click="mobileControlsSheet = 'bot'"
+            />
+            <v-list-item
+              prepend-icon="mdi-star-outline"
+              title="Якість ліда"
+              @click="mobileControlsSheet = 'quality'"
+            />
+            <v-list-item
+              prepend-icon="mdi-brain"
+              title="Навчити агента"
+              @click="router.push({ name: 'teach', query: { conversationId: conversation?.id } })"
+            />
+            <v-list-item
+              v-if="authStore.isOwner"
+              prepend-icon="mdi-message-text-remove-outline"
+              title="Очистити переписку"
+              base-color="error"
+              @click="clearChatDialog = true"
+            />
+          </v-list>
+        </v-menu>
       </div>
-          <v-chip v-if="conversation?.state" :color="stateColor(conversation.state)" size="x-small" label>
-            {{ stateLabel(conversation.state) }}
-          </v-chip>
-          <v-chip
-            v-if="livePollActive"
-            size="x-small"
-            color="success"
-            variant="tonal"
-            class="live-chip"
-          >
-            <v-icon start size="12">mdi-access-point</v-icon>
-            На звʼязку
-          </v-chip>
-          <v-btn icon variant="text" size="small" @click="showProfile = !showProfile">
-        <v-icon>mdi-account-details</v-icon>
-      </v-btn>
-      <v-btn
-        icon
-        variant="text"
-        size="small"
-        title="Навчити агента на цьому діалозі"
-        @click="router.push({ name: 'teach', query: { conversationId: conversation?.id } })"
+
+      <button
+        v-if="conversation?.state === 'handoff' && conversation?.handoffReason"
+        type="button"
+        class="chat-handoff-compact"
+        @click="handoffExpanded = !handoffExpanded"
       >
-        <v-icon>mdi-brain</v-icon>
-      </v-btn>
-    </div>
+        <v-icon size="16" color="info">mdi-account-arrow-right</v-icon>
+        <span class="chat-handoff-compact__text" :class="{ 'is-expanded': handoffExpanded }">
+          {{ conversation.handoffReason }}
+        </span>
+        <v-icon size="16">{{ handoffExpanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+      </button>
+    </header>
 
     <div class="detail-layout" :class="{ 'with-profile': showProfile && !mobile }">
       <!-- Main: chat -->
@@ -80,8 +135,9 @@
 
         <v-divider v-if="!mobile" />
 
-        <!-- Quality rating bar (B.2 — manager rates the lead) -->
-        <div class="quality-bar d-flex align-center ga-2 px-3 py-2" v-if="conversation">
+        <!-- Quality + bot controls: desktop always; mobile via bottom sheets -->
+        <template v-if="conversation && !mobile">
+        <div class="quality-bar d-flex align-center ga-2 px-3 py-2">
           <span class="text-caption text-grey">Якість ліда:</span>
           <v-rating
             :model-value="qualityDraft ?? 0"
@@ -141,8 +197,7 @@
           </div>
         </div>
 
-        <!-- Bot response control -->
-        <div v-if="conversation" class="bot-control-bar d-flex flex-column ga-2 px-3 py-2">
+        <div class="bot-control-bar d-flex flex-column ga-2 px-3 py-2">
           <div class="d-flex align-center ga-2 flex-wrap">
             <v-switch
               :model-value="botResponsesEnabled"
@@ -226,7 +281,8 @@
           </div>
         </div>
 
-        <v-divider v-if="conversation" />
+        <v-divider />
+        </template>
 
         <!-- Messages -->
         <div
@@ -239,7 +295,8 @@
         <div
           v-else
           ref="messagesContainer"
-          class="messages-area flex-grow-1 overflow-y-auto pa-3 pa-md-4"
+          class="messages-area flex-grow-1 overflow-y-auto"
+          :class="mobile ? 'messages-area--mobile' : 'pa-3 pa-md-4'"
           style="min-height: 0;"
         >
           <div v-if="messages.length === 0" class="d-flex justify-center align-center" style="height: 100%;">
@@ -247,10 +304,10 @@
           </div>
 
           <div
-            v-for="msg in visibleMessages"
+            v-for="(msg, msgIndex) in visibleMessages"
             :key="msg.id"
-            class="mb-3"
-            :class="messageAlignment(msg)"
+            class="message-row"
+            :class="[messageAlignment(msg), { 'message-row--tight': mobile }]"
           >
             <div v-if="msg.sender === 'system'" class="text-center system-note-wrap">
               <v-chip
@@ -279,15 +336,20 @@
                 <div class="text-caption system-note-text">{{ formatChatPlain(msg.text) }}</div>
               </v-card>
             </div>
-            <div v-else :style="{ maxWidth: mobile ? '88%' : '72%' }">
-              <div class="text-caption text-grey mb-1" :class="msg.direction === 'out' ? 'text-right' : ''">
+            <div v-else class="message-bubble-wrap" :style="{ maxWidth: mobile ? '92%' : '72%' }">
+              <div
+                v-if="!shouldHideSenderMeta(msg, msgIndex)"
+                class="message-meta text-caption text-grey mb-1"
+                :class="msg.direction === 'out' ? 'text-right' : ''"
+              >
                 {{ senderIcon(msg) }} {{ senderLabel(msg) }} · {{ formatTime(msg.createdAt) }}
               </div>
-              <v-card flat rounded="lg" class="pa-3 message-bubble-card" :class="bubbleCardClass(msg)">
+              <v-card flat rounded="xl" class="pa-3 message-bubble-card" :class="bubbleCardClass(msg)">
                 <div
                   v-if="msg.text"
-                  class="message-bubble-text text-body-2"
-                  style="word-break: break-word; line-height: 1.55; white-space: pre-wrap;"
+                  class="message-bubble-text"
+                  :class="mobile ? 'message-bubble-text--mobile' : 'text-body-2'"
+                  style="word-break: break-word; white-space: pre-wrap;"
                 >
                   {{ formatChatPlain(msg.text) }}
                 </div>
@@ -494,17 +556,101 @@
       </div>
 
       <!-- Profile sidebar (desktop) / bottom sheet (mobile) -->
-      <v-bottom-sheet v-if="mobile" v-model="showProfile" inset>
-        <v-card class="pa-0">
-          <client-profile-panel
-            :client="conversation?.client"
-            :conversation-id="props.id"
-            :lead-summary="leadSummary"
-            @updated="onClientUpdated"
-            @profile-editing="onProfileEditing"
-          />
-        </v-card>
-      </v-bottom-sheet>
+      <template v-if="mobile">
+        <v-bottom-sheet v-model="showProfile" inset>
+          <v-card class="pa-0">
+            <client-profile-panel
+              :client="conversation?.client"
+              :conversation-id="props.id"
+              :lead-summary="leadSummary"
+              @updated="onClientUpdated"
+              @profile-editing="onProfileEditing"
+            />
+          </v-card>
+        </v-bottom-sheet>
+
+        <v-bottom-sheet
+          :model-value="mobileControlsSheet === 'bot'"
+          inset
+          @update:model-value="(v: boolean) => { if (!v) mobileControlsSheet = null }"
+        >
+          <v-card class="pa-4">
+            <div class="text-subtitle-2 mb-3">Керування ботом</div>
+            <v-switch
+              :model-value="botResponsesEnabled"
+              :loading="botResponsesSaving"
+              :disabled="botResponsesSaving || isGloballyIgnored || !conversation"
+              color="primary"
+              density="comfortable"
+              hide-details
+              inset
+              label="Бот відповідає"
+              class="mb-3"
+              @update:model-value="onBotResponsesToggle"
+            />
+            <p class="text-caption text-medium-emphasis mb-0">
+              <template v-if="isGloballyIgnored">
+                Клієнт у глобальному чорному списку — бот не відповідає.
+              </template>
+              <template v-else-if="conversation?.state === 'handoff'">
+                Увімкніть, щоб бот знову відповідав після handoff.
+              </template>
+              <template v-else-if="conversation?.state === 'paused'">
+                Бот вимкнено для цієї розмови.
+              </template>
+              <template v-else>
+                Вимкніть, якщо бот не повинен відповідати цьому клієнту.
+              </template>
+            </p>
+          </v-card>
+        </v-bottom-sheet>
+
+        <v-bottom-sheet
+          :model-value="mobileControlsSheet === 'quality'"
+          inset
+          @update:model-value="(v: boolean) => { if (!v) mobileControlsSheet = null }"
+        >
+          <v-card class="pa-4">
+            <div class="text-subtitle-2 mb-3">Якість ліда</div>
+            <div class="d-flex align-center ga-2 mb-3">
+              <v-rating
+                :model-value="qualityDraft ?? 0"
+                :length="5"
+                size="large"
+                color="amber"
+                active-color="amber"
+                hover
+                clearable
+                density="comfortable"
+                :disabled="qualitySaving"
+                @update:model-value="onQualityChange"
+              />
+              <span v-if="qualityDraft != null" class="text-body-2">{{ qualityDraft }} / 5</span>
+            </div>
+            <v-textarea
+              v-model="qualityNoteDraft"
+              placeholder="Чому така оцінка? (опційно)"
+              variant="outlined"
+              density="comfortable"
+              rows="2"
+              auto-grow
+              hide-details
+              class="mb-3"
+              :disabled="qualitySaving"
+            />
+            <v-btn
+              block
+              color="primary"
+              class="tap-target"
+              :loading="qualitySaving"
+              :disabled="qualityNoteDraft === (conversation?.briefQualityNote ?? '')"
+              @click="saveQualityNote"
+            >
+              Зберегти нотатку
+            </v-btn>
+          </v-card>
+        </v-bottom-sheet>
+      </template>
 
       <div v-else-if="showProfile" class="profile-col">
         <client-profile-panel
@@ -784,6 +930,19 @@ const isGloballyIgnored = computed(() => {
   return botIgnoreUsernames.value.includes(username);
 });
 
+/** Mobile chrome: bot/quality sheets + compact handoff. */
+const mobileControlsSheet = ref<'bot' | 'quality' | null>(null);
+const handoffExpanded = ref(false);
+
+const mobileStatusLine = computed(() => {
+  const c = conversation.value;
+  if (!c) return 'Завантаження…';
+  if (livePollActive.value && c.state === 'handoff') {
+    return c.assigneeLabel ? `Менеджер · ${c.assigneeLabel}` : 'Менеджер';
+  }
+  return stateLabel(c.state);
+});
+
 // ---------------------------------------------------------------------------
 // Computed
 // ---------------------------------------------------------------------------
@@ -872,11 +1031,49 @@ function isMultilineSystemNote(text: string | null | undefined): boolean {
   return text.includes('\n') || text.startsWith('🔍') || isAgentTurnDebugNote(text);
 }
 
-async function scrollToBottom() {
+async function scrollToBottom(opts?: { force?: boolean }) {
+  const run = () => {
+    const el = messagesContainer.value;
+    if (!el) return false;
+    el.scrollTop = el.scrollHeight;
+    return true;
+  };
+
   await nextTick();
-  if (messagesContainer.value) {
-    messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
-  }
+  if (!run() && !opts?.force) return;
+
+  // Layout may still settle (fonts, bubbles, images) — nudge again.
+  requestAnimationFrame(() => {
+    run();
+    requestAnimationFrame(() => {
+      run();
+      const el = messagesContainer.value;
+      if (!el) return;
+      const imgs = el.querySelectorAll('img');
+      imgs.forEach((img) => {
+        if (img.complete) return;
+        img.addEventListener('load', () => run(), { once: true });
+      });
+    });
+  });
+}
+
+function shouldHideSenderMeta(msg: Message, index: number): boolean {
+  if (!mobile.value) return false;
+  if (msg.sender === 'system') return false;
+  const prev = visibleMessages.value[index - 1];
+  if (!prev || prev.sender === 'system') return false;
+  if (prev.sender !== msg.sender || prev.direction !== msg.direction) return false;
+  const a = new Date(prev.createdAt).getTime();
+  const b = new Date(msg.createdAt).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return true;
+  return b - a < 2 * 60 * 1000;
+}
+
+function isNearBottom(thresholdPx = 120): boolean {
+  const el = messagesContainer.value;
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx;
 }
 
 function onProfileEditing(v: boolean) {
@@ -927,6 +1124,7 @@ function applyLiveUpdate(data: LivePollPayload) {
     messages.value.map((m) => m.igMessageId).filter((x): x is string => Boolean(x)),
   );
   let appended = false;
+  const stickToBottom = isNearBottom();
   for (const m of newMessages) {
     if (seen.has(m.id)) continue;
     if (m.igMessageId && seenIg.has(m.igMessageId)) continue;
@@ -948,7 +1146,7 @@ function applyLiveUpdate(data: LivePollPayload) {
     if (m.igMessageId) seenIg.add(m.igMessageId);
     appended = true;
   }
-  if (appended) void scrollToBottom();
+  if (appended && stickToBottom) void scrollToBottom();
 }
 
 async function pollLive() {
@@ -1036,13 +1234,14 @@ async function fetchConversation() {
     qualityDraft.value = data.briefQuality ?? null;
     qualityNoteDraft.value = data.briefQualityNote ?? '';
     showQualityNote.value = !!data.briefQualityNote;
-    await scrollToBottom();
   } catch {
     stopLivePoll();
     router.push({ name: 'conversations' });
   } finally {
     loading.value = false;
   }
+  // Scroll after the messages container is mounted (it is v-else of loading).
+  await scrollToBottom({ force: true });
 }
 
 async function persistQuality(quality: number | null, note: string | null) {
@@ -1119,6 +1318,8 @@ watch(
   async (newId, oldId) => {
     if (!newId || newId === oldId) return;
     stopLivePoll();
+    handoffExpanded.value = false;
+    mobileControlsSheet.value = null;
     await fetchConversation();
     startLivePoll();
   },
@@ -1673,10 +1874,115 @@ const ClientProfilePanel = defineComponent({
   flex-direction: column;
 }
 
-.detail-mobile-header {
-  background: rgb(var(--v-theme-surface));
-  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+.detail-root--mobile {
+  /* Full-bleed chat: no global app bar on hideBottomNav routes */
+  background: #f3f5f8;
+}
+
+.chat-mobile-top {
   flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+  backdrop-filter: blur(10px);
+  padding-top: env(safe-area-inset-top, 0px);
+  z-index: 2;
+}
+
+.chat-mobile-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 2px 4px 2px 2px;
+}
+
+.chat-mobile-identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chat-mobile-name {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--color-text, #0a2540);
+  max-width: 100%;
+  line-height: 1.25;
+}
+
+.chat-mobile-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-size: 11.5px;
+  color: var(--color-text-secondary, #6c7688);
+  line-height: 1.2;
+}
+
+.chat-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #94a3b8;
+}
+
+.chat-status-dot--bot { background: #635bff; }
+.chat-status-dot--handoff { background: #f59e0b; }
+.chat-status-dot--closed { background: #94a3b8; }
+.chat-status-dot--paused { background: #a855f7; }
+
+.chat-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+  flex-shrink: 0;
+}
+
+.chat-handoff-compact {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 12px 10px;
+  border: 0;
+  border-top: 1px solid rgba(var(--v-theme-info), 0.15);
+  background: rgba(var(--v-theme-info), 0.08);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.chat-handoff-compact__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.chat-handoff-compact__text.is-expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .detail-layout {
@@ -1712,6 +2018,27 @@ const ClientProfilePanel = defineComponent({
   background: #fafafa;
 }
 
+.messages-area--mobile {
+  padding: 10px 12px 12px;
+  background: linear-gradient(180deg, #f3f5f8 0%, #eef1f6 100%);
+  -webkit-overflow-scrolling: touch;
+}
+
+.message-row {
+  margin-bottom: 12px;
+}
+
+.message-row--tight {
+  margin-bottom: 8px;
+}
+
+.message-bubble-text--mobile {
+  font-size: 15.5px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: inherit;
+}
+
 .quality-bar {
   background: #fafafa;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
@@ -1744,7 +2071,7 @@ const ClientProfilePanel = defineComponent({
 }
 
 /* Incoming body: Vuetify `text-body-2` uses medium-emphasis; on surface-variant it reads as invisible */
-.messages-area .message-bubble-card.bubble-incoming .message-bubble-text.text-body-2 {
+.messages-area .message-bubble-card.bubble-incoming .message-bubble-text {
   color: rgb(var(--v-theme-on-surface));
   opacity: 1;
 }
@@ -2020,9 +2347,15 @@ const ClientProfilePanel = defineComponent({
 
 /* Mobile */
 @media (max-width: 960px) {
-  .detail-mobile-header .v-btn {
-    min-width: var(--tap-min, 44px);
-    min-height: var(--tap-min, 44px);
+  .detail-root--mobile .agent-chat-input {
+    background: #fff;
+    border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .message-bubble-card.bubble-incoming {
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
 }
 </style>

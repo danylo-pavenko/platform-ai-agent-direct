@@ -262,7 +262,8 @@ const showAppBar = computed(
   () =>
     authStore.isAuthenticated &&
     mobile.value &&
-    route.name !== 'login',
+    route.name !== 'login' &&
+    !route.meta.hideBottomNav,
 );
 
 const showBottomNav = computed(
