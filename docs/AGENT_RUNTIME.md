@@ -42,6 +42,12 @@ Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversatio
 
 Instagram clients often split one answer across several bubbles (`10:00` then name then phone). Coalesce waits for silence (longer when the last bubble looks like a fragment), joins them as one user turn, and absorbs late mids that arrive during `responseDelay` / Claude. Do not re-ask for data already in those bubbles.
 
+Instagram may also emit a **second empty bubble** when it auto-parses a phone number (`fallback` / `unsupported` / `tel:`). The webhook stores that as visible `📞 +380…` text (and a `detected_phone` context), so admin is not blank and heuristics/agent see the number. A duplicate chip coalesced with the typed bubble is dropped from the Claude user turn.
+
+**First contact:** if this Instagram user has never had an inbound row in our DB, the webhook pulls the last **20** Graph conversation messages (`GET /{page-id}/conversations?platform=instagram&user_id=` → `/{thread}/messages`) *before* the first Claude turn. Imported inbound is marked `claudeTurnId=skipped` so drain does not replay history as new turns. Graph typically cannot return more than ~20 message bodies. Failures/timeouts are non-fatal.
+
+**Handoff Telegram:** `request_handoff` sends one full escalation card. After that, at most **one** short follow-up when the client writes again. Further inbound stays in admin only. Idle TTL (`handoff_return_to_bot_minutes`, default 60) returns the thread to the bot on the **next inbound**; it does **not** close orders. A manager reply resets the idle timer.
+
 IG `typing_on` is owned by the coalesce wait (bootstrap) and then by `conversation.ts`. After a flush, re-arm (and keep typing) only if unclaimed inbound remains; empty drains must send `typing_off` so Meta keepalive cannot run forever.
 
 ---

@@ -3,10 +3,19 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { sanitizeMessage, detectInjection, redactSensitive } from '../lib/sanitize.js';
-import { scheduleInboundBotTurn } from '../lib/inbound-coalesce.js';
-import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.js';
+import { scheduleInboundBotTurn, CLAUDE_TURN_SKIPPED } from '../lib/inbound-coalesce.js';
+import {
+  extractContactPatchesFromText,
+  persistHeuristicClientContact,
+} from '../lib/client-contact-heuristics.js';
+import {
+  extractPhoneFromMetaMessage,
+  formatIgDetectedPhoneText,
+  looksLikeIgAutoPhoneCard,
+} from '../lib/ig-detected-phone.js';
 import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
+import { importFirstContactIgHistory } from '../services/ig-history.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import {
   type StoredMediaAttachment,
@@ -28,6 +37,7 @@ import {
   type IgInboundContext,
   reactionDisplay,
 } from '../lib/ig-inbound-context.js';
+import { shouldScheduleBotTurnForReaction } from '../lib/ig-reaction-policy.js';
 
 // ── Meta webhook payload types (subset we care about) ──
 
@@ -513,6 +523,7 @@ async function processReactionEvent(
         text,
         igContext: toInputJsonValue(igContext),
         igMessageId,
+        claudeTurnId: CLAUDE_TURN_SKIPPED,
       },
     });
   } catch (err: unknown) {
@@ -532,11 +543,9 @@ async function processReactionEvent(
     where: { id: conversation.id },
     data: {
       lastMessageAt: now,
-      followUpSentAt: null,
       ...(conversation.firstInboundAt ? {} : { firstInboundAt: now }),
     },
   });
-  cancelPendingFollowUpsSafe(conversation.id, 'client_inbound_reaction');
 
   app.log.info(
     {
@@ -549,6 +558,8 @@ async function processReactionEvent(
     'Persisted Instagram message reaction',
   );
 
+  // Likes/hearts on every bot bubble must not spawn Claude (spam). Stored for admin only.
+  if (!shouldScheduleBotTurnForReaction()) return;
   if (conversation.state !== 'bot') return;
 
   const access = await evaluateBotAccessForClient(client.id);
@@ -572,9 +583,18 @@ async function processMessageEvent(
 
   const igUserId = sender.id;
   const igMessageId = message.mid;
-  const rawText = message.text ?? '';
   const attachments = message.attachments ?? [];
   const isUnsupported = message.is_unsupported === true;
+  const payloadPhone = extractPhoneFromMetaMessage({
+    text: message.text,
+    is_unsupported: isUnsupported,
+    attachments,
+  });
+  let rawText = (message.text ?? '').trim()
+    ? (message.text ?? '')
+    : payloadPhone
+      ? formatIgDetectedPhoneText(payloadPhone)
+      : (message.text ?? '');
 
   // Phase 0: structured attachment inventory for troubleshooting voice/video payloads.
   app.log.info(
@@ -673,7 +693,25 @@ async function processMessageEvent(
     );
   }
 
-  // ── Story reply / mention / inline reply context ──
+  // ── Extract direct media (images / video / audio / file; not share / story_mention) ──
+  // story_mention CDN is ephemeral — Meta asks not to store it; keep URL only in igContext.
+  const directMediaItems = attachments
+    .filter((a) => a.type !== 'share' && a.type !== 'story_mention')
+    .map((a) => {
+      const url = (a.payload as MediaAttachmentPayload | undefined)?.url;
+      return url ? { url, igType: a.type } : null;
+    })
+    .filter((item): item is { url: string; igType: string } => item !== null);
+
+  const phoneCardHint = looksLikeIgAutoPhoneCard({
+    text: message.text,
+    isUnsupported,
+    attachments,
+    hasShare: !!shareAttachment,
+    hasPlayableMedia: directMediaItems.length > 0,
+  });
+
+  // ── Story reply / mention / inline reply / IG phone-card context ──
   let igContext: IgInboundContext | null = null;
   const storyReply = message.reply_to?.story;
   const storyMentionAtt = attachments.find((a) => a.type === 'story_mention');
@@ -696,21 +734,25 @@ async function processMessageEvent(
       kind: 'inline_reply',
       replyToMid: message.reply_to.mid,
     };
+  } else if (payloadPhone && phoneCardHint) {
+    igContext = {
+      kind: 'detected_phone',
+      phone: payloadPhone,
+    };
   }
-
-  // ── Extract direct media (images / video / audio / file; not share / story_mention) ──
-  // story_mention CDN is ephemeral — Meta asks not to store it; keep URL only in igContext.
-  const directMediaItems = attachments
-    .filter((a) => a.type !== 'share' && a.type !== 'story_mention')
-    .map((a) => {
-      const url = (a.payload as MediaAttachmentPayload | undefined)?.url;
-      return url ? { url, igType: a.type } : null;
-    })
-    .filter((item): item is { url: string; igType: string } => item !== null);
 
   let mediaAttachments: StoredMediaAttachment[] = [];
 
-  if (isUnsupported && directMediaItems.length === 0 && !attachments.some((a) => a.type === 'share')) {
+  const skipUnsupportedPlaceholder =
+    phoneCardHint &&
+    (!!payloadPhone || !!rawText.trim());
+
+  if (
+    isUnsupported &&
+    directMediaItems.length === 0 &&
+    !attachments.some((a) => a.type === 'share') &&
+    !skipUnsupportedPlaceholder
+  ) {
     mediaAttachments.push({
       kind: 'unknown',
       igType: 'unsupported',
@@ -793,7 +835,7 @@ async function processMessageEvent(
 
   const combinedRaw = mergeMessageTextWithTranscripts(rawText, mediaAttachments);
   const sanitized = sanitizeMessage(combinedRaw);
-  const redacted = redactSensitive(sanitized);
+  let redacted = redactSensitive(sanitized);
 
   if (combinedRaw !== rawText && detectInjection(combinedRaw)) {
     app.log.warn(
@@ -896,6 +938,35 @@ async function processMessageEvent(
     );
   }
 
+  // Empty IG "phone card" often has no payload — copy the number from the
+  // previous inbound bubble (same second / few seconds earlier).
+  if (!redacted.trim() && phoneCardHint) {
+    const recent = await prisma.message.findFirst({
+      where: {
+        conversationId: conversation.id,
+        direction: 'in',
+        sender: 'client',
+        createdAt: { gte: new Date(Date.now() - 30_000) },
+        text: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { text: true },
+    });
+    const inherited = extractContactPatchesFromText(recent?.text ?? '').phone;
+    if (inherited) {
+      redacted = redactSensitive(sanitizeMessage(formatIgDetectedPhoneText(inherited)));
+      if (!igContext) {
+        igContext = { kind: 'detected_phone', phone: inherited };
+      }
+    }
+  }
+
+  if (redacted.trim()) {
+    mediaAttachments = mediaAttachments.filter(
+      (a) => !(a.status === 'unsupported' && a.igType === 'unsupported' && !a.storageKey),
+    );
+  }
+
   // ── Create message record (unique on ig_message_id — catch race duplicates) ──
   try {
     await prisma.message.create({
@@ -983,6 +1054,29 @@ async function processMessageEvent(
       'Platform access gate — bot response skipped',
     );
     return;
+  }
+
+  const inboundForClient = await prisma.message.count({
+    where: { conversation: { clientId: client.id }, direction: 'in' },
+  });
+  if (inboundForClient <= 1) {
+    try {
+      const history = await importFirstContactIgHistory(conversation.id, igUserId);
+      app.log.info(
+        {
+          conversationId: conversation.id,
+          imported: history.imported,
+          skipped: history.skipped,
+          timedOut: history.timedOut,
+        },
+        'First-contact Instagram history import',
+      );
+    } catch (err) {
+      app.log.warn(
+        { err, conversationId: conversation.id },
+        'First-contact Instagram history import failed (non-fatal)',
+      );
+    }
   }
 
   // Enqueue coalesced Claude turn asynchronously (don't await - webhook already responded)

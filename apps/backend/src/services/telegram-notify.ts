@@ -223,6 +223,35 @@ export async function notifyHandoff(params: {
 }
 
 /**
+ * Short follow-up while the thread is already in handoff (not a second full
+ * escalation card). At most one of these is sent per handoff.
+ */
+export async function notifyHandoffFollowUp(params: {
+  conversationId: string;
+  clientIgUserId: string;
+  text: string;
+  isVoice?: boolean;
+}): Promise<void> {
+  const { conversationId, clientIgUserId, text: body, isVoice } = params;
+  const shortId = conversationId.slice(0, 8);
+  const adminUrl = adminConversationUrl(conversationId);
+  const icon = isVoice ? '👤🎤' : '👤';
+
+  const text = [
+    `💬 <b>Клієнт написав під час ескалації</b>`,
+    ``,
+    `Клієнт: IG @${escapeHtml(clientIgUserId)}`,
+    `Розмова: <code>#${escapeHtml(shortId)}</code>`,
+    ``,
+    `${icon} ${escapeHtml(body)}`,
+    ``,
+    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
+  ].join('\n');
+
+  await sendToManagerGroup(text, undefined, 'handoff');
+}
+
+/**
  * Sends an order card to the manager group when a new order is created.
  */
 export async function notifyOrder(params: {

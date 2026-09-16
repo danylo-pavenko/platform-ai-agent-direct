@@ -22,7 +22,8 @@ import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
-import { notifyAgentFailure, notifyHandoff } from './telegram-notify.js';
+import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
+import { notifyAgentFailure, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import {
@@ -477,14 +478,30 @@ async function handleIncomingMessageImpl(
         text: messageText,
         mediaAttachments,
       });
-      notifyHandoff({
-        conversationId,
-        clientIgUserId: client.igUserId!,
-        reason: conversation.handoffReason || 'Клієнт написав під час хендофу',
-        lastMessages: handoffLine
-          ? [{ sender: handoffLine.sender, text: handoffLine.text, isVoice: handoffLine.isVoice }]
-          : [],
-      }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
+      const priorFollowUps = conversation.handedOffAt
+        ? await prisma.message.count({
+            where: {
+              conversationId,
+              sender: 'client',
+              direction: 'in',
+              createdAt: { gt: conversation.handedOffAt },
+              ...(turnId ? { claudeTurnId: { not: turnId } } : {}),
+            },
+          })
+        : 0;
+      if (!shouldNotifyHandoffFollowUp(priorFollowUps)) {
+        log.info(
+          { conversationId, priorFollowUps },
+          'Handoff follow-up Telegram skipped — cap reached',
+        );
+      } else if (client.igUserId && handoffLine) {
+        notifyHandoffFollowUp({
+          conversationId,
+          clientIgUserId: client.igUserId,
+          text: handoffLine.text,
+          isVoice: handoffLine.isVoice,
+        }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
+      }
       await clearTypingOnSkip();
       return 'skipped';
     }

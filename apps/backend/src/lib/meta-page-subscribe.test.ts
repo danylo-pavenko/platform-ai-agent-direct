@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { formatWebhookSubscribeMessage } from './meta-page-subscribe.js';
+import {
+  formatWebhookSubscribeMessage,
+  META_PAGE_WEBHOOK_FIELDS,
+} from './meta-page-subscribe.js';
+
+describe('META_PAGE_WEBHOOK_FIELDS', () => {
+  it('omits messaging_seen which Graph v25 rejects on subscribed_apps', () => {
+    expect(META_PAGE_WEBHOOK_FIELDS).not.toContain('messaging_seen');
+    expect([...META_PAGE_WEBHOOK_FIELDS]).toEqual([
+      'messages',
+      'messaging_postbacks',
+      'message_reactions',
+      'standby',
+    ]);
+  });
+});
 
 describe('formatWebhookSubscribeMessage', () => {
   it('reports POST failure with status and body', () => {

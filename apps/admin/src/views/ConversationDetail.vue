@@ -291,6 +291,22 @@
                 >
                   {{ formatChatPlain(msg.text) }}
                 </div>
+                <v-chip
+                  v-if="isDetectedPhoneMessage(msg)"
+                  size="x-small"
+                  variant="tonal"
+                  color="primary"
+                  class="mt-1"
+                  prepend-icon="mdi-phone"
+                >
+                  Instagram розпізнав номер
+                </v-chip>
+                <div
+                  v-else-if="!msg.text && getMessageMediaItems(msg).length === 0 && !msg.sharedPost?.postUrl"
+                  class="text-caption text-medium-emphasis font-italic"
+                >
+                  Порожнє повідомлення Instagram (картка без тексту)
+                </div>
                 <v-alert
                   v-if="msg.sender === 'bot' && msg.botFailureDetail"
                   type="warning"
@@ -588,6 +604,7 @@ interface Message {
   mediaUrls?: string[];
   mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData | null;
+  igContext?: { kind?: string; phone?: string } | null;
 }
 
 interface ClientData {
@@ -809,6 +826,11 @@ const botIsThinking = computed(() => {
 
 function senderLabel(msg: Message): string {
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
+}
+
+function isDetectedPhoneMessage(msg: Message): boolean {
+  if (msg.igContext?.kind === 'detected_phone') return true;
+  return Boolean(msg.text?.trim().startsWith('📞'));
 }
 
 /** Vision/CRM/agent-turn debug notes are multiline; keep short status chips compact. */

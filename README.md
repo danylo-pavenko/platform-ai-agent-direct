@@ -138,6 +138,8 @@ Use Debug mode on production **after** IG is connected, when you want to test re
 
 Also on the same card — **"Завантажити останні N розмов"** triggers `POST /settings/meta/import-recent-conversations` with a configurable limit (default 200, max 500). Old threads without bot history have their outgoing messages classified as manager replies, so we can analyse existing support quality from day one.
 
+When a client DMs the tenant **for the first time** (no inbound rows in our DB yet), the webhook automatically imports the last **20** Instagram messages for that thread before the first Claude turn, so the agent sees prior chat. Manual per-dialog import remains on Conversation detail → «Завантажити IG-переписку».
+
 ### Storage shape
 
 ```jsonc
@@ -471,7 +473,7 @@ Stored in DB settings (not only `.env`):
 
 ## Meta (Facebook) Developer setup & App Review
 
-The backend uses **Facebook Login for Business** (not Instagram Basic Display). OAuth resolves a **Facebook Page** with a connected **Instagram Business** account, stores the **Page access token** and **IG user id** in the database, and subscribes the Page to webhook fields `messages`, `messaging_postbacks`, `messaging_seen`, and **`standby`** (needed when another messaging app owns the thread). Graph calls use **v25.0** (see `FB_GRAPH_BASE` in `meta-oauth.ts`). After upgrading fields, have each tenant complete **Meta reconnect** in Admin so `subscribed_apps` is refreshed.
+The backend uses **Facebook Login for Business** (not Instagram Basic Display). OAuth resolves a **Facebook Page** with a connected **Instagram Business** account, stores the **Page access token** and **IG user id** in the database, and subscribes the Page to webhook fields `messages`, `messaging_postbacks`, `message_reactions`, and **`standby`** (needed when another messaging app owns the thread). Do not send `messaging_seen` — Graph v25 rejects it and the whole `subscribed_apps` POST fails. Graph calls use **v25.0** (see `FB_GRAPH_BASE` in `meta-oauth.ts`). After upgrading fields, have each tenant complete **Meta reconnect** in Admin so `subscribed_apps` is refreshed.
 
 **Marketing / legal URLs (platform):**
 

@@ -1,8 +1,13 @@
 const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
+/**
+ * Page `subscribed_fields` that Graph still accepts (v25).
+ * `messaging_seen` is rejected: (#100) subscribed_fields[n] must be one of
+ * {messages, message_reactions, standby, messaging_postbacks, …}.
+ * A single invalid field fails the whole POST — webhooks never attach.
+ */
 export const META_PAGE_WEBHOOK_FIELDS = [
   'messages',
   'messaging_postbacks',
-  'messaging_seen',
   'message_reactions',
   'standby',
 ] as const;

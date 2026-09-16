@@ -19,11 +19,27 @@
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
+import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.js';
+import {
+  clampIgHistoryLimit,
+  FIRST_CONTACT_IG_HISTORY_LIMIT,
+  FIRST_CONTACT_IMPORT_TIMEOUT_MS,
+  isOwnIgHistorySender,
+  MAX_IG_HISTORY_MESSAGES,
+} from '../lib/ig-history-helpers.js';
+
+export {
+  clampIgHistoryLimit,
+  FIRST_CONTACT_IG_HISTORY_LIMIT,
+  isOwnIgHistorySender,
+} from '../lib/ig-history-helpers.js';
 
 const log = pino({ name: 'ig-history' });
 
 const FB_GRAPH_BASE = 'https://graph.facebook.com/v25.0';
-const MAX_IMPORT_MESSAGES = 200;
+
+/** Same sentinel as inbound-coalesce CLAUDE_TURN_SKIPPED — do not replay as a bot turn. */
+const SKIPPED_TURN_ID = 'skipped';
 
 interface IgApiMessage {
   id: string;
@@ -54,6 +70,7 @@ export interface ImportResult {
   skipped: number;
   total: number;
   managerReplies: number;
+  timedOut?: boolean;
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -65,15 +82,19 @@ export interface ImportResult {
  * Outgoing messages ('out') are classified as:
  *   - 'bot'     if this conversation already has bot-authored messages in DB
  *   - 'manager' otherwise (replies sent manually from IG app before bot was active)
+ *
+ * Newly imported inbound rows are marked skipped so coalesce/drain will not
+ * treat pre-bot history as a fresh Claude turn.
  */
 export async function importIgConversationHistory(
   conversationId: string,
   igScopedUserId: string,
-  opts: { ownIgUserId?: string } = {},
+  opts: { ownIgUserId?: string; limit?: number } = {},
 ): Promise<ImportResult> {
   const { meta } = await getIntegrationConfig();
   const accessToken = meta.pageAccessToken;
   const pageId = meta.pageId;
+  const limit = clampIgHistoryLimit(opts.limit);
 
   if (!accessToken || !pageId) {
     log.warn({ conversationId }, 'pageAccessToken or pageId not configured, skipping import');
@@ -88,11 +109,11 @@ export async function importIgConversationHistory(
     return { imported: 0, skipped: 0, total: 0, managerReplies: 0 };
   }
 
-  // 2. Fetch messages from the thread
-  const igMessages = await fetchIgMessages(igConversationId, accessToken);
+  // 2. Fetch messages from the thread (newest first from Graph, cap at limit)
+  const igMessages = await fetchIgMessages(igConversationId, accessToken, limit);
 
   log.info(
-    { conversationId, igConversationId, count: igMessages.length },
+    { conversationId, igConversationId, count: igMessages.length, limit },
     'Fetched IG messages for import',
   );
 
@@ -104,6 +125,11 @@ export async function importIgConversationHistory(
     where: { conversationId, sender: 'bot' },
   });
   const hasBotHistory = botMessageCount > 0;
+
+  const conversation = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { clientId: true, lastMessageAt: true },
+  });
 
   // 4. Import into DB (idempotent via igMessageId)
   let imported = 0;
@@ -131,7 +157,9 @@ export async function importIgConversationHistory(
     }
 
     const senderId = msg.from?.id ?? '';
-    const direction: 'in' | 'out' = senderId === ownIgUserId ? 'out' : 'in';
+    const direction: 'in' | 'out' = isOwnIgHistorySender(senderId, [ownIgUserId, pageId])
+      ? 'out'
+      : 'in';
     const sender =
       direction === 'out' ? (hasBotHistory ? 'bot' : 'manager') : 'client';
 
@@ -145,18 +173,30 @@ export async function importIgConversationHistory(
         text: msg.message.trim(),
         igMessageId: msg.id,
         createdAt: new Date(msg.created_time),
+        ...(direction === 'in' ? { claudeTurnId: SKIPPED_TURN_ID } : {}),
       },
     });
 
     imported++;
+
+    if (direction === 'in' && conversation?.clientId) {
+      persistHeuristicClientContact(conversation.clientId, msg.message.trim()).catch((err) => {
+        log.warn(
+          { err, conversationId },
+          'Heuristic contact persist from IG history failed (non-fatal)',
+        );
+      });
+    }
   }
 
   if (imported > 0 && sorted.length > 0) {
-    const newestTs = new Date(sorted[sorted.length - 1].created_time);
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: { lastMessageAt: newestTs },
-    });
+    const newestTs = new Date(sorted[sorted.length - 1]!.created_time);
+    if (!conversation?.lastMessageAt || newestTs > conversation.lastMessageAt) {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { lastMessageAt: newestTs },
+      });
+    }
     log.info(
       { conversationId, imported, skipped },
       'IG history import complete',
@@ -164,6 +204,37 @@ export async function importIgConversationHistory(
   }
 
   return { imported, skipped, total: igMessages.length, managerReplies };
+}
+
+/**
+ * First inbound we have ever stored for this Instagram user: pull the last
+ * ~20 Graph messages so the agent sees prior IG chat (before the bot).
+ */
+export async function importFirstContactIgHistory(
+  conversationId: string,
+  igScopedUserId: string,
+): Promise<ImportResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<ImportResult>((resolve) => {
+    timer = setTimeout(() => {
+      resolve({ imported: 0, skipped: 0, total: 0, managerReplies: 0, timedOut: true });
+    }, FIRST_CONTACT_IMPORT_TIMEOUT_MS);
+  });
+
+  try {
+    const result = await Promise.race([
+      importIgConversationHistory(conversationId, igScopedUserId, {
+        limit: FIRST_CONTACT_IG_HISTORY_LIMIT,
+      }),
+      timeout,
+    ]);
+    if (result.timedOut) {
+      log.warn({ conversationId, igScopedUserId }, 'First-contact IG history import timed out');
+    }
+    return result;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // ── Private helpers ──────────────────────────────────────────────────────────
@@ -201,11 +272,12 @@ async function findIgConversationId(
 async function fetchIgMessages(
   igConversationId: string,
   accessToken: string,
+  limit: number = MAX_IG_HISTORY_MESSAGES,
 ): Promise<IgApiMessage[]> {
   const messages: IgApiMessage[] = [];
-  let nextUrl: string | null = buildMessagesUrl(igConversationId);
+  let nextUrl: string | null = buildMessagesUrl(igConversationId, Math.min(50, limit));
 
-  while (nextUrl && messages.length < MAX_IMPORT_MESSAGES) {
+  while (nextUrl && messages.length < limit) {
     const stripped = new URL(nextUrl);
     stripped.searchParams.delete('access_token');
     const res = await fetch(stripped.toString(), {
@@ -225,12 +297,12 @@ async function fetchIgMessages(
     nextUrl = page.paging?.next ?? null;
   }
 
-  return messages.slice(0, MAX_IMPORT_MESSAGES);
+  return messages.slice(0, limit);
 }
 
-function buildMessagesUrl(igConversationId: string): string {
+function buildMessagesUrl(igConversationId: string, pageSize: number): string {
   const url = new URL(`${FB_GRAPH_BASE}/${igConversationId}/messages`);
   url.searchParams.set('fields', 'id,message,from,to,created_time');
-  url.searchParams.set('limit', '50');
+  url.searchParams.set('limit', String(pageSize));
   return url.toString();
 }

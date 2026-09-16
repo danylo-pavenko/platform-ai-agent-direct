@@ -5,6 +5,11 @@ import {
   type IgInboundKind,
   parseIgInboundContext,
 } from './ig-inbound-context.js';
+import {
+  isIgDetectedPhoneText,
+  isRedundantDetectedPhoneText,
+} from './ig-detected-phone.js';
+import { isSyntheticReactionText } from './ig-reaction-policy.js';
 
 export interface PendingInboundMessage {
   id: string;
@@ -33,6 +38,7 @@ const IG_CONTEXT_PRIORITY: Record<IgInboundKind, number> = {
   story_mention: 3,
   inline_reply: 2,
   reaction: 1,
+  detected_phone: 0,
 };
 
 /** Only bot-owned IG threads should show typing during coalesce wait. */
@@ -132,7 +138,7 @@ const COMPLETE_ACK_RE =
 
 const TIME_ONLY_RE = /^(?:о\s+|на\s+)?\d{1,2}[:.]\d{2}$/u;
 const DATE_ONLY_RE = /^\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?$/u;
-const PHONE_ONLY_RE = /^[\d\s+\-()]{9,16}$/u;
+const PHONE_ONLY_RE = /^(?:📞\s*)?[\d\s+\-()]{9,16}$/u;
 const PERSON_NAME_RE =
   /^[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+(?:\s+[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+){1,2}$/u;
 
@@ -147,7 +153,14 @@ export function looksLikePartialUtterance(text: string | null | undefined): bool
   if (!t) return true;
   if (COMPLETE_ACK_RE.test(t)) return false;
   if (/[?!]$/.test(t)) return false;
-  if (TIME_ONLY_RE.test(t) || DATE_ONLY_RE.test(t) || PHONE_ONLY_RE.test(t)) return true;
+  if (
+    TIME_ONLY_RE.test(t) ||
+    DATE_ONLY_RE.test(t) ||
+    PHONE_ONLY_RE.test(t) ||
+    isIgDetectedPhoneText(t)
+  ) {
+    return true;
+  }
   if (PERSON_NAME_RE.test(t) && t.length <= 60) return true;
   // Short fragment without sentence end — typical IG split typing.
   if (t.length <= 24 && !/[.!?…]$/.test(t) && !/\n/.test(t)) return true;
@@ -204,9 +217,14 @@ export function joinInboundBatch(messages: PendingInboundMessage[]): JoinedInbou
     .map((m) => m.igMessageId)
     .filter((id): id is string => typeof id === 'string' && id.length > 0);
 
-  const texts = messages
-    .map((m) => (m.text ?? '').trim())
-    .filter((t) => t.length > 0);
+  const texts: string[] = [];
+  for (const m of messages) {
+    const t = (m.text ?? '').trim();
+    if (!t) continue;
+    if (isSyntheticReactionText(t)) continue;
+    if (isRedundantDetectedPhoneText(t, texts)) continue;
+    texts.push(t);
+  }
 
   let text: string;
   if (texts.length <= 1) {

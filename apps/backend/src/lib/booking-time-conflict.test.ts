@@ -98,4 +98,13 @@ describe('isReactionOnlyInbound', () => {
       }),
     ).toBe(false);
   });
+
+  it('still skips when the webhook stored synthetic «Реакція» text', () => {
+    expect(
+      isReactionOnlyInbound({
+        messageText: 'Реакція ❤️',
+        igContext: { kind: 'reaction', reaction: { targetMid: 'x', action: 'react', reaction: 'love' } },
+      }),
+    ).toBe(true);
+  });
 });

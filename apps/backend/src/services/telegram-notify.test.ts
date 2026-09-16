@@ -23,7 +23,7 @@ vi.mock('../config.js', () => ({
 }));
 
 import { getBotWithToken } from '../lib/telegram.js';
-import { notifyOrder } from './telegram-notify.js';
+import { notifyHandoffFollowUp, notifyOrder } from './telegram-notify.js';
 
 describe('notifyOrder', () => {
   beforeEach(() => {
@@ -79,6 +79,29 @@ describe('notifyOrder', () => {
     expect(text).toContain('Агент оформив запис');
     expect(text).toContain('підтвердження');
     expect(text).not.toMatch(/доставк/i);
+    expect(options?.reply_markup).toBeUndefined();
+  });
+});
+
+describe('notifyHandoffFollowUp', () => {
+  beforeEach(() => {
+    sendMessage.mockClear();
+    vi.mocked(getBotWithToken).mockReturnValue({
+      api: { sendMessage },
+    } as never);
+  });
+
+  it('sends a short card without takeover buttons', async () => {
+    await notifyHandoffFollowUp({
+      conversationId: 'ffffffff-1111-2222-3333-444444444444',
+      clientIgUserId: '17841410659012767',
+      text: '📞 +380979931530',
+    });
+
+    expect(sendMessage).toHaveBeenCalledOnce();
+    const [, text, options] = sendMessage.mock.calls[0];
+    expect(text).toContain('під час ескалації');
+    expect(text).toContain('+380979931530');
     expect(options?.reply_markup).toBeUndefined();
   });
 });

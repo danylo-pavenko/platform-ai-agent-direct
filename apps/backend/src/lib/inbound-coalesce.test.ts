@@ -150,7 +150,45 @@ describe('joinInboundBatch', () => {
       }),
     ]);
     expect(batch.igContext?.kind).toBe('story_reply');
-    expect(batch.text).toContain('кілька повідомлень');
+    expect(batch.text).toBe('Хочу записатись');
+  });
+
+  it('drops a duplicate Instagram phone-card bubble from the joined user text', () => {
+    const batch = joinInboundBatch([
+      base({
+        id: 'a',
+        text: 'Каразія Світлана, 0979931530, нова пошта 1',
+        igMessageId: 'm1',
+      }),
+      base({
+        id: 'b',
+        text: '📞 +380979931530',
+        igContext: { kind: 'detected_phone', phone: '+380979931530' },
+        igMessageId: 'm2',
+      }),
+    ]);
+    expect(batch.text).toBe('Каразія Світлана, 0979931530, нова пошта 1');
+    expect(batch.igContext?.kind).toBe('detected_phone');
+  });
+
+  it('does not send likes into the Claude user text when mixed with a real bubble', () => {
+    const batch = joinInboundBatch([
+      base({
+        id: 'a',
+        text: 'і вам теж!',
+        igMessageId: 'm1',
+      }),
+      base({
+        id: 'b',
+        text: 'Реакція ❤️',
+        igContext: {
+          kind: 'reaction',
+          reaction: { targetMid: 'm0', action: 'react', reaction: 'love' },
+        },
+        igMessageId: 'm2',
+      }),
+    ]);
+    expect(batch.text).toBe('і вам теж!');
   });
 });
 
@@ -158,6 +196,7 @@ describe('looksLikePartialUtterance', () => {
   it('treats time, phone and ПІБ bubbles as fragments', () => {
     expect(looksLikePartialUtterance('10:00')).toBe(true);
     expect(looksLikePartialUtterance('0930152179')).toBe(true);
+    expect(looksLikePartialUtterance('📞 +380979931530')).toBe(true);
     expect(looksLikePartialUtterance('Тимофіїв Анжела')).toBe(true);
     expect(looksLikePartialUtterance('05.09.2026')).toBe(true);
     expect(looksLikePartialUtterance('')).toBe(true);

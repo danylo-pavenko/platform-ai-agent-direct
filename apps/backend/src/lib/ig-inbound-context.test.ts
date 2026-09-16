@@ -52,11 +52,20 @@ describe('enrichUserMessageWithIgContext', () => {
     expect(out).toContain('Де купити?');
   });
 
-  it('synthesizes text for empty reaction turns', () => {
-    const out = enrichUserMessageWithIgContext('', {
+  it('still skips when the webhook stored synthetic «Реакція» text', () => {
+    const out = enrichUserMessageWithIgContext('Реакція ❤️', {
       kind: 'reaction',
-      reaction: { targetMid: 'm1', action: 'react', reaction: 'like' },
+      reaction: { targetMid: 'm1', action: 'react', reaction: 'love' },
     });
     expect(out).toContain('реакцію');
+  });
+
+  it('labels Instagram auto-detected phone cards', () => {
+    const out = enrichUserMessageWithIgContext('📞 +380979931530', {
+      kind: 'detected_phone',
+      phone: '+380979931530',
+    });
+    expect(out).toContain('розпізнав номер');
+    expect(out).toContain('+380979931530');
   });
 });

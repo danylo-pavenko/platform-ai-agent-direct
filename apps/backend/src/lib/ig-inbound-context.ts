@@ -3,11 +3,14 @@
  * Stored on Message.igContext (JSONB) and injected into the Claude user turn.
  */
 
+import { isSyntheticReactionText } from './ig-reaction-policy.js';
+
 export type IgInboundKind =
   | 'story_reply'
   | 'story_mention'
   | 'inline_reply'
-  | 'reaction';
+  | 'reaction'
+  | 'detected_phone';
 
 export interface IgStoryRef {
   id?: string;
@@ -32,6 +35,8 @@ export interface IgInboundContext {
   /** Mid of the DM being replied to (inline reply, not story). */
   replyToMid?: string;
   reaction?: IgReactionData;
+  /** Normalised E.164 from Instagram's auto phone-number card. */
+  phone?: string;
   [key: string]: unknown;
 }
 
@@ -60,7 +65,8 @@ export function parseIgInboundContext(value: unknown): IgInboundContext | undefi
     kind !== 'story_reply' &&
     kind !== 'story_mention' &&
     kind !== 'inline_reply' &&
-    kind !== 'reaction'
+    kind !== 'reaction' &&
+    kind !== 'detected_phone'
   ) {
     return undefined;
   }
@@ -98,6 +104,16 @@ export function buildIgInboundContextHeader(ctx: IgInboundContext): string {
     ].join('\n');
   }
 
+  if (ctx.kind === 'detected_phone') {
+    const phone = typeof ctx.phone === 'string' && ctx.phone.trim() ? ctx.phone.trim() : '';
+    return [
+      '[Instagram автоматично розпізнав номер телефону клієнта]',
+      'Це окрема службова бульбашка Instagram (картка номера), а не новий набраний текст.',
+      phone ? `Номер: ${phone}` : 'Номер є в тексті повідомлення.',
+      'Збережи як контакт; не перепитуй той самий номер і не ігноруй як порожній вхід.',
+    ].join('\n');
+  }
+
   // reaction
   const emoji = reactionDisplay(ctx.reaction?.reaction, ctx.reaction?.emoji);
   const parts = [
@@ -126,6 +142,7 @@ export function enrichUserMessageWithIgContext(
   const trimmed = messageText.trim();
   if (!trimmed) {
     if (ctx.kind === 'reaction') return header;
+    if (ctx.kind === 'detected_phone') return header;
     if (ctx.kind === 'story_mention') {
       return `${header}\n\n(Клієнт надіслав згадку без додаткового тексту.)`;
     }
@@ -138,8 +155,8 @@ export function enrichUserMessageWithIgContext(
 }
 
 /**
- * Pure reaction (heart/like) with no caption/media — skip full Claude turn
- * to avoid 180s timeouts on ❤ after a booking confirmation.
+ * Pure reaction (heart/like) with no real caption/media — skip Claude.
+ * Webhook persists `Реакція ❤️` as synthetic text; that still counts as reaction-only.
  */
 export function isReactionOnlyInbound(opts: {
   messageText: string;
@@ -148,7 +165,8 @@ export function isReactionOnlyInbound(opts: {
   hasSharedPost?: boolean;
 }): boolean {
   if (opts.igContext?.kind !== 'reaction') return false;
-  if (opts.messageText.trim()) return false;
+  const t = opts.messageText.trim();
+  if (t && !isSyntheticReactionText(t)) return false;
   if (opts.hasVisualMedia) return false;
   if (opts.hasSharedPost) return false;
   return true;
