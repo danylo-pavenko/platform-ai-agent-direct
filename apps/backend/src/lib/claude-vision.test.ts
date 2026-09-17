@@ -3,6 +3,9 @@ import {
   buildClaudeVisionStdin,
   imageMimeFromPath,
   isClaudeVisionImagePath,
+  isClaudeVisionMediaPath,
+  isClaudeVisionPdfPath,
+  isPdfMagic,
 } from './claude-vision.js';
 
 describe('imageMimeFromPath', () => {
@@ -17,6 +20,13 @@ describe('imageMimeFromPath', () => {
     expect(imageMimeFromPath('/tmp/a.mp4')).toBeNull();
     expect(imageMimeFromPath('/tmp/a.bin')).toBeNull();
     expect(isClaudeVisionImagePath('/tmp/a.mp4')).toBe(false);
+  });
+
+  it('detects PDF paths and magic', () => {
+    expect(isClaudeVisionPdfPath('/tmp/a.pdf')).toBe(true);
+    expect(isClaudeVisionMediaPath('/tmp/a.pdf')).toBe(true);
+    expect(isPdfMagic(Buffer.from('%PDF-1.4\n'))).toBe(true);
+    expect(isPdfMagic(Buffer.from('not-pdf'))).toBe(false);
   });
 });
 
@@ -64,6 +74,25 @@ describe('buildClaudeVisionStdin', () => {
     expect(result.attachedImages).toEqual([]);
     expect(result.skippedPaths).toEqual(['/uploads/clip.mp4']);
     expect(result.stdin).toContain('не вдалося вкласти в vision');
+  });
+
+  it('embeds PDF as a document content block', async () => {
+    const bytes = Buffer.from('%PDF-1.4 fake');
+    const result = await buildClaudeVisionStdin('Check payment', ['/uploads/receipt.pdf'], {
+      readFileFn: async () => bytes,
+    });
+    expect(result.useStreamJsonInput).toBe(true);
+    const msg = JSON.parse(result.stdin.trim()) as {
+      message: { content: Array<Record<string, unknown>> };
+    };
+    expect(msg.message.content[1]).toEqual({
+      type: 'document',
+      source: {
+        type: 'base64',
+        media_type: 'application/pdf',
+        data: bytes.toString('base64'),
+      },
+    });
   });
 
   it('skips oversized images that would exceed stdin budget', async () => {

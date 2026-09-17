@@ -103,6 +103,8 @@ const envSchema = z.object({
   CLAUDE_TIMEOUT_MS: z.coerce.number().default(120000),
   // Voice notes: STT already consumed wall time; allow a longer Claude window.
   CLAUDE_VOICE_TIMEOUT_MS: z.coerce.number().default(90000),
+  // Receipts / product screenshots: CLI vision + large catalog often exceed 60s.
+  CLAUDE_VISION_TIMEOUT_MS: z.coerce.number().default(180000),
   // Admin-facing channels (meta_agent, sandbox, supervisor) work with much
   // larger inputs (full system prompt, diagnostic snapshots) and expect
   // structured multi-section output. The 30s customer timeout is too tight

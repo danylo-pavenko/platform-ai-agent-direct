@@ -32,13 +32,16 @@ export type FallbackMessages = {
 };
 
 /**
- * Admin-only note persisted when a retry would re-send the same canned fallback.
- * Not sent to the customer; still counts as a non-real bot attempt for retry/handoff.
+ * Admin-only note when a retry would re-send the same canned fallback.
+ * Persist as sender=system — never Instagram, never a customer-facing bot bubble.
  */
 export const AGENT_FALLBACK_RETRY_NOTE =
-  '[agent_retry] Claude ще недоступний — клієнту вже надіслано очікування менеджера.';
+  'Повторна спроба агента: Claude ще недоступний. Клієнту вже надіслано очікування менеджера — цей текст лише для адмінки.';
 
+/** Legacy rows used this prefix on sender=bot. Still recognized. */
 export const AGENT_FALLBACK_RETRY_PREFIX = '[agent_retry]';
+
+export const AGENT_FALLBACK_RETRY_NOTE_PREFIX = 'Повторна спроба агента:';
 
 const DEFAULT_FALLBACK_TEXTS = new Set([
   CUSTOMER_FALLBACK_BUSY,
@@ -53,7 +56,11 @@ export const AGENT_FALLBACK_MAX_BEFORE_HANDOFF = 5;
 export type CustomerFallbackReason = 'busy' | 'timeout';
 
 export function isSuppressedFallbackRetryNote(text: string): boolean {
-  return text.trim().startsWith(AGENT_FALLBACK_RETRY_PREFIX);
+  const t = text.trim();
+  return (
+    t.startsWith(AGENT_FALLBACK_RETRY_PREFIX) ||
+    t.startsWith(AGENT_FALLBACK_RETRY_NOTE_PREFIX)
+  );
 }
 
 /** All known customer-visible fallback strings (defaults + optional config). */

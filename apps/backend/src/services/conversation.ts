@@ -18,6 +18,7 @@ import {
   getPromptRuntimeGeneration,
 } from './prompt-runtime.js';
 import { resolveVisualMediaPathsForClaude } from './media.js';
+import { prepareVisionMediaForClaude, VISION_MEDIA_HINT } from './vision-prepare.js';
 import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
@@ -52,6 +53,11 @@ import {
 } from '../lib/follow-up-schedule.js';
 import { handleCollectOrder, handleCreateLocalOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
+import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
+import {
+  withCompleteOrderPaymentNote,
+  type ManagerForcedClaudeAction,
+} from '../lib/manager-chat-actions.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
 import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
@@ -115,13 +121,14 @@ import {
   formatBotFailureDetail,
   isAgentFallbackReply,
   isCustomerVisibleFallbackReply,
+  isSuppressedFallbackRetryNote,
   normalizeClientLanguage,
   resolveCustomerFallback,
   shouldHandoffAfterAgentFallback,
   shouldSuppressDuplicateCustomerFallback,
   type BotFailureCode,
 } from '../lib/agent-fallback.js';
-import { isClaudeVisionImagePath } from '../lib/claude-vision.js';
+import { isClaudeVisionMediaPath } from '../lib/claude-vision.js';
 import {
   extractVisionInterpretation,
   formatVisionDebugNote,
@@ -137,7 +144,7 @@ const MAX_HISTORY_MESSAGES = 30;
 const CUSTOMER_CHANNELS = new Set(['ig', 'tg']);
 
 /** Outcome of one Claude turn — drives inbound claim keep / skip / release. */
-export type BotTurnOutcome = 'completed' | 'skipped' | 'released' | 'deferred';
+export type BotTurnOutcome = 'completed' | 'skipped' | 'released' | 'deferred' | 'failed';
 
 // ---------------------------------------------------------------------------
 // Handoff helper
@@ -329,6 +336,38 @@ export async function drainPendingInboundTurns(conversationId: string): Promise<
   }
 }
 
+/**
+ * Admin Conversation Detail buttons: one Claude turn even in handoff/paused.
+ * Caller must not also drain pending inbound for the same click.
+ */
+export async function runForcedManagerBotTurn(
+  conversationId: string,
+  action: ManagerForcedClaudeAction,
+  batch: {
+    text: string;
+    mediaUrls?: string[];
+    mediaAttachments?: StoredMediaAttachment[];
+    sharedPost?: SharedPostData;
+    igContext?: IgInboundContext;
+    igMessageIds?: string[];
+  },
+): Promise<BotTurnOutcome> {
+  const turnId = newClaudeTurnId();
+  return runConversationTurnSerialized(conversationId, () =>
+    handleIncomingMessageImpl(
+      conversationId,
+      batch.text,
+      batch.mediaUrls,
+      batch.sharedPost,
+      batch.mediaAttachments,
+      batch.igMessageIds,
+      batch.igContext,
+      turnId,
+      { skipResponseDelay: true, managerAction: action },
+    ),
+  );
+}
+
 async function handleIncomingMessageImpl(
   conversationId: string,
   messageText: string,
@@ -338,7 +377,7 @@ async function handleIncomingMessageImpl(
   sourceIgMessageIds?: string[],
   igContext?: IgInboundContext,
   turnId?: string,
-  opts?: { skipResponseDelay?: boolean },
+  opts?: { skipResponseDelay?: boolean; managerAction?: ManagerForcedClaudeAction },
 ): Promise<BotTurnOutcome> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
@@ -382,6 +421,7 @@ async function handleIncomingMessageImpl(
   }
 
   if (
+    !opts?.managerAction &&
     isReactionOnlyInbound({
       messageText,
       igContext,
@@ -462,7 +502,7 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
-  if (conversation.state === 'handoff') {
+  if (conversation.state === 'handoff' && !opts?.managerAction) {
     const returnedToBot = await autoReturnHandoffToBotIfExpired(conversation);
     if (returnedToBot) {
       const refreshed = await prisma.conversation.findUnique({
@@ -517,7 +557,12 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 3. Closed / paused - ignore ──────────────────────────────────
-  if (conversation.state === 'closed' || conversation.state === 'paused') {
+  if (conversation.state === 'closed') {
+    log.debug({ conversationId, state: conversation.state }, 'Conversation closed, ignoring');
+    await clearTypingOnSkip();
+    return 'skipped';
+  }
+  if (conversation.state === 'paused' && !opts?.managerAction) {
     log.debug(
       { conversationId, state: conversation.state },
       'Conversation closed or paused, ignoring',
@@ -528,7 +573,7 @@ async function handleIncomingMessageImpl(
 
   // ── 3.5 Tenant-wide bot ignore list ───────────────────────────────
   const runtime = await getRuntimeConfig();
-  if (isUsernameBotIgnored(runtime, client.igUsername)) {
+  if (!opts?.managerAction && isUsernameBotIgnored(runtime, client.igUsername)) {
     log.info(
       { conversationId, igUsername: client.igUsername },
       'Username on bot ignore list — skipping bot response',
@@ -733,10 +778,12 @@ async function handleIncomingMessageImpl(
     );
   }
 
-  // ── 7. Resolve visual media for Claude (images/video only — not audio) ──
+  // ── 7. Resolve visual media for Claude (images/PDF; video skipped later) ──
   const visualKeys = visualStorageKeys(mediaAttachments, mediaUrls);
-  const localPaths =
+  const rawVisualPaths =
     visualKeys.length > 0 ? await resolveVisualMediaPathsForClaude(visualKeys) : [];
+  const localPaths =
+    rawVisualPaths.length > 0 ? await prepareVisionMediaForClaude(rawVisualPaths) : [];
 
   // ── 7b. Shared post - product availability lookup ─────────────────
   // When a user forwards an IG post, we search KeyCRM for matching active
@@ -816,9 +863,8 @@ async function handleIncomingMessageImpl(
       'Message enriched with shared post context',
     );
   } else if (!igContextHeader && !messageText.trim() && localPaths.length > 0) {
-    // Image/video without caption — guide Claude to read product screenshots.
     enrichedMessageText =
-      '[Клієнт надіслав зображення без тексту. Якщо це скрін/фото товару — прочитай назву, ціну, розмір/колір і допоможи оформити замовлення. Якщо відео не вклалось у vision — попроси фото або посилання.]';
+      `[Клієнт надіслав зображення або PDF без тексту.]\n${VISION_MEDIA_HINT}`;
   } else if (!igContextHeader && !messageText.trim() && localPaths.length === 0) {
     const audioItems = (mediaAttachments ?? []).filter((a) => a.kind === 'audio');
     const hasTranscript = audioItems.some((a) => a.transcript?.trim());
@@ -830,15 +876,41 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  if (
+    localPaths.some(isClaudeVisionMediaPath) &&
+    !enrichedMessageText.includes(VISION_MEDIA_HINT)
+  ) {
+    enrichedMessageText = `${enrichedMessageText.trim()}\n\n${VISION_MEDIA_HINT}`.trim();
+  }
+
   // ── 8. Call Claude ────────────────────────────────────────────────
   const hasVoiceTranscript = (mediaAttachments ?? []).some(
     (a) => a.kind === 'audio' && a.sttStatus === 'ok' && !!a.transcript?.trim(),
   );
-  const claudeTimeoutMs = hasVoiceTranscript
-    ? config.CLAUDE_VOICE_TIMEOUT_MS
-    : undefined;
+  const hasVisionMedia = localPaths.some(isClaudeVisionMediaPath);
+  const claudeTimeoutMs = opts?.managerAction
+    ? Math.max(
+        config.CLAUDE_TIMEOUT_MS,
+        config.CLAUDE_ADMIN_TIMEOUT_MS,
+        hasVisionMedia ? config.CLAUDE_VISION_TIMEOUT_MS : 0,
+      )
+    : hasVisionMedia
+      ? Math.max(config.CLAUDE_TIMEOUT_MS, config.CLAUDE_VISION_TIMEOUT_MS)
+      : hasVoiceTranscript
+        ? config.CLAUDE_VOICE_TIMEOUT_MS
+        : undefined;
 
-  if (hasVoiceTranscript) {
+  if (opts?.managerAction) {
+    log.info(
+      { conversationId, timeoutMs: claudeTimeoutMs, managerAction: opts.managerAction, hasVisionMedia },
+      'Manager chat action — using extended Claude timeout',
+    );
+  } else if (hasVisionMedia) {
+    log.info(
+      { conversationId, timeoutMs: claudeTimeoutMs, imageCount: localPaths.length },
+      'Vision turn — using extended Claude timeout',
+    );
+  } else if (hasVoiceTranscript) {
     log.info(
       { conversationId, timeoutMs: claudeTimeoutMs },
       'Voice turn — using extended Claude timeout',
@@ -1022,6 +1094,7 @@ async function handleIncomingMessageImpl(
         clientMessage: stripMarkdownForInstagram(response.text),
         turnStartedAt,
         turnDebug: debug,
+        managerAction: opts?.managerAction,
       })
     ) {
       return 'completed';
@@ -1113,6 +1186,7 @@ async function handleIncomingMessageImpl(
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
             turnDebug: debug,
+        managerAction: opts?.managerAction,
           })
         ) {
           return 'completed';
@@ -1169,6 +1243,7 @@ async function handleIncomingMessageImpl(
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
             turnDebug: debug,
+        managerAction: opts?.managerAction,
           })
         ) {
           return 'completed';
@@ -1225,6 +1300,7 @@ async function handleIncomingMessageImpl(
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
             turnDebug: debug,
+        managerAction: opts?.managerAction,
           })
         ) {
           return 'completed';
@@ -1282,6 +1358,7 @@ async function handleIncomingMessageImpl(
             clientMessage: stripMarkdownForInstagram(followAssistant),
             turnStartedAt,
             turnDebug: debug,
+        managerAction: opts?.managerAction,
           })
         ) {
           return 'completed';
@@ -1420,6 +1497,7 @@ async function handleIncomingMessageImpl(
             clientMessage: stripMarkdownForInstagram(response2.text),
             turnStartedAt,
             turnDebug: debug,
+        managerAction: opts?.managerAction,
           })
         ) {
           return 'completed';
@@ -1486,6 +1564,7 @@ async function handleIncomingMessageImpl(
           clientMessage: stripMarkdownForInstagram(recovery.text),
           turnStartedAt,
           turnDebug: debug,
+        managerAction: opts?.managerAction,
         })
       ) {
         return 'completed';
@@ -1660,6 +1739,7 @@ async function handleIncomingMessageImpl(
           clientMessage: stripMarkdownForInstagram(recovery.text),
           turnStartedAt,
           turnDebug: debug,
+        managerAction: opts?.managerAction,
         })
       ) {
         return 'completed';
@@ -1725,6 +1805,7 @@ async function handleIncomingMessageImpl(
               clientMessage: stripMarkdownForInstagram(afterSearch.text),
               turnStartedAt,
               turnDebug: debug,
+        managerAction: opts?.managerAction,
             })
           ) {
             return 'completed';
@@ -1817,6 +1898,7 @@ async function handleIncomingMessageImpl(
               clientMessage: stripMarkdownForInstagram(afterSearch.text),
               turnStartedAt,
               turnDebug: debug,
+        managerAction: opts?.managerAction,
             })
           ) {
             return 'completed';
@@ -1908,6 +1990,7 @@ async function handleIncomingMessageImpl(
           clientMessage: stripMarkdownForInstagram(recovery.text),
           turnStartedAt,
           turnDebug: debug,
+        managerAction: opts?.managerAction,
         })
       ) {
         return 'completed';
@@ -2011,6 +2094,7 @@ async function handleIncomingMessageImpl(
           clientMessage: stripMarkdownForInstagram(recovery.text),
           turnStartedAt,
           turnDebug: debug,
+        managerAction: opts?.managerAction,
         })
       ) {
         return 'completed';
@@ -2084,12 +2168,16 @@ async function handleIncomingMessageImpl(
     );
   }
 
-  if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
+  if (
+    !(await isBotTurnStillValid(conversationId, turnStartedAt, {
+      allowNonBotState: Boolean(opts?.managerAction),
+    }))
+  ) {
     log.info({ conversationId }, 'Bot outbound aborted — manager took over during turn');
     return 'skipped';
   }
 
-  if (turnId) {
+  if (turnId && !opts?.managerAction) {
     const lateInbound = await loadPendingInbound(conversationId);
     if (lateInbound.length > 0) {
       log.info(
@@ -2108,6 +2196,7 @@ async function handleIncomingMessageImpl(
   // After several consecutive agent fallbacks, escalate to a live manager.
   if (
     agentFallback &&
+    !opts?.managerAction &&
     CUSTOMER_CHANNELS.has(conversation.channel)
   ) {
     const priorFallbacks = await countConsecutiveBotFallbacks(conversationId);
@@ -2169,12 +2258,19 @@ async function handleIncomingMessageImpl(
   if (modeHasSalesTools(agentCfg.mode) && client.igUserId) {
     const parsedSummary = parseOrderSummaryFromText(clientFacingText);
     if (parsedSummary) {
+      const orderArgs =
+        opts?.managerAction === 'complete_order'
+          ? withCompleteOrderPaymentNote({ ...parsedSummary } as Record<string, unknown>)
+          : ({ ...parsedSummary } as Record<string, unknown>);
       const orderId = await handleCollectOrder(
         conversationId,
         client.id,
         client.igUserId,
-        { ...parsedSummary } as Record<string, unknown>,
-        { skipClientMessage: true },
+        orderArgs,
+        {
+          skipClientMessage: true,
+          allowWhenNotBot: opts?.managerAction === 'complete_order',
+        },
       );
       if (orderId) {
         log.info({ conversationId, orderId }, 'Order created from bot confirmation summary (fallback)');
@@ -2258,6 +2354,39 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  if (
+    opts?.managerAction &&
+    botFailureCode &&
+    isCustomerVisibleFallbackReply(clientFacingText, agentCfg.fallbackMessages)
+  ) {
+    suppressCustomerSend = true;
+    await igTyping.end();
+    const actionLabel =
+      opts.managerAction === 'complete_order' ? 'Оформити замовлення' : 'Відповісти по суті';
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text:
+          `Чому бот не зміг відповісти\n` +
+          `Менеджер натиснув «${actionLabel}», але Claude не завершив відповідь` +
+          `${agentFallback ? ` (${agentFallback})` : ''}. ` +
+          `Клієнту fallback не надсилали.`,
+      },
+    });
+    log.warn(
+      {
+        event: 'manager_action_fallback_suppressed',
+        conversationId,
+        managerAction: opts.managerAction,
+        botFailureCode,
+        errorDetail: agentErrorDetail ?? null,
+      },
+      'Manager chat action failed — not sending canned fallback to client',
+    );
+  }
+
   if (!suppressCustomerSend) {
     if (outputValidationFailure) {
       log.warn(
@@ -2295,22 +2424,44 @@ async function handleIncomingMessageImpl(
     }
   }
 
-  // ── 12. Persist bot message (same text as sent to IG — or admin retry note) ──
-  await prisma.message.create({
-    data: {
-      conversationId,
-      direction: 'out',
-      sender: 'bot',
-      text: clientFacingText,
-      botFailureCode,
-      botFailureDetail,
-    },
-  });
-  markFirstOutboundAt(conversationId).catch((err) =>
-    log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
-  );
+  // ── 12. Persist: customer bot bubble, or admin-only system note ──
+  const persistAdminRetryNote =
+    suppressCustomerSend && isSuppressedFallbackRetryNote(clientFacingText);
+  const skipCustomerBotPersist = persistAdminRetryNote || Boolean(opts?.managerAction && suppressCustomerSend);
 
-  if (botFailureCode && botFailureDetail && CUSTOMER_CHANNELS.has(conversation.channel)) {
+  if (!skipCustomerBotPersist) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'out',
+        sender: 'bot',
+        text: clientFacingText,
+        botFailureCode,
+        botFailureDetail,
+      },
+    });
+    markFirstOutboundAt(conversationId).catch((err) =>
+      log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
+    );
+  } else if (persistAdminRetryNote) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text: AGENT_FALLBACK_RETRY_NOTE,
+        botFailureCode,
+        botFailureDetail,
+      },
+    });
+  }
+
+  if (
+    !skipCustomerBotPersist &&
+    botFailureCode &&
+    botFailureDetail &&
+    CUSTOMER_CHANNELS.has(conversation.channel)
+  ) {
     notifyAgentFailure({
       conversationId,
       clientIgUserId: client.igUserId,
@@ -2322,7 +2473,10 @@ async function handleIncomingMessageImpl(
     }).catch((err) =>
       log.warn({ err, conversationId }, 'notifyAgentFailure failed (non-fatal)'),
     );
-  } else if (!isAgentFallbackReply(clientFacingText, agentCfg.fallbackMessages)) {
+  } else if (
+    !skipCustomerBotPersist &&
+    !isAgentFallbackReply(clientFacingText, agentCfg.fallbackMessages)
+  ) {
     // Schedule silence remarketing — Claude runs only when runAt is due.
     scheduleFollowUpAfterBotOutboundSafe(conversationId);
   }
@@ -2344,10 +2498,16 @@ async function handleIncomingMessageImpl(
   }
 
   log.info(
-    { conversationId, responseLength: clientFacingText.length },
-    'Bot response sent and persisted',
+    {
+      conversationId,
+      responseLength: clientFacingText.length,
+      suppressCustomerSend,
+      skipCustomerBotPersist,
+      managerAction: opts?.managerAction ?? null,
+    },
+    'Bot response persisted',
   );
-  return 'completed';
+  return opts?.managerAction && skipCustomerBotPersist ? 'failed' : 'completed';
   } finally {
     const debugSnapshot = turnDebug;
     if (debugSnapshot && shouldPersistAgentTurnDebug(debugSnapshot)) {
@@ -2416,7 +2576,7 @@ async function persistVisionDebugNote(params: {
   } = params;
   let { catalogDebug } = params;
 
-  const imagePaths = localPaths.filter(isClaudeVisionImagePath);
+  const imagePaths = localPaths.filter(isClaudeVisionMediaPath);
   const imageCount = imagePaths.length > 0 ? imagePaths.length : localPaths.length;
   const skippedNonImageCount = localPaths.length - imagePaths.length;
 
@@ -2493,6 +2653,7 @@ type TerminalToolContext = {
   clientMessage?: string;
   turnStartedAt: Date;
   turnDebug?: AgentTurnDebugCollector | null;
+  managerAction?: ManagerForcedClaudeAction;
 };
 
 /** Profile / intent writes — await phone+CRM link so same-turn slots/history see crmBuyerId. */
@@ -2594,30 +2755,49 @@ async function tryTerminalToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
   ctx: TerminalToolContext,
 ): Promise<boolean> {
-  const { conversationId, client, agentMode, turnStartedAt, turnDebug } = ctx;
+  const { conversationId, client, agentMode, turnStartedAt, turnDebug, managerAction } = ctx;
 
-  if (!(await isBotTurnStillValid(conversationId, turnStartedAt))) {
+  if (
+    !(await isBotTurnStillValid(conversationId, turnStartedAt, {
+      allowNonBotState: Boolean(managerAction),
+    }))
+  ) {
     log.info({ conversationId }, 'Terminal tool calls skipped — manager took over');
     return true;
   }
 
   const handoff = toolCalls.find((tc) => tc.name === 'request_handoff');
   if (handoff) {
-    if (turnDebug) {
-      recordTurnTool(turnDebug, 'request_handoff', handoff.args, '[request_handoff] handled');
-    }
-    const reason =
-      typeof handoff.args.reason === 'string'
-        ? handoff.args.reason
-        : 'Клієнт потребує менеджера';
+    if (managerAction) {
+      if (turnDebug) {
+        recordTurnTool(
+          turnDebug,
+          'request_handoff',
+          handoff.args,
+          '[request_handoff] ignored — manager chat action',
+        );
+      }
+    } else {
+      if (turnDebug) {
+        recordTurnTool(turnDebug, 'request_handoff', handoff.args, '[request_handoff] handled');
+      }
+      const reason =
+        typeof handoff.args.reason === 'string'
+          ? handoff.args.reason
+          : 'Клієнт потребує менеджера';
 
-    await performManagerHandoff({
-      conversationId,
-      client,
-      reason,
-      turnStartedAt,
-    });
-    return true;
+      await performManagerHandoff({
+        conversationId,
+        client,
+        reason,
+        turnStartedAt,
+      });
+      return true;
+    }
+  }
+
+  if (managerAction === 'analyze_reply') {
+    return false;
   }
 
   const createLocal = toolCalls.find((tc) => tc.name === 'create_local_order');
@@ -2625,11 +2805,15 @@ async function tryTerminalToolCalls(
     if (turnDebug) {
       recordTurnTool(turnDebug, 'create_local_order', createLocal.args, '[create_local_order] …');
     }
+    const orderArgs =
+      managerAction === 'complete_order'
+        ? withCompleteOrderPaymentNote(createLocal.args)
+        : createLocal.args;
     const orderId = await handleCreateLocalOrder(
       conversationId,
       client.id,
       client.igUserId,
-      createLocal.args,
+      orderArgs,
       {
         clientMessage: ctx.clientMessage,
         clientDisplayName: client.displayName,
@@ -2657,8 +2841,13 @@ async function tryTerminalToolCalls(
       conversationId,
       client.id,
       client.igUserId,
-      collectOrder.args,
-      { clientMessage: ctx.clientMessage },
+      managerAction === 'complete_order'
+        ? withCompleteOrderPaymentNote(collectOrder.args)
+        : collectOrder.args,
+      {
+        clientMessage: ctx.clientMessage,
+        allowWhenNotBot: managerAction === 'complete_order',
+      },
     );
     if (orderId) {
       if (turnDebug) {

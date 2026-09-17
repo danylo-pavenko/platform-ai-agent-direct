@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs';
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, rename, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve, relative, normalize, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -13,6 +13,7 @@ import {
   type MediaKind,
   type StoredMediaAttachment,
 } from '../lib/media-attachments.js';
+import { isPdfMagic } from '../lib/claude-vision.js';
 
 const log = pino({ name: 'media' });
 
@@ -21,6 +22,7 @@ const CONTENT_TYPE_TO_EXT: Record<string, string> = {
   'image/png': '.png',
   'image/gif': '.gif',
   'image/webp': '.webp',
+  'application/pdf': '.pdf',
   'video/mp4': '.mp4',
   'video/quicktime': '.mov',
   'audio/mp4': '.m4a',
@@ -51,6 +53,7 @@ export const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
   '.gif': 'image/gif',
   '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
   '.mp4': 'video/mp4',
   '.mov': 'video/quicktime',
   '.m4a': 'audio/mp4',
@@ -163,10 +166,22 @@ export async function downloadMedia(
     const writable = createWriteStream(filePath);
     await pipeline(readable, writable);
 
-    const fileStat = await stat(filePath);
-    const storageKey = toStorageKey(filePath);
+    let finalPath = filePath;
+    let finalExt = ext;
+    if (ext !== '.pdf') {
+      const head = (await readFile(filePath)).subarray(0, 8);
+      if (isPdfMagic(head)) {
+        const pdfPath = filePath.replace(/\.[^.]+$/, '.pdf');
+        await rename(filePath, pdfPath);
+        finalPath = pdfPath;
+        finalExt = '.pdf';
+      }
+    }
+
+    const fileStat = await stat(finalPath);
+    const storageKey = toStorageKey(finalPath);
     log.info(
-      { storageKey, size: fileStat.size, contentType, ext, igType, kind },
+      { storageKey, size: fileStat.size, contentType, ext: finalExt, igType, kind },
       `Media downloaded: ${fileStat.size} bytes`,
     );
 

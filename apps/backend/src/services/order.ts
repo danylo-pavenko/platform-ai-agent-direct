@@ -44,6 +44,8 @@ export interface CollectOrderOptions {
   clientMessage?: string;
   /** Create the order but do not send an IG message (caller sends the summary). */
   skipClientMessage?: boolean;
+  /** Admin «Оформити замовлення» may run while the thread is in handoff. */
+  allowWhenNotBot?: boolean;
 }
 
 export interface CreateLocalOrderOptions {
@@ -74,7 +76,7 @@ export async function handleCollectOrder(
     where: { id: conversationId },
     select: { state: true },
   });
-  if (conversation?.state !== 'bot') {
+  if (conversation?.state !== 'bot' && !options?.allowWhenNotBot) {
     log.info(
       { conversationId, state: conversation?.state ?? null },
       'collect_order skipped — conversation not in bot mode (manager may have taken over)',

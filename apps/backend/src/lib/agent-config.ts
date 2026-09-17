@@ -19,11 +19,13 @@
  *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
  *     timezone: 'Europe/Kyiv',         // salon calendar / working hours / CRM day bounds
  *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
+ *     paymentRequisites: string, // IBAN / card text for the admin chat button
  *   }
  */
 import { config } from '../config.js';
 import { prisma } from './prisma.js';
 import { DEFAULT_TENANT_TIMEZONE, normalizeTenantTimezone } from './tenant-timezone.js';
+import { normalizePaymentRequisites } from './manager-chat-actions.js';
 import type { AgentMode } from './tool-definitions.js';
 import { isAgentMode } from './tool-definitions.js';
 import {
@@ -72,6 +74,8 @@ export interface AgentConfig {
   timezone: string;
   /** Canned customer replies when Claude is busy / times out (per language). */
   fallbackMessages: FallbackMessages;
+  /** IBAN / card copy sent from admin Conversation Detail. Empty = button returns 400. */
+  paymentRequisites: string;
 }
 
 function envClaudeModelFallback(): ClaudeModelId {
@@ -106,6 +110,7 @@ const DEFAULTS: AgentConfig = {
   claudeModel: 'sonnet',
   timezone: DEFAULT_TENANT_TIMEZONE,
   fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
+  paymentRequisites: '',
 };
 
 let _cache: AgentConfig | null = null;
@@ -227,6 +232,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     claudeModel: normalizeClaudeReplyModel(raw.claudeModel, envFallback),
     timezone: normalizeTenantTimezone(raw.timezone, DEFAULTS.timezone),
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
+    paymentRequisites: normalizePaymentRequisites(raw.paymentRequisites),
   };
   _cacheAt = Date.now();
   return _cache;

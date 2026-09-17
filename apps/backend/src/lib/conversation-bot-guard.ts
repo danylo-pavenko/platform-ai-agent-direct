@@ -8,6 +8,7 @@ import { prisma } from './prisma.js';
 export async function isBotTurnStillValid(
   conversationId: string,
   turnStartedAt: Date,
+  opts?: { allowNonBotState?: boolean },
 ): Promise<boolean> {
   const [conversation, managerIntervention] = await Promise.all([
     prisma.conversation.findUnique({
@@ -24,7 +25,8 @@ export async function isBotTurnStillValid(
     }),
   ]);
 
-  if (!conversation || conversation.state !== 'bot') return false;
+  if (!conversation || conversation.state === 'closed') return false;
+  if (!opts?.allowNonBotState && conversation.state !== 'bot') return false;
   if (managerIntervention) return false;
   return true;
 }

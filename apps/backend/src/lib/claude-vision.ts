@@ -10,6 +10,8 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
+const PDF_EXT = '.pdf';
+
 /** Leave headroom under Claude Code CLI stdin cap (~10MB as of v2.1.128). */
 export const MAX_VISION_STDIN_BYTES = 8 * 1024 * 1024;
 
@@ -22,11 +24,28 @@ export function isClaudeVisionImagePath(filePath: string): boolean {
   return imageMimeFromPath(filePath) !== null;
 }
 
+export function isClaudeVisionPdfPath(filePath: string): boolean {
+  return extname(filePath).toLowerCase() === PDF_EXT;
+}
+
+/** Image or PDF — anything we embed in the vision stdin payload. */
+export function isClaudeVisionMediaPath(filePath: string): boolean {
+  return isClaudeVisionImagePath(filePath) || isClaudeVisionPdfPath(filePath);
+}
+
+export function isPdfMagic(buf: Buffer): boolean {
+  return buf.length >= 4 && buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46;
+}
+
 export type ClaudeVisionContentBlock =
   | { type: 'text'; text: string }
   | {
       type: 'image';
       source: { type: 'base64'; media_type: string; data: string };
+    }
+  | {
+      type: 'document';
+      source: { type: 'base64'; media_type: 'application/pdf'; data: string };
     };
 
 export interface ClaudeVisionStdin {
@@ -73,7 +92,8 @@ export async function buildClaudeVisionStdin(
 
   for (const filePath of paths) {
     const mediaType = imageMimeFromPath(filePath);
-    if (!mediaType) {
+    const asPdf = isClaudeVisionPdfPath(filePath);
+    if (!mediaType && !asPdf) {
       skippedPaths.push(filePath);
       continue;
     }
@@ -86,14 +106,25 @@ export async function buildClaudeVisionStdin(
         skippedPaths.push(filePath);
         continue;
       }
-      content.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: mediaType,
-          data: buf.toString('base64'),
-        },
-      });
+      if (asPdf) {
+        content.push({
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: buf.toString('base64'),
+          },
+        });
+      } else {
+        content.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mediaType!,
+            data: buf.toString('base64'),
+          },
+        });
+      }
       attachedImages.push(filePath);
       approxBytes += encodedBytes;
     } catch {
@@ -104,7 +135,7 @@ export async function buildClaudeVisionStdin(
   if (attachedImages.length === 0) {
     const note =
       skippedPaths.length > 0
-        ? '\n\n[Клієнт надіслав медіафайл, але його не вдалося вкласти в vision (відео / зайвий розмір / помилка читання). Попросити чітке фото товару або назву з сайту.]'
+        ? '\n\n[Клієнт надіслав медіафайл, але його не вдалося вкласти в vision (відео / зайвий розмір / PDF не пройшов ліміт / помилка читання). Попросити чітке фото товару, скрін квитанції або назву з сайту.]'
         : '';
     return {
       useStreamJsonInput: false,
@@ -117,7 +148,7 @@ export async function buildClaudeVisionStdin(
   let text = promptText;
   if (skippedPaths.length > 0) {
     text +=
-      '\n\n[Частину вкладень пропущено (відео або завеликий файл). Аналізуй зображення нижче.]';
+      '\n\n[Частину вкладень пропущено (відео або завеликий файл). Аналізуй зображення/PDF нижче.]';
     content[0] = { type: 'text', text };
   }
 

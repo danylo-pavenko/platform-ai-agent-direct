@@ -34,6 +34,22 @@ describe('isBotTurnStillValid', () => {
     await expect(isBotTurnStillValid('conv-1', turnStartedAt)).resolves.toBe(false);
   });
 
+  it('allows handoff when manager forced a chat action', async () => {
+    findUnique.mockResolvedValue({ state: 'handoff' });
+    findFirst.mockResolvedValue(null);
+    await expect(
+      isBotTurnStillValid('conv-1', turnStartedAt, { allowNonBotState: true }),
+    ).resolves.toBe(true);
+  });
+
+  it('still blocks closed conversations even when forced', async () => {
+    findUnique.mockResolvedValue({ state: 'closed' });
+    findFirst.mockResolvedValue(null);
+    await expect(
+      isBotTurnStillValid('conv-1', turnStartedAt, { allowNonBotState: true }),
+    ).resolves.toBe(false);
+  });
+
   it('blocks when manager replied during the turn', async () => {
     findUnique.mockResolvedValue({ state: 'bot' });
     findFirst.mockResolvedValue({ id: 'msg-1' });

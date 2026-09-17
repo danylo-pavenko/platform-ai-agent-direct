@@ -25,7 +25,7 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 
 | Nav | Purpose |
 |-----|---------|
-| AI-помічник (`/insights`) | Metrics + config + platform capabilities (read-only) |
+| AI-помічник (`/insights`) | Metrics + config + platform capabilities + **ops tools** (conversation load, confirm-gated order/client writes) |
 | Навчання агента (`/teach`) | Prompt editor (diffs) |
 | Тестування (`/sandbox`) | Customer simulation |
 

@@ -141,11 +141,15 @@ Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). Details: `doc
 
 | UI (nav) | Route | Channel | Role |
 |----------|-------|---------|------|
-| **AI-помічник** | `/insights` | `insights` | Read-only ops: metrics, dialogs samples, CRM/integration health, **platform capabilities** (modes/tools/CRM), config advice. No writes, no Telegram/CRM mutations. |
+| **AI-помічник** | `/insights` | `insights` | Ops assistant: metrics snapshot + **host tools** (get/search conversation, client R/W, propose→confirm product order + CRM mirror, CRM write status / retry). Owner-only. Writes require `confirm: true` after explicit owner confirmation; **never** sends IG to the customer. |
 | **Навчання агента** | `/teach` | `meta_agent` | Edits system prompt via diffs; gets `<platform_capabilities>`. |
 | **Тестування агента** | `/sandbox` | `sandbox` | Simulates customer chat with real tools/prompt. |
 
-Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabilitiesBlock()` in `routes/insights.ts`.
+Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabilitiesBlock()` + `buildInsightsToolDefinitions()` / `executeInsightsToolCall` in `routes/insights.ts` (`services/insights-tools.ts`, `services/order-admin.ts`). Snapshot samples are truncated — load a dialog via `get_conversation` when the owner pastes `/conversations/{uuid}`.
+
+**Conversation Detail (tenant manager):** buttons send payment requisites (`agent_config.paymentRequisites`), force a logical Claude reply, or complete an order (even in handoff). Payment screenshots get a human-confirm note on the order. Retry internals are admin system notes only — never Instagram.
+
+Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Claude `document` blocks. Customer vision turns use `CLAUDE_VISION_TIMEOUT_MS` (default 180s) so a 60s CLI timeout does not skip reading a receipt.
 
 ---
 

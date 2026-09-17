@@ -22,6 +22,11 @@ describe('isAgentFallbackReply', () => {
   it('matches suppressed retry notes', () => {
     expect(isAgentFallbackReply(AGENT_FALLBACK_RETRY_NOTE)).toBe(true);
     expect(isSuppressedFallbackRetryNote(AGENT_FALLBACK_RETRY_NOTE)).toBe(true);
+    expect(
+      isSuppressedFallbackRetryNote(
+        '[agent_retry] Claude ще недоступний — клієнту вже надіслано очікування менеджера.',
+      ),
+    ).toBe(true);
   });
 
   it('rejects normal bot replies', () => {

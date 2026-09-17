@@ -14,6 +14,18 @@ describe('visualStorageKeys', () => {
     expect(keys).toEqual(['b.jpg', 'c.mp4']);
   });
 
+  it('includes PDF file attachments for Claude vision', () => {
+    expect(
+      visualStorageKeys(
+        [
+          { kind: 'file', igType: 'file', status: 'ready', storageKey: 'pay.pdf' },
+          { kind: 'file', igType: 'file', status: 'ready', storageKey: 'other.bin' },
+        ],
+        [],
+      ),
+    ).toEqual(['pay.pdf']);
+  });
+
   it('infers kind from legacy mediaUrls extensions', () => {
     expect(visualStorageKeys(undefined, ['x.m4a', 'y.webp'])).toEqual(['y.webp']);
   });

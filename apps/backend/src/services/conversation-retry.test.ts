@@ -128,8 +128,8 @@ describe('evaluateConversationRetryNeed', () => {
     const result = evaluateConversationRetryNeed(
       [
         {
-          direction: 'out',
-          sender: 'bot',
+          direction: 'system',
+          sender: 'system',
           text: AGENT_FALLBACK_RETRY_NOTE,
           createdAt: at(120_000),
         },
@@ -239,14 +239,14 @@ describe('evaluateConversationRetryNeed', () => {
     const result = evaluateConversationRetryNeed(
       [
         {
-          direction: 'out',
-          sender: 'bot',
+          direction: 'system',
+          sender: 'system',
           text: AGENT_FALLBACK_RETRY_NOTE,
           createdAt: at(180_000),
         },
         {
-          direction: 'out',
-          sender: 'bot',
+          direction: 'system',
+          sender: 'system',
           text: AGENT_FALLBACK_RETRY_NOTE,
           createdAt: at(120_000),
         },

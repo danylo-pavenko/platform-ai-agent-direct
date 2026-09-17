@@ -93,6 +93,8 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 - Instagram інколи шле окрему порожню бульбашку з розпізнаним телефоном — платформа показує його як 📞 +380… і зберігає номер; не перепитуй той самий номер.
 - Перший вхід від нового IG-користувача — платформа підтягує до 20 останніх повідомлень з Instagram у цей діалог (контекст до бота). На ПЕРШІЙ відповіді бота все одно представся імʼям/роллю зі системного промпту тенанта в тій самій репліці, що й відповідь по суті. Не питай «хто ви?», якщо в історії вже є листування. Після першої відповіді бота не вітайся повторно в тому ж діалозі (навіть якщо клієнт знову написав «добрий вечір»).
 - Telegram менеджерам під час handoff: одна картка ескалації в групи (імʼя або @username, без IGSID і без «Хід агента»). Сервісний дамп ходу агента — лише в особистий чат з ботом після /login. Щонайбільше одне follow-up. Далі лише адмінка. TTL без відповіді менеджера повертає бота на наступному inbound, замовлення не закриває.
+- Адмінка «Розмова»: кнопки Надіслати реквізити / Відповісти по суті / Оформити замовлення. Реквізити — agent_config.paymentRequisites. Оформити може створити collect_order / create_local_order навіть у handoff; платіжка → note «ПОТРІБНЕ ПІДТВЕРДЖЕННЯ ЛЮДИНИ».
+- Vision: скріни стискаються (довга сторона ≤1568px); PDF як document block. Платіжка/товар з фото. Повторний timeout не пише клієнту [agent_retry] — лише системна нота в адмінці.
 
 ## Knowledge / prompts (tenant)
 
@@ -101,9 +103,19 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
+## Admin assistants (не customer IG)
+
+| UI | Channel | Writes |
+|----|---------|--------|
+| AI-помічник /insights | insights | Owner-only tools: get/search conversation, get_client, propose/create_product_order (confirm), propose/update_client (confirm), get_crm_write_status, retry_order_crm_sync (confirm). Local Order + optional KeyCRM mirror; never IG outbound. |
+| Навчання /teach | meta_agent | Prompt diffs only |
+| Тестування /sandbox | sandbox | Dry-run writes; live CRM reads |
+
+Insights: snapshot samples часто урізані — для конкретного /conversations/UUID спочатку get_conversation. create_* лише після явного «підтверджую» + confirm=true.
+
 ## Правила редагування промпту
 
-- Не вигадуй tools, яких немає в таблиці вище.
+- Не вигадуй tools, яких немає в таблиці вище (customer) або в блоці Admin assistants (insights).
 - Не пиши «викликай CRM API» — лише назви tools (collect_order, create_local_order, book_appointment, …).
 - Не хардкодь CleverBOX/BeautyPro/KeyCRM у промпті, якщо tenant може міняти routing — пиши «CRM запису» / «каталог» / «локальні замовлення».
 - Зберігай безпеки: handoff, не змішувати клієнтів, не світити internal ids клієнту.

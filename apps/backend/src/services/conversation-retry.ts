@@ -2,7 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import pino from 'pino';
 import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
-import { isAgentFallbackReply } from '../lib/agent-fallback.js';
+import { isAgentFallbackReply, isSuppressedFallbackRetryNote } from '../lib/agent-fallback.js';
 import {
   clearInboundClaims,
   flushInboundBotTurnNow,
@@ -76,18 +76,16 @@ export function evaluateConversationRetryNeed(
     return { needed: false, reason: 'too_old', inboundAt };
   }
 
-  const repliesAfter = messages.filter(
-    (m) =>
-      m.createdAt > inboundAt &&
-      m.direction === 'out' &&
-      (m.sender === 'bot' || m.sender === 'manager'),
-  );
+  const repliesAfter = messages.filter((m) => m.createdAt > inboundAt);
 
-  if (repliesAfter.some((m) => m.sender === 'manager')) {
+  if (repliesAfter.some((m) => m.sender === 'manager' && m.direction === 'out')) {
     return { needed: false, reason: 'manager_replied', inboundAt };
   }
 
-  const botReplies = repliesAfter.filter((m) => m.sender === 'bot');
+  const botReplies = repliesAfter.filter((m) => m.sender === 'bot' && m.direction === 'out');
+  const adminRetryNotes = repliesAfter.filter(
+    (m) => m.sender === 'system' && isSuppressedFallbackRetryNote(m.text ?? ''),
+  );
   if (botReplies.some((m) => m.text && !isAgentFallbackReply(m.text))) {
     return { needed: false, reason: 'real_bot_reply', inboundAt };
   }
@@ -96,7 +94,7 @@ export function evaluateConversationRetryNeed(
   // quota window resets, conversation-retry can catch up. While the circuit is
   // open, runConversationRetryPass skips the whole pass (see quota gate).
 
-  if (botReplies.length >= opts.maxBotAttemptsAfterInbound) {
+  if (botReplies.length + adminRetryNotes.length >= opts.maxBotAttemptsAfterInbound) {
     return { needed: false, reason: 'max_attempts', inboundAt };
   }
 

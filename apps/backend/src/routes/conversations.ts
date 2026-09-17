@@ -236,6 +236,26 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     return message;
   });
 
+  // POST /:id/manager-actions — send requisites / force reply / complete order
+  app.post<{
+    Params: { id: string };
+    Body: { action?: string };
+  }>('/:id/manager-actions', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const { runManagerChatAction, ManagerChatActionError } = await import(
+      '../services/manager-chat-actions.js'
+    );
+    try {
+      const result = await runManagerChatAction(request.params.id, request.body?.action);
+      return result;
+    } catch (err) {
+      if (err instanceof ManagerChatActionError) {
+        return reply.code(err.statusCode).send({ error: err.message, code: err.code });
+      }
+      request.log.error({ err }, 'manager-actions failed');
+      return reply.code(500).send({ error: 'Не вдалося виконати дію' });
+    }
+  });
+
   // POST /:id/import-ig-history - Import historical IG messages from Graph API
   app.post<{
     Params: { id: string };

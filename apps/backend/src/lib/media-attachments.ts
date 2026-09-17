@@ -23,9 +23,10 @@ export interface StoredMediaAttachment {
   durationSec?: number;
 }
 
-const AUDIO_EXTS = new Set(['.m4a', '.aac', '.mp3', '.ogg', '.wav', '.bin']);
+const AUDIO_EXTS = new Set(['.m4a', '.aac', '.mp3', '.ogg', '.wav']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.webm']);
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+const PDF_EXTS = new Set(['.pdf']);
 
 /** Map Meta webhook attachment.type → our kind. */
 export function igTypeToMediaKind(igType: string): MediaKind {
@@ -62,35 +63,41 @@ export function inferKindFromStorageKey(storageKey: string): MediaKind {
   if (IMAGE_EXTS.has(ext)) return 'image';
   if (VIDEO_EXTS.has(ext)) return 'video';
   if (AUDIO_EXTS.has(ext)) return 'audio';
-  return 'file';
+  if (PDF_EXTS.has(ext)) return 'file';
+  return ext === '.bin' ? 'unknown' : 'file';
 }
 
 export function isVisualMediaKind(kind: MediaKind): boolean {
   return kind === 'image' || kind === 'video';
 }
 
+export function isPdfStorageKey(storageKey: string): boolean {
+  return storageKey.toLowerCase().endsWith('.pdf');
+}
+
+/** Image, video (later skipped), or PDF for Claude vision stdin. */
+export function isClaudeVisionInput(item: StoredMediaAttachment): boolean {
+  if (item.status !== 'ready' || !item.storageKey) return false;
+  if (item.kind === 'image' || item.kind === 'video') return true;
+  return item.kind === 'file' && isPdfStorageKey(item.storageKey);
+}
+
 export function isPlayableMediaAttachment(item: StoredMediaAttachment): boolean {
   return item.status === 'ready' && !!item.storageKey;
 }
 
-/** Storage keys for Claude vision (images via stream-json; video skipped with a prompt note). */
+/** Storage keys for Claude vision (images/PDF via stream-json; video skipped with a prompt note). */
 export function visualStorageKeys(
   attachments: StoredMediaAttachment[] | undefined,
   legacyMediaUrls?: string[],
 ): string[] {
   if (attachments && attachments.length > 0) {
-    return attachments
-      .filter(
-        (a) =>
-          a.status === 'ready' &&
-          a.storageKey &&
-          isVisualMediaKind(a.kind),
-      )
-      .map((a) => a.storageKey!);
+    return attachments.filter(isClaudeVisionInput).map((a) => a.storageKey!);
   }
-  return (legacyMediaUrls ?? []).filter((key) =>
-    isVisualMediaKind(inferKindFromStorageKey(key)),
-  );
+  return (legacyMediaUrls ?? []).filter((key) => {
+    const kind = inferKindFromStorageKey(key);
+    return isVisualMediaKind(kind) || isPdfStorageKey(key);
+  });
 }
 
 /** Prisma JSONB write — typed interfaces are not assignable to InputJsonValue directly. */

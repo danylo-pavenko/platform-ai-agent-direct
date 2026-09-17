@@ -1123,6 +1123,21 @@
                 Випадкова пауза в діапазоні [від; до], макс. 60 с. Якщо рівні — фіксована затримка.
               </div>
             </v-col>
+            <v-col cols="12">
+              <v-textarea
+                v-model="agentConfig.paymentRequisites"
+                label="Реквізити для оплати (кнопка в діалозі)"
+                variant="outlined"
+                density="compact"
+                rows="4"
+                auto-grow
+                hide-details
+                placeholder="Картка / IBAN / ФОП… Після оплати надішліть скрін квитанції."
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Текст, який менеджер надсилає клієнту кнопкою «Реквізити» в чаті розмови. Порожньо — кнопка поверне помилку.
+              </div>
+            </v-col>
           </v-row>
         </v-card-text>
       </v-card>
@@ -4269,6 +4284,7 @@ interface AgentConfigShape {
   claudeModel: 'sonnet' | 'opus';
   timezone: string;
   fallbackMessages: FallbackMessagesShape;
+  paymentRequisites: string;
 }
 
 const agentConfig = ref<AgentConfigShape>({
@@ -4281,6 +4297,7 @@ const agentConfig = ref<AgentConfigShape>({
   claudeModel: 'sonnet',
   timezone: 'Europe/Kyiv',
   fallbackMessages: { ...DEFAULT_FALLBACK_MESSAGES, busy: { ...DEFAULT_FALLBACK_MESSAGES.busy }, timeout: { ...DEFAULT_FALLBACK_MESSAGES.timeout } },
+  paymentRequisites: '',
 });
 
 const timezoneSelectItems = computed(() => {
@@ -4467,6 +4484,10 @@ async function fetchSettings() {
         fallbackMessages: normalizeFallbackMessagesShape(
           (raw as { fallbackMessages?: unknown }).fallbackMessages,
         ),
+        paymentRequisites:
+          typeof (raw as { paymentRequisites?: unknown }).paymentRequisites === 'string'
+            ? String((raw as { paymentRequisites?: string }).paymentRequisites)
+            : '',
       };
       lastPersistedTimezone = agentConfig.value.timezone;
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {

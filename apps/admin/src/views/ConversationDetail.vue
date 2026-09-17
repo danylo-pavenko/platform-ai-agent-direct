@@ -309,7 +309,7 @@
             class="message-row"
             :class="[messageAlignment(msg), { 'message-row--tight': mobile }]"
           >
-            <div v-if="msg.sender === 'system'" class="text-center system-note-wrap">
+            <div v-if="rendersAsSystemNote(msg)" class="text-center system-note-wrap">
               <v-chip
                 v-if="!isMultilineSystemNote(msg.text)"
                 size="x-small"
@@ -526,6 +526,44 @@
         <!-- Reply input -->
         <v-divider />
         <div class="pa-2 pa-md-3 agent-chat-input">
+          <div class="manager-chat-actions">
+            <v-btn
+              variant="tonal"
+              color="primary"
+              class="tap-target manager-chat-action-btn"
+              :density="mobile ? 'comfortable' : 'compact'"
+              prepend-icon="mdi-credit-card-outline"
+              :loading="managerActionRunning === 'send_payment_details'"
+              :disabled="Boolean(managerActionRunning) || sending"
+              @click="runManagerAction('send_payment_details')"
+            >
+              {{ mobile ? 'Реквізити' : 'Надіслати реквізити' }}
+            </v-btn>
+            <v-btn
+              variant="tonal"
+              color="secondary"
+              class="tap-target manager-chat-action-btn"
+              :density="mobile ? 'comfortable' : 'compact'"
+              prepend-icon="mdi-message-text-outline"
+              :loading="managerActionRunning === 'analyze_reply'"
+              :disabled="Boolean(managerActionRunning) || sending"
+              @click="runManagerAction('analyze_reply')"
+            >
+              {{ mobile ? 'Відповісти' : 'Відповісти по суті' }}
+            </v-btn>
+            <v-btn
+              variant="tonal"
+              color="success"
+              class="tap-target manager-chat-action-btn"
+              :density="mobile ? 'comfortable' : 'compact'"
+              prepend-icon="mdi-clipboard-check-outline"
+              :loading="managerActionRunning === 'complete_order'"
+              :disabled="Boolean(managerActionRunning) || sending"
+              @click="runManagerAction('complete_order')"
+            >
+              {{ mobile ? 'Оформити' : 'Оформити замовлення' }}
+            </v-btn>
+          </div>
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="replyText"
@@ -536,7 +574,7 @@
               max-rows="4"
               auto-grow
               hide-details
-              :disabled="sending"
+              :disabled="sending || Boolean(managerActionRunning)"
               @keydown.ctrl.enter="sendReply"
               @keydown.meta.enter="sendReply"
             />
@@ -853,6 +891,7 @@ const loading = ref(false);
 const replyText = ref('');
 const sending = ref(false);
 const sendError = ref('');
+const managerActionRunning = ref<string | null>(null);
 const messagesContainer = ref<HTMLElement | null>(null);
 
 const CLEAR_CHAT_CONFIRM = 'ОЧИСТИТИ ЧАТ';
@@ -994,7 +1033,7 @@ function formatTime(dateStr: string): string {
 }
 
 function messageAlignment(msg: Message): string {
-  if (msg.sender === 'system') return 'd-flex justify-center';
+  if (rendersAsSystemNote(msg)) return 'd-flex justify-center';
   return msg.direction === 'in' ? 'd-flex justify-start' : 'd-flex justify-end';
 }
 
@@ -1009,6 +1048,7 @@ function senderIcon(msg: Message): string {
 }
 
 const botIsThinking = computed(() => {
+  if (managerActionRunning.value) return true;
   if (!conversation.value || conversation.value.state !== 'bot') return false;
   if (isGloballyIgnored.value) return false;
   const last = messages.value[messages.value.length - 1];
@@ -1025,10 +1065,25 @@ function isDetectedPhoneMessage(msg: Message): boolean {
   return Boolean(msg.text?.trim().startsWith('📞'));
 }
 
+function isAdminRetryNote(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = text.trim();
+  return t.startsWith('[agent_retry]') || t.startsWith('Повторна спроба агента:');
+}
+
+function rendersAsSystemNote(msg: Message): boolean {
+  return msg.sender === 'system' || isAdminRetryNote(msg.text);
+}
+
 /** Vision/CRM/agent-turn debug notes are multiline; keep short status chips compact. */
 function isMultilineSystemNote(text: string | null | undefined): boolean {
   if (!text) return false;
-  return text.includes('\n') || text.startsWith('🔍') || isAgentTurnDebugNote(text);
+  return (
+    text.includes('\n') ||
+    text.startsWith('🔍') ||
+    isAgentTurnDebugNote(text) ||
+    isAdminRetryNote(text)
+  );
 }
 
 async function scrollToBottom(opts?: { force?: boolean }) {
@@ -1298,6 +1353,34 @@ async function sendReply() {
     sendError.value = e.response?.data?.error || 'Помилка відправлення';
   } finally {
     sending.value = false;
+  }
+}
+
+async function runManagerAction(action: string) {
+  if (managerActionRunning.value) return;
+  managerActionRunning.value = action;
+  sendError.value = '';
+  try {
+    await api.post(
+      `/conversations/${props.id}/manager-actions`,
+      { action },
+      { timeout: 180_000 },
+    );
+    await fetchConversation();
+    const ok =
+      action === 'send_payment_details'
+        ? 'Реквізити надіслано клієнту'
+        : action === 'complete_order'
+          ? 'Агент оформив замовлення'
+          : 'Агент відповів клієнту';
+    showSnack(ok);
+  } catch (e: any) {
+    const msg = e.response?.data?.error || 'Не вдалося виконати дію';
+    sendError.value = msg;
+    showSnack(msg, 'error');
+  } finally {
+    managerActionRunning.value = null;
+    void pollLive();
   }
 }
 
@@ -2345,12 +2428,36 @@ const ClientProfilePanel = defineComponent({
   to { transform: rotate(360deg); }
 }
 
+.manager-chat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.manager-chat-action-btn {
+  min-height: var(--tap-min, 44px);
+}
+
 /* Mobile */
 @media (max-width: 960px) {
   .detail-root--mobile .agent-chat-input {
     background: #fff;
     border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
     padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .manager-chat-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .manager-chat-action-btn {
+    flex: 1 1 calc(33.33% - 8px);
+    min-height: var(--tap-min, 44px);
+    min-width: 0;
   }
 
   .message-bubble-card.bubble-incoming {
