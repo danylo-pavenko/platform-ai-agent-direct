@@ -2,10 +2,15 @@
   <v-container fluid class="page-shell">
     <PageHeader
       title="Синхронізація"
-      subtitle="Каталог товарів, послуг, цін і майстрів з підключених CRM. Автозапуск раз на добу (~04:00) + ручний тригер."
+      :subtitle="
+        syncTab === 'file'
+          ? 'Імпорт CSV (Shop-Express), пріоритет пошуку та звʼязки з CRM.'
+          : 'Каталог і послуги з CRM. Автозапуск раз на добу (~04:00) + ручний тригер.'
+      "
     >
       <template #actions>
         <v-btn
+          v-if="syncTab === 'crm'"
           color="primary"
           class="tap-target"
           :block="mobile"
@@ -32,6 +37,32 @@
       </div>
     </v-alert>
 
+    <v-tabs
+      v-model="syncTab"
+      color="primary"
+      class="sync-tabs mb-3"
+      :density="density"
+      show-arrows
+    >
+      <v-tab value="crm" class="tap-target text-none">
+        <v-icon start size="18">mdi-cloud-sync</v-icon>
+        CRM
+      </v-tab>
+      <v-tab value="file" class="tap-target text-none">
+        <v-icon start size="18">mdi-file-upload-outline</v-icon>
+        Каталог з файлу
+        <v-chip
+          v-if="manualMeta.productCount > 0"
+          size="x-small"
+          variant="tonal"
+          class="ml-2"
+        >
+          {{ manualMeta.productCount }}
+        </v-chip>
+      </v-tab>
+    </v-tabs>
+
+    <div v-show="syncTab === 'crm'">
     <v-row v-if="latestOkRun" class="mb-4">
       <v-col cols="12" sm="6" md="3">
         <v-card variant="tonal" color="primary">
@@ -183,16 +214,54 @@
       <v-card-text v-if="servicesCount > 0 || servicesSearch" class="pt-0">
         <v-text-field
           v-model="servicesSearch"
-          density="compact"
+          :density="density"
           variant="outlined"
           hide-details
           clearable
           prepend-inner-icon="mdi-magnify"
           placeholder="Пошук за назвою, категорією, грейдом або ID"
           class="mb-3"
-          style="max-width: 420px"
+          :style="mobile ? undefined : 'max-width: 420px'"
         />
+        <div v-if="mobile" class="mobile-list-stack">
+          <MobileListCard
+            v-for="item in filteredServices"
+            :key="`${item.provider}-${item.id}`"
+            :title="item.name"
+            :meta="`${item.durationMin} хв · ${item.categoryName || '—'}`"
+          >
+            <template #chips>
+              <v-chip size="small" variant="tonal" :color="providerColor(item.provider)">
+                {{ providerLabel(item.provider) }}
+              </v-chip>
+            </template>
+            <div class="text-body-2 mt-1">{{ formatServicePriceDisplay(item) }}</div>
+            <div
+              v-if="formatServiceGradeBreakdown(item)"
+              class="text-caption text-medium-emphasis"
+            >
+              {{ formatServiceGradeBreakdown(item) }}
+            </div>
+            <div class="text-caption text-medium-emphasis mt-1">
+              <code>{{ item.id }}</code>
+              <v-btn
+                size="x-small"
+                variant="text"
+                icon="mdi-content-copy"
+                class="tap-target"
+                @click="copyText(item.id)"
+              />
+            </div>
+          </MobileListCard>
+          <div
+            v-if="!servicesLoading && !filteredServices.length"
+            class="text-center text-medium-emphasis py-6"
+          >
+            Нічого не знайдено за запитом «{{ servicesSearch }}».
+          </div>
+        </div>
         <v-data-table
+          v-else
           :headers="serviceHeaders"
           :items="filteredServices"
           :loading="servicesLoading"
@@ -265,6 +334,8 @@
         <v-btn
           color="primary"
           variant="tonal"
+          class="tap-target"
+          :block="mobile"
           prepend-icon="mdi-sync"
           :loading="triggering"
           :disabled="isRunning"
@@ -274,8 +345,10 @@
         </v-btn>
       </v-card-text>
     </v-card>
+    </div>
 
-    <v-card class="mt-4">
+    <div v-show="syncTab === 'file'">
+    <v-card>
       <v-card-title class="d-flex flex-wrap align-center ga-2 py-3">
         <span>Каталог з файлу</span>
         <v-chip v-if="manualMeta.productCount > 0" size="small" variant="tonal">
@@ -301,7 +374,7 @@
               v-model="importSource"
               :items="importSourceItems"
               label="Джерело файлу"
-              density="comfortable"
+              :density="density"
               variant="outlined"
               hide-details
             />
@@ -350,9 +423,9 @@
           <div class="text-subtitle-2 mb-2">Пріоритет пошуку агента</div>
           <v-radio-group
             v-model="priorityDraft"
-            density="compact"
+            :density="density"
             hide-details
-            inline
+            :inline="!mobile"
             :disabled="savingPriority"
             @update:model-value="savePriority"
           >
@@ -376,9 +449,9 @@
           <div class="text-subtitle-2 mb-2">Ціна для агента (коли товар зматчений)</div>
           <v-radio-group
             v-model="pricePrefDraft"
-            density="compact"
+            :density="density"
             hide-details
-            inline
+            :inline="!mobile"
             :disabled="savingPriority"
             @update:model-value="savePricePreference"
           >
@@ -405,6 +478,7 @@
               size="small"
               variant="tonal"
               class="tap-target"
+              :block="mobile"
               :loading="rebuildingMatches"
               prepend-icon="mdi-link-variant"
               @click="rebuildMatches"
@@ -483,7 +557,29 @@
 
           <div v-if="matchOverview.matches.length">
             <div class="text-caption text-medium-emphasis mb-2">Зматчені</div>
+            <div v-if="mobile" class="mobile-list-stack">
+              <MobileListCard
+                v-for="item in enrichedMatches"
+                :key="`${item.manualProductId}-${item.crmProductId}`"
+                :title="`Файл #${item.manualProductId} → CRM #${item.crmProductId}`"
+                :meta="`${item.method} · ${item.confidence}`"
+              >
+                <template #actions>
+                  <v-btn
+                    size="small"
+                    variant="tonal"
+                    color="error"
+                    class="tap-target"
+                    :loading="unlinkingId === item.manualProductId"
+                    @click="unlinkMatch(item.manualProductId)"
+                  >
+                    Unlink
+                  </v-btn>
+                </template>
+              </MobileListCard>
+            </div>
             <v-data-table
+              v-else
               :headers="matchedHeaders"
               :items="enrichedMatches"
               density="compact"
@@ -544,10 +640,11 @@
             class="mb-3"
           />
 
-          <div class="d-flex flex-wrap ga-2">
+          <div class="d-flex flex-column flex-sm-row flex-wrap ga-2">
             <v-btn
               color="primary"
               class="tap-target"
+              :block="mobile"
               :loading="confirmingImport"
               :disabled="!importPreview.verify.ok && !forceImport"
               @click="confirmImport(false)"
@@ -559,6 +656,7 @@
               variant="tonal"
               color="warning"
               class="tap-target"
+              :block="mobile"
               :loading="confirmingImport"
               @click="confirmImport(true)"
             >
@@ -567,10 +665,9 @@
             <v-checkbox
               v-if="!importPreview.verify.ok"
               v-model="forceImport"
-              density="compact"
+              :density="density"
               hide-details
               label="Дозволити confirm без ok verify"
-              class="ml-1"
             />
           </div>
         </div>
@@ -579,14 +676,14 @@
           <div class="text-subtitle-2 mb-2">Товари та ціни (файловий каталог)</div>
           <v-text-field
             v-model="manualSearch"
-            density="compact"
+            :density="density"
             variant="outlined"
             hide-details
             clearable
             prepend-inner-icon="mdi-magnify"
             placeholder="Пошук за назвою, SKU або ID"
             class="mb-3"
-            style="max-width: 420px"
+            :style="mobile ? undefined : 'max-width: 420px'"
             @update:model-value="debouncedFetchManualProducts"
           />
 
@@ -633,6 +730,7 @@
         </div>
       </v-card-text>
     </v-card>
+    </div>
   </v-container>
 </template>
 
@@ -643,7 +741,8 @@ import PageHeader from '@/components/PageHeader.vue';
 import MobileListCard from '@/components/MobileListCard.vue';
 import { useTouchDensity } from '@/composables/useTouchDensity';
 
-const { mobile } = useTouchDensity();
+const { mobile, density } = useTouchDensity();
+const syncTab = ref<'crm' | 'file'>('crm');
 
 interface SyncCounts {
   categories?: number;
@@ -1371,3 +1470,27 @@ onUnmounted(() => {
   stopPolling();
 });
 </script>
+
+<style scoped>
+.sync-tabs {
+  margin-inline: calc(-1 * var(--page-pad, 0px));
+  padding-inline: var(--page-pad, 0);
+}
+
+.sync-tabs :deep(.v-tab) {
+  min-height: var(--tap-min, 44px);
+  flex: 1 1 0;
+  max-width: none;
+}
+
+@media (min-width: 960px) {
+  .sync-tabs {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+
+  .sync-tabs :deep(.v-tab) {
+    flex: 0 0 auto;
+  }
+}
+</style>
