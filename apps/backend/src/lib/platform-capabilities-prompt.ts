@@ -30,7 +30,7 @@ booking: classify_intent, search_services, get_available_slots, get_client_crm_h
 general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
 Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment).
 
-Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff).
+Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff). Картка замовлення без кнопок Підтвердити/Відхилити: агент уже підтвердив клієнту.
 
 ## Замовлення (sales / collect_order / create_local_order) — джерело правди
 

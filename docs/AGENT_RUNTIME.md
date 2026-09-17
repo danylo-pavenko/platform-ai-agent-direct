@@ -117,7 +117,7 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 Parallel services at the same clock time need **per-line** `services[].master_id` (different professionals). Slot tool labels `MODE: PARALLEL` vs `MODE: SEQUENTIAL`. A single top-level `master_id` is copied only onto lines that omit their own id; same master → sequential starts in BeautyPro. Preferred master from history applies **only to a similar service**; same display names are disambiguated with positions / short id in slot labels. `book_appointment` refuses `MASTER_SERVICE_MISMATCH` when CRM grades mark the master unavailable for that service. Old failed bookings: admin sets masters per Appointment service line, then retry CRM (`PATCH /orders/:id/booking-services` → `POST /orders/:id/sync-crm`).
 
-**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / cancel / reschedule / agent failure (`services/telegram-notify.ts`). Operational cards go to groups + linked DMs; `🛠 Хід агента` / vision debug only to private bot chats.
+**Telegram to managers is not a tool** — it fires as a side effect of handoff / order / brief / booking / cancel / reschedule / agent failure (`services/telegram-notify.ts`). Operational cards go to groups + linked DMs; `🛠 Хід агента` / vision debug only to private bot chats. Product order cards are **notify-only** (no approve/decline — the agent already confirmed the client).
 
 ---
 

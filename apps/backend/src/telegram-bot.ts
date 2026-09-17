@@ -15,7 +15,6 @@ import {
 } from './lib/telegram-groups.js';
 import { Bot } from 'grammy';
 import { prisma } from './lib/prisma.js';
-import { sendText } from './services/instagram.js';
 import {
   findActiveManagerByTgId,
   managerLabelFromUser,
@@ -214,7 +213,7 @@ const HELP_TEXT = `Доступні команди:
 
 Після привʼязки ви будете отримувати:
 • Сповіщення про ескалації та замовлення (у цей чат або в групу менеджерів)
-• Картки товарних замовлень з кнопками Підтвердити / Відхилити (записи в CRM — лише сповіщення)
+• Картки замовлень і записів (лише сповіщення — агент уже підтвердив клієнту)
 • Повідомлення від клієнтів у режимі хендофу`;
 
 // /start - Welcome message
@@ -636,98 +635,16 @@ bot.on('callback_query:data', async (ctx) => {
 
       await ctx.answerCallbackQuery({ text: 'Повернуто боту!' });
       await ctx.editMessageText('\u{2705} Повернуто боту');
-    } else if (data.startsWith('approve:')) {
-      if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
-        return;
-      }
-
-      const orderId = data.substring('approve:'.length);
-
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: { client: true },
-      });
-
-      if (!order) {
-        await ctx.answerCallbackQuery({ text: 'Замовлення не знайдено.' });
-        return;
-      }
-
-      if (order.status === 'confirmed' || order.status === 'cancelled') {
-        await ctx.answerCallbackQuery({ text: 'Замовлення вже оброблено.' });
-        return;
-      }
-
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { status: 'confirmed' },
-      });
-
-      // Booking was already confirmed to the client by the agent — do not spam IG.
-      // Soft/local orders: neutral note (no delivery / salon-specific copy).
-      if (order.client.igUserId && order.kind !== 'booking') {
-        await sendText(
-          order.client.igUserId,
-          'Ваше звернення підтверджено. За потреби менеджер напише вам додатково.',
-        );
-      }
-
-      const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
+    } else if (data.startsWith('approve:') || data.startsWith('decline:')) {
+      // Legacy order cards: agent already confirmed — do not re-message IG or mutate status.
       log.info(
-        { orderId, kind: order.kind, tgUserId: ctx.from.id },
-        'Order approved via callback',
+        { callback: data, tgUserId: ctx.from.id },
+        'Ignored legacy order approve/decline callback',
       );
-
-      await ctx.answerCallbackQuery({ text: 'Підтверджено!' });
-      await ctx.editMessageText(`\u{2705} Підтверджено менеджером @${username}`);
-    } else if (data.startsWith('decline:')) {
-      if (!(await isManagerAuthorized(ctx.from.id))) {
-        await ctx.answerCallbackQuery({ text: 'Спочатку /link <код> у боті' });
-        return;
-      }
-
-      const orderId = data.substring('decline:'.length);
-
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        include: { client: true },
+      await ctx.answerCallbackQuery({
+        text: 'Картка лише для сповіщення. Замовлення вже оформив агент.',
       });
-
-      if (!order) {
-        await ctx.answerCallbackQuery({ text: 'Замовлення не знайдено.' });
-        return;
-      }
-
-      if (order.status === 'confirmed' || order.status === 'cancelled') {
-        await ctx.answerCallbackQuery({ text: 'Замовлення вже оброблено.' });
-        return;
-      }
-
-      await prisma.order.update({
-        where: { id: orderId },
-        data: {
-          status: 'cancelled',
-          isArchived: true,
-          archivedAt: new Date(),
-        },
-      });
-
-      if (order.client.igUserId && order.kind !== 'booking') {
-        await sendText(
-          order.client.igUserId,
-          'На жаль, зараз не можемо продовжити це звернення. Менеджер напише вам, якщо потрібно уточнити деталі.',
-        );
-      }
-
-      const username = ctx.from.username || ctx.from.first_name || String(ctx.from.id);
-      log.info(
-        { orderId, kind: order.kind, tgUserId: ctx.from.id },
-        'Order declined via callback',
-      );
-
-      await ctx.answerCallbackQuery({ text: 'Відхилено.' });
-      await ctx.editMessageText(`\u{274C} Відхилено менеджером @${username}`);
+      await ctx.editMessageReplyMarkup().catch(() => {});
     } else {
       await ctx.answerCallbackQuery();
     }

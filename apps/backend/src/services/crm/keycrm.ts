@@ -5,12 +5,14 @@
  * import vendor-specific code. Includes:
  *   - paginated reads for sync-worker (fetchCategories / fetchProducts / fetchOffers)
  *   - filtered runtime reads for product-search (searchProducts / searchOffers)
- *   - write stubs (Phase 2 — populated in a follow-up commit)
+ *   - writes: upsertClient, createOrder, createLead
+ *   - connection probe: testKeycrmConnection (Settings → Перевірити підключення)
  */
 
 import pino from 'pino';
 import { config } from '../../config.js';
 import { getIntegrationConfig } from '../../lib/integration-config.js';
+import { sanitizeIntegrationSecret } from '../../lib/integration-secrets.js';
 import type {
   CrmAdapter,
   CrmCategory,
@@ -563,3 +565,116 @@ export const keycrmAdapter: CrmAdapter = {
     }));
   },
 };
+
+export interface KeycrmConnectionTestResult {
+  ok: boolean;
+  status: 'ok' | 'error';
+  message: string;
+  /** Total products reported by KeyCRM (may be 0 on empty catalog). */
+  productTotal?: number;
+  productsPreview?: Array<{ id: number; name: string }>;
+  durationMs?: number;
+}
+
+/**
+ * Probe KeyCRM with a light catalog call (GET /products?limit=1).
+ * Optional apiKey override allows testing form values before Save
+ * (masked `••••••` → use saved DB key).
+ */
+export async function testKeycrmConnection(overrides?: {
+  apiKey?: string;
+}): Promise<KeycrmConnectionTestResult> {
+  const { keycrm } = await getIntegrationConfig({ fresh: true });
+  const fromOverride = sanitizeIntegrationSecret(overrides?.apiKey);
+  const apiKey = fromOverride || keycrm.apiKey?.trim() || '';
+
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 'error',
+      message:
+        'Потрібен API Key KeyCRM (збережіть у Settings або введіть у формі перед перевіркою)',
+    };
+  }
+
+  const url = new URL(`${BASE_URL}/products`);
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('page', '1');
+  url.searchParams.set('filter[is_archived]', '0');
+
+  const t0 = Date.now();
+  try {
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(RUNTIME_TIMEOUT_MS),
+    });
+    const durationMs = Date.now() - t0;
+    const text = await response.text();
+    let parsed: PaginatedResponse<RawProduct> | Record<string, unknown> = {};
+    try {
+      parsed = text ? (JSON.parse(text) as PaginatedResponse<RawProduct>) : {};
+    } catch {
+      parsed = { _raw: text.slice(0, 200) };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        ok: false,
+        status: 'error',
+        message:
+          'KeyCRM відхилив API Key (401/403). Перевірте ключ у KeyCRM → Налаштування → Інтеграції → API.',
+        durationMs,
+      };
+    }
+
+    if (!response.ok) {
+      const detail =
+        typeof (parsed as { message?: unknown }).message === 'string'
+          ? String((parsed as { message: string }).message)
+          : text.slice(0, 200);
+      return {
+        ok: false,
+        status: 'error',
+        message: `KeyCRM HTTP ${response.status}: ${detail || 'помилка запиту'}`,
+        durationMs,
+      };
+    }
+
+    const page = parsed as PaginatedResponse<RawProduct>;
+    const data = Array.isArray(page.data) ? page.data : [];
+    const total =
+      typeof page.total === 'number' && Number.isFinite(page.total)
+        ? page.total
+        : data.length;
+
+    return {
+      ok: true,
+      status: 'ok',
+      message:
+        total > 0
+          ? `Підключено до KeyCRM Open API (${total} товарів у каталозі)`
+          : 'Підключено до KeyCRM Open API (каталог порожній або без активних товарів)',
+      productTotal: total,
+      productsPreview: data.slice(0, 5).map((p) => ({
+        id: p.id,
+        name: typeof p.name === 'string' ? p.name : String(p.id),
+      })),
+      durationMs,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const timedOut = /aborted|timeout|TimeoutError/i.test(message);
+    return {
+      ok: false,
+      status: 'error',
+      message: timedOut
+        ? 'Таймаут звернення до openapi.keycrm.app — перевірте мережу сервера'
+        : `Не вдалося звернутись до KeyCRM: ${message.slice(0, 200)}`,
+      durationMs: Date.now() - t0,
+    };
+  }
+}

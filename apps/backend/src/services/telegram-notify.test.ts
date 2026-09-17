@@ -65,7 +65,7 @@ describe('notifyOrder', () => {
     expect(text).toContain('Тест');
     expect(text).not.toContain('17841410659012767');
     expect(text).toContain('agent.example.com/conversations/');
-    expect(options?.reply_markup).toBeDefined();
+    expect(options?.reply_markup).toBeUndefined();
   });
 
   it('sends booking as notify-only without approve/decline buttons', async () => {

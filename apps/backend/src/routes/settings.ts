@@ -33,6 +33,7 @@ import {
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
 import { probeBeautyproDatasets, testBeautyproConnection } from '../services/crm/beautypro.js';
+import { testKeycrmConnection } from '../services/crm/keycrm.js';
 import {
   cancelClaudeAuthLogin,
   getClaudeAuthStatus,
@@ -506,6 +507,34 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(503).send(result);
     }
     return result;
+  });
+
+  /**
+   * POST /settings/keycrm/test
+   * Light GET /products?limit=5. Body may include unsaved apiKey (masked → DB).
+   */
+  app.post<{
+    Body: {
+      apiKey?: string;
+    };
+  }>('/keycrm/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const result = await testKeycrmConnection({
+        apiKey: body.apiKey,
+      });
+      if (!result.ok) {
+        return reply.code(400).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({
+        ok: false,
+        status: 'error',
+        message,
+      });
+    }
   });
 
   /**

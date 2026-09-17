@@ -485,17 +485,9 @@ export async function notifyOrder(params: {
     .filter((line) => line !== '' && line != null)
     .join('\n');
 
-  // Booking is already confirmed to the client by the agent — notify only, no approve/decline.
-  if (kind === 'booking') {
-    await sendToManagerGroup(text, undefined, 'order');
-    return;
-  }
-
-  const keyboard = new InlineKeyboard()
-    .text('✅ Підтвердити', `approve:${orderId}`)
-    .text('❌ Відхилити', `decline:${orderId}`);
-
-  await sendToManagerGroup(text, keyboard, 'order');
+  // Agent already confirmed to the client — notify only. Approve/decline would
+  // re-message Instagram and duplicate a decision the agent already made.
+  await sendToManagerGroup(text, undefined, 'order');
 }
 
 /**

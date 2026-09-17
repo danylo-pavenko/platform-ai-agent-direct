@@ -2035,6 +2035,42 @@
             </v-col>
           </v-row>
 
+          <div class="d-flex flex-wrap align-center ga-2 mt-3 mb-2">
+            <v-btn
+              color="green-darken-1"
+              variant="tonal"
+              style="min-height: 44px"
+              :loading="keycrmTestLoading"
+              :disabled="savingIntegrations"
+              prepend-icon="mdi-lan-check"
+              @click="runKeycrmConnectionTest"
+            >
+              Перевірити підключення
+            </v-btn>
+            <span class="text-caption text-medium-emphasis">
+              GET /products (Open API). Краще спочатку Зберегти інтеграції.
+            </span>
+          </div>
+
+          <v-alert
+            v-if="keycrmTestMessage"
+            :type="keycrmTestOk ? 'success' : 'error'"
+            variant="tonal"
+            density="compact"
+            closable
+            class="mb-2"
+            @click:close="keycrmTestMessage = ''"
+          >
+            {{ keycrmTestMessage }}
+            <div
+              v-if="keycrmTestPreview.length"
+              class="text-caption mt-1"
+            >
+              Приклад:
+              {{ keycrmTestPreview.map((p) => p.name).join(', ') }}
+            </div>
+          </v-alert>
+
           <v-switch
             v-model="featureFlags.crm_write_enabled"
             color="primary"
@@ -2923,6 +2959,44 @@ function startPageTokenReplace() {
 }
 const showTelegramHelp = ref(false);
 const showKeycrmHelp = ref(false);
+const keycrmTestLoading = ref(false);
+const keycrmTestOk = ref(false);
+const keycrmTestMessage = ref('');
+const keycrmTestPreview = ref<Array<{ id: number; name: string }>>([]);
+
+async function runKeycrmConnectionTest() {
+  if (keycrmTestLoading.value) return;
+  keycrmTestLoading.value = true;
+  keycrmTestMessage.value = '';
+  keycrmTestPreview.value = [];
+  try {
+    const apiKey = integrations.value.keycrm.apiKey.trim();
+    const { data } = await api.post<{
+      ok: boolean;
+      status: string;
+      message: string;
+      productTotal?: number;
+      productsPreview?: Array<{ id: number; name: string }>;
+      durationMs?: number;
+    }>('/settings/keycrm/test', {
+      apiKey: apiKey && apiKey !== '••••••' ? apiKey : undefined,
+    });
+    keycrmTestOk.value = data.ok === true;
+    keycrmTestMessage.value = data.message || (data.ok ? 'OK' : 'Помилка');
+    keycrmTestPreview.value = Array.isArray(data.productsPreview)
+      ? data.productsPreview
+      : [];
+  } catch (err: unknown) {
+    keycrmTestOk.value = false;
+    const ax = err as { response?: { data?: { message?: string } }; message?: string };
+    keycrmTestMessage.value =
+      ax.response?.data?.message ||
+      ax.message ||
+      'Не вдалося перевірити KeyCRM';
+  } finally {
+    keycrmTestLoading.value = false;
+  }
+}
 
 // ── Health Check ────────────────────────────────────────────────────────────
 
