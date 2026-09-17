@@ -426,6 +426,9 @@ server {
     ssl_certificate_key ${ADMIN_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
+    # Catalog CSV import posts up to ~50MB JSON via /api/
+    client_max_body_size 55m;
+
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
 
@@ -463,7 +466,7 @@ server {
     ssl_certificate_key ${API_SSL_DIR}/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
 
-    client_max_body_size 10m;
+    client_max_body_size 55m;
 
     add_header X-Frame-Options "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;

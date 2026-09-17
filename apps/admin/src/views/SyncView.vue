@@ -1125,8 +1125,14 @@ async function onCsvSelected(event: Event) {
       sampleProducts: data.sampleProducts ?? [],
     };
   } catch (e: any) {
-    importError.value =
-      e.response?.data?.error || e.message || 'Не вдалося розпарсити CSV';
+    if (e.response?.status === 413) {
+      importError.value =
+        e.response?.data?.error ||
+        'Файл завеликий для сервера (nginx 413). Макс. ~50 МБ CSV — зменшіть файл або підніміть client_max_body_size і перезавантажте nginx.';
+    } else {
+      importError.value =
+        e.response?.data?.error || e.message || 'Не вдалося розпарсити CSV';
+    }
   } finally {
     importing.value = false;
   }
