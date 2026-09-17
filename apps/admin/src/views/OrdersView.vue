@@ -97,7 +97,15 @@
               </template>
 
               <template #item.total="{ item }">
-                {{ item.total ? `${item.total} ₴` : '—' }}
+                <div>
+                  {{ item.quotedTotal || item.total ? `${item.quotedTotal ?? item.total} ₴` : '—' }}
+                  <div
+                    v-if="item.catalogTotal != null && Math.abs((item.quotedTotal ?? item.total ?? 0) - item.catalogTotal) >= 0.01"
+                    class="text-caption text-medium-emphasis"
+                  >
+                    каталог: {{ item.catalogTotal }} ₴
+                  </div>
+                </div>
               </template>
 
               <template #item.createdAt="{ item }">
@@ -170,7 +178,13 @@
               </template>
               <template #meta>
                 {{ formatDate(item.createdAt) }}
-                <span v-if="item.total"> · {{ item.total }} ₴</span>
+                <span v-if="item.quotedTotal || item.total"> · {{ item.quotedTotal ?? item.total }} ₴</span>
+                <span
+                  v-if="item.catalogTotal != null && Math.abs((item.quotedTotal ?? item.total ?? 0) - item.catalogTotal) >= 0.01"
+                  class="text-medium-emphasis"
+                >
+                  (кат. {{ item.catalogTotal }})
+                </span>
                 <span v-if="item.phone"> · {{ item.phone }}</span>
               </template>
               <template #chips>
@@ -287,6 +301,9 @@ interface Order {
   paymentMethod?: string | null;
   note?: string | null;
   total?: number;
+  catalogTotal?: number;
+  quotedTotal?: number | null;
+  totalDelta?: number;
   items?: OrderItem[];
   keycrmOrderId?: string | null;
   keycrmOrderUrl?: string | null;
@@ -338,7 +355,7 @@ const headers = [
   { title: 'CRM', key: 'crmSyncStatus', sortable: false, width: '120px' },
   { title: "Ім'я", key: 'customerName', sortable: false },
   { title: 'Місто', key: 'city', sortable: false },
-  { title: 'Сума', key: 'total', sortable: false, width: '100px' },
+  { title: 'Сума', key: 'total', sortable: false, width: '120px' },
   { title: 'Дата', key: 'createdAt', sortable: false, width: '160px' },
   { title: '', key: 'actions', sortable: false, width: '260px' },
 ];

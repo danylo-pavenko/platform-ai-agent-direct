@@ -26,6 +26,7 @@ import type {
   CrmLeadInput,
 } from './crm/index.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
+import { resolveQuotedTotal, scaleItemsToQuotedTotal } from '../lib/order-normalize.js';
 import { notifyCrmFallback } from './telegram-notify.js';
 import { linkClientToCrm } from './client-crm-link.js';
 
@@ -215,8 +216,10 @@ export async function mirrorOrderToCrm(
   // Order.items is stored as Prisma JsonValue — coerce each entry to a
   // plain record, skipping anything that isn't an object. Defensive
   // because collect_order could in theory serialize an unexpected shape.
+  // Scale catalog line prices to quotedTotal so CRM amounts match what
+  // was told to the customer (proportional; last line absorbs remainder).
   const rawItems = Array.isArray(order.items) ? order.items : [];
-  const items = rawItems.flatMap((raw) => {
+  const catalogItems = rawItems.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const obj = raw as Record<string, unknown>;
     return [
@@ -228,6 +231,8 @@ export async function mirrorOrderToCrm(
       },
     ];
   });
+  const quotedForCrm = resolveQuotedTotal(order.quotedTotal, catalogItems);
+  const items = scaleItemsToQuotedTotal(catalogItems, quotedForCrm);
 
   const input: CrmOrderInput = {
     crmBuyerId: order.client.crmBuyerId ?? undefined,

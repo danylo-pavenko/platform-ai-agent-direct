@@ -66,8 +66,9 @@ export function formatAgentToolsPrompt(
   }
   if (names.has('collect_order')) {
     rules.push(
-      'Коли пишеш клієнту ПОВНИЙ підсумок e-commerce замовлення (Товар / Отримувач / Телефон / Доставка НП / Оплата) — у ТІЙ САМІЙ відповіді ОБОВ\'ЯЗКОВО виклич collect_order. Тоді локальна БД + Telegram + CRM mirror (якщо write увімкнено).',
+      'Коли пишеш клієнту ПОВНИЙ підсумок e-commerce замовлення (Товар / Отримувач / Телефон / Доставка НП / Оплата / Сума) — у ТІЙ САМІЙ відповіді ОБОВ\'ЯЗКОВО виклич collect_order. Тоді локальна БД + Telegram + CRM mirror (якщо write увімкнено).',
       'Коли клієнт підтвердив повне замовлення («так», «все вірно») і зібрані всі поля доставки — теж collect_order.',
+      'items[].price у collect_order — каталожна ціна з search_catalog/файлу. quoted_total — фінальна сума, яку озвучив клієнту (після знижки/округляння); клієнту казати саме quoted_total.',
       'payment_method у collect_order: card (онлайн/WayForPay), transfer (банківський переказ), cod (післяплата).',
       'Скасування оплати / повернення коштів — немає tool. request_handoff, не вигадуй refund у CRM.',
     );

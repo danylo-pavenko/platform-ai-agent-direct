@@ -4,7 +4,7 @@
 import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled, isCrmWriteReady } from '../lib/crm-write.js';
-import { normalizeOrderItems } from '../lib/order-normalize.js';
+import { normalizeOrderItems, resolveQuotedTotal } from '../lib/order-normalize.js';
 import type { PaymentMethod as PrismaPaymentMethod } from '../generated/prisma/client.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
 import { notifyOrder } from './telegram-notify.js';
@@ -34,6 +34,8 @@ export interface AdminProductOrderInput {
   phone: string;
   city: string;
   npBranch: string;
+  /** Final total quoted to the customer (required for product orders). */
+  quotedTotal: number;
   paymentMethod?: unknown;
   note?: string | null;
   /** Create even if an active product order already exists. */
@@ -110,7 +112,16 @@ export async function createAdminProductOrder(
     return { ok: false, error: 'Потрібен непорожній items[]', code: 'VALIDATION' };
   }
 
+  if (
+    typeof input.quotedTotal !== 'number' ||
+    !Number.isFinite(input.quotedTotal) ||
+    input.quotedTotal < 0
+  ) {
+    return { ok: false, error: 'Потрібен quotedTotal ≥ 0', code: 'VALIDATION' };
+  }
+
   const normalisedItems = normalizeOrderItems(input.items, 'Товар');
+  const quotedTotal = resolveQuotedTotal(input.quotedTotal, normalisedItems);
   const paymentMethod = toPaymentMethod(input.paymentMethod);
   const note = input.note?.trim() || null;
 
@@ -155,6 +166,7 @@ export async function createAdminProductOrder(
         npBranch,
         paymentMethod: paymentMethod as PrismaPaymentMethod,
         note,
+        quotedTotal,
         status: 'submitted',
         submittedToManagerAt: new Date(),
         crmSyncStatus: crmWrites ? 'pending' : 'skipped',
@@ -175,6 +187,7 @@ export async function createAdminProductOrder(
         kind: 'product',
         summary: null,
         items: normalisedItems,
+        quotedTotal,
         customerName,
         phone,
         city,

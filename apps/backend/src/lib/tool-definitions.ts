@@ -530,7 +530,7 @@ const GET_DELIVERY_COST: ToolDefinition = {
 const COLLECT_ORDER: ToolDefinition = {
   name: 'collect_order',
   description:
-    'Повне e-commerce замовлення з доставкою. Викликай ОБОВ\'ЯЗКОВО коли клієнт підтвердив і є: товар, ПІБ, телефон, місто+НП, оплата. Без цього виклику повне замовлення НЕ створюється. Для м\'якої згоди (послуга/дзвінок/«оформляйте» без НП) — create_local_order.',
+    'Повне e-commerce замовлення з доставкою. Викликай ОБОВ\'ЯЗКОВО коли клієнт підтвердив і є: товар, ПІБ, телефон, місто+НП, оплата, фінальна сума (quoted_total). items[].price — каталожна ціна з search_catalog/файлу; quoted_total — сума, яку озвучив клієнту (після знижки/округляння). Без цього виклику повне замовлення НЕ створюється. Для м\'якої згоди (послуга/дзвінок/«оформляйте» без НП) — create_local_order.',
   parameters: {
     type: 'object',
     properties: {
@@ -541,11 +541,19 @@ const COLLECT_ORDER: ToolDefinition = {
           properties: {
             name: { type: 'string' },
             variant: { type: 'string', description: 'Колір, розмір тощо' },
-            price: { type: 'number' },
+            price: {
+              type: 'number',
+              description: 'Каталожна ціна з search_catalog / файлу (не фінальна зі знижкою)',
+            },
             qty: { type: 'number', default: 1 },
           },
           required: ['name', 'price'],
         },
+      },
+      quoted_total: {
+        type: 'number',
+        description:
+          'Фінальна сума в грн, яку озвучив клієнту (після знижки/округляння). Клієнту казати саме її.',
       },
       customer_name: { type: 'string' },
       phone: { type: 'string' },
@@ -563,7 +571,15 @@ const COLLECT_ORDER: ToolDefinition = {
         description: 'Додаткові побажання клієнта',
       },
     },
-    required: ['items', 'customer_name', 'phone', 'city', 'np_branch', 'payment_method'],
+    required: [
+      'items',
+      'quoted_total',
+      'customer_name',
+      'phone',
+      'city',
+      'np_branch',
+      'payment_method',
+    ],
   },
 };
 

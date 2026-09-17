@@ -55,6 +55,7 @@ const orderItemSchema = z.object({
 const productOrderDraftSchema = z.object({
   conversation_id: z.string().min(1),
   items: z.array(orderItemSchema).min(1),
+  quoted_total: z.number().nonnegative(),
   customer_name: z.string().min(1),
   phone: z.string().min(1),
   city: z.string().min(1),
@@ -123,7 +124,7 @@ export function buildInsightsToolDefinitions(): ToolDefinition[] {
     {
       name: 'propose_product_order',
       description:
-        'Validate a product order draft from conversation data. Does NOT write to DB. Returns missing fields and a summary for owner confirmation.',
+        'Validate a product order draft from conversation data. Does NOT write to DB. items[].price = catalog; quoted_total = amount told to the customer. Returns missing fields and a summary for owner confirmation.',
       parameters: {
         type: 'object',
         properties: {
@@ -135,11 +136,18 @@ export function buildInsightsToolDefinitions(): ToolDefinition[] {
               properties: {
                 name: { type: 'string' },
                 variant: { type: 'string' },
-                price: { type: 'number' },
+                price: {
+                  type: 'number',
+                  description: 'Catalog / list price',
+                },
                 qty: { type: 'number' },
               },
               required: ['name', 'price'],
             },
+          },
+          quoted_total: {
+            type: 'number',
+            description: 'Final total quoted to the customer (after discount/rounding)',
           },
           customer_name: { type: 'string' },
           phone: { type: 'string' },
@@ -148,13 +156,21 @@ export function buildInsightsToolDefinitions(): ToolDefinition[] {
           payment_method: { type: 'string', enum: ['card', 'transfer', 'cod'] },
           note: { type: 'string' },
         },
-        required: ['conversation_id', 'items', 'customer_name', 'phone', 'city', 'np_branch'],
+        required: [
+          'conversation_id',
+          'items',
+          'quoted_total',
+          'customer_name',
+          'phone',
+          'city',
+          'np_branch',
+        ],
       },
     },
     {
       name: 'create_product_order',
       description:
-        'Create local product order (+ optional KeyCRM mirror). REQUIRES confirm=true after owner explicitly confirms the draft in chat. Never messages the Instagram client.',
+        'Create local product order (+ optional KeyCRM mirror). REQUIRES confirm=true after owner explicitly confirms the draft in chat. Never messages the Instagram client. items[].price = catalog; quoted_total = customer-facing total.',
       parameters: {
         type: 'object',
         properties: {
@@ -166,11 +182,18 @@ export function buildInsightsToolDefinitions(): ToolDefinition[] {
               properties: {
                 name: { type: 'string' },
                 variant: { type: 'string' },
-                price: { type: 'number' },
+                price: {
+                  type: 'number',
+                  description: 'Catalog / list price',
+                },
                 qty: { type: 'number' },
               },
               required: ['name', 'price'],
             },
+          },
+          quoted_total: {
+            type: 'number',
+            description: 'Final total quoted to the customer',
           },
           customer_name: { type: 'string' },
           phone: { type: 'string' },
@@ -186,6 +209,7 @@ export function buildInsightsToolDefinitions(): ToolDefinition[] {
         required: [
           'conversation_id',
           'items',
+          'quoted_total',
           'customer_name',
           'phone',
           'city',
@@ -260,6 +284,7 @@ function missingOrderFields(draft: {
   np_branch?: string;
   payment_method?: string;
   items?: unknown;
+  quoted_total?: number;
 }): string[] {
   const missing: string[] = [];
   if (!asString(draft.customer_name)) missing.push('customer_name');
@@ -268,6 +293,13 @@ function missingOrderFields(draft: {
   if (!asString(draft.np_branch)) missing.push('np_branch');
   if (!draft.payment_method) missing.push('payment_method (optional but recommended)');
   if (!Array.isArray(draft.items) || draft.items.length === 0) missing.push('items');
+  if (
+    typeof draft.quoted_total !== 'number' ||
+    !Number.isFinite(draft.quoted_total) ||
+    draft.quoted_total < 0
+  ) {
+    missing.push('quoted_total');
+  }
   return missing;
 }
 
@@ -358,6 +390,7 @@ export async function executeInsightsToolCall(
             npBranch: o.npBranch,
             paymentMethod: o.paymentMethod,
             items: o.items,
+            quotedTotal: o.quotedTotal,
             crmSyncStatus: o.crmSyncStatus,
             keycrmOrderId: o.keycrmOrderId,
             crmSyncError: o.crmSyncError,
@@ -496,6 +529,7 @@ export async function executeInsightsToolCall(
         const result = await createAdminProductOrder({
           conversationId: d.conversation_id,
           items: d.items,
+          quotedTotal: d.quoted_total,
           customerName: d.customer_name,
           phone: d.phone,
           city: d.city,

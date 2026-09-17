@@ -5,6 +5,18 @@
       <div v-for="(line, i) in item.items" :key="i" class="mb-1">
         {{ line.name }}{{ line.variant ? ` (${line.variant})` : '' }}
         × {{ line.qty ?? 1 }} — {{ line.price * (line.qty ?? 1) }} ₴
+        <span class="text-medium-emphasis text-caption"> (каталог)</span>
+      </div>
+      <div class="mt-2">
+        <strong>Озвучено клієнту:</strong>
+        {{ displayQuoted }} ₴
+        <span
+          v-if="showCatalogDelta"
+          class="text-medium-emphasis"
+        >
+          · каталог: {{ displayCatalog }} ₴
+          <template v-if="deltaLabel"> ({{ deltaLabel }})</template>
+        </span>
       </div>
     </div>
     <div v-else class="text-medium-emphasis text-body-2 mb-3">Немає товарів</div>
@@ -117,6 +129,10 @@ export interface OrderDetailItem {
   npBranch?: string | null;
   paymentMethod?: string | null;
   note?: string | null;
+  total?: number;
+  catalogTotal?: number;
+  quotedTotal?: number | null;
+  totalDelta?: number;
   items?: Array<{ name: string; variant?: string; qty: number; price: number }>;
   keycrmOrderId?: string | null;
   keycrmOrderUrl?: string | null;
@@ -172,6 +188,31 @@ const paymentLabel = computed(() => {
     cod: 'Накладений платіж',
   };
   return labels[method] || method;
+});
+
+const displayCatalog = computed(() => {
+  if (typeof props.item.catalogTotal === 'number') return props.item.catalogTotal;
+  const lines = props.item.items ?? [];
+  return lines.reduce((sum, line) => sum + (line.price || 0) * (line.qty ?? 1), 0);
+});
+
+const displayQuoted = computed(() => {
+  if (typeof props.item.quotedTotal === 'number') return props.item.quotedTotal;
+  if (typeof props.item.total === 'number') return props.item.total;
+  return displayCatalog.value;
+});
+
+const showCatalogDelta = computed(
+  () => Math.abs(displayQuoted.value - displayCatalog.value) >= 0.01,
+);
+
+const deltaLabel = computed(() => {
+  const d =
+    typeof props.item.totalDelta === 'number'
+      ? props.item.totalDelta
+      : Math.round((displayQuoted.value - displayCatalog.value) * 100) / 100;
+  if (Math.abs(d) < 0.01) return '';
+  return d > 0 ? `+${d} ₴` : `${d} ₴`;
 });
 
 const crmStatusLabel = computed(() => {

@@ -85,6 +85,7 @@ describe('insights-tools', () => {
       args: {
         conversation_id: 'a0712020-04d1-4863-8ad4-1370d6905921',
         items: [{ name: 'Hoodie', price: 100 }],
+        quoted_total: 100,
         customer_name: 'A',
         phone: '1',
         city: 'Kyiv',
@@ -112,6 +113,7 @@ describe('insights-tools', () => {
       args: {
         conversation_id: '/conversations/a0712020-04d1-4863-8ad4-1370d6905921',
         items: [{ name: 'Hoodie', price: 2189, qty: 1 }],
+        quoted_total: 2000,
         customer_name: 'Губеня',
         phone: '+38099',
         city: 'Київ',
@@ -126,10 +128,33 @@ describe('insights-tools', () => {
         conversationId: 'a0712020-04d1-4863-8ad4-1370d6905921',
         customerName: 'Губеня',
         paymentMethod: 'card',
+        quotedTotal: 2000,
       }),
     );
     expect(out).toContain('СТВОРЕНО');
     expect(out).toContain('ord-1');
+  });
+
+  it('propose_product_order lists missing quoted_total', async () => {
+    prismaMock.conversation.findUnique.mockResolvedValue({
+      id: 'a0712020-04d1-4863-8ad4-1370d6905921',
+      state: 'handoff',
+    });
+    prismaMock.order.findFirst.mockResolvedValue(null);
+
+    const out = await executeInsightsToolCall({
+      name: 'propose_product_order',
+      args: {
+        conversation_id: 'a0712020-04d1-4863-8ad4-1370d6905921',
+        items: [{ name: 'Hoodie', price: 100 }],
+        customer_name: 'A',
+        phone: '1',
+        city: 'Kyiv',
+        np_branch: '1',
+      },
+    });
+
+    expect(out).toContain('ПОМИЛКА валідації');
   });
 
   it('loads conversation transcript for owner', async () => {

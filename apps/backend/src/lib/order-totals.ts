@@ -1,12 +1,29 @@
-/** Sum line items stored as Prisma Json (qty × price). */
-export function computeOrderTotal(items: unknown): number {
-  if (!Array.isArray(items)) return 0;
+/** Order totals: catalog sum vs quoted-to-customer. */
 
-  return items.reduce((sum, raw) => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return sum;
-    const o = raw as Record<string, unknown>;
-    const price = typeof o.price === 'number' ? o.price : 0;
-    const qty = typeof o.qty === 'number' ? o.qty : 1;
-    return sum + price * qty;
-  }, 0);
+import {
+  resolveQuotedTotal,
+  sumCatalogTotal,
+  type OrderLineItem,
+} from './order-normalize.js';
+
+/** Sum line items stored as Prisma Json (qty × catalog price). */
+export function computeOrderTotal(items: unknown): number {
+  return sumCatalogTotal(items);
+}
+
+export function computeOrderTotals(
+  items: unknown,
+  quotedTotal: number | null | undefined,
+): {
+  catalogTotal: number;
+  quotedTotal: number;
+  delta: number;
+} {
+  const catalogTotal = Math.round(sumCatalogTotal(items) * 100) / 100;
+  const quoted = resolveQuotedTotal(quotedTotal, items as OrderLineItem[]);
+  return {
+    catalogTotal,
+    quotedTotal: quoted,
+    delta: Math.round((quoted - catalogTotal) * 100) / 100,
+  };
 }

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { computeOrderTotal } from '../lib/order-totals.js';
+import { computeOrderTotals } from '../lib/order-totals.js';
 import { buildKeycrmOrderUrl, resolveKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { parseAppointmentIdFromOrderNote } from '../lib/order-appointment.js';
 import { normalizeAppointmentServices } from '../lib/appointment-services.js';
@@ -25,6 +25,7 @@ type OrderRow = {
   npBranch: string | null;
   paymentMethod: string | null;
   note: string | null;
+  quotedTotal?: number | null;
   status: string;
   submittedToManagerAt: Date | null;
   keycrmOrderId: string | null;
@@ -51,10 +52,16 @@ function serializeOrder(
       ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)
       : null;
 
+  const totals = computeOrderTotals(order.items, order.quotedTotal);
+
   return {
     ...order,
     kind: order.kind ?? 'product',
-    total: computeOrderTotal(order.items),
+    /** Customer-facing total (quoted; legacy falls back to catalog). */
+    total: totals.quotedTotal,
+    catalogTotal: totals.catalogTotal,
+    quotedTotal: totals.quotedTotal,
+    totalDelta: totals.delta,
     keycrmOrderId: order.keycrmOrderId,
     keycrmOrderUrl: keycrmUrl,
     crmSyncStatus: crm.crmSyncStatus,

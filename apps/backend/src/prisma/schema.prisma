@@ -239,6 +239,8 @@ model Order {
   npBranch              String?        @map("np_branch")
   paymentMethod         PaymentMethod? @map("payment_method")
   note                  String?
+  /** Final total quoted to the customer (may differ from sum of catalog line prices). */
+  quotedTotal           Float?         @map("quoted_total")
   status                OrderStatus    @default(draft)
   submittedToManagerAt  DateTime?      @map("submitted_to_manager_at")
   keycrmOrderId         String?        @map("keycrm_order_id")

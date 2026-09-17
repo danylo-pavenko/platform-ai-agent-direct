@@ -63,6 +63,7 @@ describe('createAdminProductOrder', () => {
     const result = await createAdminProductOrder({
       conversationId: 'conv-1',
       items: [{ name: 'Hoodie', price: 2189, qty: 1 }],
+      quotedTotal: 2000,
       customerName: 'Test User',
       phone: '+380991112233',
       city: 'Київ',
@@ -77,7 +78,14 @@ describe('createAdminProductOrder', () => {
       path: '/conversations/conv-1',
     });
     expect(mirrorOrderToCrm).toHaveBeenCalledWith('order-1', { force: true });
-    expect(notifyOrder).toHaveBeenCalled();
+    expect(notifyOrder).toHaveBeenCalledWith(
+      expect.objectContaining({ quotedTotal: 2000 }),
+    );
+    expect(prismaMock.order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ quotedTotal: 2000 }),
+      }),
+    );
   });
 
   it('refuses duplicate product order without force', async () => {
@@ -97,6 +105,7 @@ describe('createAdminProductOrder', () => {
     const result = await createAdminProductOrder({
       conversationId: 'conv-1',
       items: [{ name: 'X', price: 1 }],
+      quotedTotal: 1,
       customerName: 'A',
       phone: '1',
       city: 'C',
@@ -104,6 +113,28 @@ describe('createAdminProductOrder', () => {
     });
 
     expect(result).toMatchObject({ ok: false, code: 'DUPLICATE' });
+    expect(prismaMock.order.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing quotedTotal', async () => {
+    prismaMock.conversation.findUnique.mockResolvedValue({
+      id: 'conv-1',
+      state: 'handoff',
+      clientId: 'client-1',
+      client: { igUserId: 'ig-1' },
+    });
+
+    const result = await createAdminProductOrder({
+      conversationId: 'conv-1',
+      items: [{ name: 'X', price: 10 }],
+      quotedTotal: Number.NaN,
+      customerName: 'A',
+      phone: '1',
+      city: 'C',
+      npBranch: '2',
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'VALIDATION' });
     expect(prismaMock.order.create).not.toHaveBeenCalled();
   });
 
@@ -136,6 +167,7 @@ describe('createAdminProductOrder', () => {
     const result = await createAdminProductOrder({
       conversationId: 'conv-1',
       items: [{ name: 'X', price: 10 }],
+      quotedTotal: 10,
       customerName: 'A',
       phone: '1',
       city: 'C',
@@ -146,7 +178,7 @@ describe('createAdminProductOrder', () => {
     expect(mirrorOrderToCrm).not.toHaveBeenCalled();
     expect(prismaMock.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ crmSyncStatus: 'skipped' }),
+        data: expect.objectContaining({ crmSyncStatus: 'skipped', quotedTotal: 10 }),
       }),
     );
   });

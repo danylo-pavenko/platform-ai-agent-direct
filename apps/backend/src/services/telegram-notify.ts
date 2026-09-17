@@ -387,6 +387,8 @@ export async function notifyOrder(params: {
   conversationId: string;
   clientIgUserId: string;
   items: Array<{ name: string; variant?: string; price: number; qty: number }>;
+  /** Final total quoted to the customer; falls back to catalog sum. */
+  quotedTotal?: number | null;
   customerName: string;
   phone: string;
   city?: string | null;
@@ -400,6 +402,7 @@ export async function notifyOrder(params: {
     conversationId,
     clientIgUserId,
     items,
+    quotedTotal: quotedArg,
     customerName,
     phone,
     city,
@@ -411,10 +414,15 @@ export async function notifyOrder(params: {
   const shortId = orderId.slice(0, 8);
   const adminUrl = adminConversationUrl(conversationId);
 
-  const total = items.reduce(
+  const catalogTotal = items.reduce(
     (sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty) || 1),
     0,
   );
+  const quotedTotal =
+    typeof quotedArg === 'number' && Number.isFinite(quotedArg) && quotedArg >= 0
+      ? Math.round(quotedArg * 100) / 100
+      : Math.round(catalogTotal * 100) / 100;
+  const showCatalogDelta = Math.abs(quotedTotal - catalogTotal) >= 0.01;
 
   const itemsBlock = items
     .map((item) => {
@@ -451,6 +459,16 @@ export async function notifyOrder(params: {
       ? `Агент оформив запис (локально + CRM). Клієнту вже надіслано підтвердження.`
       : null;
 
+  const totalsBlock =
+    quotedTotal > 0 || catalogTotal > 0
+      ? [
+          `<b>Разом (озвучено): ${quotedTotal} ₴</b>`,
+          showCatalogDelta ? `каталог: ${catalogTotal} ₴` : null,
+        ]
+          .filter(Boolean)
+          .join('\n')
+      : '';
+
   const text = [
     kind === 'booking' ? `✅ <b>${title}</b>` : `📦 <b>${title}</b>`,
     ``,
@@ -478,7 +496,7 @@ export async function notifyOrder(params: {
     ``,
     `<b>Позиції:</b>`,
     itemsBlock || '<i>(немає позицій)</i>',
-    total > 0 ? `<b>Разом: ${total} ₴</b>` : '',
+    totalsBlock,
     ``,
     `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
   ]

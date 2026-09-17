@@ -35,8 +35,9 @@ Telegram-сповіщення менеджерам — НЕ окремий tool 
 ## Замовлення (sales / collect_order / create_local_order) — джерело правди
 
 1. create_local_order — коли клієнт погодився на товар/послугу/дзвінок («оформляйте»). Завжди локальна БД + Telegram; CRM sync = skipped.
-2. collect_order — повне e-com (товар + ПІБ + телефон + місто/НП + оплата). ЗАВЖДИ локальна БД; + CRM mirror якщо write і KeyCRM createOrder.
-3. Не пиши в промпті «створи замовлення в KeyCRM» — пиши «викликай create_local_order при згоді» / «collect_order коли підтвердив усі дані доставки».
+2. collect_order — повне e-com (товар + ПІБ + телефон + місто/НП + оплата + quoted_total). ЗАВЖДИ локальна БД; + CRM mirror якщо write і KeyCRM createOrder.
+3. items[].price = каталожна ціна (search_catalog / файл). quoted_total = сума, озвучена клієнту (знижка/округляння). CRM і Telegram дзеркалять quoted; адмінка показує обидва.
+4. Не пиши в промпті «створи замовлення в KeyCRM» — пиши «викликай create_local_order при згоді» / «collect_order коли підтвердив усі дані доставки».
 
 ## CRM (через CrmAdapter + crm_routing, не хардкод у промпті)
 
@@ -99,7 +100,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Knowledge / prompts (tenant)
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
-- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (`pricePreference`) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл.
+- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл.
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 

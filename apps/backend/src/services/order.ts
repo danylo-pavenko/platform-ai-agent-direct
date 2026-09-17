@@ -8,6 +8,8 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import {
   normalizeOrderItems,
   parseOrderKind,
+  parseQuotedTotalArg,
+  resolveQuotedTotal,
 } from '../lib/order-normalize.js';
 import type { OrderKind, PaymentMethod as PrismaPaymentMethod } from '../generated/prisma/client.js';
 
@@ -107,6 +109,15 @@ export async function handleCollectOrder(
   const note = (args.note as string) || null;
 
   const normalisedItems = normalizeOrderItems(rawItems, 'Товар');
+  const quotedParsed = parseQuotedTotalArg(args);
+  if (quotedParsed == null) {
+    log.error(
+      { conversationId },
+      'collect_order missing quoted_total — skipping',
+    );
+    return null;
+  }
+  const quotedTotal = resolveQuotedTotal(quotedParsed, normalisedItems);
 
   const crmWrites = await isCrmWriteEnabled();
 
@@ -136,6 +147,7 @@ export async function handleCollectOrder(
       npBranch,
       paymentMethod: paymentMethod as PrismaPaymentMethod,
       note,
+      quotedTotal,
       status: 'submitted',
       submittedToManagerAt: new Date(),
       crmSyncStatus: crmWrites ? 'pending' : 'skipped',
@@ -169,6 +181,7 @@ export async function handleCollectOrder(
     kind: 'product',
     summary: null,
     items: normalisedItems,
+    quotedTotal,
     customerName,
     phone,
     city,
@@ -183,7 +196,7 @@ export async function handleCollectOrder(
   });
 
   log.info(
-    { orderId: order.id, conversationId, itemCount: normalisedItems.length },
+    { orderId: order.id, conversationId, itemCount: normalisedItems.length, quotedTotal },
     'Order created and notifications sent',
   );
 
@@ -256,6 +269,9 @@ export async function handleCreateLocalOrder(
   const paymentMethod = toOptionalPaymentMethod(args.payment_method);
 
   const normalisedItems = normalizeOrderItems(args.items, summary);
+  const quotedParsed = parseQuotedTotalArg(args);
+  const quotedTotal =
+    quotedParsed != null ? resolveQuotedTotal(quotedParsed, normalisedItems) : null;
 
   const since = new Date(Date.now() - LOCAL_ORDER_DEDUPE_MS);
   const recent = await prisma.order.findFirst({
@@ -290,6 +306,7 @@ export async function handleCreateLocalOrder(
       npBranch,
       paymentMethod: paymentMethod as PrismaPaymentMethod | null,
       note,
+      quotedTotal: quotedTotal ?? undefined,
       status: 'submitted',
       submittedToManagerAt: new Date(),
       crmSyncStatus: 'skipped',
@@ -324,6 +341,7 @@ export async function handleCreateLocalOrder(
     kind,
     summary,
     items: normalisedItems,
+    quotedTotal: quotedTotal ?? undefined,
     customerName,
     phone,
     city,
