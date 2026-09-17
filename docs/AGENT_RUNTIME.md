@@ -90,7 +90,7 @@ Order in `buildRuntimePrompt` / `askClaude`:
 |-------|----------------------|
 | DB system prompt | Yes |
 | Seed `prompts/{sales,leadgen,booking,general}-agent.txt` | First DB seed uses **general** (matches default `agent_config.mode`) |
-| Live catalog / services / masters files | Yes (mode-aware snippet) |
+| Live catalog / services / masters files | Yes (mode-aware snippet; products from CRM sync **or** manual CSV import per `catalog_import.sourcePriority`) |
 | Full CRM visit history | **No** on cold prompt — tool `get_client_crm_history` |
 | Legacy `knowledge/contacts|faq|…` | **No** |
 | Tenant disk `CLAUDE.md` | **No** (spawn cwd isolated) |
@@ -158,7 +158,7 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 - Active business prompt (tone, FAQ, rules, offer framing)  
 - Client profile fields collected so far + tags + branch  
 - Recent conversation (capped ~30 messages)  
-- Catalog / services / masters live snippets + search tools  
+- Catalog / services / masters live snippets + search tools (`search_catalog` merges file↔CRM matches when present; quotes `pricePreference` price and notes material CRM/file deltas)  
 - CRM link hint when linked (booking); full visits via `get_client_crm_history`  
 - Working hours / out-of-hours strategy  
 - Mode tool surface only (no inventing tools)

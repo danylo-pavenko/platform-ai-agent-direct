@@ -46,6 +46,29 @@ export function getCatalogPath(): string {
   return resolve(getTenantKnowledgeDir(), 'knowledge', 'catalog.txt');
 }
 
+/** Manual CSV import catalog snippet (Shop-Express etc.). */
+export function getManualCatalogPath(): string {
+  return resolve(getTenantKnowledgeDir(), 'knowledge', 'catalog-manual.txt');
+}
+
+/** Repo data/ dumps for manual product catalog (separate from KeyCRM sync). */
+export function getManualProductsPath(): string {
+  return resolve(REPO_ROOT, 'data', 'manual-products.json');
+}
+
+export function getManualOffersPath(): string {
+  return resolve(REPO_ROOT, 'data', 'manual-offers.json');
+}
+
+export function getManualCategoriesPath(): string {
+  return resolve(REPO_ROOT, 'data', 'manual-categories.json');
+}
+
+/** Auto/manual links between CSV products and CRM products. */
+export function getCatalogMatchesPath(): string {
+  return resolve(REPO_ROOT, 'data', 'catalog-matches.json');
+}
+
 /** Shortcut: services catalog for booking-mode salons. */
 export function getServicesCatalogPath(): string {
   return resolve(getTenantKnowledgeDir(), 'knowledge', 'services-live.txt');

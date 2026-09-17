@@ -1,12 +1,17 @@
 /**
- * In-memory index over sync-worker JSON dumps (data/products.json, offers.json).
- * Avoids KeyCRM API round-trips on every search_catalog / shared-post lookup.
+ * In-memory index over catalog JSON dumps:
+ * - CRM sync: data/products.json + offers.json
+ * - Manual CSV: data/manual-products.json + manual-offers.json
  */
 
 import { readFile, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import pino from 'pino';
-import { REPO_ROOT } from './paths.js';
+import {
+  getManualOffersPath,
+  getManualProductsPath,
+  REPO_ROOT,
+} from './paths.js';
 import type { CrmOffer, CrmProduct } from '../services/crm/types.js';
 
 const log = pino({ name: 'catalog-index' });
@@ -17,23 +22,28 @@ export interface CatalogIndex {
   mtimeMs: number;
   products: CrmProduct[];
   offersByProductId: Map<number, CrmOffer[]>;
+  source: 'crm' | 'manual';
 }
 
-let cache: CatalogIndex | null = null;
+let crmCache: CatalogIndex | null = null;
+let manualCache: CatalogIndex | null = null;
 
 export function invalidateCatalogIndexCache(): void {
-  cache = null;
+  crmCache = null;
+  manualCache = null;
 }
 
-export async function loadCatalogIndex(): Promise<CatalogIndex | null> {
-  const productsPath = resolve(DATA_DIR, 'products.json');
-  const offersPath = resolve(DATA_DIR, 'offers.json');
-
+async function loadIndexFromFiles(
+  productsPath: string,
+  offersPath: string,
+  source: 'crm' | 'manual',
+  cache: CatalogIndex | null,
+): Promise<CatalogIndex | null> {
   try {
     const [productStat, offerStat] = await Promise.all([stat(productsPath), stat(offersPath)]);
     const mtimeMs = Math.max(productStat.mtimeMs, offerStat.mtimeMs);
 
-    if (cache && cache.mtimeMs === mtimeMs) {
+    if (cache && cache.mtimeMs === mtimeMs && cache.source === source) {
       return cache;
     }
 
@@ -52,16 +62,40 @@ export async function loadCatalogIndex(): Promise<CatalogIndex | null> {
       else offersByProductId.set(offer.productId, [offer]);
     }
 
-    cache = { mtimeMs, products, offersByProductId };
+    const next: CatalogIndex = { mtimeMs, products, offersByProductId, source };
     log.debug(
-      { products: products.length, offers: offers.length },
+      { products: products.length, offers: offers.length, source },
       'Catalog index loaded from disk',
     );
-    return cache;
+    return next;
   } catch (err) {
-    log.debug({ err }, 'Catalog index unavailable — will use live CRM search');
+    log.debug({ err, source }, 'Catalog index unavailable');
     return null;
   }
+}
+
+/** KeyCRM (or other CRM sync) snapshot. */
+export async function loadCatalogIndex(): Promise<CatalogIndex | null> {
+  const index = await loadIndexFromFiles(
+    resolve(DATA_DIR, 'products.json'),
+    resolve(DATA_DIR, 'offers.json'),
+    'crm',
+    crmCache,
+  );
+  crmCache = index;
+  return index;
+}
+
+/** Manual CSV import snapshot. */
+export async function loadManualCatalogIndex(): Promise<CatalogIndex | null> {
+  const index = await loadIndexFromFiles(
+    getManualProductsPath(),
+    getManualOffersPath(),
+    'manual',
+    manualCache,
+  );
+  manualCache = index;
+  return index;
 }
 
 /** Tokenize a product search query (Cyrillic + Latin, min 2 chars). */

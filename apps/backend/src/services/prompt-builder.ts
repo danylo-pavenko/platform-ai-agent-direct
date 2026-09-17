@@ -3,6 +3,7 @@ import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import {
   getCatalogPath,
+  getManualCatalogPath,
   getMastersCatalogPath,
   getServicesCatalogPath,
 } from '../lib/paths.js';
@@ -688,10 +689,25 @@ async function loadCatalogSnippetSections(opts: {
   masters: boolean;
   mastersMaxChars?: number;
 }): Promise<string> {
+  let productPath = getCatalogPath();
+  let productTitle = 'PRODUCTS (catalog.txt)';
+  if (opts.products) {
+    try {
+      const { resolveEffectiveCatalogSource } = await import('./product-search.js');
+      const source = await resolveEffectiveCatalogSource();
+      if (source === 'file') {
+        productPath = getManualCatalogPath();
+        productTitle = 'PRODUCTS (catalog-manual.txt)';
+      }
+    } catch {
+      // keep CRM catalog path
+    }
+  }
+
   const sections: Array<{ title: string; path: string; maxChars: number; enabled: boolean }> = [
     {
-      title: 'PRODUCTS (catalog.txt)',
-      path: getCatalogPath(),
+      title: productTitle,
+      path: productPath,
       maxChars: 4_000,
       enabled: opts.products,
     },

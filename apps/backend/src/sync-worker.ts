@@ -780,6 +780,13 @@ export async function runSync(): Promise<void> {
 
     invalidateCatalogIndexCache();
 
+    try {
+      const { rebuildCatalogMatches } = await import('./services/catalog-import/catalog-match.js');
+      await rebuildCatalogMatches();
+    } catch (err) {
+      log.warn({ err }, 'Catalog match rebuild after CRM sync failed (non-fatal)');
+    }
+
     const orderArchiveStats = await syncOrderArchiveFlags().catch((err) => {
       log.warn({ err }, 'Order archive sync failed (non-fatal)');
       return { checked: 0, archived: 0 };
