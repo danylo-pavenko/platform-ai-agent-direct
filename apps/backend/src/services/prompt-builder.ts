@@ -107,6 +107,12 @@ export interface PromptBuildParams {
    * Drives first-reply intro vs no re-greeting (imported IG history is manager, not bot).
    */
   botAlreadyReplied?: boolean;
+  /**
+   * True when the previous turn in this UUID is older than sessionFreshnessDays.
+   * Re-introduces (same as first reply) without splitting the row — belt-and-suspenders
+   * if webhook did not open a new conversation.
+   */
+  sessionResumeAfterGap?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +232,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     telegramBotsBlock,
     timeZone = DEFAULT_TENANT_TIMEZONE,
     botAlreadyReplied = false,
+    sessionResumeAfterGap = false,
   } = params;
 
   const activePromptContent = applyPromptPlaceholders(rawPromptContent, {
@@ -326,7 +333,7 @@ ${catalogLabel}
 - Кілька повідомлень клієнта підряд без відповіді бота між ними — це ОДНА репліка (наприклад час + ПІБ + телефон). Відповідай на весь блок, не лише на останній рядок.
 - Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в блоці «Вже відомо про клієнта».
 - Фрази «написала вище», «я ж написала», «див. вище», «там вище» — візьми дані з попередніх повідомлень клієнта; не проси повторити і не роби handoff лише через це.
-${buildIntroSessionRule(botAlreadyReplied)}
+${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap)}
 ${catalogRule}${buildOutOfHoursBlock(isOutOfHours, outOfHoursStrategy, agentMode)}`;
 
 
@@ -397,8 +404,17 @@ function applyPromptPlaceholders(
 /**
  * First bot reply in a thread: introduce per tenant prompt.
  * Later turns: never re-greet, even if the client says «Добрий вечір» again.
+ * After sessionFreshnessDays of silence in the same UUID: introduce again (new visit).
  */
-function buildIntroSessionRule(botAlreadyReplied: boolean): string {
+function buildIntroSessionRule(botAlreadyReplied: boolean, sessionResumeAfterGap = false): string {
+  if (sessionResumeAfterGap) {
+    return (
+      '- Між останнім повідомленням у цій розмові і цим зверненням минуло багато днів (нова сесія). ' +
+      'У цій же репліці коротко представся імʼям і роллю зі системного промпту тенанта ' +
+      '(якщо імʼя там є), потім одразу по суті. Не тягни старий конфлікт як поточний, ' +
+      'якщо клієнт вітається або хоче нове замовлення; минулі замовлення — у блоці «Вже відомо про клієнта».'
+    );
+  }
   if (botAlreadyReplied) {
     return (
       '- Бот уже відповідав у цій розмові. Не вітайся знову («Доброго ранку/дня/вечора», «Вітаю»), ' +

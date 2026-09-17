@@ -303,9 +303,15 @@
             <div class="text-body-2 text-grey">Повідомлень поки немає</div>
           </div>
 
+          <template v-for="(msg, msgIndex) in visibleMessages" :key="msg.id">
           <div
-            v-for="(msg, msgIndex) in visibleMessages"
-            :key="msg.id"
+            v-if="showDayDivider(msg, msgIndex)"
+            class="chat-day-divider"
+            role="separator"
+          >
+            <span class="chat-day-divider__label">{{ formatDayDivider(msg.createdAt) }}</span>
+          </div>
+          <div
             class="message-row"
             :class="[messageAlignment(msg), { 'message-row--tight': mobile }]"
           >
@@ -509,6 +515,7 @@
               </v-card>
             </div>
           </div>
+          </template>
 
           <!-- Bot typing indicator -->
           <div v-if="botIsThinking" class="mb-3 d-flex justify-end">
@@ -1030,6 +1037,35 @@ function formatTime(dateStr: string): string {
   const isToday = d.toDateString() === now.toDateString();
   if (isToday) return d.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
   return d.toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function messageDayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toDateString();
+}
+
+function showDayDivider(msg: Message, index: number): boolean {
+  if (!msg.createdAt || !messageDayKey(msg.createdAt)) return false;
+  const prev = visibleMessages.value[index - 1];
+  if (!prev?.createdAt) return true;
+  return messageDayKey(prev.createdAt) !== messageDayKey(msg.createdAt);
+}
+
+function formatDayDivider(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const now = new Date();
+  const label = d.toLocaleDateString('uk-UA', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  if (d.toDateString() === now.toDateString()) return `Сьогодні · ${label}`;
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === yest.toDateString()) return `Вчора · ${label}`;
+  return label;
 }
 
 function messageAlignment(msg: Message): string {
@@ -2113,6 +2149,34 @@ const ClientProfilePanel = defineComponent({
 
 .message-row--tight {
   margin-bottom: 8px;
+}
+
+.chat-day-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px 0 12px;
+  width: 100%;
+}
+
+.chat-day-divider::before,
+.chat-day-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.chat-day-divider__label {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(0, 0, 0, 0.48);
+  text-align: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .message-bubble-text--mobile {

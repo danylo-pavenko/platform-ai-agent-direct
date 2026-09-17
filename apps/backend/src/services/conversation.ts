@@ -21,7 +21,11 @@ import { resolveVisualMediaPathsForClaude } from './media.js';
 import { prepareVisionMediaForClaude, VISION_MEDIA_HINT } from './vision-prepare.js';
 import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
-import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
+import {
+  buildClaudeHistoryTurns,
+  formatSessionGapNotice,
+} from '../lib/conversation-history.js';
+import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
 import { notifyAgentFailure, notifyAgentTurnDebug, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
@@ -140,6 +144,31 @@ const log = pino({ name: 'conversation' });
 
 /** Max messages to include in Claude conversation history */
 const MAX_HISTORY_MESSAGES = 30;
+
+/** Last stored turn that is not this inbound batch (webhook already persisted the client). */
+async function findLastPriorMessageAt(
+  conversationId: string,
+  excludeIgMessageIds: string[] | undefined,
+  currentUserText: string,
+): Promise<Date | null> {
+  const excludeSet = new Set(
+    (excludeIgMessageIds ?? []).map((id) => id.trim()).filter(Boolean),
+  );
+  const recent = await prisma.message.findMany({
+    where: { conversationId, sender: { not: 'system' } },
+    orderBy: { createdAt: 'desc' },
+    take: 12,
+    select: { createdAt: true, igMessageId: true, direction: true, text: true },
+  });
+  const current = currentUserText.trim();
+  const prior = recent.find((m) => {
+    if (!(m.text ?? '').trim()) return false;
+    if (m.igMessageId && excludeSet.has(m.igMessageId)) return false;
+    if (m.direction === 'in' && current && (m.text ?? '').trim() === current) return false;
+    return true;
+  });
+  return prior?.createdAt ?? null;
+}
 
 const CUSTOMER_CHANNELS = new Set(['ig', 'tg']);
 
@@ -677,6 +706,14 @@ async function handleIncomingMessageImpl(
   const { telegram: telegramCfg } = await getIntegrationConfig();
   const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
   const botAlreadyReplied = await conversationHasBotOutbound(conversationId);
+  const lastPriorAt = await findLastPriorMessageAt(
+    conversationId,
+    sourceIgMessageIds,
+    messageText,
+  );
+  const sessionResumeAfterGap = lastPriorAt
+    ? isSessionGapPastFreshness(lastPriorAt, now, agentCfg.sessionFreshnessDays)
+    : false;
 
   const promptSession = createRuntimePromptSession({
     initial: activeSystemPrompt,
@@ -705,6 +742,7 @@ async function handleIncomingMessageImpl(
         telegramBotsBlock,
         timeZone: agentCfg.timezone,
         botAlreadyReplied,
+        sessionResumeAfterGap,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,
@@ -750,7 +788,12 @@ async function handleIncomingMessageImpl(
   const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
 
   // Exclude current turn from history — it is passed separately as userMessage (Phase 4).
+  const historyBaseOpts = {
+    timeZone: agentCfg.timezone,
+    sessionFreshnessDays: agentCfg.sessionFreshnessDays,
+  };
   const history = buildClaudeHistoryTurns(dedupedAsc, messageText, {
+    ...historyBaseOpts,
     excludeIgMessageIds: sourceIgMessageIds,
   });
 
@@ -773,6 +816,7 @@ async function handleIncomingMessageImpl(
       0,
       history.length,
       ...buildClaudeHistoryTurns(refreshedAsc, messageText, {
+        ...historyBaseOpts,
         excludeIgMessageIds: sourceIgMessageIds,
       }),
     );
@@ -881,6 +925,18 @@ async function handleIncomingMessageImpl(
     !enrichedMessageText.includes(VISION_MEDIA_HINT)
   ) {
     enrichedMessageText = `${enrichedMessageText.trim()}\n\n${VISION_MEDIA_HINT}`.trim();
+  }
+
+  if (lastPriorAt) {
+    const gapNotice = formatSessionGapNotice(
+      lastPriorAt,
+      now,
+      agentCfg.timezone,
+      agentCfg.sessionFreshnessDays,
+    );
+    if (gapNotice) {
+      enrichedMessageText = `${gapNotice}\n\n${enrichedMessageText}`;
+    }
   }
 
   // ── 8. Call Claude ────────────────────────────────────────────────

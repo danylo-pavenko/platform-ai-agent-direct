@@ -381,7 +381,10 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         },
       });
       const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
-      const history = buildClaudeHistoryTurns(dedupedAsc, '');
+      const history = buildClaudeHistoryTurns(dedupedAsc, '', {
+        timeZone: agentCfg.timezone,
+        sessionFreshnessDays: agentCfg.sessionFreshnessDays,
+      });
 
       const response = await askClaude(
         {

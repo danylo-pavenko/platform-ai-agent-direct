@@ -141,5 +141,14 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toMatch(/без дзеркального привітання/);
     expect(prompt).not.toMatch(/ПЕРША відповідь бота/);
   });
+
+  it('re-introduces after a long pause even if the bot already replied', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({ botAlreadyReplied: true, sessionResumeAfterGap: true }),
+    );
+    expect(prompt).toMatch(/нова сесія/);
+    expect(prompt).toMatch(/Не тягни старий конфлікт/);
+    expect(prompt).not.toMatch(/без дзеркального привітання/);
+  });
 });
 

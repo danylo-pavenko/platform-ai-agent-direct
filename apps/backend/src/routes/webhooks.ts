@@ -17,6 +17,7 @@ import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
 import { importFirstContactIgHistory } from '../services/ig-history.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import { isConversationStaleForNewSession } from '../lib/session-freshness.js';
 import {
   type StoredMediaAttachment,
   storedMediaAttachmentsForDb,
@@ -880,12 +881,14 @@ async function processMessageEvent(
   }
 
   // ── Find or create conversation ──
-  // B.3: if the active bot-state conversation is older than the tenant's
+  // B.3: if the active bot/handoff conversation is older than the tenant's
   // session-freshness window, close it and start fresh. A new session
   // lets the agent greet properly and keeps analytics (TTFR, brief
   // completeness, future quality rating) scoped per-sales-cycle rather
-  // than smeared across months of idle chat. Handoff-state threads are
-  // left alone — someone (or the manager queue) is owning that flow.
+  // than smeared across months of idle chat.
+  // Handoff idle TTL (~60m) still returns the bot *in-thread* for a short
+  // break. Only the freshness window (default 14d) starts a new UUID.
+  // `paused` stays human-owned.
   let conversation = await prisma.conversation.findFirst({
     where: {
       clientId: client.id,
@@ -895,21 +898,28 @@ async function processMessageEvent(
     orderBy: { createdAt: 'desc' },
   });
 
-  if (conversation && conversation.state === 'bot' && conversation.lastMessageAt) {
+  if (conversation) {
     const { sessionFreshnessDays } = await getAgentConfig();
-    const staleMs = sessionFreshnessDays * 86400000;
-    if (Date.now() - conversation.lastMessageAt.getTime() > staleMs) {
+    if (
+      isConversationStaleForNewSession({
+        state: conversation.state,
+        lastMessageAt: conversation.lastMessageAt,
+        sessionFreshnessDays,
+      })
+    ) {
       await prisma.conversation.update({
         where: { id: conversation.id },
         data: { state: 'closed' },
       });
+      cancelPendingFollowUpsSafe(conversation.id, 'stale_session');
       app.log.info(
         {
           conversationId: conversation.id,
           igUserId,
-          ageDays: Math.round(
-            (Date.now() - conversation.lastMessageAt.getTime()) / 86400000,
-          ),
+          priorState: conversation.state,
+          ageDays: conversation.lastMessageAt
+            ? Math.round((Date.now() - conversation.lastMessageAt.getTime()) / 86400000)
+            : null,
           sessionFreshnessDays,
         },
         'Closed stale conversation — starting fresh session',

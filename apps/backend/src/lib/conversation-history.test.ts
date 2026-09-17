@@ -53,4 +53,54 @@ describe('buildClaudeHistoryTurns', () => {
     );
     expect(history).toEqual([{ role: 'assistant', content: 'ok' }]);
   });
+
+  it('stamps date, time and sender when timeZone is set', () => {
+    const history = buildClaudeHistoryTurns(
+      [
+        {
+          direction: 'in',
+          sender: 'client',
+          text: 'Добрий вечір',
+          createdAt: new Date('2026-08-12T18:46:00.000Z'),
+        },
+        {
+          direction: 'out',
+          sender: 'manager',
+          text: 'Знайдіть 04.08',
+          createdAt: new Date('2026-08-12T18:46:30.000Z'),
+        },
+      ],
+      'нове',
+      { timeZone: 'Europe/Kyiv' },
+    );
+    expect(history[0]?.content).toMatch(/^\[12\.08\.2026 21:46 клієнт\] Добрий вечір$/);
+    expect(history[1]?.content).toMatch(/^\[12\.08\.2026 21:46 менеджер\] Знайдіть 04\.08$/);
+    expect(history[1]?.role).toBe('assistant');
+  });
+
+  it('inserts a long-pause notice between distant turns', () => {
+    const history = buildClaudeHistoryTurns(
+      [
+        {
+          direction: 'out',
+          sender: 'manager',
+          text: 'Замовлення на зупинці',
+          createdAt: new Date('2026-08-12T19:02:00.000Z'),
+        },
+        {
+          direction: 'in',
+          sender: 'client',
+          text: 'Добрий вечір, хочу худі',
+          createdAt: new Date('2026-09-17T15:03:00.000Z'),
+          igMessageId: 'keep',
+        },
+      ],
+      'інше',
+      { timeZone: 'Europe/Kyiv', sessionFreshnessDays: 14 },
+    );
+    expect(history).toHaveLength(2);
+    expect(history[1]?.content).toMatch(/Пауза \d+ дн\./);
+    expect(history[1]?.content).toMatch(/нове звернення/);
+    expect(history[1]?.content).toContain('Добрий вечір, хочу худі');
+  });
 });

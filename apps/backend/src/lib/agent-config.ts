@@ -13,7 +13,7 @@
  *     mode: 'sales' | 'leadgen' | 'booking' | 'general',  // default: general
  *     outOfHoursStrategy: 'warn_early' | 'defer_to_end',
  *     managerSlaHoursBusiness: number,  // hours within working time
- *     sessionFreshnessDays: number,     // B.3 — close stale convos beyond this
+ *     sessionFreshnessDays: number,     // B.3 — close stale bot/handoff convos beyond this
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
  *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
