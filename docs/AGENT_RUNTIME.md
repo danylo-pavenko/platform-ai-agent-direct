@@ -153,7 +153,7 @@ Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). Details: `doc
 
 Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabilitiesBlock()` + `buildInsightsToolDefinitions()` / `executeInsightsToolCall` in `routes/insights.ts` (`services/insights-tools.ts`, `services/order-admin.ts`). Snapshot samples are truncated — load a dialog via `get_conversation` when the owner pastes `/conversations/{uuid}`.
 
-**Conversation Detail (tenant manager):** buttons send payment requisites (`agent_config.paymentRequisites`), force a logical Claude reply, or complete an order (even in handoff). Payment screenshots get a human-confirm note on the order. Retry internals are admin system notes only — never Instagram.
+**Conversation Detail (tenant manager):** buttons send payment requisites (`agent_config.paymentRequisites`), force a logical Claude reply, or complete an order (even in handoff). «Відповісти по суті» is mode-aware: **sales** fills catalog/delivery/contacts (no `collect_order`); **booking** uses «Запропоновані вікна» and may `book_appointment` when the time is already confirmed; **general** picks by client intent. Product checkout is the **Оформити замовлення** button. Payment screenshots get a human-confirm note on the order. Retry internals are admin system notes only — never Instagram.
 
 Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Claude `document` blocks. Customer vision turns use `CLAUDE_VISION_TIMEOUT_MS` (default 180s) so a 60s CLI timeout does not skip reading a receipt.
 

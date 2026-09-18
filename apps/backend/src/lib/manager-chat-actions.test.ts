@@ -52,16 +52,61 @@ describe('mergePaymentHumanConfirmNote', () => {
 });
 
 describe('buildManagerForcedTurnUserMessage', () => {
-  it('forbids handoff and orders on analyze_reply', () => {
+  it('fills profile, slots, and booking tools on analyze_reply without creating a product order', () => {
     const msg = buildManagerForcedTurnUserMessage({
       action: 'analyze_reply',
-      unansweredClientText: 'Давайте карту',
+      unansweredClientText: 'Давайте на 14:00, Анжела +380930152179',
       paymentRequisites: 'IBAN UA00',
+      agentMode: 'booking',
+      knownClient: { displayName: 'Анжела', phone: '+380930152179' },
+      hasFreshSlotOffer: true,
     });
     expect(msg).toContain('Відповісти по суті');
-    expect(msg).toContain('Давайте карту');
+    expect(msg).toContain('Давайте на 14:00');
     expect(msg).toContain('IBAN UA00');
-    expect(msg).toContain('ЗАБОРОНЕНО: request_handoff, collect_order');
+    expect(msg).toContain('телефон +380930152179');
+    expect(msg).toContain('Запропоновані вікна в сесії: ТАК');
+    expect(msg).toContain('update_client_info');
+    expect(msg).toContain('book_appointment');
+    expect(msg).toContain('reschedule_appointment');
+    expect(msg).toMatch(/Не викликай collect_order \/ create_local_order/);
+    expect(msg).toContain('request_handoff');
+    expect(msg).not.toMatch(/ЗАБОРОНЕНО: request_handoff, collect_order/);
+  });
+
+  it('asks for a slots lookup when the offer is missing', () => {
+    const msg = buildManagerForcedTurnUserMessage({
+      action: 'analyze_reply',
+      unansweredClientText: 'Які є вікна завтра?',
+      paymentRequisites: '',
+      agentMode: 'general',
+      hasFreshSlotOffer: false,
+    });
+    expect(msg).toContain('Режим агента: general');
+    expect(msg).toMatch(/Запропоновані вікна в сесії: немає свіжих/);
+    expect(msg).toContain('get_available_slots');
+    expect(msg).toContain('Продаж товару');
+    expect(msg).toContain('search_catalog');
+  });
+
+  it('uses catalog and delivery for sales without booking slots', () => {
+    const msg = buildManagerForcedTurnUserMessage({
+      action: 'analyze_reply',
+      unansweredClientText: 'Худі таш L/XL, Київ, відділення 12. Карту дайте',
+      paymentRequisites: 'IBAN UA00',
+      agentMode: 'sales',
+      knownClient: { deliveryCity: 'Київ', deliveryNpBranch: '12' },
+      hasFreshSlotOffer: true,
+    });
+    expect(msg).toContain('Режим агента: sales');
+    expect(msg).toContain('Продаж товару');
+    expect(msg).toContain('search_catalog');
+    expect(msg).toContain('get_delivery_cost');
+    expect(msg).toContain('місто Київ');
+    expect(msg).toMatch(/Не викликай collect_order \/ create_local_order/);
+    expect(msg).not.toContain('get_available_slots');
+    expect(msg).not.toContain('book_appointment');
+    expect(msg).not.toContain('Запропоновані вікна');
   });
 
   it('requires a local order and human payment confirm on complete_order', () => {

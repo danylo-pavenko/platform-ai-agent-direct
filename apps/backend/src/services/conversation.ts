@@ -2295,7 +2295,11 @@ async function handleIncomingMessageImpl(
   }
 
   // Safety net: bot wrote a full order summary but omitted collect_order.
-  if (modeHasSalesTools(agentCfg.mode) && client.igUserId) {
+  if (
+    modeHasSalesTools(agentCfg.mode) &&
+    client.igUserId &&
+    opts?.managerAction !== 'analyze_reply'
+  ) {
     const parsedSummary = parseOrderSummaryFromText(clientFacingText);
     if (parsedSummary) {
       const orderArgs =
@@ -2835,12 +2839,10 @@ async function tryTerminalToolCalls(
     }
   }
 
-  if (managerAction === 'analyze_reply') {
-    return false;
-  }
+  const skipSalesOrderTools = managerAction === 'analyze_reply';
 
   const createLocal = toolCalls.find((tc) => tc.name === 'create_local_order');
-  if (createLocal && client.igUserId) {
+  if (!skipSalesOrderTools && createLocal && client.igUserId) {
     if (turnDebug) {
       recordTurnTool(turnDebug, 'create_local_order', createLocal.args, '[create_local_order] …');
     }
@@ -2872,7 +2874,7 @@ async function tryTerminalToolCalls(
   }
 
   const collectOrder = toolCalls.find((tc) => tc.name === 'collect_order');
-  if (collectOrder && modeHasSalesTools(agentMode) && client.igUserId) {
+  if (!skipSalesOrderTools && collectOrder && modeHasSalesTools(agentMode) && client.igUserId) {
     if (turnDebug) {
       recordTurnTool(turnDebug, 'collect_order', collectOrder.args, '[collect_order] …');
     }

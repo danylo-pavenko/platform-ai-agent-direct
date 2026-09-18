@@ -564,6 +564,7 @@
               prepend-icon="mdi-message-text-outline"
               :loading="managerActionRunning === 'analyze_reply'"
               :disabled="Boolean(managerActionRunning) || sending"
+              aria-label="Відповісти по суті: відповідь клієнту і дозаповнення з чату"
               @click="runManagerAction('analyze_reply')"
             >
               {{ mobile ? 'Відповісти' : 'Відповісти по суті' }}

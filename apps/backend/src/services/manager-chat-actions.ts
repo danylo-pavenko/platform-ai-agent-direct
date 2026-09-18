@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { joinInboundBatch, type PendingInboundMessage } from '../lib/inbound-coalesce.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { runForcedManagerBotTurn, type BotTurnOutcome } from './conversation.js';
@@ -51,7 +52,14 @@ export async function runManagerChatAction(
     where: { id: conversationId },
     include: {
       client: {
-        select: { igUserId: true },
+        select: {
+          igUserId: true,
+          displayName: true,
+          phone: true,
+          email: true,
+          deliveryCity: true,
+          deliveryNpBranch: true,
+        },
       },
     },
   });
@@ -73,7 +81,7 @@ export async function runManagerChatAction(
     return sendPaymentDetails(conversationId, conversation.client.igUserId);
   }
 
-  return runForcedClaudeAction(conversationId, actionRaw);
+  return runForcedClaudeAction(conversationId, actionRaw, conversation);
 }
 
 async function sendPaymentDetails(
@@ -125,6 +133,16 @@ async function sendPaymentDetails(
 async function runForcedClaudeAction(
   conversationId: string,
   action: ManagerForcedClaudeAction,
+  conversation: {
+    bookingOffer: unknown;
+    client: {
+      displayName: string | null;
+      phone: string | null;
+      email: string | null;
+      deliveryCity: string | null;
+      deliveryNpBranch: string | null;
+    };
+  },
 ): Promise<ManagerChatActionOk> {
   const cfg = await getAgentConfig();
   const batch = await loadUnansweredClientBatch(conversationId);
@@ -132,6 +150,9 @@ async function runForcedClaudeAction(
     action,
     unansweredClientText: batch.text,
     paymentRequisites: cfg.paymentRequisites,
+    agentMode: cfg.mode,
+    knownClient: conversation.client,
+    hasFreshSlotOffer: Boolean(freshBookingSlotOffer(conversation.bookingOffer)),
   });
 
   log.info(
