@@ -3,7 +3,22 @@
     <PageHeader
       title="Розмови"
       subtitle="Діалоги з Instagram та статус обробки"
-    />
+    >
+      <template #actions>
+        <div
+          class="refresh-timer d-inline-flex align-center ga-1 text-caption text-medium-emphasis"
+          :title="refreshInFlight ? 'Оновлення…' : `Автооновлення кожні ${REFRESH_INTERVAL_SEC} с`"
+        >
+          <v-icon
+            size="16"
+            :icon="refreshInFlight ? 'mdi-loading' : 'mdi-timer-outline'"
+            :class="{ 'refresh-timer__spin': refreshInFlight }"
+          />
+          <span v-if="refreshInFlight">Оновлення…</span>
+          <span v-else>через {{ secondsUntilRefresh }} с</span>
+        </div>
+      </template>
+    </PageHeader>
 
     <v-card class="conversations-card" elevation="0" border rounded="xl">
       <v-card-text class="pa-4 pa-md-5">
@@ -174,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
@@ -182,6 +197,8 @@ import PageHeader from '@/components/PageHeader.vue';
 import MobileListCard from '@/components/MobileListCard.vue';
 import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
 import { useTouchDensity } from '@/composables/useTouchDensity';
+
+const REFRESH_INTERVAL_SEC = 15;
 
 interface Client {
   igUserId?: string;
@@ -212,6 +229,10 @@ const limit = ref(20);
 const loading = ref(false);
 const stateFilter = ref('');
 const search = ref('');
+const secondsUntilRefresh = ref(REFRESH_INTERVAL_SEC);
+const refreshInFlight = ref(false);
+
+let tickTimer: ReturnType<typeof setInterval> | null = null;
 
 const stateOptions = [
   { title: 'Усі', value: '' },
@@ -283,10 +304,10 @@ function clientInitials(item: Conversation): string {
   const name = clientPrimaryName(item);
   const letters = name.replace(/@/g, '').trim().split(/\s+/).filter(Boolean);
   if (letters.length >= 2) {
-    return (letters[0][0] + letters[1][0]).toUpperCase().slice(0, 2);
+    return (letters[0]![0]! + letters[1]![0]!).toUpperCase().slice(0, 2);
   }
-  if (letters.length === 1 && letters[0].length >= 2) {
-    return letters[0].slice(0, 2).toUpperCase();
+  if (letters.length === 1 && letters[0]!.length >= 2) {
+    return letters[0]!.slice(0, 2).toUpperCase();
   }
   return name.slice(0, 2).toUpperCase() || '?';
 }
@@ -326,8 +347,13 @@ function goToConversation(item: Conversation) {
   router.push({ name: 'conversation-detail', params: { id: item.id } });
 }
 
-async function fetchConversations() {
-  loading.value = true;
+function resetRefreshCountdown() {
+  secondsUntilRefresh.value = REFRESH_INTERVAL_SEC;
+}
+
+async function fetchConversations(opts?: { silent?: boolean }) {
+  const silent = opts?.silent === true;
+  if (!silent) loading.value = true;
   try {
     const params: Record<string, unknown> = {
       page: page.value,
@@ -340,20 +366,61 @@ async function fetchConversations() {
     conversations.value = Array.isArray(data?.data) ? data.data : [];
     total.value = data?.total ?? 0;
   } catch {
-    conversations.value = [];
-    total.value = 0;
+    if (!silent) {
+      conversations.value = [];
+      total.value = 0;
+    }
   } finally {
-    loading.value = false;
+    if (!silent) loading.value = false;
+    resetRefreshCountdown();
   }
 }
 
+async function runSilentRefresh() {
+  if (refreshInFlight.value || loading.value || document.hidden) return;
+  refreshInFlight.value = true;
+  try {
+    await fetchConversations({ silent: true });
+  } finally {
+    refreshInFlight.value = false;
+    resetRefreshCountdown();
+  }
+}
+
+function onVisibilityChange() {
+  if (document.hidden) return;
+  void runSilentRefresh();
+}
+
+function stopAutoRefresh() {
+  if (tickTimer != null) {
+    clearInterval(tickTimer);
+    tickTimer = null;
+  }
+  document.removeEventListener('visibilitychange', onVisibilityChange);
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  resetRefreshCountdown();
+  tickTimer = setInterval(() => {
+    if (document.hidden || refreshInFlight.value || loading.value) return;
+    if (secondsUntilRefresh.value <= 1) {
+      void runSilentRefresh();
+      return;
+    }
+    secondsUntilRefresh.value -= 1;
+  }, 1000);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+}
+
 watch([page, limit], () => {
-  fetchConversations();
+  void fetchConversations();
 });
 
 watch([stateFilter, search], () => {
   page.value = 1;
-  fetchConversations();
+  void fetchConversations();
 });
 
 const validStates = ['bot', 'handoff', 'closed', 'paused'] as const;
@@ -363,7 +430,13 @@ onMounted(() => {
   if (typeof q === 'string' && (validStates as readonly string[]).includes(q)) {
     stateFilter.value = q;
   }
-  fetchConversations();
+  void fetchConversations().then(() => {
+    startAutoRefresh();
+  });
+});
+
+onUnmounted(() => {
+  stopAutoRefresh();
 });
 </script>
 
@@ -461,5 +534,29 @@ onMounted(() => {
 .state-chip {
   text-transform: none;
   letter-spacing: 0.01em;
+}
+
+.refresh-timer {
+  min-height: var(--tap-min, 44px);
+  padding: 0 4px;
+  user-select: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.refresh-timer__spin {
+  animation: refresh-timer-spin 0.8s linear infinite;
+}
+
+@keyframes refresh-timer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 600px) {
+  .refresh-timer {
+    font-size: 12px;
+  }
 }
 </style>
