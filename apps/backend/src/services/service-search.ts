@@ -27,6 +27,11 @@ import { normalizeTenantTimezone } from '../lib/tenant-timezone.js';
 import type { CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
+import {
+  pickSlotTimesForDay,
+  preferTimesForDate,
+  type BookingSlotOffer,
+} from '../lib/booking-slot-offer.js';
 import { applyPersonalDurations } from './personal-duration.js';
 import { buildDisambiguatedMasterMap } from '../lib/master-service-fit.js';
 
@@ -188,7 +193,7 @@ async function enrichMastersWithPositions(
   }
 }
 
-export async function getAvailableSlotsForContext(args: {
+export type AvailableSlotsLookupArgs = {
   date: string;
   branchCrmId: string;
   services: Array<{ id: string; durationMin: number; masterId?: string; name?: string }>;
@@ -200,12 +205,23 @@ export async function getAvailableSlotsForContext(args: {
   clientId?: string | null;
   /** Salon IANA timezone for CRM day bounds. */
   timeZone?: string | null;
-}): Promise<string> {
+  /** Previously offered times still free stay in the 3-slot slice. */
+  preferOffer?: BookingSlotOffer | null;
+};
+
+export async function getAvailableSlotsForContext(args: AvailableSlotsLookupArgs): Promise<string> {
+  return (await lookupAvailableSlotsForContext(args)).text;
+}
+
+export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupArgs): Promise<{
+  text: string;
+  offer: BookingSlotOffer | null;
+}> {
   const provider = await resolveCrmProvider('booking');
   const crm = getCrmAdapter(provider);
 
   if (!crm.getAvailableSlots) {
-    return 'Слоти недоступні — CRM не підтримує онлайн-запис.';
+    return { text: 'Слоти недоступні — CRM не підтримує онлайн-запис.', offer: null };
   }
 
   const personal = await applyPersonalDurations({
@@ -297,15 +313,20 @@ export async function getAvailableSlotsForContext(args: {
     ? normalizeSlotTimeKey(args.excludeTime)
     : null;
 
+  const offerDays: BookingSlotOffer['days'] = [];
   let daysShown = 0;
   for (const [day, slots] of Object.entries(result.slots)) {
     const filtered = (excludeKey
       ? slots.filter((s) => normalizeSlotTimeKey(s.time) !== excludeKey)
       : slots
     ).slice(0, SLOT_TIMES_CANDIDATE_CAP);
-    const daySlots = filtered.slice(0, SLOT_TIMES_PER_DAY);
+    const preferTimes =
+      preferTimesForDate(args.preferOffer, day) ??
+      (day === args.date ? preferTimesForDate(args.preferOffer, args.date) : undefined);
+    const daySlots = pickSlotTimesForDay(filtered, SLOT_TIMES_PER_DAY, preferTimes);
     if (daySlots.length === 0) continue;
     daysShown += 1;
+    offerDays.push({ date: day, times: daySlots.map((s) => s.time) });
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
       if (parallelMasters && assigned.every((s) => s.masterId)) {
@@ -339,9 +360,9 @@ export async function getAvailableSlotsForContext(args: {
       : uniqueMasters.length > 0
         ? 'Вільних слотів для цього майстра на обрану дату не знайдено. Запропонуй інший день або іншого майстра (без master_id).'
         : 'Вільних слотів на обрану дату не знайдено.';
-    return personal.notes.length > 0
-      ? `${personal.notes.join('\n')}\n\n${emptyMsg}`
-      : emptyMsg;
+    const text =
+      personal.notes.length > 0 ? `${personal.notes.join('\n')}\n\n${emptyMsg}` : emptyMsg;
+    return { text, offer: null };
   }
 
   if (broadenedToMonth) {
@@ -358,7 +379,7 @@ export async function getAvailableSlotsForContext(args: {
       'PARALLEL binding (різні майстри, один start):',
       ...binding,
       'Swap майстрів між послугами або додавання ще однієї послуги → НОВИЙ get_available_slots з оновленими services[].master_id, потім book_appointment.',
-      'Перед book_appointment після паузи клієнта — свіжий get_available_slots (слот міг зайнятись).',
+      'Якщо клієнт обрав годину з цього списку — book_appointment без нового get_available_slots (пауза на контакти не скидає вікна). Новий lookup лише коли змінили послугу/дату/майстра або book повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.',
       'Пропонуй клієнту лише години з цього результату — не змішуй з іншим викликом tool.',
     );
   } else if (multiService) {
@@ -390,7 +411,20 @@ export async function getAvailableSlotsForContext(args: {
       ? 'Для book_appointment використовуй services[].master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.'
       : 'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
   );
-  return lines.join('\n');
+  const offer: BookingSlotOffer = {
+    date: args.date,
+    days: offerDays,
+    services: args.services.map((s) => ({
+      id: s.id,
+      durationMin: s.durationMin,
+      masterId: s.masterId,
+      name: s.name,
+    })),
+    masterId: args.masterId,
+    masterIds: uniqueMasters,
+    fetchedAt: new Date().toISOString(),
+  };
+  return { text: lines.join('\n'), offer };
 }
 
 async function formatMasterServicePrices(params: {

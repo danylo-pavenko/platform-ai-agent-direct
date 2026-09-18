@@ -6,6 +6,7 @@ import { notifyOrder } from './telegram-notify.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import { clearConversationBookingOffer } from './booking-slot-offer-store.js';
 import {
   normalizeOrderItems,
   parseOrderKind,
@@ -154,6 +155,8 @@ export async function handleCollectOrder(
       crmSyncStatus: crmWrites ? 'pending' : 'skipped',
     },
   });
+
+  await clearConversationBookingOffer(conversationId);
 
   const confirmationText =
     options?.clientMessage?.trim() ||
@@ -311,6 +314,8 @@ export async function handleCreateLocalOrder(
       crmSyncStatus: 'skipped',
     },
   });
+
+  await clearConversationBookingOffer(conversationId);
 
   const confirmationText =
     options?.clientMessage?.trim() ||

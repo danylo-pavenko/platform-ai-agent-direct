@@ -29,7 +29,8 @@ import { normalizeOrderItems } from '../lib/order-normalize.js';
 import { providerDisplayName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
-import { getAvailableSlotsForContext } from './service-search.js';
+import { lookupAvailableSlotsForContext } from './service-search.js';
+import { persistBookingSlotOffer, clearConversationBookingOffer } from './booking-slot-offer-store.js';
 import { applyPersonalDurations } from './personal-duration.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import {
@@ -362,6 +363,17 @@ export async function handleBookAppointment(
   let crmSynced = !writeEnabled;
   let crmError: string | null = null;
 
+  if (!writeEnabled) {
+    await prisma.appointment
+      .update({
+        where: { id: appointment.id },
+        data: { crmSyncStatus: 'skipped' },
+      })
+      .catch((err) => {
+        log.warn({ err, appointmentId: appointment.id }, 'Failed to mark appointment CRM skipped');
+      });
+  }
+
   if (writeEnabled) {
     try {
       if (mergedIntoExisting && mergeTarget?.crmRecordId && addedServiceCount === 0) {
@@ -396,6 +408,7 @@ export async function handleBookAppointment(
   }
 
   if (crmSynced) {
+    await clearConversationBookingOffer(conversationId);
     const igUserId = options?.clientIgUserId?.trim();
     const skipDuplicateConfirm = mergedIntoExisting && addedServiceCount === 0;
     if (igUserId && !options?.skipClientMessage && !skipDuplicateConfirm) {
@@ -445,7 +458,7 @@ export async function handleBookAppointment(
     toolResult = crmError;
   } else if (crmError && isBeautyproTimeConflictError(crmError)) {
     try {
-      const alternativesText = await getAvailableSlotsForContext({
+      const { text: alternativesText, offer } = await lookupAvailableSlotsForContext({
         date,
         branchCrmId: resolved.crmExternalId,
         services: services.map((s) => ({
@@ -459,6 +472,8 @@ export async function handleBookAppointment(
         clientId,
         timeZone: (await getAgentConfig()).timezone,
       });
+      if (offer) await persistBookingSlotOffer(conversationId, offer);
+      else await clearConversationBookingOffer(conversationId);
       toolResult = formatTimeConflictToolResult({
         failedDate: date,
         failedTime: time,

@@ -26,6 +26,9 @@ import {
   buildClaudeHistoryTurns,
   formatSessionGapNotice,
 } from '../lib/conversation-history.js';
+import { loadClaudeHistoryMessages } from './claude-history-load.js';
+import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
+import { clearConversationBookingOffer } from './booking-slot-offer-store.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
@@ -108,7 +111,6 @@ import {
 } from '../lib/agent-turn-debug.js';
 import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
 import { executeLookupTool, lookupResultFromResponse, hasNativeLookupResult } from './agent-lookup-tools.js';
-import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import {
   absorbLateInboundIntoTurn,
   claimInboundMessages,
@@ -142,9 +144,6 @@ import {
 import type { ClaudeResponse } from './claude.js';
 
 const log = pino({ name: 'conversation' });
-
-/** Max messages to include in Claude conversation history */
-const MAX_HISTORY_MESSAGES = 30;
 
 /** Last stored turn that is not this inbound batch (webhook already persisted the client). */
 async function findLastPriorMessageAt(
@@ -506,6 +505,7 @@ async function handleIncomingMessageImpl(
       .join(', ');
   }
 
+  const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
   const clientProfile: ClientProfile = {
     displayName: client.displayName ?? undefined,
     igUsername: client.igUsername ?? undefined,
@@ -521,7 +521,12 @@ async function handleIncomingMessageImpl(
     previousOrdersSummary,
     conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
     crmBuyerId: client.crmBuyerId ?? undefined,
+    bookingSlotOffer: slotOffer ?? undefined,
   };
+
+  if (conversation.bookingOffer && !slotOffer) {
+    clearConversationBookingOffer(conversationId).catch(() => undefined);
+  }
 
   // Salon CRM: compact link hint only (full visits via get_client_crm_history tool).
   if (client.crmBuyerId) {
@@ -770,54 +775,30 @@ async function handleIncomingMessageImpl(
     hasBranches: activeBranchCount > 0,
   });
 
-  // ── 6. Build conversation history (last 30 messages) ──────────────
-  const rawMessages = await prisma.message.findMany({
-    where: { conversationId },
-    orderBy: { createdAt: 'desc' },
-    take: MAX_HISTORY_MESSAGES,
-    select: {
-      id: true,
-      direction: true,
-      text: true,
-      sender: true,
-      createdAt: true,
-      igMessageId: true,
-      igContext: true,
-    },
-  });
-
-  const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
-
-  // Exclude current turn from history — it is passed separately as userMessage (Phase 4).
+  // ── 6. Build conversation history (civil day / after last order) ──
   const historyBaseOpts = {
     timeZone: agentCfg.timezone,
     sessionFreshnessDays: agentCfg.sessionFreshnessDays,
   };
-  const history = buildClaudeHistoryTurns(dedupedAsc, messageText, {
+  const loadHistory = () =>
+    loadClaudeHistoryMessages({
+      conversationId,
+      conversationCreatedAt: conversation.createdAt,
+      timeZone: agentCfg.timezone,
+    });
+
+  let { rows: historyRows } = await loadHistory();
+  let history = buildClaudeHistoryTurns(historyRows, messageText, {
     ...historyBaseOpts,
     excludeIgMessageIds: sourceIgMessageIds,
   });
 
   if (await absorbLateInbound('before_claude')) {
-    const refreshed = await prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: 'desc' },
-      take: MAX_HISTORY_MESSAGES,
-      select: {
-        id: true,
-        direction: true,
-        text: true,
-        sender: true,
-        createdAt: true,
-        igMessageId: true,
-        igContext: true,
-      },
-    });
-    const refreshedAsc = dedupeConversationMessages([...refreshed].reverse());
+    historyRows = (await loadHistory()).rows;
     history.splice(
       0,
       history.length,
-      ...buildClaudeHistoryTurns(refreshedAsc, messageText, {
+      ...buildClaudeHistoryTurns(historyRows, messageText, {
         ...historyBaseOpts,
         excludeIgMessageIds: sourceIgMessageIds,
       }),
@@ -1005,6 +986,7 @@ async function handleIncomingMessageImpl(
     clientMessage: messageText,
     mutationsAllowed: true,
     timeZone: agentCfg.timezone,
+    conversationId,
     existingBooking: existingBookingRow
       ? { date: existingBookingRow.scheduledDate, time: existingBookingRow.scheduledTime }
       : null,

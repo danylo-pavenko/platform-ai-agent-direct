@@ -50,7 +50,7 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking / general). К
 
 ## Ключові обмеження
 
-1. Cross-conversation isolation (макс. ~30 msgs історії).
+1. Cross-conversation isolation (civil-day Claude history in the current UUID; after last completed order that day if several).
 2. Не світити product/offer/CRM ids клієнту.
 3. PM2: `{INSTANCE_ID}-api|bot|sync|admin`.
 4. Knowledge: templates seed → tenant dir, deploy не overwrite existing.

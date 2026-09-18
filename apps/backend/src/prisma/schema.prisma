@@ -98,6 +98,8 @@ model Conversation {
   briefQualityNote String?            @map("brief_quality_note")
   // Smart-trigger: set when a silence follow-up was sent; cleared on client inbound.
   followUpSentAt  DateTime?           @map("follow_up_sent_at")
+  // Last get_available_slots offer shown this cycle — injected into Claude session.
+  bookingOffer    Json?               @map("booking_offer") @db.JsonB
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid

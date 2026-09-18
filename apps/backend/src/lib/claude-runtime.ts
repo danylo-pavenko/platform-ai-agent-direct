@@ -50,6 +50,7 @@ export interface ClaudeRequest {
     existingBooking?: { date: string; time: string } | null;
     /** Salon IANA timezone for CRM slot day bounds. */
     timeZone?: string | null;
+    conversationId?: string | null;
   };
 }
 

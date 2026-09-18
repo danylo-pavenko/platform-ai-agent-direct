@@ -112,6 +112,8 @@ describe('formatAgentToolsPrompt', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/не роби новий get_available_slots/);
     expect(prompt).toMatch(/Не супереч останньому get_available_slots/);
+    expect(prompt).toMatch(/Пауза на ПІБ\/телефон не вимагає свіжого lookup/);
+    expect(prompt).toMatch(/Запропоновані вікна/);
   });
 
   it('treats split Instagram contact bubbles as one update_client_info turn', () => {

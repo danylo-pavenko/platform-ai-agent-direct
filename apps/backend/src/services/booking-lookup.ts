@@ -7,8 +7,13 @@ import {
   parseGetAvailableSlotsArgs,
 } from '../lib/booking-lookup-format.js';
 import { clampServiceSearchLimit } from '../lib/service-search-rank.js';
-import { getAvailableSlotsForContext, searchServicesForContext } from './service-search.js';
+import { lookupAvailableSlotsForContext, searchServicesForContext } from './service-search.js';
 import { resolveBookingBranchCrmId } from './booking-branch.js';
+import {
+  clearConversationBookingOffer,
+  loadFreshBookingSlotOffer,
+  persistBookingSlotOffer,
+} from './booking-slot-offer-store.js';
 
 export {
   broadenServiceQueries,
@@ -40,6 +45,7 @@ export async function executeGetAvailableSlotsTool(params: {
   branchCrmExternalId?: string | null;
   clientId?: string | null;
   timeZone?: string | null;
+  conversationId?: string | null;
 }): Promise<string> {
   const parsed = parseGetAvailableSlotsArgs(params.args);
   if ('error' in parsed) return parsed.error;
@@ -53,7 +59,10 @@ export async function executeGetAvailableSlotsTool(params: {
   }
 
   try {
-    const slotsText = await getAvailableSlotsForContext({
+    const preferOffer = params.conversationId
+      ? await loadFreshBookingSlotOffer(params.conversationId)
+      : null;
+    const { text, offer } = await lookupAvailableSlotsForContext({
       date: parsed.date,
       branchCrmId,
       services: parsed.services,
@@ -61,8 +70,13 @@ export async function executeGetAvailableSlotsTool(params: {
       masterId: parsed.masterId,
       clientId: params.clientId,
       timeZone: params.timeZone,
+      preferOffer,
     });
-    return `[get_available_slots] РЕЗУЛЬТАТ:\n${slotsText}`;
+    if (params.conversationId) {
+      if (offer) await persistBookingSlotOffer(params.conversationId, offer);
+      else await clearConversationBookingOffer(params.conversationId);
+    }
+    return `[get_available_slots] РЕЗУЛЬТАТ:\n${text}`;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     return `[get_available_slots] ПОМИЛКА: не вдалося отримати слоти — ${detail.slice(0, 280)}`;

@@ -150,5 +150,25 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(prompt).toMatch(/Не тягни старий конфлікт/);
     expect(prompt).not.toMatch(/без дзеркального привітання/);
   });
+
+  it('injects offered booking windows so the agent does not refetch after a pause', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        clientProfile: {
+          bookingSlotOffer: {
+            date: '19.09.2026',
+            days: [{ date: '2026-09-19', times: ['10:00', '14:00'] }],
+            services: [{ id: 'svc-1', durationMin: 60, name: 'Стрижка' }],
+            masterIds: [],
+            fetchedAt: new Date('2026-09-19T10:00:00.000Z').toISOString(),
+          },
+        },
+      }),
+    );
+    expect(prompt).toContain('Запропоновані вікна');
+    expect(prompt).toContain('10:00, 14:00');
+    expect(prompt).toMatch(/БЕЗ нового get_available_slots/);
+    expect(prompt).toMatch(/Якщо є блок «Запропоновані вікна»/);
+  });
 });
 

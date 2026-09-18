@@ -96,6 +96,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
       source: 'conversation',
     });
     prismaMock.appointment.create.mockResolvedValue({ id: 'appt-1' });
+    prismaMock.appointment.update.mockResolvedValue({ id: 'appt-1' });
     prismaMock.order.findFirst.mockResolvedValue(null);
     prismaMock.order.create.mockResolvedValue({ id: 'order-1' });
     prismaMock.message.create.mockResolvedValue({ id: 'msg-1' });

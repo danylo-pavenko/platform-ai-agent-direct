@@ -13,7 +13,8 @@ import {
 } from '../lib/follow-up-eval.js';
 import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
 import { buildClaudeHistoryTurns } from '../lib/conversation-history.js';
-import { dedupeConversationMessages } from '../lib/message-dedupe.js';
+import { loadClaudeHistoryMessages } from './claude-history-load.js';
+import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
@@ -61,9 +62,6 @@ export {
 } from '../lib/follow-up-schedule.js';
 
 const log = pino({ name: 'follow-up' });
-
-/** Max history turns for remarketing Claude call (same cap as live bot). */
-const MAX_HISTORY_MESSAGES = 30;
 
 const REMARKETING_USER_MESSAGE = [
   '[PLATFORM — internal instruction, not from the client]',
@@ -283,6 +281,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
           .join(', ');
       }
 
+      const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
       const clientProfile: ClientProfile = {
         igUsername: client.igUsername ?? undefined,
         igFullName: client.igFullName ?? undefined,
@@ -297,6 +296,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         previousOrdersSummary,
         conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
         crmBuyerId: client.crmBuyerId ?? undefined,
+        bookingSlotOffer: slotOffer ?? undefined,
       };
 
       if (client.crmBuyerId) {
@@ -369,21 +369,12 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
           : undefined,
       });
 
-      const rawMessages = await prisma.message.findMany({
-        where: { conversationId },
-        orderBy: { createdAt: 'desc' },
-        take: MAX_HISTORY_MESSAGES,
-        select: {
-          direction: true,
-          text: true,
-          sender: true,
-          createdAt: true,
-          igMessageId: true,
-          igContext: true,
-        },
+      const { rows: historyRows } = await loadClaudeHistoryMessages({
+        conversationId,
+        conversationCreatedAt: conversation.createdAt,
+        timeZone: agentCfg.timezone,
       });
-      const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
-      const history = buildClaudeHistoryTurns(dedupedAsc, '', {
+      const history = buildClaudeHistoryTurns(historyRows, '', {
         timeZone: agentCfg.timezone,
         sessionFreshnessDays: agentCfg.sessionFreshnessDays,
       });

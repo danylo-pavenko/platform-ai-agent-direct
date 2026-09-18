@@ -12,6 +12,10 @@ import type { AgentMode } from '../lib/tool-definitions.js';
 import { modeHasSalesTools } from '../lib/tool-definitions.js';
 import type { OutOfHoursStrategy } from '../lib/agent-config.js';
 import {
+  formatBookingSlotOfferForPrompt,
+  type BookingSlotOffer,
+} from '../lib/booking-slot-offer.js';
+import {
   DEFAULT_TENANT_TIMEZONE,
   formatZonedSessionClock,
   getZonedDateTimeParts,
@@ -46,6 +50,8 @@ export interface ClientProfile {
   /** Formatted CRM visit history (BeautyPro etc.) for booking duration planning. */
   crmVisitHistory?: string;
   crmBuyerId?: string;
+  /** Last get_available_slots times still valid for this conversation. */
+  bookingSlotOffer?: BookingSlotOffer;
 }
 
 /**
@@ -333,6 +339,7 @@ ${catalogLabel}
 - Бренд, контакти, доставка, FAQ, бізнес-правила — зі системного промпту вище.
 - Кілька повідомлень клієнта підряд без відповіді бота між ними — це ОДНА репліка (наприклад час + ПІБ + телефон). Відповідай на весь блок, не лише на останній рядок.
 - Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в блоці «Вже відомо про клієнта».
+- Якщо є блок «Запропоновані вікна» — клієнт обирає з тих годин. Не викликай get_available_slots знову і не кажи що вікон немає, поки не змінили послугу/дату/майстра або book_appointment не повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.
 - Фрази «написала вище», «я ж написала», «див. вище», «там вище» — візьми дані з попередніх повідомлень клієнта; не проси повторити і не роби handoff лише через це.
 ${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap)}
 ${catalogRule}${buildOutOfHoursBlock(isOutOfHours, outOfHoursStrategy, agentMode)}`;
@@ -645,6 +652,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (profile.crmVisitHistory) {
     parts.push('\n' + profile.crmVisitHistory);
+  }
+  if (profile.bookingSlotOffer) {
+    parts.push('\n' + formatBookingSlotOfferForPrompt(profile.bookingSlotOffer));
   }
 
   return parts.join('\n');

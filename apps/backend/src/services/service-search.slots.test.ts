@@ -221,4 +221,36 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).not.toContain('13:00');
     expect(text).not.toContain('14:00');
   });
+
+  it('keeps previously offered times in the 3-slot slice when they are still free', async () => {
+    getAvailableSlots.mockResolvedValue({
+      slots: {
+        '04.08.2026': [
+          { date: '04.08.2026', time: '09:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '10:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '11:00', masterIds: ['a'] },
+          { date: '04.08.2026', time: '16:00', masterIds: ['a'] },
+        ],
+      },
+      masters: [{ id: 'a', name: 'Anna' }],
+    });
+
+    const text = await getAvailableSlotsForContext({
+      date: '04.08.2026',
+      branchCrmId: 'loc-1',
+      services: [{ id: 'svc-1', durationMin: 45 }],
+      preferOffer: {
+        date: '04.08.2026',
+        days: [{ date: '04.08.2026', times: ['16:00', '10:00'] }],
+        services: [{ id: 'svc-1', durationMin: 45 }],
+        masterIds: ['a'],
+        fetchedAt: new Date().toISOString(),
+      },
+    });
+
+    expect(text).toContain('16:00');
+    expect(text).toContain('10:00');
+    expect(text).not.toContain('11:00');
+    expect(text).not.toMatch(/після паузи клієнта — свіжий get_available_slots/);
+  });
 });

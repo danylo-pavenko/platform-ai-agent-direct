@@ -50,7 +50,7 @@ Instagram **post shares** in DM arrive as `ig_post` (and legacy `share`, depreca
 
 Instagram may also emit a **second empty bubble** when it auto-parses a phone number (`fallback` / `unsupported` / `tel:`). The webhook stores that as visible `📞 +380…` text (and a `detected_phone` context), so admin is not blank and heuristics/agent see the number. A duplicate chip coalesced with the typed bubble is dropped from the Claude user turn.
 
-**First contact:** if this Instagram user has never had an inbound row in our DB, the webhook pulls the last **20** Graph conversation messages (`GET /{page-id}/conversations?platform=instagram&user_id=` → `/{thread}/messages`) *before* the first Claude turn. Imported inbound is marked `claudeTurnId=skipped` so drain does not replay history as new turns. Graph typically cannot return more than ~20 message bodies. Failures/timeouts are non-fatal. Imported salon replies are `sender=manager`, not `bot`. Session prompt: **first bot outbound** still introduces per the tenant system prompt in the same reply as the answer; later turns must not re-greet **in the same UUID**. After `sessionFreshnessDays` (default 14) of silence the webhook **closes** the bot or handoff thread and opens a new conversation so the agent greets again. Claude history turns are stamped with tenant-local date/time and sender (`менеджер` vs `бот`); a pause ≥ 1 day is labelled, and a pause ≥ freshness is treated as a possible new visit.
+**First contact:** if this Instagram user has never had an inbound row in our DB, the webhook pulls the last **20** Graph conversation messages (`GET /{page-id}/conversations?platform=instagram&user_id=` → `/{thread}/messages`) *before* the first Claude turn. Imported inbound is marked `claudeTurnId=skipped` so drain does not replay history as new turns. Graph typically cannot return more than ~20 message bodies. Failures/timeouts are non-fatal. Imported salon replies are `sender=manager`, not `bot`. Session prompt: **first bot outbound** still introduces per the tenant system prompt in the same reply as the answer; later turns must not re-greet **in the same UUID**. After `sessionFreshnessDays` (default 14) of silence the webhook **closes** the bot or handoff thread and opens a new conversation so the agent greets again. Claude history is the tenant **civil day** of this UUID (or after the last completed order/visit today). Turns are stamped with tenant-local date/time and sender (`менеджер` vs `бот`).
 
 **Handoff Telegram:** `request_handoff` sends one escalation card to manager **groups**. Agent-turn / vision debug (`🛠 Хід агента`) goes only to a **private chat with the bot** (admins after `/login`) — never to groups the bot was added to. Cards use the client name or `@username`, not IGSID. After the first card, at most **one** short follow-up when the client writes again. Further inbound stays in admin only. Idle TTL (`handoff_return_to_bot_minutes`, default 60) returns the thread to the bot on the **next inbound** *in the same UUID*; it does **not** close orders. A manager reply resets the idle timer. Silence longer than `sessionFreshnessDays` instead **closes** the handoff thread and starts a new conversation (orders stay on the client).
 
@@ -163,7 +163,8 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 
 - Active business prompt (tone, FAQ, rules, offer framing)  
 - Client profile fields collected so far + tags + branch  
-- Recent conversation (capped ~30 messages)  
+- Recent conversation: tenant civil day of this UUID (or from conversation start if it began today); if a completed order/visit already happened today, from **after** that marker. Soft cap ~80 after dropping system/empty rows — not a hard last-30 cut.  
+- Last `get_available_slots` offer (`Conversation.bookingOffer`, ~2h TTL) injected as «Запропоновані вікна» so a pause for name/phone does not invent new hours
 - Catalog / services / masters live snippets + search tools (`search_catalog` merges file↔CRM matches when present; quotes `pricePreference` price and notes material CRM/file deltas)  
 - CRM link hint when linked (booking); full visits via `get_client_crm_history`  
 - Working hours / out-of-hours strategy  
@@ -179,7 +180,7 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 |--------|--------|
 | Fresh CLI spawn on **first** round of a turn | Cold start cost (Opus/Sonnet) |
 | Tool follow-ups | Same reply model `--resume` (one session per turn) |
-| Slot / search tool results | Max **3** slot times/day; service search default limit **8** |
+| Slot / search tool results | Display cap **3** slot times/day (previously offered times stay if still free); service search default limit **8** |
 | Semaphore max 2 | Queue / busy fallback under load |
 | Large system prompt + catalog + history on cold start | Token and TTFT cost (booking omits services-live dump) |
 | Intentional `responseDelay` | Product latency (0–60s), not a bug |
