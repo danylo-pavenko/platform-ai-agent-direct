@@ -45,6 +45,7 @@ import {
   type SharedPostData,
 } from '../lib/ig-shared-post.js';
 import { enrichAndPersistSharedPost, fetchSharedPostFromGraphMessage } from '../services/ig-shared-post-media.js';
+import { processIgPageEchoWebhook } from '../services/ig-page-echo.js';
 
 export type { SharedPostData };
 
@@ -181,6 +182,19 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
     const body = request.body as MetaWebhookBody;
     processWebhookEvents(app, body).catch((err) => {
       app.log.error({ err }, 'Failed to process Instagram webhook events');
+    });
+  });
+
+  // Native Instagram / Business Suite page echoes — isolated from inbound.
+  // Hub forwards the same HMAC body here; processMessageEvent still skips is_echo.
+  app.post<{ Body: MetaWebhookBody }>('/webhooks/instagram/echo', async (request, reply) => {
+    app.log.debug(
+      { summary: summarizeMetaIgWebhook(request.body as MetaWebhookBody) },
+      'Instagram echo webhook received',
+    );
+    reply.code(200).send('EVENT_RECEIVED');
+    processIgPageEchoWebhook(request.body).catch((err) => {
+      app.log.error({ err }, 'Failed to process Instagram echo webhook');
     });
   });
 
@@ -364,7 +378,7 @@ async function processWebhookEvents(
       if (event.message.is_echo) {
         app.log.debug(
           { mid: event.message.mid, senderId: event.sender.id },
-          'Skipping echo message (sent by page)',
+          'Skipping echo on inbound route (handled at /webhooks/instagram/echo)',
         );
         continue;
       }

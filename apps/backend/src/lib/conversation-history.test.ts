@@ -78,6 +78,25 @@ describe('buildClaudeHistoryTurns', () => {
     expect(history[1]?.role).toBe('assistant');
   });
 
+  it('stamps native Instagram manager echoes separately', () => {
+    const history = buildClaudeHistoryTurns(
+      [
+        {
+          direction: 'out',
+          sender: 'manager',
+          text: 'Зараз гляну в Instagram',
+          createdAt: new Date('2026-08-12T18:46:30.000Z'),
+          igContext: { kind: 'ig_native_echo', source: 'webhook_echo' },
+        },
+      ],
+      'нове',
+      { timeZone: 'Europe/Kyiv' },
+    );
+    expect(history[0]?.content).toMatch(
+      /^\[12\.08\.2026 21:46 менеджер Instagram\] Зараз гляну в Instagram$/,
+    );
+  });
+
   it('inserts a long-pause notice between distant turns', () => {
     const history = buildClaudeHistoryTurns(
       [

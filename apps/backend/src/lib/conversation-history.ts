@@ -1,5 +1,6 @@
 import { formatZonedSessionClock } from './tenant-timezone.js';
 import { isSessionGapPastFreshness, sessionGapDays } from './session-freshness.js';
+import { isIgNativeEchoContext } from './ig-native-echo.js';
 
 export interface HistoryMessageRow {
   direction: string;
@@ -7,6 +8,7 @@ export interface HistoryMessageRow {
   sender?: string;
   igMessageId?: string | null;
   createdAt?: Date | string;
+  igContext?: unknown;
 }
 
 export interface ClaudeHistoryTurn {
@@ -40,7 +42,9 @@ function asDate(value: Date | string | undefined): Date | null {
 }
 
 function historySenderLabel(row: HistoryMessageRow): string {
-  if (row.sender === 'manager') return 'менеджер';
+  if (row.sender === 'manager') {
+    return isIgNativeEchoContext(row.igContext) ? 'менеджер Instagram' : 'менеджер';
+  }
   if (row.sender === 'bot') return 'бот';
   if (row.sender === 'client') return 'клієнт';
   if (row.sender === 'system') return 'система';
@@ -52,9 +56,10 @@ export function formatClaudeHistoryStamp(
   sender: string | undefined,
   timeZone: string,
   direction?: string,
+  igContext?: unknown,
 ): string {
   const clock = formatZonedSessionClock(date, timeZone);
-  const who = historySenderLabel({ direction: direction ?? 'out', sender, text: '' });
+  const who = historySenderLabel({ direction: direction ?? 'out', sender, text: '', igContext });
   return `[${clock.dateTime} ${who}]`;
 }
 
@@ -136,7 +141,7 @@ export function buildClaudeHistoryTurns(
     let content = m.text!.trim();
     const at = asDate(m.createdAt);
     if (timeZone && at) {
-      const stamp = formatClaudeHistoryStamp(at, m.sender, timeZone, m.direction);
+      const stamp = formatClaudeHistoryStamp(at, m.sender, timeZone, m.direction, m.igContext);
       const gap = prevAt
         ? formatSessionGapNotice(prevAt, at, timeZone, freshnessDays)
         : null;

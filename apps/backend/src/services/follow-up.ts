@@ -24,6 +24,7 @@ import { isAgentFallbackReply } from '../lib/agent-fallback.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
 import { gateCustomerFacingReply } from '../lib/assistant-output.js';
 import { sendText } from './instagram.js';
+import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { beginIgTypingIndicator } from './ig-typing-indicator.js';
 import { getBot } from '../lib/telegram.js';
 import { askClaude } from './claude.js';
@@ -103,13 +104,12 @@ async function sendFollowUpToClient(params: {
   igUserId: string | null;
   tgUserId: string | null;
   text: string;
-}): Promise<void> {
+}): Promise<string[]> {
   if (params.channel === 'ig') {
     if (!params.igUserId) {
       throw new Error('Missing igUserId for IG follow-up');
     }
-    await sendText(params.igUserId, params.text);
-    return;
+    return sendText(params.igUserId, params.text);
   }
 
   if (!params.tgUserId) {
@@ -117,6 +117,7 @@ async function sendFollowUpToClient(params: {
   }
   const bot = await getBot();
   await bot.api.sendMessage(params.tgUserId, params.text);
+  return [];
 }
 
 /**
@@ -378,6 +379,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
           sender: true,
           createdAt: true,
           igMessageId: true,
+          igContext: true,
         },
       });
       const dedupedAsc = dedupeConversationMessages([...rawMessages].reverse());
@@ -471,8 +473,9 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         }
       }
 
+      let igMessageIds: string[] = [];
       try {
-        await sendFollowUpToClient({
+        igMessageIds = await sendFollowUpToClient({
           channel,
           igUserId: client.igUserId,
           tgUserId: client.tgUserId,
@@ -501,15 +504,14 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       }
 
       const sentAt = new Date();
+      await persistIgOutboundMessage({
+        conversationId,
+        sender: 'bot',
+        text: clientFacingText,
+        igMessageIds,
+        createdAt: sentAt,
+      });
       await prisma.$transaction([
-        prisma.message.create({
-          data: {
-            conversationId,
-            direction: 'out',
-            sender: 'bot',
-            text: clientFacingText,
-          },
-        }),
         prisma.conversation.update({
           where: { id: conversationId },
           data: {

@@ -26,6 +26,7 @@ export type ForwardResultRow = {
   error?: string;
   matchedId?: string | null;
   skippedReason?: 'hmac_missing' | 'hmac_failed';
+  channel?: 'inbound' | 'echo';
 };
 
 export type RecordWebhookInboxInput = {

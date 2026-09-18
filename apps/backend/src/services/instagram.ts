@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { stripMarkdownForInstagram } from '../lib/instagram-text.js';
+import { parseGraphSendMessageId } from '../lib/ig-graph-message-id.js';
 import { stopIgTypingBeforeSend } from './ig-typing-indicator.js';
 
 const log = pino({ name: 'instagram' });
@@ -219,18 +220,23 @@ export async function markSeen(recipientId: string): Promise<void> {
 
 // ── Public API ───────────────────────────────────────────────────────────
 
+/** Graph `POST /me/messages` success body includes `message_id`. */
+export { parseGraphSendMessageId } from '../lib/ig-graph-message-id.js';
+
 /**
  * Sends a text message to an Instagram user via the Graph API.
  * If text exceeds 1000 chars, it is split into multiple messages
  * sent sequentially with a short delay between them.
+ * Returns Graph `message_id`s so echo webhooks can be de-duplicated.
  */
 export async function sendText(
   recipientId: string,
   text: string,
-): Promise<void> {
+): Promise<string[]> {
   await stopIgTypingBeforeSend(recipientId);
 
   const parts = splitText(stripMarkdownForInstagram(text));
+  const messageIds: string[] = [];
 
   for (let i = 0; i < parts.length; i++) {
     const body = {
@@ -249,10 +255,12 @@ export async function sendText(
       'Sending IG text message',
     );
 
-    await callIgApi(body);
+    const data = await callIgApi(body);
+    const mid = parseGraphSendMessageId(data);
+    if (mid) messageIds.push(mid);
 
     log.info(
-      { recipientId, type: 'text', status: 'sent' },
+      { recipientId, type: 'text', status: 'sent', hasMessageId: Boolean(mid) },
       'IG text message sent',
     );
 
@@ -261,6 +269,8 @@ export async function sendText(
       await sleep(SPLIT_DELAY_MS);
     }
   }
+
+  return messageIds;
 }
 
 /**

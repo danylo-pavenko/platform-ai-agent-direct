@@ -4,6 +4,7 @@ import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { prisma } from '../lib/prisma.js';
 import { askClaude, type ClaudeCallContext, type ClaudeRequest } from './claude.js';
 import { sendText } from './instagram.js';
+import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { beginIgTypingIndicator, stopIgTypingBeforeSend } from './ig-typing-indicator.js';
 import {
   buildRuntimePrompt,
@@ -209,21 +210,20 @@ async function performManagerHandoff(params: {
 
   const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
 
+  let igMessageIds: string[] = [];
   if (client.igUserId) {
     try {
-      await sendText(client.igUserId, handoffMessage);
+      igMessageIds = await sendText(client.igUserId, handoffMessage);
     } catch (err) {
       log.error({ err, conversationId }, 'Failed to send handoff message');
     }
   }
 
-  await prisma.message.create({
-    data: {
-      conversationId,
-      direction: 'out',
-      sender: 'bot',
-      text: handoffMessage,
-    },
+  await persistIgOutboundMessage({
+    conversationId,
+    sender: 'bot',
+    text: handoffMessage,
+    igMessageIds,
   });
   markFirstOutboundAt(conversationId).catch((err) =>
     log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
@@ -782,6 +782,7 @@ async function handleIncomingMessageImpl(
       sender: true,
       createdAt: true,
       igMessageId: true,
+      igContext: true,
     },
   });
 
@@ -809,6 +810,7 @@ async function handleIncomingMessageImpl(
         sender: true,
         createdAt: true,
         igMessageId: true,
+        igContext: true,
       },
     });
     const refreshedAsc = dedupeConversationMessages([...refreshed].reverse());
@@ -2443,6 +2445,7 @@ async function handleIncomingMessageImpl(
     );
   }
 
+  let outboundIgMessageIds: string[] = [];
   if (!suppressCustomerSend) {
     if (outputValidationFailure) {
       log.warn(
@@ -2473,7 +2476,7 @@ async function handleIncomingMessageImpl(
     }
 
     try {
-      await sendText(client.igUserId, clientFacingText);
+      outboundIgMessageIds = await sendText(client.igUserId, clientFacingText);
     } catch (err) {
       log.error({ err, conversationId }, 'Failed to send bot response to Instagram');
       // Still persist the message even if delivery failed
@@ -2486,15 +2489,13 @@ async function handleIncomingMessageImpl(
   const skipCustomerBotPersist = persistAdminRetryNote || Boolean(opts?.managerAction && suppressCustomerSend);
 
   if (!skipCustomerBotPersist) {
-    await prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'out',
-        sender: 'bot',
-        text: clientFacingText,
-        botFailureCode,
-        botFailureDetail,
-      },
+    await persistIgOutboundMessage({
+      conversationId,
+      sender: 'bot',
+      text: clientFacingText,
+      igMessageIds: outboundIgMessageIds,
+      botFailureCode,
+      botFailureDetail,
     });
     markFirstOutboundAt(conversationId).catch((err) =>
       log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
@@ -3036,14 +3037,12 @@ async function tryTerminalToolCalls(
         : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
           'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
       try {
-        await sendText(client.igUserId, reply);
-        await prisma.message.create({
-          data: {
-            conversationId,
-            direction: 'out',
-            sender: 'bot',
-            text: reply,
-          },
+        const igMessageIds = await sendText(client.igUserId, reply);
+        await persistIgOutboundMessage({
+          conversationId,
+          sender: 'bot',
+          text: reply,
+          igMessageIds,
         });
         markFirstOutboundAt(conversationId).catch(() => undefined);
       } catch (err) {

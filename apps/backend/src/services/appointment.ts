@@ -21,6 +21,7 @@ import {
 } from '../lib/appointment-services.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import { sendText } from './instagram.js';
+import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
@@ -408,14 +409,12 @@ export async function handleBookAppointment(
         clientMessage: options?.clientMessage,
       });
       try {
-        await sendText(igUserId, confirmationText);
-        await prisma.message.create({
-          data: {
-            conversationId,
-            direction: 'out',
-            sender: 'bot',
-            text: confirmationText,
-          },
+        const igMessageIds = await sendText(igUserId, confirmationText);
+        await persistIgOutboundMessage({
+          conversationId,
+          sender: 'bot',
+          text: confirmationText,
+          igMessageIds,
         });
         markFirstOutboundAt(conversationId).catch((err) =>
           log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
@@ -1014,14 +1013,12 @@ async function sendClientLifecycleMessage(
 ): Promise<void> {
   if (skip || !igUserId?.trim()) return;
   try {
-    await sendText(igUserId, text);
-    await prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'out',
-        sender: 'bot',
-        text,
-      },
+    const igMessageIds = await sendText(igUserId, text);
+    await persistIgOutboundMessage({
+      conversationId,
+      sender: 'bot',
+      text,
+      igMessageIds,
     });
     markFirstOutboundAt(conversationId).catch(() => undefined);
   } catch (err) {

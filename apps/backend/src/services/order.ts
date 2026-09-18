@@ -1,6 +1,7 @@
 import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { sendText } from './instagram.js';
+import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { notifyOrder } from './telegram-notify.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
@@ -159,15 +160,13 @@ export async function handleCollectOrder(
     'Замовлення прийнято! Менеджер підтвердить і напише Вам найближчим часом.';
 
   if (!options?.skipClientMessage) {
-    await sendText(clientIgUserId, confirmationText);
+    const igMessageIds = await sendText(clientIgUserId, confirmationText);
 
-    await prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'out',
-        sender: 'bot',
-        text: confirmationText,
-      },
+    await persistIgOutboundMessage({
+      conversationId,
+      sender: 'bot',
+      text: confirmationText,
+      igMessageIds,
     });
     markFirstOutboundAt(conversationId).catch((err) =>
       log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
@@ -320,14 +319,12 @@ export async function handleCreateLocalOrder(
       : 'Дякуємо! Заявку прийнято — менеджер напише Вам найближчим часом.');
 
   if (!options?.skipClientMessage) {
-    await sendText(clientIgUserId, confirmationText);
-    await prisma.message.create({
-      data: {
-        conversationId,
-        direction: 'out',
-        sender: 'bot',
-        text: confirmationText,
-      },
+    const igMessageIds = await sendText(clientIgUserId, confirmationText);
+    await persistIgOutboundMessage({
+      conversationId,
+      sender: 'bot',
+      text: confirmationText,
+      igMessageIds,
     });
     markFirstOutboundAt(conversationId).catch((err) =>
       log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),

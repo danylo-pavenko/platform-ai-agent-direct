@@ -7,7 +7,10 @@
  *
  * Flow:
  *   GET  /webhooks/instagram  → Meta challenge verification
- *   POST /webhooks/instagram  → verify HMAC per tenant → forward to localhost:apiPort
+ *   POST /webhooks/instagram  → verify HMAC → forward same raw body to tenant
+ *     inbound:  {api}/webhooks/instagram
+ *     echo:     {api}/webhooks/instagram/echo  (is_echo; 404 on old tenants is skipped)
+
  *
  * Forwarding uses internal localhost routing (no external DNS / TLS needed).
  * The raw body + X-Hub-Signature-256 are forwarded unchanged so each tenant
@@ -24,6 +27,7 @@ import {
   collectTenantInstagramRoutingIds,
   collectWebhookDebugCandidateIds,
   collectWebhookRoutingCandidateIds,
+  selectTenantWebhookTargetKinds,
   tenantMatchesWebhookCandidates,
 } from '../lib/tenant-webhook-routing.js';
 import {
@@ -201,7 +205,9 @@ export async function webhookRoutes(app: FastifyInstance) {
     });
 
     const { getServerForTenant } = await import('../lib/servers.js');
-    const { resolveTenantWebhookUrl } = await import('../lib/worker/tenant-url.js');
+    const { resolveTenantWebhookUrl, resolveTenantEchoWebhookUrl } = await import(
+      '../lib/worker/tenant-url.js'
+    );
 
     for (const tenant of activeTenants) {
       if (!tenantMatchesWebhookCandidates(tenant, routingCandidateIds)) continue;
@@ -249,78 +255,119 @@ export async function webhookRoutes(app: FastifyInstance) {
 
       // Local workers: loopback. Remote workers: https://{apiDomain}.
       const server = await getServerForTenant(tenant.serverId);
-      const targetUrl = resolveTenantWebhookUrl(tenant, server);
+      const targetKinds = selectTenantWebhookTargetKinds(
+        entries as Parameters<typeof selectTenantWebhookTargetKinds>[0],
+      );
 
-      try {
-        const res = await fetch(targetUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(signature ? { 'X-Hub-Signature-256': signature } : {}),
-            'X-Forwarded-By': 'platform-hub',
-          },
-          body: rawBody,
-          signal: AbortSignal.timeout(10_000),
-        });
+      for (const channel of targetKinds) {
+        const targetUrl =
+          channel === 'echo'
+            ? resolveTenantEchoWebhookUrl(tenant, server)
+            : resolveTenantWebhookUrl(tenant, server);
 
-        if (res.ok) {
-          forwardedCount++;
-          forwardResults.push({
-            tenantId: tenant.id,
-            instanceId: tenant.instanceId,
-            url: targetUrl,
-            ok: true,
-            statusCode: res.status,
-            matchedId,
+        try {
+          const res = await fetch(targetUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(signature ? { 'X-Hub-Signature-256': signature } : {}),
+              'X-Forwarded-By': 'platform-hub',
+              'X-Platform-Webhook-Channel': channel,
+            },
+            body: rawBody,
+            signal: AbortSignal.timeout(10_000),
           });
-          app.log.info(
-            {
-              matchedId,
-              tenantRoutingIds: [...routingIds].slice(0, 6),
+
+          if (
+            channel === 'echo' &&
+            (res.status === 404 || res.status === 405)
+          ) {
+            forwardedCount++;
+            forwardResults.push({
               tenantId: tenant.id,
               instanceId: tenant.instanceId,
-              port: tenant.apiPort,
-              status: res.status,
-            },
-            'Webhook hub: event forwarded to tenant',
-          );
-        } else {
-          const bodyText = await res.text().catch(() => '');
+              url: targetUrl,
+              ok: true,
+              statusCode: res.status,
+              matchedId,
+              channel,
+            });
+            app.log.warn(
+              {
+                matchedId,
+                tenantId: tenant.id,
+                instanceId: tenant.instanceId,
+                status: res.status,
+              },
+              'Webhook hub: tenant has no echo route yet — skipped (rolling deploy)',
+            );
+            continue;
+          }
+
+          if (res.ok) {
+            forwardedCount++;
+            forwardResults.push({
+              tenantId: tenant.id,
+              instanceId: tenant.instanceId,
+              url: targetUrl,
+              ok: true,
+              statusCode: res.status,
+              matchedId,
+              channel,
+            });
+            app.log.info(
+              {
+                matchedId,
+                tenantRoutingIds: [...routingIds].slice(0, 6),
+                tenantId: tenant.id,
+                instanceId: tenant.instanceId,
+                port: tenant.apiPort,
+                status: res.status,
+                channel,
+              },
+              'Webhook hub: event forwarded to tenant',
+            );
+          } else {
+            const bodyText = await res.text().catch(() => '');
+            forwardResults.push({
+              tenantId: tenant.id,
+              instanceId: tenant.instanceId,
+              url: targetUrl,
+              ok: false,
+              statusCode: res.status,
+              matchedId,
+              channel,
+              error: bodyText.slice(0, 200) || `HTTP ${res.status}`,
+            });
+            app.log.warn(
+              {
+                matchedId,
+                tenantId: tenant.id,
+                instanceId: tenant.instanceId,
+                port: tenant.apiPort,
+                status: res.status,
+                channel,
+                body: bodyText.slice(0, 200),
+              },
+              'Webhook hub: tenant returned non-OK status',
+            );
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           forwardResults.push({
             tenantId: tenant.id,
             instanceId: tenant.instanceId,
             url: targetUrl,
             ok: false,
-            statusCode: res.status,
             matchedId,
-            error: bodyText.slice(0, 200) || `HTTP ${res.status}`,
+            channel,
+            error: message,
           });
-          app.log.warn(
-            {
-              matchedId,
-              tenantId: tenant.id,
-              instanceId: tenant.instanceId,
-              port: tenant.apiPort,
-              status: res.status,
-              body: bodyText.slice(0, 200),
-            },
-            'Webhook hub: tenant returned non-OK status',
+          app.log.error(
+            { err, matchedId, tenantId: tenant.id, port: tenant.apiPort, channel },
+            'Webhook hub: failed to forward event to tenant',
           );
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        forwardResults.push({
-          tenantId: tenant.id,
-          instanceId: tenant.instanceId,
-          url: targetUrl,
-          ok: false,
-          matchedId,
-          error: message,
-        });
-        app.log.error(
-          { err, matchedId, tenantId: tenant.id, port: tenant.apiPort },
-          'Webhook hub: failed to forward event to tenant',
-        );
       }
     }
 

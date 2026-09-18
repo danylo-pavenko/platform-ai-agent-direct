@@ -17,7 +17,7 @@
  */
 
 import pino from 'pino';
-import { prisma } from '../lib/prisma.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { persistHeuristicClientContact } from '../lib/client-contact-heuristics.js';
 import {
@@ -27,6 +27,7 @@ import {
   isOwnIgHistorySender,
   MAX_IG_HISTORY_MESSAGES,
 } from '../lib/ig-history-helpers.js';
+import { buildIgNativeEchoContext } from '../lib/ig-native-echo.js';
 
 export {
   clampIgHistoryLimit,
@@ -174,6 +175,9 @@ export async function importIgConversationHistory(
         igMessageId: msg.id,
         createdAt: new Date(msg.created_time),
         ...(direction === 'in' ? { claudeTurnId: SKIPPED_TURN_ID } : {}),
+        ...(sender === 'manager'
+          ? { igContext: toInputJsonValue(buildIgNativeEchoContext('ig_history_import')) }
+          : {}),
       },
     });
 

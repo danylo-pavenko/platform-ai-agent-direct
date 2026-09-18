@@ -360,7 +360,17 @@
                   {{ formatChatPlain(msg.text) }}
                 </div>
                 <v-chip
-                  v-if="isDetectedPhoneMessage(msg)"
+                  v-if="isNativeIgEcho(msg)"
+                  size="x-small"
+                  variant="tonal"
+                  color="pink-darken-2"
+                  class="mt-1 native-ig-echo-chip"
+                  prepend-icon="mdi-instagram"
+                >
+                  З Instagram
+                </v-chip>
+                <v-chip
+                  v-else-if="isDetectedPhoneMessage(msg)"
                   size="x-small"
                   variant="tonal"
                   color="primary"
@@ -828,7 +838,7 @@ interface Message {
   mediaUrls?: string[];
   mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData | null;
-  igContext?: { kind?: string; phone?: string } | null;
+  igContext?: { kind?: string; phone?: string; source?: string } | null;
 }
 
 interface ClientData {
@@ -1075,6 +1085,7 @@ function messageAlignment(msg: Message): string {
 
 function bubbleCardClass(msg: Message): string {
   if (msg.direction === 'in') return 'bubble-incoming';
+  if (isNativeIgEcho(msg)) return 'bubble-out-manager-echo';
   if (msg.sender === 'manager') return 'bubble-out-manager';
   return 'bubble-out-bot';
 }
@@ -1093,7 +1104,17 @@ const botIsThinking = computed(() => {
 });
 
 function senderLabel(msg: Message): string {
+  if (isNativeIgEcho(msg)) return 'Менеджер · Instagram';
   return ({ client: 'Клієнт', bot: 'Бот', manager: 'Менеджер', system: 'Система' } as Record<string, string>)[msg.sender] || msg.sender;
+}
+
+function isNativeIgEcho(msg: Message): boolean {
+  return msg.sender === 'manager' && msg.igContext?.kind === 'ig_native_echo';
+}
+
+function managerBubbleSource(msg: Message): string {
+  if (isNativeIgEcho(msg)) return 'ig_echo';
+  return msg.sender;
 }
 
 function isDetectedPhoneMessage(msg: Message): boolean {
@@ -1154,7 +1175,9 @@ function shouldHideSenderMeta(msg: Message, index: number): boolean {
   if (msg.sender === 'system') return false;
   const prev = visibleMessages.value[index - 1];
   if (!prev || prev.sender === 'system') return false;
-  if (prev.sender !== msg.sender || prev.direction !== msg.direction) return false;
+  if (managerBubbleSource(prev) !== managerBubbleSource(msg) || prev.direction !== msg.direction) {
+    return false;
+  }
   const a = new Date(prev.createdAt).getTime();
   const b = new Date(msg.createdAt).getTime();
   if (Number.isNaN(a) || Number.isNaN(b)) return true;
@@ -2231,6 +2254,21 @@ const ClientProfilePanel = defineComponent({
 .message-bubble-card.bubble-out-manager {
   background: rgb(var(--v-theme-success));
   color: rgb(var(--v-theme-on-success));
+}
+
+.message-bubble-card.bubble-out-manager-echo {
+  background: rgb(var(--v-theme-success));
+  color: rgb(var(--v-theme-on-success));
+  box-shadow: inset 3px 0 0 0 #e4405f;
+}
+
+.message-bubble-card.bubble-out-manager-echo .native-ig-echo-chip {
+  background: rgba(255, 255, 255, 0.22);
+  color: inherit;
+}
+
+.native-ig-echo-chip {
+  max-width: 100%;
 }
 
 .message-media-image {

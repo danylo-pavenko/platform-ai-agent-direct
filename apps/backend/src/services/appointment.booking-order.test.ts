@@ -13,7 +13,7 @@ const {
     conversation: { findUnique: vi.fn(), update: vi.fn() },
     appointment: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    message: { create: vi.fn() },
+    message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     clientReferencePhoto: { findMany: vi.fn() },
     setting: { findUnique: vi.fn() },
   },
@@ -99,12 +99,13 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     prismaMock.order.findFirst.mockResolvedValue(null);
     prismaMock.order.create.mockResolvedValue({ id: 'order-1' });
     prismaMock.message.create.mockResolvedValue({ id: 'msg-1' });
+    prismaMock.message.findUnique.mockResolvedValue(null);
     prismaMock.setting.findUnique.mockResolvedValue({
       key: 'agent_config',
       value: { timezone: 'Europe/Kyiv' },
     });
     notifyOrder.mockResolvedValue(undefined);
-    sendText.mockResolvedValue(undefined);
+    sendText.mockResolvedValue([]);
   });
 
   it('creates booking Order, notifies Telegram, and sends IG confirmation', async () => {

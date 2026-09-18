@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from '../services/instagram.js';
+import { persistIgOutboundMessage } from '../services/ig-outbound-persist.js';
 import { importIgConversationHistory } from '../services/ig-history.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
@@ -196,16 +197,13 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     }
 
     // Send via Instagram
-    await sendText(conversation.client.igUserId, text.trim());
+    const igMessageIds = await sendText(conversation.client.igUserId, text.trim());
 
-    // Persist message
-    const message = await prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        direction: 'out',
-        sender: 'manager',
-        text: text.trim(),
-      },
+    const message = await persistIgOutboundMessage({
+      conversationId: conversation.id,
+      sender: 'manager',
+      text: text.trim(),
+      igMessageIds,
     });
 
     // Manager reply takes over the thread — abort any in-flight bot turn.

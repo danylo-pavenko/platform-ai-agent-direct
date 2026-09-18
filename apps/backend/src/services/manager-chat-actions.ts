@@ -4,6 +4,7 @@ import { getAgentConfig } from '../lib/agent-config.js';
 import { joinInboundBatch, type PendingInboundMessage } from '../lib/inbound-coalesce.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { sendText } from './instagram.js';
+import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { runForcedManagerBotTurn, type BotTurnOutcome } from './conversation.js';
 import {
   buildManagerForcedTurnUserMessage,
@@ -89,8 +90,9 @@ async function sendPaymentDetails(
     );
   }
 
+  let igMessageIds: string[] = [];
   try {
-    await sendText(igUserId, text);
+    igMessageIds = await sendText(igUserId, text);
   } catch (err) {
     log.error({ err, conversationId }, 'Failed to send payment requisites to Instagram');
     throw new ManagerChatActionError(
@@ -101,14 +103,12 @@ async function sendPaymentDetails(
   }
 
   const now = new Date();
-  const message = await prisma.message.create({
-    data: {
-      conversationId,
-      direction: 'out',
-      sender: 'bot',
-      text,
-      createdAt: now,
-    },
+  const message = await persistIgOutboundMessage({
+    conversationId,
+    sender: 'bot',
+    text,
+    igMessageIds,
+    createdAt: now,
   });
   await prisma.conversation.update({
     where: { id: conversationId },

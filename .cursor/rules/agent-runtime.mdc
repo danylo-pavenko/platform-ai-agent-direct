@@ -20,6 +20,7 @@ Full map: **`docs/AGENT_RUNTIME.md`**.
 - Agent modes: `sales` | `leadgen` | `booking` | **`general`** (union of the three). New tools go into the specialized builder only — general picks them up via `mergeToolsByName` (see `.cursor/rules/agent-mode-general.mdc`).
 - Spawn CWD is isolated (`claude-spawn-cwd`) — tenant disk `CLAUDE.md` is **not** the customer system prompt; DB `system_prompts` + runtime injections are.
 - Telegram manager alerts are **side effects**, not a customer-facing tool. Product order cards are notify-only (no approve/decline). After `sessionFreshnessDays` of silence, bot **and** handoff threads close and a new conversation starts.
+- Native Instagram app replies arrive as Meta `is_echo` on a **separate** tenant route (`/webhooks/instagram/echo`). Inbound still skips echoes. Admin labels them `ig_native_echo` («Менеджер · Instagram»). No Claude on that path.
 
 ## Admin assistants
 

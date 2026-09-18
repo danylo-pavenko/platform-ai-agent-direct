@@ -34,6 +34,14 @@ export function resolveTenantWebhookUrl(
   return `${resolveTenantApiUrl(tenant, server)}/webhooks/instagram`;
 }
 
+/** Native Instagram / Business Suite page echoes — isolated from inbound. */
+export function resolveTenantEchoWebhookUrl(
+  tenant: Pick<Tenant, 'apiDomain' | 'apiPort'>,
+  server: Pick<Server, 'kind'> | null | undefined,
+): string {
+  return `${resolveTenantApiUrl(tenant, server)}/webhooks/instagram/echo`;
+}
+
 /** DNS A-record hints for platform tenants on a worker. */
 export function dnsHintsForTenant(
   tenant: Pick<Tenant, 'apiDomain' | 'adminDomain'>,

@@ -5,6 +5,7 @@ import {
   collectWebhookRoutingCandidateIds,
   mergeTenantInstagramRoutingIds,
   normalizeInstagramRoutingIds,
+  selectTenantWebhookTargetKinds,
   tenantMatchesWebhookCandidates as tenantMatchesCandidates,
   type TenantRoutingFields,
 } from './webhook-routing-candidates.js';
@@ -14,6 +15,7 @@ export {
   collectWebhookRoutingCandidateIds,
   mergeTenantInstagramRoutingIds,
   normalizeInstagramRoutingIds,
+  selectTenantWebhookTargetKinds,
 };
 
 /** All Instagram IDs that should route webhooks to this tenant. */

@@ -16,5 +16,6 @@ export {
   resolveTenantApiUrl,
   resolveTenantOAuthCallbackUrl,
   resolveTenantWebhookUrl,
+  resolveTenantEchoWebhookUrl,
   dnsHintsForTenant,
 } from './tenant-url.js';

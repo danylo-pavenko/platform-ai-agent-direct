@@ -23,15 +23,17 @@ Claude invocation = **headless Claude Code CLI / Agent SDK** (`query()` default,
 
 ```mermaid
 flowchart TD
-  A[Meta IG webhook] --> B[webhooks.ts]
+  A[Meta IG webhook] --> Hub[super-admin hub]
+  Hub -->|inbound HMAC body| B["tenant /webhooks/instagram"]
+  Hub -->|echo HMAC body| X["tenant /webhooks/instagram/echo"]
   B -->|200 OK immediate| C[inbound coalesce + turn queue]
   C --> D[conversation.handleIncomingMessage]
   D --> E[buildRuntimePrompt + mode tools]
   E --> F[askClaude]
-
+  X --> Y[persist manager ig_native_echo — no Claude]
   F --> G{tool_calls?}
-  G -->|lookup| H[search / slots / CRM read]
-  H --> F
+  G -->|lookup| Lookup[search / slots / CRM read]
+  Lookup --> F
   G -->|side effects| I[update_client_info / tag / …]
   G -->|terminal| J[order / brief / book / handoff]
   J --> K[Telegram notify]
@@ -39,6 +41,8 @@ flowchart TD
 ```
 
 Inbound: `routes/webhooks.ts` → `lib/inbound-coalesce.ts` → `lib/conversation-turn-queue.ts` → `services/conversation.ts`.
+
+**Native Instagram manager replies (`is_echo`):** not treated as client inbound. The hub matches the business `sender.id` + `entry.id` (never the client IGSID in `recipient`) and POSTs the **same raw HMAC body** to tenant `POST /webhooks/instagram/echo`. Inbound still skips `is_echo`. The echo path persists `sender=manager` with `igContext.kind=ig_native_echo` so admin shows **Менеджер · Instagram** (chip «З Instagram»). Own Graph sends are de-duplicated via `message_id` (plus a short text heuristic). No Claude, no coalesce, no new conversation, no Telegram handoff card. If the open thread was `bot`, it becomes `handoff` («Менеджер відповів з Instagram»); `paused` stays paused.
 
 Instagram clients often split one answer across several bubbles (`10:00` then name then phone). Coalesce waits for silence (longer when the last bubble looks like a fragment), joins them as one user turn, and absorbs late mids that arrive during `responseDelay` / Claude. Do not re-ask for data already in those bubbles.
 

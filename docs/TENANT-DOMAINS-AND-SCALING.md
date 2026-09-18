@@ -416,7 +416,7 @@ UI вимагає ввести точний `instanceId`. API: `POST /api/tenant
 
 ### Meta Webhook Inbox (Super Admin)
 
-Сторінка **Webhooks** у SA показує кожен inbound `GET/POST /webhooks/instagram` на platform hub: routing candidates, matched tenant, forward OK/fail або **unmatched**. Це ops-доказ, що Meta б’є в API. Зберігаються останні ~500 подій (summary + truncated raw). Після деплою SA: `prisma migrate deploy` (таблиця `webhook_inbox_events`).
+Сторінка **Webhooks** у SA показує кожен inbound `GET/POST /webhooks/instagram` на platform hub: routing candidates, matched tenant, forward OK/fail або **unmatched**. Echo (`is_echo`) додатково йде на tenant `POST /webhooks/instagram/echo` (той самий raw body + HMAC). Це ops-доказ, що Meta б’є в API. Зберігаються останні ~500 подій (summary + truncated raw). Після деплою SA: `prisma migrate deploy` (таблиця `webhook_inbox_events`).
 
 ### CLI (root на worker)
 

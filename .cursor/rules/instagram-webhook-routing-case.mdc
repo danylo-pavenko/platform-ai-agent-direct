@@ -17,6 +17,8 @@ Reference tenant: **Status Blessed** instance (`sb`), client **@cultura.barbersh
 Hub matches `candidateIds` from Meta DM webhooks when **both** IDs are present.
 Do **not** add sender IDs (e.g. `17841410659012767`) — that is the client's IG, not the business.
 
+**Echo / native Instagram manager reply:** `is_echo` flips the pair — `sender.id` is the **business**, `recipient.id` is the **client IGSID** (same class of ID as `17841410659012767`). Hub must **not** route echo by that recipient. It uses `sender.id` + `entry.id` and forwards the same HMAC body to tenant `POST /webhooks/instagram/echo`. Inbound `POST /webhooks/instagram` still skips `is_echo`.
+
 ## Meta App Dashboard (Instagram API product) — required for this client in practice
 
 1. **Webhook Subscription → On** for `cultura.barbershop` in Instagram API setup.
@@ -35,4 +37,4 @@ App is **Live** with **App Review approved** for `instagram_manage_messages` —
 
 - `17841437228550639` — Graph `instagram_business_account.id` (OAuth, super-admin primary)
 - `1971149383793917` — `ig_id` / common `recipient.id` in messaging webhooks (super-admin routing extra)
-- `17841410659012767` — example **sender** id in logs (danylo_pavenko) — never use for tenant routing
+- `17841410659012767` — example **sender** id in logs (danylo_pavenko) — never use for tenant routing. On an **echo** webhook this same class of ID is `recipient.id` (the client) — still never a routing extra.
