@@ -37,7 +37,7 @@ export function disambiguateMasterDisplayName(
   const me = peers.find((p) => p.id === id);
   const pos = (me?.positionNames ?? []).map((p) => p.trim()).filter(Boolean);
   if (pos.length > 0) return `${name.trim()} (${pos.join(', ')})`;
-  return `${name.trim()} [#${id.slice(0, 8)}]`;
+  return `${name.trim()} [master_id=${id}]`;
 }
 
 /** Build id → disambiguated label map for slot / history formatting. */

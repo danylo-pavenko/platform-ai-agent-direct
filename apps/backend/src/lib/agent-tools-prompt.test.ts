@@ -114,6 +114,7 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/Не супереч останньому get_available_slots/);
     expect(prompt).toMatch(/Пауза на ПІБ\/телефон не вимагає свіжого lookup/);
     expect(prompt).toMatch(/Запропоновані вікна/);
+    expect(prompt).toMatch(/ПОВНИЙ UUID/);
   });
 
   it('treats split Instagram contact bubbles as one update_client_info turn', () => {

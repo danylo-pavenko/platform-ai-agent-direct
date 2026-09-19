@@ -71,6 +71,15 @@ describe('formatParallelServiceMasterLines', () => {
     expect(lines[1]).toContain('Педикюр');
     expect(lines[1]).toContain('[master_id=m2]');
   });
+
+  it('uses full service_id when the service has no display name', () => {
+    const lines = formatParallelServiceMasterLines(
+      [{ id: '88d8645d-2022-fa67-6d46-f6ed12f7a6a2', masterId: 'm1' }],
+      new Map([['m1', 'Іванка']]),
+    );
+    expect(lines[0]).toContain('service_id=88d8645d-2022-fa67-6d46-f6ed12f7a6a2');
+    expect(lines[0]).not.toMatch(/88d8645d(?!-)/);
+  });
 });
 
 describe('isReactionOnlyInbound', () => {

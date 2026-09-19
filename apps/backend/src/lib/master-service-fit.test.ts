@@ -30,13 +30,13 @@ describe('disambiguateMasterDisplayName', () => {
     );
   });
 
-  it('falls back to short id when duplicate names lack positions', () => {
+  it('falls back to full master_id when duplicate names lack positions', () => {
     const peers = [
       { id: 'aaaaaaaa-1111-1111-1111-111111111111', name: 'Анастасія' },
       { id: 'bbbbbbbb-2222-2222-2222-222222222222', name: 'Анастасія' },
     ];
     expect(disambiguateMasterDisplayName(peers[0]!.id, 'Анастасія', peers)).toBe(
-      'Анастасія [#aaaaaaaa]',
+      'Анастасія [master_id=aaaaaaaa-1111-1111-1111-111111111111]',
     );
   });
 });

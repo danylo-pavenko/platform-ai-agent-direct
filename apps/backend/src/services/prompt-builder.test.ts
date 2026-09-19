@@ -178,7 +178,9 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
       }),
     );
     expect(prompt).toContain('Запропоновані вікна');
-    expect(prompt).toContain('10:00, 14:00');
+    expect(prompt).toContain('10:00');
+    expect(prompt).toContain('14:00');
+    expect(prompt).toContain('[service_id=svc-1]');
     expect(prompt).toMatch(/БЕЗ нового get_available_slots/);
     expect(prompt).toMatch(/Якщо є блок «Запропоновані вікна»/);
   });

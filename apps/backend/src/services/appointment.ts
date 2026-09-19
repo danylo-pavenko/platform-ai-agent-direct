@@ -7,7 +7,7 @@ import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
-import { asCrmId } from '../lib/crm-ids.js';
+import { asCrmId, crmProviderRequiresGuid, formatInvalidCrmIdToolResult, resolveCrmEntityId } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder, notifyBookingLifecycle } from './telegram-notify.js';
@@ -30,7 +30,9 @@ import { providerDisplayName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { lookupAvailableSlotsForContext } from './service-search.js';
-import { persistBookingSlotOffer, clearConversationBookingOffer } from './booking-slot-offer-store.js';
+import { persistBookingSlotOffer, clearConversationBookingOffer, loadFreshBookingSlotOffer } from './booking-slot-offer-store.js';
+import { collectOfferCrmIds } from '../lib/booking-slot-offer.js';
+import { loadSyncedServices } from '../lib/synced-services.js';
 import { applyPersonalDurations } from './personal-duration.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import {
@@ -179,6 +181,57 @@ export async function handleBookAppointment(
     );
   }
 
+  const crmProvider = await resolveCrmProvider('booking', {
+    toolProvider:
+      typeof args.crm_provider === 'string' ? args.crm_provider : undefined,
+  });
+
+  const requireGuid = crmProviderRequiresGuid(crmProvider);
+  if (requireGuid) {
+    const offer = await loadFreshBookingSlotOffer(conversationId);
+    const catalog = await loadSyncedServices().catch(() => []);
+    const candidates = [
+      ...collectOfferCrmIds(offer),
+      ...catalog.map((s) => s.id),
+    ];
+    for (const line of services) {
+      const svc = resolveCrmEntityId(line.id, candidates);
+      if (!svc.ok) {
+        log.warn({ conversationId, fail: svc, field: 'service_id' }, 'book_appointment: INVALID_CRM_ID');
+        return {
+          appointmentId: '',
+          crmSynced: false,
+          toolResult: formatInvalidCrmIdToolResult(svc),
+        };
+      }
+      if (svc.expandedFrom) {
+        log.info(
+          { conversationId, from: svc.expandedFrom, to: svc.id },
+          'book_appointment: expanded truncated service_id',
+        );
+      }
+      line.id = svc.id;
+      if (line.masterId) {
+        const master = resolveCrmEntityId(line.masterId, candidates);
+        if (!master.ok) {
+          log.warn({ conversationId, fail: master, field: 'master_id' }, 'book_appointment: INVALID_CRM_ID');
+          return {
+            appointmentId: '',
+            crmSynced: false,
+            toolResult: formatInvalidCrmIdToolResult(master),
+          };
+        }
+        if (master.expandedFrom) {
+          log.info(
+            { conversationId, from: master.expandedFrom, to: master.id },
+            'book_appointment: expanded truncated master_id',
+          );
+        }
+        line.masterId = master.id;
+      }
+    }
+  }
+
   // Soft-guard: refuse master_id that CRM grades mark as unavailable for the service
   // (e.g. manicure Anastasia booked for hair toning when two share a name).
   const mismatches = await checkBookingMasterServiceFit({
@@ -237,11 +290,6 @@ export async function handleBookAppointment(
         log.warn({ err, conversationId }, 'Failed to pin conversation branch (non-fatal)');
       });
   }
-
-  const crmProvider = await resolveCrmProvider('booking', {
-    toolProvider:
-      typeof args.crm_provider === 'string' ? args.crm_provider : undefined,
-  });
 
   const mergeTarget = await prisma.appointment.findFirst({
     where: {

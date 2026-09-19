@@ -11,7 +11,7 @@ export function formatParallelServiceMasterLines(
     .filter((s) => s.masterId)
     .map((s) => {
       const name = masterMap.get(s.masterId!) ?? s.masterId!;
-      const svc = s.name?.trim() || `service ${s.id.slice(0, 8)}`;
+      const svc = s.name?.trim() || `service_id=${s.id}`;
       return `- ${svc} → [master_id=${s.masterId}] ${name}`;
     });
 }

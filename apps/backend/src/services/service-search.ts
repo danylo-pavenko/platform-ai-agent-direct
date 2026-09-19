@@ -159,6 +159,7 @@ export function formatSlotMastersLine(
     .slice(0, limit)
     .map((id) => {
       const name = masterMap.get(id) ?? id;
+      if (/\[master_id=/.test(name)) return name;
       return `[master_id=${id}] ${name}`;
     })
     .join(', ');
@@ -326,14 +327,24 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
     const daySlots = pickSlotTimesForDay(filtered, SLOT_TIMES_PER_DAY, preferTimes);
     if (daySlots.length === 0) continue;
     daysShown += 1;
-    offerDays.push({ date: day, times: daySlots.map((s) => s.time) });
+    const slotMasterIds = parallelMasters && assigned.every((s) => s.masterId)
+      ? assigned.map((s) => s.masterId!).filter(Boolean)
+      : undefined;
+    offerDays.push({
+      date: day,
+      times: daySlots.map((s) => s.time),
+      slots: daySlots.map((s) => ({
+        time: s.time,
+        masterIds: slotMasterIds ?? [...s.masterIds],
+      })),
+    });
     lines.push(`## ${day}`);
     for (const slot of daySlots) {
       if (parallelMasters && assigned.every((s) => s.masterId)) {
         const byService = assigned
           .map((s) => {
             const name = masterMap.get(s.masterId!) ?? s.masterId!;
-            const svc = s.name?.trim() || s.id.slice(0, 8);
+            const svc = s.name?.trim() || `service_id=${s.id}`;
             return `${svc}: ${name}`;
           })
           .join('; ');
@@ -411,6 +422,12 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
       ? 'Для book_appointment використовуй services[].master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.'
       : 'Для book_appointment використовуй master_id з цього списку. Клієнту показуй лише імʼя майстра, не id.',
   );
+  const shownMasterIds = new Set<string>(uniqueMasters);
+  for (const day of offerDays) {
+    for (const slot of day.slots ?? []) {
+      for (const id of slot.masterIds) shownMasterIds.add(id);
+    }
+  }
   const offer: BookingSlotOffer = {
     date: args.date,
     days: offerDays,
@@ -421,7 +438,11 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
       name: s.name,
     })),
     masterId: args.masterId,
-    masterIds: uniqueMasters,
+    masterIds: [...shownMasterIds],
+    masters: [...shownMasterIds].map((id) => ({
+      id,
+      name: masterMap.get(id) ?? id,
+    })),
     fetchedAt: new Date().toISOString(),
   };
   return { text: lines.join('\n'), offer };

@@ -13,7 +13,7 @@ vi.mock('../lib/crm-routing.js', () => ({ resolveCrmProvider }));
 vi.mock('./crm/index.js', () => ({ getCrmAdapter }));
 vi.mock('../lib/synced-services.js', () => ({ loadSyncedServices }));
 
-import { getAvailableSlotsForContext } from './service-search.js';
+import { getAvailableSlotsForContext, lookupAvailableSlotsForContext } from './service-search.js';
 
 describe('getAvailableSlotsForContext preferred master', () => {
   beforeEach(() => {
@@ -118,6 +118,34 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).toContain('[master_id=a] Anna');
     expect(text).toContain('[master_id=b] Bohdan');
     expect(text).not.toMatch(/цього майстра/);
+  });
+
+  it('persists per-slot master ids on the booking offer', async () => {
+    getAvailableSlots.mockResolvedValue({
+      slots: {
+        '21.09.2026': [
+          { date: '21.09.2026', time: '10:00', masterIds: ['ana', 'nadia'] },
+          { date: '21.09.2026', time: '10:15', masterIds: ['ana'] },
+        ],
+      },
+      masters: [
+        { id: 'ana', name: 'Грева Анастасія' },
+        { id: 'nadia', name: 'Надія' },
+      ],
+    });
+
+    const { offer } = await lookupAvailableSlotsForContext({
+      date: '21.09.2026',
+      branchCrmId: 'loc-1',
+      services: [{ id: '88d8645d-2022-fa67-6d46-f6ed12f7a6a2', durationMin: 60, name: 'Стрижка' }],
+    });
+
+    expect(offer?.days[0]?.slots).toEqual([
+      { time: '10:00', masterIds: ['ana', 'nadia'] },
+      { time: '10:15', masterIds: ['ana'] },
+    ]);
+    expect(offer?.masterIds.sort()).toEqual(['ana', 'nadia']);
+    expect(offer?.services[0]?.id).toBe('88d8645d-2022-fa67-6d46-f6ed12f7a6a2');
   });
 
   it('intersects free times when services have different masters', async () => {
