@@ -110,8 +110,9 @@ export interface PromptBuildParams {
   /** IANA zone for session clock and working-hours check (default Europe/Kyiv). */
   timeZone?: string;
   /**
-   * True when this conversation already has an outbound bot message.
-   * Drives first-reply intro vs no re-greeting (imported IG history is manager, not bot).
+   * True when the bot already sent a message in this tenant civil day
+   * (or since conversation start if the UUID began today). Imported IG
+   * history is manager, not bot. Same-day checkout does not reset this.
    */
   botAlreadyReplied?: boolean;
   /**
@@ -120,6 +121,11 @@ export interface PromptBuildParams {
    * if webhook did not open a new conversation.
    */
   sessionResumeAfterGap?: boolean;
+  /**
+   * Bot already wrote in this UUID, but not yet in today's salon calendar.
+   * Allows a tenant-prompt new-day greeting; does not force a full re-intro.
+   */
+  newCivilDay?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +246,7 @@ export function buildRuntimePrompt(params: PromptBuildParams): string {
     timeZone = DEFAULT_TENANT_TIMEZONE,
     botAlreadyReplied = false,
     sessionResumeAfterGap = false,
+    newCivilDay = false,
   } = params;
 
   const activePromptContent = applyPromptPlaceholders(rawPromptContent, {
@@ -341,7 +348,7 @@ ${catalogLabel}
 - Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в блоці «Вже відомо про клієнта».
 - Якщо є блок «Запропоновані вікна» — клієнт обирає з тих годин. Не викликай get_available_slots знову і не кажи що вікон немає, поки не змінили послугу/дату/майстра або book_appointment не повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.
 - Фрази «написала вище», «я ж написала», «див. вище», «там вище» — візьми дані з попередніх повідомлень клієнта; не проси повторити і не роби handoff лише через це.
-${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap)}
+${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap, newCivilDay)}
 ${catalogRule}${buildOutOfHoursBlock(isOutOfHours, outOfHoursStrategy, agentMode)}`;
 
 
@@ -410,11 +417,16 @@ function applyPromptPlaceholders(
 }
 
 /**
- * First bot reply in a thread: introduce per tenant prompt.
- * Later turns: never re-greet, even if the client says «Добрий вечір» again.
- * After sessionFreshnessDays of silence in the same UUID: introduce again (new visit).
+ * First bot reply in a UUID: introduce per tenant prompt.
+ * Same salon civil day (or ongoing checkout): never re-greet.
+ * New civil day in the same UUID: greet only if the tenant prompt asks.
+ * After sessionFreshnessDays of silence: introduce again (new visit).
  */
-function buildIntroSessionRule(botAlreadyReplied: boolean, sessionResumeAfterGap = false): string {
+function buildIntroSessionRule(
+  botAlreadyReplied: boolean,
+  sessionResumeAfterGap = false,
+  newCivilDay = false,
+): string {
   if (sessionResumeAfterGap) {
     return (
       '- Між останнім повідомленням у цій розмові і цим зверненням минуло багато днів (нова сесія). ' +
@@ -423,10 +435,18 @@ function buildIntroSessionRule(botAlreadyReplied: boolean, sessionResumeAfterGap
       'якщо клієнт вітається або хоче нове замовлення; минулі замовлення — у блоці «Вже відомо про клієнта».'
     );
   }
+  if (newCivilDay) {
+    return (
+      '- Почався новий календарний день у часовому поясі салону. ' +
+      'Якщо системний промпт тенанта просить вітатись на новий день — коротко привітай у цій же репліці, потім одразу по суті. ' +
+      'Повне повторне представлення — лише якщо це прямо написано в промпті. Не окреме «привіт» без відповіді.'
+    );
+  }
   if (botAlreadyReplied) {
     return (
-      '- Бот уже відповідав у цій розмові. Не вітайся знову («Доброго ранку/дня/вечора», «Вітаю»), ' +
-      'не представляйся повторно. Якщо клієнт пізніше сам написав «добрий вечір» — відповідай по суті без дзеркального привітання.'
+      '- Бот уже відповідав у цьому календарному дні салону (або в цьому оформленні замовлення/запису). ' +
+      'Не вітайся знову («Доброго ранку/дня/вечора», «Вітаю»), не представляйся повторно. ' +
+      'Якщо клієнт пізніше сам написав «добрий ранок» — відповідай по суті без дзеркального привітання.'
     );
   }
   return (

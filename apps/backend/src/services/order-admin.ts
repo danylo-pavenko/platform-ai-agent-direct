@@ -5,7 +5,9 @@ import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled, isCrmWriteReady } from '../lib/crm-write.js';
 import { normalizeOrderItems, resolveQuotedTotal } from '../lib/order-normalize.js';
+import { parseAppointmentIdFromOrderNote } from '../lib/order-appointment.js';
 import type { PaymentMethod as PrismaPaymentMethod } from '../generated/prisma/client.js';
+import { AppointmentUpdateError, cancelAppointmentById } from './appointment.js';
 import { mirrorOrderToCrm } from './crm-sync.js';
 import { notifyOrder } from './telegram-notify.js';
 
@@ -236,5 +238,133 @@ export async function createAdminProductOrder(
     crmSyncError: updated?.crmSyncError ?? null,
     conversationId,
     path: `/conversations/${conversationId}`,
+  };
+}
+
+export class OrderCancelError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+  ) {
+    super(message);
+    this.name = 'OrderCancelError';
+  }
+}
+
+export type CancelAdminOrderResult = {
+  ok: true;
+  orderId: string;
+  kind: string;
+  appointmentId: string | null;
+  crmCancelled: boolean;
+  crmError: string | null;
+  crmSkipped: boolean;
+};
+
+/**
+ * Cancel a local Order from admin (product/service/… or booking).
+ * Booking: local always; CRM only when cancelCrm=true.
+ * Product: local status only (KeyCRM has no cancel API wired).
+ */
+export async function cancelAdminOrder(
+  orderId: string,
+  opts?: { reason?: string; cancelCrm?: boolean },
+): Promise<CancelAdminOrderResult> {
+  const id = orderId.trim();
+  if (!id) throw new OrderCancelError('Потрібен order id', 400);
+
+  const order = await prisma.order.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      kind: true,
+      status: true,
+      note: true,
+      conversationId: true,
+    },
+  });
+  if (!order) throw new OrderCancelError('Замовлення не знайдено', 404);
+  if (order.status === 'cancelled') {
+    throw new OrderCancelError('Вже скасовано', 400);
+  }
+
+  const reason = opts?.reason?.trim() || 'Скасовано менеджером в адмінці';
+  const cancelCrm = opts?.cancelCrm === true;
+  const kind = order.kind ?? 'product';
+
+  if (kind === 'booking') {
+    const appointmentId = parseAppointmentIdFromOrderNote(order.note);
+    if (!appointmentId) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'cancelled',
+          isArchived: true,
+          archivedAt: new Date(),
+          note: order.note
+            ? `${order.note}\n[admin cancel] ${reason}`
+            : `[admin cancel] ${reason}`,
+        },
+      });
+      log.info({ orderId: order.id }, 'Booking order cancelled locally (no appointmentId)');
+      return {
+        ok: true,
+        orderId: order.id,
+        kind,
+        appointmentId: null,
+        crmCancelled: false,
+        crmError: 'Немає повʼязаного appointmentId — скасовано лише локально',
+        crmSkipped: !cancelCrm,
+      };
+    }
+
+    try {
+      const result = await cancelAppointmentById(appointmentId, { reason, cancelCrm });
+      return {
+        ok: true,
+        orderId: order.id,
+        kind,
+        appointmentId: result.appointmentId,
+        crmCancelled: result.crmCancelled,
+        crmError: result.crmError,
+        crmSkipped: result.crmSkipped,
+      };
+    } catch (err) {
+      if (err instanceof AppointmentUpdateError) {
+        throw new OrderCancelError(err.message, err.statusCode);
+      }
+      throw err;
+    }
+  }
+
+  if (cancelCrm) {
+    throw new OrderCancelError(
+      'Скасування в KeyCRM з адмінки не підтримується — зніміть «Також у CRM» або скасуйте лише локально',
+      400,
+    );
+  }
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      status: 'cancelled',
+      isArchived: true,
+      archivedAt: new Date(),
+      note: order.note
+        ? `${order.note}\n[admin cancel] ${reason}`
+        : `[admin cancel] ${reason}`,
+    },
+  });
+
+  log.info({ orderId: order.id, kind }, 'Order cancelled from admin');
+
+  return {
+    ok: true,
+    orderId: order.id,
+    kind,
+    appointmentId: null,
+    crmCancelled: false,
+    crmError: null,
+    crmSkipped: true,
   };
 }

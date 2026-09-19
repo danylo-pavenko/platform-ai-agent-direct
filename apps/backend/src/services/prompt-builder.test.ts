@@ -132,23 +132,35 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     const prompt = buildRuntimePrompt(baseParams());
     expect(prompt).toMatch(/ПЕРША відповідь бота/);
     expect(prompt).toMatch(/представся імʼям і роллю|представся ім'ям і роллю/);
-    expect(prompt).not.toMatch(/Бот уже відповідав у цій розмові/);
+    expect(prompt).not.toMatch(/Бот уже відповідав у цьому календарному дні/);
   });
 
-  it('forbids re-greeting after the bot already replied', () => {
+  it('forbids re-greeting only within the same salon civil day or checkout', () => {
     const prompt = buildRuntimePrompt(baseParams({ botAlreadyReplied: true }));
-    expect(prompt).toMatch(/Бот уже відповідав у цій розмові/);
+    expect(prompt).toMatch(/Бот уже відповідав у цьому календарному дні салону/);
     expect(prompt).toMatch(/без дзеркального привітання/);
+    expect(prompt).not.toMatch(/ПЕРША відповідь бота/);
+    expect(prompt).not.toMatch(/новий календарний день/);
+  });
+
+  it('allows a tenant-prompt greeting on a new salon civil day', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({ botAlreadyReplied: false, newCivilDay: true }),
+    );
+    expect(prompt).toMatch(/новий календарний день/);
+    expect(prompt).toMatch(/просить вітатись на новий день/);
+    expect(prompt).not.toMatch(/Бот уже відповідав у цьому календарному дні/);
     expect(prompt).not.toMatch(/ПЕРША відповідь бота/);
   });
 
   it('re-introduces after a long pause even if the bot already replied', () => {
     const prompt = buildRuntimePrompt(
-      baseParams({ botAlreadyReplied: true, sessionResumeAfterGap: true }),
+      baseParams({ botAlreadyReplied: true, sessionResumeAfterGap: true, newCivilDay: true }),
     );
     expect(prompt).toMatch(/нова сесія/);
     expect(prompt).toMatch(/Не тягни старий конфлікт/);
     expect(prompt).not.toMatch(/без дзеркального привітання/);
+    expect(prompt).not.toMatch(/просить вітатись на новий день/);
   });
 
   it('injects offered booking windows so the agent does not refetch after a pause', () => {

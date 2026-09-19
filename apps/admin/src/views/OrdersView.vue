@@ -136,6 +136,16 @@
                   Відвантажити
                 </v-btn>
                 <v-btn
+                  v-if="canCancel(item)"
+                  size="small"
+                  variant="text"
+                  color="error"
+                  :loading="cancellingId === item.id"
+                  @click.stop="cancelOrder(item)"
+                >
+                  {{ cancelLabel(item) }}
+                </v-btn>
+                <v-btn
                   v-if="item.conversationId"
                   size="small"
                   variant="text"
@@ -153,12 +163,14 @@
                       :item="item"
                       :master-options="masterOptions"
                       :syncing-id="syncingId"
+                      :cancelling-id="cancellingId"
                       :saving-masters-id="savingMastersId"
                       :mobile="false"
                       @set-master="(i, v) => setServiceMaster(item, i, v)"
                       @save-masters="saveBookingMasters(item)"
                       @retry="retryCrmSync(item.id)"
                       @retry-force="retryCrmSyncForce(item)"
+                      @cancel="cancelOrder(item)"
                     />
                   </td>
                 </tr>
@@ -230,6 +242,17 @@
                   Force
                 </v-btn>
                 <v-btn
+                  v-if="canCancel(item)"
+                  size="small"
+                  variant="tonal"
+                  color="error"
+                  class="tap-target"
+                  :loading="cancellingId === item.id"
+                  @click.stop="cancelOrder(item)"
+                >
+                  {{ cancelLabel(item) }}
+                </v-btn>
+                <v-btn
                   size="small"
                   variant="text"
                   :prepend-icon="expandedId === item.id ? 'mdi-chevron-up' : 'mdi-chevron-down'"
@@ -243,12 +266,14 @@
                   :item="item"
                   :master-options="masterOptions"
                   :syncing-id="syncingId"
+                  :cancelling-id="cancellingId"
                   :saving-masters-id="savingMastersId"
                   :mobile="true"
                   @set-master="(i, v) => setServiceMaster(item, i, v)"
                   @save-masters="saveBookingMasters(item)"
                   @retry="retryCrmSync(item.id)"
                   @retry-force="retryCrmSyncForce(item)"
+                  @cancel="cancelOrder(item)"
                 />
               </div>
             </MobileListCard>
@@ -260,11 +285,74 @@
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="4000">
       {{ snackbarText }}
     </v-snackbar>
+
+    <v-dialog
+      v-model="cancelDialog"
+      :fullscreen="!mdAndUp"
+      :max-width="mdAndUp ? 440 : undefined"
+      scrim
+    >
+      <v-card rounded="lg">
+        <v-card-title class="text-wrap pr-12">
+          {{ cancelTarget?.kind === 'booking' ? 'Скасувати запис?' : 'Скасувати замовлення?' }}
+        </v-card-title>
+        <v-card-text>
+          <p class="text-body-2 mb-3">
+            <template v-if="cancelTarget?.kind === 'booking'">
+              Локальний статус стане «скасовано». Клієнту в Instagram повідомлення не надсилається.
+            </template>
+            <template v-else>
+              Локальний статус стане «скасовано». KeyCRM окремо не змінюється з адмінки.
+            </template>
+          </p>
+          <div v-if="cancelTarget" class="text-caption text-medium-emphasis mb-3">
+            #{{ cancelTarget.id.substring(0, 8) }}
+            <span v-if="cancelTarget.customerName"> · {{ cancelTarget.customerName }}</span>
+          </div>
+          <v-checkbox
+            v-if="showCancelCrmCheckbox"
+            v-model="cancelAlsoCrm"
+            :density="density"
+            hide-details
+            color="primary"
+            label="Також скасувати в CRM"
+            class="mt-0"
+          />
+          <p
+            v-if="showCancelCrmCheckbox"
+            class="text-caption text-medium-emphasis mt-1 mb-0"
+          >
+            Якщо вимкнено — лише локально в платформі; слот у CRM лишиться.
+          </p>
+        </v-card-text>
+        <v-card-actions :class="mdAndUp ? 'px-4 pb-4' : 'dialog-actions-stack px-4 pb-4'">
+          <v-btn
+            variant="text"
+            class="tap-target"
+            :block="!mdAndUp"
+            :disabled="Boolean(cancellingId)"
+            @click="closeCancelDialog"
+          >
+            Назад
+          </v-btn>
+          <v-btn
+            color="error"
+            variant="flat"
+            class="tap-target"
+            :block="!mdAndUp"
+            :loading="Boolean(cancellingId)"
+            @click="confirmCancelOrder"
+          >
+            Скасувати
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </v-container>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import PageHeader from '@/components/PageHeader.vue';
@@ -316,6 +404,8 @@ interface Order {
   appointmentId?: string | null;
   appointmentServices?: AppointmentServiceLine[];
   canRetryCrm?: boolean;
+  canCancel?: boolean;
+  canCancelInCrm?: boolean;
   isArchived?: boolean;
   archivedAt?: string | null;
   createdAt: string;
@@ -332,12 +422,16 @@ const loading = ref(false);
 const statusFilter = ref('');
 const includeArchived = ref(false);
 const syncingId = ref<string | null>(null);
+const cancellingId = ref<string | null>(null);
+const cancelDialog = ref(false);
+const cancelTarget = ref<Order | null>(null);
+const cancelAlsoCrm = ref(false);
 const savingMastersId = ref<string | null>(null);
 const expandedId = ref<string | null>(null);
 const masterOptions = ref<Array<{ id: string; name: string }>>([]);
 const snackbar = ref(false);
 const snackbarText = ref('');
-const snackbarColor = ref<'success' | 'error'>('success');
+const snackbarColor = ref<'success' | 'error' | 'warning'>('success');
 
 const statusOptions = [
   { title: 'Всі', value: '' },
@@ -431,6 +525,65 @@ function crmStatusColor(item: Order): string {
 function canRetry(item: Order): boolean {
   if (typeof item.canRetryCrm === 'boolean') return item.canRetryCrm;
   return !item.keycrmOrderId && !item.crmRecordId && item.crmSyncStatus !== 'synced';
+}
+
+function canCancel(item: Order): boolean {
+  if (typeof item.canCancel === 'boolean') return item.canCancel;
+  return item.status !== 'cancelled';
+}
+
+function cancelLabel(item: Order): string {
+  return item.kind === 'booking' ? 'Скасувати запис' : 'Скасувати';
+}
+
+const showCancelCrmCheckbox = computed(
+  () =>
+    cancelTarget.value?.kind === 'booking' &&
+    (cancelTarget.value.canCancelInCrm === true || Boolean(cancelTarget.value.crmRecordId)),
+);
+
+function openCancelDialog(item: Order) {
+  cancelTarget.value = item;
+  // Default local-only; manager opts into CRM cancel explicitly.
+  cancelAlsoCrm.value = false;
+  cancelDialog.value = true;
+}
+
+function closeCancelDialog() {
+  if (cancellingId.value) return;
+  cancelDialog.value = false;
+  cancelTarget.value = null;
+  cancelAlsoCrm.value = false;
+}
+
+async function cancelOrder(item: Order) {
+  openCancelDialog(item);
+}
+
+async function confirmCancelOrder() {
+  const item = cancelTarget.value;
+  if (!item) return;
+
+  cancellingId.value = item.id;
+  try {
+    const { data } = await api.post(`/orders/${item.id}/cancel`, {
+      cancelCrm: item.kind === 'booking' && cancelAlsoCrm.value,
+    });
+    snackbarText.value = data?.message ?? 'Скасовано';
+    snackbarColor.value = data?.crmError ? 'warning' : 'success';
+    snackbar.value = true;
+    cancelDialog.value = false;
+    cancelTarget.value = null;
+    cancelAlsoCrm.value = false;
+    await fetchOrders();
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    snackbarText.value = err.response?.data?.error ?? 'Не вдалося скасувати';
+    snackbarColor.value = 'error';
+    snackbar.value = true;
+  } finally {
+    cancellingId.value = null;
+  }
 }
 
 function canForceTimeConflict(item: Order): boolean {

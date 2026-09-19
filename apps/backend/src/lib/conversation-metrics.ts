@@ -21,10 +21,19 @@ export async function markFirstOutboundAt(
   });
 }
 
+/** Latest bot outbound in this UUID (imported IG history is manager, not bot). */
+export async function findLatestBotOutboundAt(
+  conversationId: string,
+): Promise<Date | null> {
+  const row = await prisma.message.findFirst({
+    where: { conversationId, direction: 'out', sender: 'bot' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  });
+  return row?.createdAt ?? null;
+}
+
 /** True when the bot (not imported manager IG history) already sent a message here. */
 export async function conversationHasBotOutbound(conversationId: string): Promise<boolean> {
-  const n = await prisma.message.count({
-    where: { conversationId, direction: 'out', sender: 'bot' },
-  });
-  return n > 0;
+  return (await findLatestBotOutboundAt(conversationId)) != null;
 }

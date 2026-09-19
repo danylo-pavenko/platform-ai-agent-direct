@@ -1,5 +1,6 @@
 import { formatZonedSessionClock } from './tenant-timezone.js';
-import { isSessionGapPastFreshness, sessionGapDays } from './session-freshness.js';
+import { isSessionGapPastFreshness } from './session-freshness.js';
+import { civilSessionGapDays } from './claude-history-window.js';
 import { isIgNativeEchoContext } from './ig-native-echo.js';
 
 export interface HistoryMessageRow {
@@ -63,14 +64,14 @@ export function formatClaudeHistoryStamp(
   return `[${clock.dateTime} ${who}]`;
 }
 
-/** Visible pause between two history stamps. Long gaps (≥ freshness) flag a possible new visit. */
+/** Visible pause between two history stamps. Civil-day gaps (salon TZ), not rolling 24h. */
 export function formatSessionGapNotice(
   from: Date,
   to: Date,
   timeZone: string,
   sessionFreshnessDays: number,
 ): string | null {
-  const days = sessionGapDays(from, to);
+  const days = civilSessionGapDays(from, to, timeZone);
   if (days < 1) return null;
   const fromLabel = formatZonedSessionClock(from, timeZone).dateTime;
   if (isSessionGapPastFreshness(from, to, sessionFreshnessDays)) {
@@ -79,7 +80,7 @@ export function formatSessionGapNotice(
       `якщо клієнт вітається або хоче нове замовлення, відповідай як на новий запит.]`
     );
   }
-  return `[Пауза ${days} дн. з ${fromLabel}]`;
+  return `[Новий календарний день салону (пауза ${days} дн. з ${fromLabel}).]`;
 }
 
 function selectClaudeHistoryRows(

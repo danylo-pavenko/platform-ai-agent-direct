@@ -6,15 +6,22 @@ const {
   isCrmWriteReady,
   mirrorOrderToCrm,
   notifyOrder,
+  cancelAppointmentById,
 } = vi.hoisted(() => ({
   prismaMock: {
     conversation: { findUnique: vi.fn() },
-    order: { findFirst: vi.fn(), create: vi.fn(), findUnique: vi.fn() },
+    order: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+    },
   },
   isCrmWriteEnabled: vi.fn(),
   isCrmWriteReady: vi.fn(),
   mirrorOrderToCrm: vi.fn(),
   notifyOrder: vi.fn(),
+  cancelAppointmentById: vi.fn(),
 }));
 
 vi.mock('../lib/prisma.js', () => ({
@@ -24,8 +31,19 @@ vi.mock('../lib/prisma.js', () => ({
 vi.mock('../lib/crm-write.js', () => ({ isCrmWriteEnabled, isCrmWriteReady }));
 vi.mock('./crm-sync.js', () => ({ mirrorOrderToCrm }));
 vi.mock('./telegram-notify.js', () => ({ notifyOrder }));
+vi.mock('./appointment.js', () => ({
+  cancelAppointmentById,
+  AppointmentUpdateError: class AppointmentUpdateError extends Error {
+    statusCode: number;
+    constructor(message: string, statusCode: number) {
+      super(message);
+      this.statusCode = statusCode;
+      this.name = 'AppointmentUpdateError';
+    }
+  },
+}));
 
-import { createAdminProductOrder } from './order-admin.js';
+import { cancelAdminOrder, createAdminProductOrder, OrderCancelError } from './order-admin.js';
 
 describe('createAdminProductOrder', () => {
   beforeEach(() => {
@@ -181,5 +199,102 @@ describe('createAdminProductOrder', () => {
         data: expect.objectContaining({ crmSyncStatus: 'skipped', quotedTotal: 10 }),
       }),
     );
+  });
+});
+
+describe('cancelAdminOrder', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('cancels a product order locally', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'ord-1',
+      kind: 'product',
+      status: 'submitted',
+      note: null,
+      conversationId: 'conv-1',
+    });
+    prismaMock.order.update.mockResolvedValue({});
+
+    const result = await cancelAdminOrder('ord-1', { reason: 'test' });
+
+    expect(result).toMatchObject({
+      ok: true,
+      orderId: 'ord-1',
+      kind: 'product',
+      crmCancelled: false,
+    });
+    expect(prismaMock.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ord-1' },
+        data: expect.objectContaining({ status: 'cancelled', isArchived: true }),
+      }),
+    );
+    expect(cancelAppointmentById).not.toHaveBeenCalled();
+  });
+
+  it('cancels booking via appointment helper', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'ord-b',
+      kind: 'booking',
+      status: 'confirmed',
+      note: 'appointmentId=a0712020-04d1-4863-8ad4-1370d6905921',
+      conversationId: 'conv-1',
+    });
+    cancelAppointmentById.mockResolvedValue({
+      appointmentId: 'a0712020-04d1-4863-8ad4-1370d6905921',
+      crmCancelled: true,
+      crmError: null,
+      crmSkipped: false,
+    });
+
+    const result = await cancelAdminOrder('ord-b', { cancelCrm: true });
+
+    expect(cancelAppointmentById).toHaveBeenCalledWith(
+      'a0712020-04d1-4863-8ad4-1370d6905921',
+      { reason: 'Скасовано менеджером в адмінці', cancelCrm: true },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      appointmentId: 'a0712020-04d1-4863-8ad4-1370d6905921',
+      crmCancelled: true,
+    });
+  });
+
+  it('cancels booking locally without CRM when cancelCrm is false', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'ord-b',
+      kind: 'booking',
+      status: 'confirmed',
+      note: 'appointmentId=a0712020-04d1-4863-8ad4-1370d6905921',
+      conversationId: 'conv-1',
+    });
+    cancelAppointmentById.mockResolvedValue({
+      appointmentId: 'a0712020-04d1-4863-8ad4-1370d6905921',
+      crmCancelled: false,
+      crmError: null,
+      crmSkipped: true,
+    });
+
+    const result = await cancelAdminOrder('ord-b', { cancelCrm: false });
+
+    expect(cancelAppointmentById).toHaveBeenCalledWith(
+      'a0712020-04d1-4863-8ad4-1370d6905921',
+      { reason: 'Скасовано менеджером в адмінці', cancelCrm: false },
+    );
+    expect(result.crmSkipped).toBe(true);
+  });
+
+  it('rejects already cancelled orders', async () => {
+    prismaMock.order.findUnique.mockResolvedValue({
+      id: 'ord-1',
+      kind: 'product',
+      status: 'cancelled',
+      note: null,
+      conversationId: 'conv-1',
+    });
+
+    await expect(cancelAdminOrder('ord-1')).rejects.toBeInstanceOf(OrderCancelError);
   });
 });

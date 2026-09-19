@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildClaudeHistoryTurns } from './conversation-history.js';
+import { buildClaudeHistoryTurns, formatSessionGapNotice } from './conversation-history.js';
 
 describe('buildClaudeHistoryTurns', () => {
   it('excludes last inbound when text matches current user message', () => {
@@ -121,5 +121,32 @@ describe('buildClaudeHistoryTurns', () => {
     expect(history[1]?.content).toMatch(/Пауза \d+ дн\./);
     expect(history[1]?.content).toMatch(/нове звернення/);
     expect(history[1]?.content).toContain('Добрий вечір, хочу худі');
+  });
+});
+
+describe('formatSessionGapNotice', () => {
+  const tz = 'Europe/Kyiv';
+
+  it('treats overnight across salon midnight as a new civil day', () => {
+    const notice = formatSessionGapNotice(
+      new Date('2026-09-18T20:00:00.000Z'), // 23:00 Kyiv
+      new Date('2026-09-19T06:00:00.000Z'), // 09:00 Kyiv
+      tz,
+      14,
+    );
+    expect(notice).toMatch(/Новий календарний день салону/);
+    expect(notice).toMatch(/пауза 1 дн\./);
+    expect(notice).not.toMatch(/нове звернення/);
+  });
+
+  it('does not flag a pause inside the same salon civil day', () => {
+    expect(
+      formatSessionGapNotice(
+        new Date('2026-09-19T06:00:00.000Z'), // 09:00 Kyiv
+        new Date('2026-09-19T19:00:00.000Z'), // 22:00 Kyiv
+        tz,
+        14,
+      ),
+    ).toBeNull();
   });
 });

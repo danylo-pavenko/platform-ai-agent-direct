@@ -30,6 +30,10 @@ import { loadClaudeHistoryMessages } from './claude-history-load.js';
 import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { clearConversationBookingOffer } from './booking-slot-offer-store.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
+import {
+  isTimestampInHistoryWindow,
+  resolveGreetingScopeWindow,
+} from '../lib/claude-history-window.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
 import { notifyAgentFailure, notifyAgentTurnDebug, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
@@ -72,7 +76,7 @@ import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
 import { formatCrmLinkHintForPrompt, linkClientToCrm } from './client-crm-link.js';
-import { markFirstOutboundAt, conversationHasBotOutbound } from '../lib/conversation-metrics.js';
+import { markFirstOutboundAt, findLatestBotOutboundAt } from '../lib/conversation-metrics.js';
 import {
   searchActiveProductsForContext,
   extractKeywordsFromCaption,
@@ -710,15 +714,21 @@ async function handleIncomingMessageImpl(
   const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
   const { telegram: telegramCfg } = await getIntegrationConfig();
   const telegramBotsBlock = formatTelegramBotsPromptBlock(telegramCfg);
-  const botAlreadyReplied = await conversationHasBotOutbound(conversationId);
-  const lastPriorAt = await findLastPriorMessageAt(
-    conversationId,
-    sourceIgMessageIds,
-    messageText,
-  );
+  const greetingWindow = resolveGreetingScopeWindow({
+    now,
+    timeZone: agentCfg.timezone,
+    conversationCreatedAt: conversation.createdAt,
+  });
+  const [lastPriorAt, lastBotAt] = await Promise.all([
+    findLastPriorMessageAt(conversationId, sourceIgMessageIds, messageText),
+    findLatestBotOutboundAt(conversationId),
+  ]);
   const sessionResumeAfterGap = lastPriorAt
     ? isSessionGapPastFreshness(lastPriorAt, now, agentCfg.sessionFreshnessDays)
     : false;
+  const botAlreadyReplied =
+    lastBotAt != null && isTimestampInHistoryWindow(lastBotAt, greetingWindow);
+  const newCivilDay = lastBotAt != null && !botAlreadyReplied && !sessionResumeAfterGap;
 
   const promptSession = createRuntimePromptSession({
     initial: activeSystemPrompt,
@@ -748,6 +758,7 @@ async function handleIncomingMessageImpl(
         timeZone: agentCfg.timezone,
         botAlreadyReplied,
         sessionResumeAfterGap,
+        newCivilDay,
         selectedBranch: conversation.branch
           ? {
               slug: conversation.branch.slug,

@@ -1,3 +1,4 @@
+import { MS_PER_DAY } from './session-freshness.js';
 import { getZonedDateTimeParts, zonedWallTimeToUtcMs } from './tenant-timezone.js';
 
 /**
@@ -29,6 +30,41 @@ export function startOfTenantCivilDay(now: Date, timeZone: string): Date {
     timeZone,
   });
   return new Date(ms);
+}
+
+/**
+ * Whole salon calendar days between two instants (tenant IANA zone).
+ * Yesterday 23:00 → today 09:00 is 1, not 0 (unlike a rolling 24h floor).
+ */
+export function civilSessionGapDays(from: Date, to: Date, timeZone: string): number {
+  const start = startOfTenantCivilDay(from, timeZone).getTime();
+  const end = startOfTenantCivilDay(to, timeZone).getTime();
+  if (end <= start) return 0;
+  return Math.round((end - start) / MS_PER_DAY);
+}
+
+export function isTimestampInHistoryWindow(at: Date, window: ClaudeHistoryWindow): boolean {
+  return window.inclusive
+    ? at.getTime() >= window.from.getTime()
+    : at.getTime() > window.from.getTime();
+}
+
+/**
+ * Greeting / no-re-greet scope: this tenant civil day (or conversation start
+ * if the UUID began today). Completed orders do not reset greeting — that
+ * stays inside the same-day checkout. Cycle markers are ignored on purpose.
+ */
+export function resolveGreetingScopeWindow(params: {
+  now: Date;
+  timeZone: string;
+  conversationCreatedAt: Date;
+}): ClaudeHistoryWindow {
+  return resolveClaudeHistoryWindow({
+    now: params.now,
+    timeZone: params.timeZone,
+    conversationCreatedAt: params.conversationCreatedAt,
+    cycleMarkers: [],
+  });
 }
 
 /**

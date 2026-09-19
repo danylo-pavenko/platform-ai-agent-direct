@@ -1020,6 +1020,89 @@ async function markLocalAppointmentCancelled(appointmentId: string): Promise<voi
   });
 }
 
+/**
+ * Admin / ops: cancel a booking by Appointment id.
+ * Local cancel always; CRM cancel only when opts.cancelCrm === true.
+ * Does not message the Instagram client.
+ */
+export async function cancelAppointmentById(
+  appointmentId: string,
+  opts?: { reason?: string; notifyTelegram?: boolean; cancelCrm?: boolean },
+): Promise<{
+  appointmentId: string;
+  crmCancelled: boolean;
+  crmError: string | null;
+  crmSkipped: boolean;
+}> {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { client: true },
+  });
+  if (!appointment) {
+    throw new AppointmentUpdateError('Запис не знайдено', 404);
+  }
+  if (appointment.status === 'cancelled') {
+    throw new AppointmentUpdateError('Запис уже скасовано', 400);
+  }
+
+  const reason =
+    opts?.reason?.trim() || 'Скасовано менеджером в адмінці';
+
+  let crmCancelled = false;
+  let crmError: string | null = null;
+  let crmSkipped = true;
+
+  if (opts?.cancelCrm === true) {
+    crmSkipped = false;
+    if (!appointment.crmRecordId) {
+      crmError = 'Немає CRM record id — скасовано лише локально';
+    } else if (!(await isCrmWriteEnabled())) {
+      crmError = 'CRM write вимкнено — скасовано лише локально';
+    } else {
+      try {
+        const provider = await resolveCrmProvider('booking');
+        const crm = getCrmAdapter(provider);
+        if (!crm.cancelBooking) {
+          crmError = `CRM ${provider} не підтримує скасування запису`;
+        } else {
+          await crm.cancelBooking(appointment.crmRecordId, 'cancel');
+          crmCancelled = true;
+        }
+      } catch (err) {
+        crmError = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { err, appointmentId },
+          'Admin cancelAppointment CRM failed — continuing with local cancel',
+        );
+      }
+    }
+  }
+
+  await markLocalAppointmentCancelled(appointment.id);
+
+  if (opts?.notifyTelegram !== false) {
+    notifyBookingLifecycle({
+      kind: 'cancelled',
+      appointmentId: appointment.id,
+      conversationId: appointment.conversationId,
+      clientIgUserId: appointment.client.igUserId,
+      summary: `${appointment.scheduledDate} ${appointment.scheduledTime}`,
+      customerName: appointment.customerName,
+      phone: appointment.phone,
+      reason: opts?.cancelCrm
+        ? reason
+        : `${reason} (лише локально, без CRM)`,
+    }).catch(() => undefined);
+  }
+
+  log.info(
+    { appointmentId: appointment.id, crmCancelled, crmError, crmSkipped },
+    'Appointment cancelled from admin',
+  );
+
+  return { appointmentId: appointment.id, crmCancelled, crmError, crmSkipped };
+}
+
 async function sendClientLifecycleMessage(
   conversationId: string,
   igUserId: string | null | undefined,

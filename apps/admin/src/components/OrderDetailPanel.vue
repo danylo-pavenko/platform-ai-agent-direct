@@ -113,6 +113,18 @@
       >
         Все одно в CRM (force)
       </v-btn>
+      <v-btn
+        v-if="canCancel"
+        :size="mobile ? 'default' : 'small'"
+        variant="tonal"
+        color="error"
+        :loading="cancellingId === item.id"
+        :block="mobile"
+        :class="{ 'tap-target': mobile }"
+        @click="$emit('cancel')"
+      >
+        {{ item.kind === 'booking' ? 'Скасувати запис' : 'Скасувати замовлення' }}
+      </v-btn>
     </div>
   </div>
 </template>
@@ -123,6 +135,7 @@ import { computed } from 'vue';
 export interface OrderDetailItem {
   id: string;
   kind?: string;
+  status?: string;
   customerName: string;
   phone: string;
   city?: string | null;
@@ -147,12 +160,14 @@ export interface OrderDetailItem {
     masterId?: string;
   }>;
   canRetryCrm?: boolean;
+  canCancel?: boolean;
 }
 
 const props = defineProps<{
   item: OrderDetailItem;
   masterOptions: Array<{ id: string; name: string }>;
   syncingId?: string | null;
+  cancellingId?: string | null;
   savingMastersId?: string | null;
   mobile?: boolean;
 }>();
@@ -162,6 +177,7 @@ defineEmits<{
   'save-masters': [];
   retry: [];
   'retry-force': [];
+  cancel: [];
 }>();
 
 const canRetry = computed(() => {
@@ -171,6 +187,11 @@ const canRetry = computed(() => {
     !props.item.crmRecordId &&
     props.item.crmSyncStatus !== 'synced'
   );
+});
+
+const canCancel = computed(() => {
+  if (typeof props.item.canCancel === 'boolean') return props.item.canCancel;
+  return props.item.status !== 'cancelled';
 });
 
 const canForce = computed(() => {

@@ -12,6 +12,7 @@ import {
   listBookingMasters,
   updateAppointmentServiceMasters,
 } from '../services/appointment.js';
+import { cancelAdminOrder, OrderCancelError } from '../services/order-admin.js';
 
 type OrderRow = {
   id: string;
@@ -76,6 +77,9 @@ function serializeOrder(
         ? normalizeAppointmentServices(appointment.services)
         : undefined,
     canRetryCrm: crm.canRetryCrm,
+    canCancel: order.status !== 'cancelled',
+    /** Booking with a CRM record id — admin may also cancel in CRM. */
+    canCancelInCrm: (order.kind ?? 'product') === 'booking' && Boolean(crm.crmRecordId),
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
     clientId: order.client?.id ?? order.clientId,
@@ -229,6 +233,42 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
           error: err.message,
           ...err.extra,
         });
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(502).send({ error: message });
+    }
+  });
+
+  app.post<{
+    Params: { id: string };
+  }>('/:id/cancel', { onRequest: [app.authenticate] }, async (request, reply) => {
+    const bodySchema = z.object({
+      reason: z.string().max(500).optional(),
+      /** When true (booking only), also call CRM cancelBooking. */
+      cancelCrm: z.boolean().optional(),
+    });
+    const parsed = bodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Некоректне тіло запиту' });
+    }
+    try {
+      const result = await cancelAdminOrder(request.params.id, {
+        reason: parsed.data.reason,
+        cancelCrm: parsed.data.cancelCrm === true,
+      });
+      const label = result.kind === 'booking' ? 'Запис' : 'Замовлення';
+      let message = `${label} скасовано локально`;
+      if (result.crmCancelled) {
+        message = `${label} скасовано (локально + CRM)`;
+      } else if (result.crmError) {
+        message = `${label} скасовано локально. CRM: ${result.crmError}`;
+      } else if (result.crmSkipped) {
+        message = `${label} скасовано лише локально`;
+      }
+      return { ...result, message };
+    } catch (err) {
+      if (err instanceof OrderCancelError) {
+        return reply.code(err.statusCode).send({ error: err.message });
       }
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: message });
