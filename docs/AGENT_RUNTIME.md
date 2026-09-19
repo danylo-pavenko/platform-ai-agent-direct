@@ -164,7 +164,7 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 - Active business prompt (tone, FAQ, rules, offer framing)  
 - Client profile fields collected so far + tags + branch  
 - Recent conversation: tenant civil day of this UUID (or from conversation start if it began today); if a completed order/visit already happened today, from **after** that marker. Soft cap ~80 after dropping system/empty rows — not a hard last-30 cut. Overnight across salon midnight (e.g. 23:00 → 09:00) prefixes «Новий календарний день салону»; hard no-re-greet is only that civil day / current checkout.  
-- Last `get_available_slots` offer (`Conversation.bookingOffer`, ~2h TTL) injected as «Запропоновані вікна» with **full** `service_id` / `master_id` per clock time (not names only). Truncated BeautyPro GUID prefixes are expanded from that offer/catalog or refused as `INVALID_CRM_ID` before POST.
+- Last `get_available_slots` offer (`Conversation.bookingOffer`, ~2h TTL) injected as «Запропоновані вікна» with **full** `service_id` / `master_id` per clock time (not names only). Truncated BeautyPro GUID prefixes and CleverBOX numeric prefixes/names are expanded from that offer/catalog or refused as `INVALID_CRM_ID` before POST.
 - Catalog / services / masters live snippets + search tools (`search_catalog` merges file↔CRM matches when present; quotes `pricePreference` price and notes material CRM/file deltas)  
 - CRM link hint when linked (booking); full visits via `get_client_crm_history`  
 - Working hours / out-of-hours strategy  

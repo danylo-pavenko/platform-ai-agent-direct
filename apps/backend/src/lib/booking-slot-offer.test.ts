@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BOOKING_SLOT_OFFER_TTL_MS,
   collectOfferCrmIds,
+  collectOfferNameHints,
   formatBookingSlotOfferForPrompt,
   isFreshBookingSlotOffer,
   parseBookingSlotOffer,
@@ -74,7 +75,7 @@ describe('formatBookingSlotOfferForPrompt', () => {
     expect(text).toContain('[service_id=88d8645d-2022-fa67-6d46-f6ed12f7a6a2]');
     expect(text).toContain('[master_id=m1] Іванка');
     expect(text).not.toMatch(/88d8645d(?!-)/);
-    expect(text).toMatch(/ПОВНИЙ UUID/);
+    expect(text).toMatch(/повний id/);
   });
 });
 
@@ -83,6 +84,15 @@ describe('collectOfferCrmIds', () => {
     expect(collectOfferCrmIds(offer).sort()).toEqual(
       ['88d8645d-2022-fa67-6d46-f6ed12f7a6a2', 'm1'].sort(),
     );
+  });
+});
+
+describe('collectOfferNameHints', () => {
+  it('returns master and service display names for id resolution', () => {
+    expect(collectOfferNameHints(offer)).toEqual([
+      { id: 'm1', name: 'Іванка' },
+      { id: '88d8645d-2022-fa67-6d46-f6ed12f7a6a2', name: 'Стрижка' },
+    ]);
   });
 });
 

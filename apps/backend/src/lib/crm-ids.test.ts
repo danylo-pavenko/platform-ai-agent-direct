@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   crmProviderRequiresGuid,
+  crmProviderRequiresNumericId,
   formatInvalidCrmIdToolResult,
   isCrmGuid,
   isCrmGuidPrefix,
+  isCrmNumericId,
   resolveCrmEntityId,
+  shouldResolveBookingCrmIds,
 } from './crm-ids.js';
 
 const full = '88d8645d-2022-fa67-6d46-f6ed12f7a6a2';
@@ -17,6 +20,11 @@ describe('crm guid helpers', () => {
     expect(isCrmGuidPrefix(full)).toBe(false);
     expect(crmProviderRequiresGuid('beautypro')).toBe(true);
     expect(crmProviderRequiresGuid('cleverbox')).toBe(false);
+    expect(crmProviderRequiresNumericId('cleverbox')).toBe(true);
+    expect(crmProviderRequiresNumericId('beautypro')).toBe(false);
+    expect(shouldResolveBookingCrmIds('beautypro')).toBe(true);
+    expect(shouldResolveBookingCrmIds('cleverbox')).toBe(true);
+    expect(shouldResolveBookingCrmIds('keycrm')).toBe(false);
   });
 });
 
@@ -42,14 +50,47 @@ describe('resolveCrmEntityId', () => {
     expect(got).toEqual({ ok: false, raw: '88d8645d', reason: 'truncated' });
   });
 
-  it('leaves CleverBOX numeric ids alone', () => {
-    const got = resolveCrmEntityId('42', ['42', '99']);
+  it('leaves CleverBOX numeric ids alone when they match', () => {
+    const got = resolveCrmEntityId('42', ['42', '99'], { requireNumeric: true });
     expect(got).toEqual({ ok: true, id: '42' });
+    expect(isCrmNumericId('42')).toBe(true);
+  });
+
+  it('does not expand a short numeric id into a longer CleverBOX id', () => {
+    const got = resolveCrmEntityId('12', ['12345', '99'], { requireNumeric: true });
+    expect(got).toEqual({ ok: true, id: '12' });
+  });
+
+  it('maps a unique master/service name from the offer to its numeric id', () => {
+    const got = resolveCrmEntityId('Іванка', ['5', '9'], {
+      requireNumeric: true,
+      names: [
+        { id: '5', name: 'Іванка' },
+        { id: '9', name: 'Надія' },
+      ],
+    });
+    expect(got).toEqual({ ok: true, id: '5', expandedFrom: 'Іванка' });
+  });
+
+  it('rejects an unmatched name on CleverBOX', () => {
+    const got = resolveCrmEntityId('Іванка', ['5'], { requireNumeric: true });
+    expect(got).toEqual({ ok: false, raw: 'Іванка', reason: 'not_numeric' });
+  });
+
+  it('rejects two masters that share a name', () => {
+    const got = resolveCrmEntityId('Анастасія', ['1', '2'], {
+      requireNumeric: true,
+      names: [
+        { id: '1', name: 'Анастасія' },
+        { id: '2', name: 'Анастасія' },
+      ],
+    });
+    expect(got).toEqual({ ok: false, raw: 'Анастасія', reason: 'ambiguous' });
   });
 });
 
 describe('formatInvalidCrmIdToolResult', () => {
-  it('tells the model to reuse full UUIDs from the session', () => {
+  it('tells the model to reuse full ids from the session', () => {
     const text = formatInvalidCrmIdToolResult({
       ok: false,
       raw: '88d8645d',
@@ -57,7 +98,8 @@ describe('formatInvalidCrmIdToolResult', () => {
     });
     expect(text).toMatch(/INVALID_CRM_ID/);
     expect(text).toContain('88d8645d');
-    expect(text).toMatch(/ПОВНИЙ UUID/);
+    expect(text).toMatch(/повний id/);
+    expect(text).toMatch(/CleverBOX/);
     expect(text).toMatch(/Не кажи клієнту що записано/);
   });
 });

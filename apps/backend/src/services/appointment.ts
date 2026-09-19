@@ -7,7 +7,7 @@ import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
-import { asCrmId, crmProviderRequiresGuid, formatInvalidCrmIdToolResult, resolveCrmEntityId } from '../lib/crm-ids.js';
+import { asCrmId, crmProviderRequiresNumericId, formatInvalidCrmIdToolResult, resolveCrmEntityId, shouldResolveBookingCrmIds } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder, notifyBookingLifecycle } from './telegram-notify.js';
@@ -31,7 +31,7 @@ import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { lookupAvailableSlotsForContext } from './service-search.js';
 import { persistBookingSlotOffer, clearConversationBookingOffer, loadFreshBookingSlotOffer } from './booking-slot-offer-store.js';
-import { collectOfferCrmIds } from '../lib/booking-slot-offer.js';
+import { collectOfferCrmIds, collectOfferNameHints } from '../lib/booking-slot-offer.js';
 import { loadSyncedServices } from '../lib/synced-services.js';
 import { applyPersonalDurations } from './personal-duration.js';
 import { getAgentConfig } from '../lib/agent-config.js';
@@ -186,18 +186,23 @@ export async function handleBookAppointment(
       typeof args.crm_provider === 'string' ? args.crm_provider : undefined,
   });
 
-  const requireGuid = crmProviderRequiresGuid(crmProvider);
-  if (requireGuid) {
+  const shouldResolveIds = shouldResolveBookingCrmIds(crmProvider);
+  if (shouldResolveIds) {
     const offer = await loadFreshBookingSlotOffer(conversationId);
     const catalog = await loadSyncedServices().catch(() => []);
     const candidates = [
       ...collectOfferCrmIds(offer),
-      ...catalog.map((s) => s.id),
+      ...catalog.filter((s) => s.provider === crmProvider).map((s) => s.id),
     ];
+    const names = collectOfferNameHints(offer);
+    const resolveOpts = {
+      requireNumeric: crmProviderRequiresNumericId(crmProvider),
+      names,
+    };
     for (const line of services) {
-      const svc = resolveCrmEntityId(line.id, candidates);
+      const svc = resolveCrmEntityId(line.id, candidates, resolveOpts);
       if (!svc.ok) {
-        log.warn({ conversationId, fail: svc, field: 'service_id' }, 'book_appointment: INVALID_CRM_ID');
+        log.warn({ conversationId, fail: svc, field: 'service_id', crmProvider }, 'book_appointment: INVALID_CRM_ID');
         return {
           appointmentId: '',
           crmSynced: false,
@@ -206,15 +211,15 @@ export async function handleBookAppointment(
       }
       if (svc.expandedFrom) {
         log.info(
-          { conversationId, from: svc.expandedFrom, to: svc.id },
+          { conversationId, from: svc.expandedFrom, to: svc.id, crmProvider },
           'book_appointment: expanded truncated service_id',
         );
       }
       line.id = svc.id;
       if (line.masterId) {
-        const master = resolveCrmEntityId(line.masterId, candidates);
+        const master = resolveCrmEntityId(line.masterId, candidates, resolveOpts);
         if (!master.ok) {
-          log.warn({ conversationId, fail: master, field: 'master_id' }, 'book_appointment: INVALID_CRM_ID');
+          log.warn({ conversationId, fail: master, field: 'master_id', crmProvider }, 'book_appointment: INVALID_CRM_ID');
           return {
             appointmentId: '',
             crmSynced: false,
@@ -223,7 +228,7 @@ export async function handleBookAppointment(
         }
         if (master.expandedFrom) {
           log.info(
-            { conversationId, from: master.expandedFrom, to: master.id },
+            { conversationId, from: master.expandedFrom, to: master.id, crmProvider },
             'book_appointment: expanded truncated master_id',
           );
         }

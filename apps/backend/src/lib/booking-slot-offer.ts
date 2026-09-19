@@ -148,6 +148,20 @@ export function collectOfferCrmIds(offer: BookingSlotOffer | null | undefined): 
   return [...ids];
 }
 
+export function collectOfferNameHints(
+  offer: BookingSlotOffer | null | undefined,
+): Array<{ id: string; name: string }> {
+  if (!offer) return [];
+  const out: Array<{ id: string; name: string }> = [];
+  for (const m of offer.masters ?? []) {
+    if (m.id.trim() && m.name.trim()) out.push({ id: m.id, name: m.name });
+  }
+  for (const s of offer.services) {
+    if (s.id.trim() && s.name?.trim()) out.push({ id: s.id, name: s.name });
+  }
+  return out;
+}
+
 function masterName(offer: BookingSlotOffer, id: string): string {
   return offer.masters?.find((m) => m.id === id)?.name?.trim() || id;
 }
@@ -181,10 +195,12 @@ export function formatBookingSlotOfferForPrompt(offer: BookingSlotOffer): string
   return [
     'Запропоновані вікна (ще дійсні — не вигадуй інші години; ids лише для tools):',
     `Дата запиту слотів: ${offer.date}`,
-    svcLines.length > 0 ? 'Послуги (book_appointment.services[].id — ПОВНИЙ UUID, не 8 символів):' : '',
+    svcLines.length > 0
+      ? 'Послуги (book_appointment.services[].id — повний id з цього блоку: UUID BeautyPro або число CleverBOX, не обрізок і не імʼя):'
+      : '',
     ...svcLines,
     masterLines.length > 0
-      ? 'Майстри (book_appointment.master_id / services[].master_id — ПОВНИЙ UUID з рядка слота, не імʼя):'
+      ? 'Майстри (book_appointment.master_id / services[].master_id — повний id з рядка слота, не імʼя):'
       : '',
     ...masterLines,
     'Слоти:',
