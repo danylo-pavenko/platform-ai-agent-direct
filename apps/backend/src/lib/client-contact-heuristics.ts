@@ -6,6 +6,10 @@
 
 import pino from 'pino';
 import { prisma } from './prisma.js';
+import {
+  effectiveChatDisplayName,
+  isPlausiblePersonName,
+} from './client-person-name.js';
 
 const log = pino({ name: 'client-contact-heuristics' });
 
@@ -192,7 +196,10 @@ const PERSON_NAME_RE =
   /^[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+(?:\s+[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]+){1,2}$/u;
 
 const NAME_TOKEN_STOP =
-  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|комплекс|дизайн|френч|укріплення|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя)$/iu;
+  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|комплекс|дизайн|френч|укріплення|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя|йога|тренер)$/iu;
+
+const INTRO_NAME_RE =
+  /(?:мене\s+(?:звати|звуть)\s+|[яЯ]\s+)([А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]{1,24}(?:\s+[А-ЯІЇЄҐA-Z][а-яіїєґa-z'’\-]{1,24}){0,2})(?=$|[\s.,!?])/u;
 
 /**
  * Conservative ПІБ from a name-only Instagram bubble ("Тимофіїв Анжела").
@@ -200,10 +207,18 @@ const NAME_TOKEN_STOP =
  */
 export function extractPersonNameFromText(text: string): string | undefined {
   const t = text.trim().replace(/\s+/g, ' ');
-  if (t.length < 5 || t.length > 60) return undefined;
+  if (t.length < 2 || t.length > 60) return undefined;
+
+  const intro = t.match(INTRO_NAME_RE);
+  if (intro?.[1] && isPlausiblePersonName(intro[1])) {
+    return intro[1].trim().replace(/\s+/g, ' ');
+  }
+
+  if (t.length < 5) return undefined;
   if (!PERSON_NAME_RE.test(t)) return undefined;
   const tokens = t.split(' ');
   if (tokens.some((w) => NAME_TOKEN_STOP.test(w))) return undefined;
+  if (!isPlausiblePersonName(t)) return undefined;
   return t;
 }
 
@@ -228,10 +243,8 @@ export function extractContactPatchesFromText(text: string): ContactPatches {
   if (np.city) patches.deliveryCity = np.city;
   if (np.npType) patches.deliveryNpType = np.npType;
 
-  if (!patches.phone && !patches.email) {
-    const name = extractPersonNameFromText(t);
-    if (name) patches.displayName = name;
-  }
+  const name = extractPersonNameFromText(t);
+  if (name) patches.displayName = name;
 
   return patches;
 }
@@ -263,6 +276,7 @@ export async function persistHeuristicClientContact(
       phone: true,
       email: true,
       displayName: true,
+      igFullName: true,
       deliveryCity: true,
       deliveryNpBranch: true,
       deliveryNpType: true,
@@ -281,7 +295,7 @@ export async function persistHeuristicClientContact(
   }
   if (
     patches.displayName &&
-    !client.displayName?.trim()
+    !effectiveChatDisplayName(client.displayName, client.igFullName)
   ) {
     data.displayName = patches.displayName;
   }

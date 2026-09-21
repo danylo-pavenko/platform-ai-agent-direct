@@ -197,6 +197,7 @@ import PageHeader from '@/components/PageHeader.vue';
 import MobileListCard from '@/components/MobileListCard.vue';
 import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
 import { useTouchDensity } from '@/composables/useTouchDensity';
+import { adminClientPrimaryName } from '@/lib/client-label';
 
 const REFRESH_INTERVAL_SEC = 15;
 
@@ -276,15 +277,7 @@ function channelLabel(ch: string): string {
 }
 
 function clientPrimaryName(item: Conversation): string {
-  const c = item.client;
-  if (!c) return 'Клієнт';
-  return (
-    c.displayName ||
-    c.igFullName ||
-    (c.igUsername ? `@${c.igUsername}` : null) ||
-    c.igUserId ||
-    'Клієнт'
-  );
+  return adminClientPrimaryName(item.client);
 }
 
 function clientSecondaryLine(item: Conversation): string {

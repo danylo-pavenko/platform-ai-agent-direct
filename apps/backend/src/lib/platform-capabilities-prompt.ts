@@ -23,6 +23,7 @@ Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost,
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
 Спільні: update_client_info, tag_client, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
+Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, якщо воно схоже на ПІБ). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ.
 
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief

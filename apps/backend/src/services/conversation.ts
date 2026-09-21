@@ -51,6 +51,11 @@ import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getAgentConfig, resolveResponseDelayMs,
   normalizeClaudeReplyModel,
 } from '../lib/agent-config.js';
+import {
+  effectiveChatDisplayName,
+  effectiveClientPersonName,
+  igProfilePersonName,
+} from '../lib/client-person-name.js';
 import { formatBranchesForPrompt, resolveBranchSlug } from './branches.js';
 import {
   handleBookAppointment,
@@ -514,7 +519,7 @@ async function handleIncomingMessageImpl(
 
   const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
   const clientProfile: ClientProfile = {
-    displayName: client.displayName ?? undefined,
+    displayName: effectiveClientPersonName(client.displayName, client.igFullName),
     igUsername: client.igUsername ?? undefined,
     igFullName: client.igFullName ?? undefined,
     phone: client.phone ?? undefined,
@@ -3056,6 +3061,8 @@ async function tryTerminalToolCalls(
           ? 'Цього дня майстер не працює за графіком. Підкажу інші дати зі свіжих слотів.'
         : bookResult.toolResult.includes('SLOT_NOT_AVAILABLE')
           ? 'На цей час вікна вже немає. Зараз запропоную інші години з розкладу.'
+        : bookResult.toolResult.includes('INVALID_CUSTOMER_NAME')
+          ? 'Підкажіть, будь ласка, як до вас звертатись — запишемо саме ваше імʼя, не назву профілю Instagram.'
         : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
           'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
       try {
@@ -3099,7 +3106,22 @@ async function handleUpdateClientInfo(
   const update: Record<string, string> = {};
 
   if (typeof args.full_name === 'string' && args.full_name.trim()) {
-    update.displayName = args.full_name.trim();
+    const proposed = args.full_name.trim();
+    const existing = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { igFullName: true },
+    });
+    const personName =
+      effectiveChatDisplayName(proposed, existing?.igFullName) ??
+      igProfilePersonName(proposed);
+    if (personName) {
+      update.displayName = personName;
+    } else {
+      log.info(
+        { clientId, proposed },
+        'update_client_info ignored full_name — not a person name',
+      );
+    }
   }
   if (typeof args.phone === 'string' && args.phone.trim()) {
     // Normalise: strip all non-digit chars except leading +

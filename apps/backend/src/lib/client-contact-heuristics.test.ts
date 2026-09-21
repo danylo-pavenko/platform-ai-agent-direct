@@ -10,6 +10,17 @@ describe('extractPersonNameFromText', () => {
     expect(extractPersonNameFromText('Тимофіїв Анжела')).toBe('Тимофіїв Анжела');
   });
 
+  it('extracts a name from «мене звати …»', () => {
+    expect(extractPersonNameFromText('Привіт, мене звати Діана')).toBe('Діана');
+    expect(extractPersonNameFromText('Я Марія')).toBe('Марія');
+  });
+
+  it('does not treat an Instagram headline as a name', () => {
+    expect(
+      extractPersonNameFromText('Йога для вагітних і після пологів'),
+    ).toBeUndefined();
+  });
+
   it('rejects greetings, services and mixed sentences', () => {
     expect(extractPersonNameFromText('Доброго дня')).toBeUndefined();
     expect(extractPersonNameFromText('Манікюр Комплекс')).toBeUndefined();

@@ -3,6 +3,7 @@ import { adminConversationUrl } from './admin-urls.js';
 import { isAgentTurnDebugNote } from './agent-turn-debug.js';
 import { isSyntheticReactionText } from './ig-reaction-policy.js';
 import { isVisionDebugNote } from './vision-debug-note.js';
+import { effectiveChatDisplayName } from './client-person-name.js';
 
 export { adminConversationUrl };
 
@@ -20,7 +21,7 @@ export type TelegramClientRef = {
 
 /** Name or @handle for manager cards — never a raw IGSID as if it were a username. */
 export function formatTelegramClientLabel(client: TelegramClientRef): string {
-  const name = client.displayName?.trim();
+  const name = effectiveChatDisplayName(client.displayName);
   if (name) return name;
   const handle = client.igUsername?.trim().replace(/^@/, '');
   if (handle) return `@${handle}`;

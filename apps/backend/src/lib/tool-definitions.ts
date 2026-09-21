@@ -105,7 +105,8 @@ const UPDATE_CLIENT_INFO: ToolDefinition = {
     properties: {
       full_name: {
         type: 'string',
-        description: "Повне ім'я (ПІБ) клієнта як він/вона назвав(ла)",
+        description:
+          "Імʼя або ПІБ: рядок «Імʼя:» у профілі або як клієнт назвався в чаті. Не копіюй «Назву профілю Instagram» (шапку).",
       },
       phone: {
         type: 'string',

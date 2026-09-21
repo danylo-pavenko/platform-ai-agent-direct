@@ -57,6 +57,24 @@ describe('formatTelegramClientLabel', () => {
     ).toBe('Оля');
   });
 
+  it('uses a person-like display name', () => {
+    expect(
+      formatTelegramClientLabel({
+        displayName: 'Олена Коваль',
+        igUsername: 'olena.k',
+      }),
+    ).toBe('Олена Коваль');
+  });
+
+  it('ignores an Instagram profile headline as the person name', () => {
+    expect(
+      formatTelegramClientLabel({
+        displayName: 'Йога для вагітних і після пологів',
+        igUsername: 'diana.dombek',
+      }),
+    ).toBe('@diana.dombek');
+  });
+
   it('uses @username when name is missing', () => {
     expect(
       formatTelegramClientLabel({

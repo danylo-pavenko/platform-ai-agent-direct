@@ -18,6 +18,10 @@ import {
 import { syncWebhookRoutingToHub } from '../lib/webhook-hub-sync.js';
 import { importIgConversationHistory } from './ig-history.js';
 import { fetchIgUserProfile } from './ig-profile.js';
+import {
+  effectiveChatDisplayName,
+  igProfilePersonName,
+} from '../lib/client-person-name.js';
 
 const log = pino({ name: 'ig-connection' });
 
@@ -517,19 +521,24 @@ export async function importRecentIgConversations(
           ? { username: counterparty.username, name: counterparty.name }
           : await fetchIgUserProfile(igUserId).catch(() => null);
 
+      const fromIg = igProfilePersonName(profile?.name);
+      const chatName = effectiveChatDisplayName(
+        existingClient?.displayName,
+        existingClient?.igFullName,
+      );
       const client = await prisma.client.upsert({
         where: { igUserId },
         update: {
           igUsername:  existingClient?.igUsername  || profile?.username || undefined,
           igFullName:  existingClient?.igFullName  || profile?.name     || undefined,
-          displayName: existingClient?.displayName || profile?.name     || profile?.username || undefined,
+          ...(!chatName && fromIg ? { displayName: fromIg } : {}),
           lastActivityAt: new Date(),
         },
         create: {
           igUserId,
           igUsername: profile?.username,
           igFullName: profile?.name,
-          displayName: profile?.name ?? profile?.username,
+          displayName: fromIg,
           lastActivityAt: new Date(),
         },
       });

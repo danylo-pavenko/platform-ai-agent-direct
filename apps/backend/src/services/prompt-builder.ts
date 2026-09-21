@@ -15,6 +15,7 @@ import {
   formatBookingSlotOfferForPrompt,
   type BookingSlotOffer,
 } from '../lib/booking-slot-offer.js';
+import { isIgProfileTitleNotPersonName } from '../lib/client-person-name.js';
 import {
   DEFAULT_TENANT_TIMEZONE,
   formatZonedSessionClock,
@@ -32,7 +33,7 @@ export interface WorkingHours {
 
 /** Known facts about the client - injected into the session context block. */
 export interface ClientProfile {
-  displayName?: string;  // Name collected in chat (update_client_info / heuristics)
+  displayName?: string;  // Person name (chat, or person-like IG profile name)
   igUsername?: string;   // @handle (without @)
   igFullName?: string;   // Display name from IG profile
   phone?: string;        // Previously confirmed phone
@@ -345,7 +346,7 @@ ${catalogLabel}
 - ID розмови, product_id, offer_id, service_id, master_id - ніколи не показуй клієнту.
 - Бренд, контакти, доставка, FAQ, бізнес-правила — зі системного промпту вище.
 - Кілька повідомлень клієнта підряд без відповіді бота між ними — це ОДНА репліка (наприклад час + ПІБ + телефон). Відповідай на весь блок, не лише на останній рядок.
-- Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в блоці «Вже відомо про клієнта».
+- Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в рядку «Імʼя:» / «Телефон:» блоку «Вже відомо про клієнта». Якщо є рядок «Назва профілю Instagram» — це шапка акаунта, не ПІБ; не підставляй її в update_client_info.full_name / customer_name / CRM.
 - Якщо є блок «Запропоновані вікна» — клієнт обирає з тих годин. Не викликай get_available_slots знову і не кажи що вікон немає, поки не змінили послугу/дату/майстра або book_appointment не повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.
 - Фрази «написала вище», «я ж написала», «див. вище», «там вище» — візьми дані з попередніх повідомлень клієнта; не проси повторити і не роби handoff лише через це.
 ${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap, newCivilDay)}
@@ -578,9 +579,6 @@ function buildClientIdentityLine(
   if (profile?.displayName) {
     parts.push(profile.displayName);
   }
-  if (profile?.igFullName && profile.igFullName !== profile.displayName) {
-    parts.push(profile.igFullName);
-  }
   if (profile?.igUsername) {
     parts.push(`@${profile.igUsername}`);
   }
@@ -666,6 +664,12 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
 
   if (knownLines.length > 0) {
     parts.push('\nВже відомо про клієнта (не питай знову):\n' + knownLines.join('\n'));
+  }
+  const igTitle = profile.igFullName?.trim();
+  if (igTitle && isIgProfileTitleNotPersonName(igTitle)) {
+    parts.push(
+      `\nНазва профілю Instagram: ${igTitle} — шапка акаунта, НЕ імʼя людини. Не копіюй її в update_client_info.full_name, customer_name чи CRM.`,
+    );
   }
   if (historyLines.length > 0) {
     parts.push('\nКонтекст клієнта:\n' + historyLines.join('\n'));

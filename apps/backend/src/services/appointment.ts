@@ -20,6 +20,7 @@ import {
   type ServiceMasterAssignment,
 } from '../lib/appointment-services.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
+import { effectiveChatDisplayName } from '../lib/client-person-name.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -122,6 +123,19 @@ export async function handleBookAppointment(
   if (!customerName || !phone || !rawDate || !time || services.length === 0) {
     log.warn({ conversationId }, 'book_appointment missing required fields');
     return null;
+  }
+
+  if (!effectiveChatDisplayName(customerName)) {
+    log.warn(
+      { conversationId, customerName },
+      'book_appointment rejected customer_name — not a chat person name',
+    );
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult:
+        '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name must be a person name (row «Імʼя:» or as said in chat), not an Instagram profile headline. Ask their name, update_client_info(full_name), then book again.',
+    };
   }
 
   const date = normalizeToUaDate(rawDate);

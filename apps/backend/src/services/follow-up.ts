@@ -17,6 +17,7 @@ import { loadClaudeHistoryMessages } from './claude-history-load.js';
 import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import { effectiveClientPersonName } from '../lib/client-person-name.js';
 import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
@@ -283,6 +284,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
 
       const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
       const clientProfile: ClientProfile = {
+        displayName: effectiveClientPersonName(client.displayName, client.igFullName),
         igUsername: client.igUsername ?? undefined,
         igFullName: client.igFullName ?? undefined,
         phone: client.phone ?? undefined,

@@ -13,6 +13,7 @@ import {
   parseQuotedTotalArg,
   resolveQuotedTotal,
 } from '../lib/order-normalize.js';
+import { effectiveChatDisplayName } from '../lib/client-person-name.js';
 import type { OrderKind, PaymentMethod as PrismaPaymentMethod } from '../generated/prisma/client.js';
 
 export { normalizeOrderItems, parseOrderKind, type LocalOrderKind } from '../lib/order-normalize.js';
@@ -104,6 +105,13 @@ export async function handleCollectOrder(
     log.error(
       { conversationId, customerName: !!customerName, phone: !!phone, city: !!city, npBranch: !!npBranch },
       'collect_order missing required fields — skipping',
+    );
+    return null;
+  }
+  if (!effectiveChatDisplayName(customerName)) {
+    log.error(
+      { conversationId, customerName },
+      'collect_order rejected customer_name — Instagram title, not a person',
     );
     return null;
   }
@@ -251,9 +259,11 @@ export async function handleCreateLocalOrder(
   noteParts.push(`Угода: ${summary}`);
   const note = noteParts.join('\n');
 
+  const fromArgs =
+    typeof args.customer_name === 'string' ? args.customer_name.trim() : '';
   const customerName =
-    (typeof args.customer_name === 'string' && args.customer_name.trim()) ||
-    options?.clientDisplayName?.trim() ||
+    effectiveChatDisplayName(fromArgs) ||
+    effectiveChatDisplayName(options?.clientDisplayName) ||
     (options?.clientIgUsername ? `@${options.clientIgUsername}` : '') ||
     'Клієнт IG';
 

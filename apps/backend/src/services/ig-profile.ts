@@ -2,8 +2,9 @@
  * ig-profile.ts
  *
  * Fetches Instagram user profile information via the Facebook Graph API.
- * Called once when a new client first contacts us - gives us their
- * real name and @handle so Claude can address them properly.
+ * Called once when a new client first contacts us — stores @handle and the
+ * public profile title (`igFullName`). A person-like name may seed `displayName`;
+ * slogans/headlines do not. Chat intros still overwrite.
  *
  * Endpoint: GET /{igsid}?fields=name,username
  * Auth: Page Access Token via Bearer header

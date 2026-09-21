@@ -121,6 +121,7 @@ describe('formatAgentToolsPrompt', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/окремими бульбашками Instagram/);
     expect(prompt).toMatch(/не проси повторити/);
+    expect(prompt).toMatch(/шапку акаунта|Назва профілю Instagram/);
   });
 
   it('documents cancel/reschedule tools and forbids second book as move', () => {

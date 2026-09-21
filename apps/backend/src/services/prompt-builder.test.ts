@@ -112,6 +112,35 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     expect(isWithinWorkingHours(at, HOURS, 'Europe/Berlin')).toBe(true);
   });
 
+  it('does not treat Instagram profile title as the person name', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        clientProfile: {
+          igFullName: 'Йога для вагітних і після пологів',
+          igUsername: 'diana.dombek',
+        },
+      }),
+    );
+    expect(prompt).not.toMatch(/Імʼя: Йога для вагітних/);
+    expect(prompt).toContain('Назва профілю Instagram');
+    expect(prompt).toContain('НЕ імʼя людини');
+    expect(prompt).toContain('@diana.dombek');
+  });
+
+  it('uses a person-like Instagram profile name as Імʼя', () => {
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        clientProfile: {
+          displayName: 'Олена Коваль',
+          igFullName: 'Олена Коваль',
+          igUsername: 'olena.k',
+        },
+      }),
+    );
+    expect(prompt).toContain('Імʼя: Олена Коваль');
+    expect(prompt).not.toContain('НЕ імʼя людини');
+  });
+
   it('instructs the agent to treat consecutive client bubbles as one reply', () => {
     const prompt = buildRuntimePrompt(
       baseParams({

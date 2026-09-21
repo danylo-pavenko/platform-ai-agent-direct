@@ -29,6 +29,7 @@ import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { resolveQuotedTotal, scaleItemsToQuotedTotal } from '../lib/order-normalize.js';
 import { notifyCrmFallback } from './telegram-notify.js';
 import { linkClientToCrm } from './client-crm-link.js';
+import { crmPersonFullName } from '../lib/client-person-name.js';
 
 const log = pino({ name: 'crm-sync' });
 
@@ -66,11 +67,9 @@ export async function mirrorClientToCrm(
     return;
   }
 
-  const fullName = client.displayName
-    ?? client.igFullName
-    ?? (client.igUsername ? `@${client.igUsername}` : null);
+  const fullName = crmPersonFullName(client);
   if (!fullName) {
-    log.debug({ clientId }, 'No name yet — skipping CRM mirror');
+    log.debug({ clientId }, 'No chat name yet — skipping CRM mirror');
     return;
   }
 
@@ -391,10 +390,7 @@ export async function mirrorBriefToCrm(briefId: string): Promise<void> {
 
   // Contact snapshot: prefer real name/phone/email from the brief itself;
   // fall back to the client record so KeyCRM can still match / dedupe.
-  const fullName =
-    client?.displayName ??
-    client?.igFullName ??
-    (client?.igUsername ? `@${client.igUsername}` : undefined);
+  const fullName = client ? crmPersonFullName(client) ?? undefined : undefined;
 
   const input: CrmLeadInput = {
     crmBuyerId: client?.crmBuyerId ?? undefined,

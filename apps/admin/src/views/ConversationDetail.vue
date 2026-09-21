@@ -786,6 +786,7 @@ import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { useAuthStore } from '@/stores/auth';
 import { formatChatPlain } from '@/lib/chatDisplay';
+import { adminChatCollectedName, adminClientPrimaryName, adminIgProfileTitle } from '@/lib/client-label';
 import { isAgentTurnDebugNote } from '@/lib/agentTurnDebug';
 import {
   getDisplayMediaItems,
@@ -1004,11 +1005,7 @@ const mobileStatusLine = computed(() => {
 // Computed
 // ---------------------------------------------------------------------------
 
-const clientName = computed(() => {
-  const c = conversation.value?.client;
-  if (!c) return 'Клієнт';
-  return c.displayName || c.igFullName || (c.igUsername ? `@${c.igUsername}` : null) || c.igUserId || 'Клієнт';
-});
+const clientName = computed(() => adminClientPrimaryName(conversation.value?.client));
 
 const leadSummary = computed((): LeadSummary | undefined => {
   const c = conversation.value;
@@ -1768,18 +1765,18 @@ const ClientProfilePanel = defineComponent({
 
         // Fields (view / edit)
         h('div', { class: 'pa-3 flex-grow-1' }, [
-          // Name (prefer CRM displayName; fall back to IG display name)
+          // Name from chat; IG headline is a caption, not the person's name
           profileField('Імʼя', editing.value
             ? h('input', {
                 class: 'profile-input',
                 value: form.value.displayName,
-                placeholder: c?.igFullName || 'Повне імʼя',
+                placeholder: 'Як клієнт назвався в чаті',
                 onInput: (e: Event) => { form.value.displayName = (e.target as HTMLInputElement).value; },
               })
             : h('div', {}, [
-                h('span', { class: 'text-body-2' }, c?.displayName || c?.igFullName || '-'),
-                c?.displayName && c?.igFullName && c.displayName !== c.igFullName
-                  ? h('div', { class: 'text-caption text-grey mt-1' }, `IG: ${c.igFullName}`)
+                h('span', { class: 'text-body-2' }, adminChatCollectedName(c) || '—'),
+                adminIgProfileTitle(c)
+                  ? h('div', { class: 'text-caption text-grey mt-1' }, `Профіль IG: ${adminIgProfileTitle(c)}`)
                   : null,
               ]),
           ),

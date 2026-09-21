@@ -8,6 +8,7 @@ import {
 } from '../lib/integration-config.js';
 import { prisma } from '../lib/prisma.js';
 import { getRuntimeConfig } from '../lib/runtime-config.js';
+import { crmPersonFullName } from '../lib/client-person-name.js';
 import { getClaudeAuthStatus } from './claude-auth.js';
 import { loadCatalogSnippet } from './prompt-builder.js';
 
@@ -638,12 +639,7 @@ export async function buildInsightsSnapshotFresh(
     channel: conversation.channel,
     state: conversation.state,
     intent: conversation.intent,
-    clientName:
-      conversation.client.displayName ??
-      conversation.client.igFullName ??
-      (conversation.client.igUsername
-        ? `@${conversation.client.igUsername}`
-        : 'Клієнт'),
+    clientName: crmPersonFullName(conversation.client) ?? 'Клієнт',
     lastMessageAt: conversation.lastMessageAt?.toISOString() ?? null,
     messages: [...conversation.messages].reverse().flatMap((message) => {
       if (!message.text?.trim()) return [];

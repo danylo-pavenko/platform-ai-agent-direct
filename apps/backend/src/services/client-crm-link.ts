@@ -17,6 +17,8 @@ import {
   resolveRecommendedDuration,
 } from '../lib/client-service-duration.js';
 
+import { crmPersonFullName } from '../lib/client-person-name.js';
+
 const log = pino({ name: 'client-crm-link' });
 
 export interface LinkClientResult {
@@ -177,10 +179,7 @@ export async function linkClientToCrm(
   // Optional create in CRM (write path)
   const shouldUpsert = opts?.upsert !== false && (await isCrmWriteEnabled());
   if (shouldUpsert && crm.upsertClient) {
-    const fullName =
-      client.displayName ??
-      client.igFullName ??
-      (client.igUsername ? `@${client.igUsername}` : null);
+    const fullName = crmPersonFullName(client);
     if (!fullName) {
       return {
         linked: false,

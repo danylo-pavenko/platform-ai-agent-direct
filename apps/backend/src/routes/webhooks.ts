@@ -15,6 +15,10 @@ import {
 } from '../lib/ig-detected-phone.js';
 import { mirrorClientToCrm } from '../services/crm-sync.js';
 import { fetchIgUserProfile } from '../services/ig-profile.js';
+import {
+  effectiveChatDisplayName,
+  igProfilePersonName,
+} from '../lib/client-person-name.js';
 import { importFirstContactIgHistory } from '../services/ig-history.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { isConversationStaleForNewSession } from '../lib/session-freshness.js';
@@ -874,13 +878,21 @@ async function processMessageEvent(
     fetchIgUserProfile(igUserId)
       .then(async (profile) => {
         if (!profile || (!profile.name && !profile.username)) return;
+        const current = await prisma.client.findUnique({
+          where: { id: client.id },
+          select: { displayName: true, igFullName: true },
+        });
+        const chatName = effectiveChatDisplayName(
+          current?.displayName,
+          current?.igFullName ?? profile.name,
+        );
+        const fromIg = igProfilePersonName(profile.name);
         await prisma.client.update({
           where: { id: client.id },
           data: {
             igFullName: profile.name,
             igUsername: profile.username,
-            // Pre-populate displayName if not set yet
-            displayName: profile.name ?? profile.username,
+            ...(!chatName && fromIg ? { displayName: fromIg } : {}),
           },
         });
         app.log.debug(
