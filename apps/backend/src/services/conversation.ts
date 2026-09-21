@@ -71,7 +71,10 @@ import {
   type ManagerForcedClaudeAction,
 } from '../lib/manager-chat-actions.js';
 import { isBotTurnStillValid } from '../lib/conversation-bot-guard.js';
-import { autoReturnHandoffToBotIfExpired } from '../lib/handoff-auto-return.js';
+import {
+  autoReturnHandoffToBotIfExpired,
+  getHandoffIdleStartedAt,
+} from '../lib/handoff-auto-return.js';
 import { getRuntimeConfig, isUsernameBotIgnored } from '../lib/runtime-config.js';
 import { handleClassifyIntent, handleSubmitBrief } from './brief.js';
 import { mirrorClientToCrm } from './crm-sync.js';
@@ -563,21 +566,44 @@ async function handleIncomingMessageImpl(
         text: messageText,
         mediaAttachments,
       });
-      const priorFollowUps = conversation.handedOffAt
-        ? await prisma.message.count({
-            where: {
-              conversationId,
-              sender: 'client',
-              direction: 'in',
-              createdAt: { gt: conversation.handedOffAt },
-              ...(turnId ? { claudeTurnId: { not: turnId } } : {}),
-            },
-          })
-        : 0;
-      if (!shouldNotifyHandoffFollowUp(priorFollowUps)) {
+      const waitStartedAt = await getHandoffIdleStartedAt(conversation);
+      const [handoffAgentCfg, handoffHours] = await Promise.all([
+        getAgentConfig(),
+        getWorkingHours(),
+      ]);
+      const priorClientInbound = await prisma.message.findMany({
+        where: {
+          conversationId,
+          sender: 'client',
+          direction: 'in',
+          createdAt: { gt: waitStartedAt },
+          ...(turnId
+            ? {
+                OR: [{ claudeTurnId: { not: turnId } }, { claudeTurnId: null }],
+              }
+            : {}),
+        },
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      });
+      const notifySla = shouldNotifyHandoffFollowUp({
+        waitStartedAt,
+        now: new Date(),
+        slaHours: handoffAgentCfg.managerSlaHoursBusiness,
+        workingHours: handoffHours,
+        timeZone: handoffAgentCfg.timezone,
+        priorClientInboundAt: priorClientInbound.map((m) => m.createdAt),
+      });
+      if (!notifySla) {
         log.info(
-          { conversationId, priorFollowUps },
-          'Handoff follow-up Telegram skipped — cap reached',
+          {
+            conversationId,
+            waitStartedAt: waitStartedAt.toISOString(),
+            slaHours: handoffAgentCfg.managerSlaHoursBusiness,
+            priorClientInbound: priorClientInbound.length,
+          },
+          'Handoff Telegram skipped — within manager SLA or already alerted',
         );
       } else if (client.igUserId && handoffLine) {
         notifyHandoffFollowUp({
@@ -587,6 +613,7 @@ async function handleIncomingMessageImpl(
           clientIgUsername: client.igUsername,
           text: handoffLine.text,
           isVoice: handoffLine.isVoice,
+          slaHours: handoffAgentCfg.managerSlaHoursBusiness,
         }).catch((err) => log.error({ err }, 'Failed to forward to Telegram'));
       }
       await clearTypingOnSkip();

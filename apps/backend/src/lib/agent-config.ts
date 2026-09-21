@@ -12,7 +12,7 @@
  *   {
  *     mode: 'sales' | 'leadgen' | 'booking' | 'general',  // default: general
  *     outOfHoursStrategy: 'warn_early' | 'defer_to_end',
- *     managerSlaHoursBusiness: number,  // hours within working time
+ *     managerSlaHoursBusiness: number,  // working hours; prompt + handoff Telegram SLA ping
  *     sessionFreshnessDays: number,     // B.3 — close stale bot/handoff convos beyond this
  *     responseDelayMinSeconds: number,  // human-like pause before Claude (0 = immediate)
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min

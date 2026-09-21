@@ -474,7 +474,7 @@ bot.command('takeover', async (ctx) => {
       'Conversation taken over',
     );
     await ctx.reply(
-      `Розмову #${id} взято (${label}). Нові повідомлення клієнта будуть пересилатися сюди.`,
+      `Розмову #${id} взято (${label}). Нові повідомлення клієнта — в адмінці; Telegram нагадає лише якщо клієнт чекає довше SLA.`,
     );
   } catch (err) {
     log.error(err, 'Error in /takeover command');

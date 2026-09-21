@@ -497,8 +497,8 @@ export async function handleBookAppointment(
       crmSynced: true,
       toolResult:
         personal.notes.length > 0
-          ? `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}\n${personal.notes.join('\n')}`
-          : `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}`,
+          ? `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}\n${personal.notes.join('\n')}\n[platform] Запис створено. НЕ пропонуй інші години/варіанти в цій відповіді і не викликай get_available_slots знову, доки клієнт не попросить перенести.`
+          : `[book_appointment] ok id=${appointment.id}${mergedIntoExisting ? ' merged' : ''}\n[platform] Запис створено. НЕ пропонуй інші години/варіанти в цій відповіді і не викликай get_available_slots знову, доки клієнт не попросить перенести.`,
     };
   }
 

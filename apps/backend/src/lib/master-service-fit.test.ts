@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDisambiguatedMasterMap,
   disambiguateMasterDisplayName,
+  filterMasterIdsForServices,
   findUnavailableMasterAssignments,
   formatMasterServiceMismatchToolResult,
 } from './master-service-fit.js';
@@ -28,6 +29,28 @@ describe('disambiguateMasterDisplayName', () => {
     expect(disambiguateMasterDisplayName('hair', 'Анастасія', peers)).toBe(
       'Анастасія (Перукар)',
     );
+  });
+
+  it('treats surname as same first name and strips surname for client label', () => {
+    const peers = [
+      { id: 'nails', name: 'Анастасія', positionNames: ['Манікюр'] },
+      { id: 'hair', name: 'Анастасія Грева', positionNames: ['Перукар'] },
+    ];
+    expect(disambiguateMasterDisplayName('nails', 'Анастасія', peers)).toBe(
+      'Анастасія (Манікюр)',
+    );
+    expect(disambiguateMasterDisplayName('hair', 'Анастасія Грева', peers)).toBe(
+      'Анастасія (Перукар)',
+    );
+  });
+
+  it('uses given name only when the name is unique', () => {
+    expect(
+      disambiguateMasterDisplayName('a', 'Соломія Іваненко', [
+        { id: 'a', name: 'Соломія Іваненко' },
+        { id: 'b', name: 'Анна' },
+      ]),
+    ).toBe('Соломія');
   });
 
   it('falls back to full master_id when duplicate names lack positions', () => {
@@ -108,6 +131,42 @@ describe('findUnavailableMasterAssignments', () => {
       branchId: 'loc-1',
     });
     expect(ok).toHaveLength(0);
+  });
+});
+
+describe('filterMasterIdsForServices', () => {
+  it('drops hair master from manicure service list', () => {
+    const employees: CrmEmployee[] = [
+      {
+        id: 'nails-pro',
+        name: 'Анастасія',
+        positionIds: ['pos-nails'],
+        positionNames: ['Манікюр'],
+      },
+      {
+        id: 'hair-pro',
+        name: 'Анастасія Грева',
+        positionIds: ['pos-hair'],
+        positionNames: ['Перукар'],
+      },
+    ];
+    const manicure: CrmServiceItem = {
+      id: 'svc-nails',
+      name: 'Манікюр',
+      price: 500,
+      durationMin: 60,
+      priceRows: [
+        { branchId: 'loc-1', positionId: 'pos-nails', positionName: 'Манікюр', price: 500 },
+      ],
+    };
+    const kept = filterMasterIdsForServices(
+      ['nails-pro', 'hair-pro'],
+      ['svc-nails'],
+      employees,
+      [manicure],
+      'loc-1',
+    );
+    expect(kept).toEqual(['nails-pro']);
   });
 });
 

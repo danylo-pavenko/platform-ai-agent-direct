@@ -24,7 +24,7 @@ import {
 } from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
 import { normalizeTenantTimezone } from '../lib/tenant-timezone.js';
-import type { CrmServiceItem } from './crm/types.js';
+import type { CrmEmployee, CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
 import {
@@ -33,7 +33,7 @@ import {
   type BookingSlotOffer,
 } from '../lib/booking-slot-offer.js';
 import { applyPersonalDurations } from './personal-duration.js';
-import { buildDisambiguatedMasterMap } from '../lib/master-service-fit.js';
+import { buildDisambiguatedMasterMap, filterMasterIdsForServices } from '../lib/master-service-fit.js';
 
 export { formatServiceLine, formatServicePrice } from '../lib/service-search-rank.js';
 
@@ -172,9 +172,11 @@ const SLOT_TIMES_CANDIDATE_CAP = 12;
 async function enrichMastersWithPositions(
   masters: Array<{ id: string; name: string }>,
   fetchEmployees?: () => Promise<
-    Array<{ id: string; name: string; positionNames?: string[] }>
+    Array<{ id: string; name: string; positionIds?: string[]; positionNames?: string[] }>
   >,
-): Promise<Array<{ id: string; name: string; positionNames?: string[] }>> {
+): Promise<
+  Array<{ id: string; name: string; positionIds?: string[]; positionNames?: string[] }>
+> {
   if (!fetchEmployees || masters.length === 0) {
     return masters.map((m) => ({ ...m }));
   }
@@ -186,6 +188,7 @@ async function enrichMastersWithPositions(
       return {
         id: m.id,
         name: emp?.name?.trim() || m.name,
+        positionIds: emp?.positionIds,
         positionNames: emp?.positionNames,
       };
     });
@@ -309,6 +312,36 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
     result.masters,
     crm.fetchEmployees?.bind(crm),
   );
+
+  // Drop masters whose grade has no price for the requested services (e.g. hair colorist on manicure).
+  const serviceIds = assigned.map((s) => s.id);
+  let catalogForFit: CrmServiceItem[] = [];
+  try {
+    const provider = await resolveCrmProvider('services');
+    const synced = await loadSyncedServices();
+    catalogForFit = synced.filter((s) => s.provider === provider);
+    if (catalogForFit.length === 0) catalogForFit = synced;
+    if (catalogForFit.length === 0 && crm.fetchServices) {
+      catalogForFit = await crm.fetchServices();
+    }
+  } catch {
+    catalogForFit = [];
+  }
+  const employeesForFit: CrmEmployee[] = enrichedMasters.map((m) => ({
+    id: m.id,
+    name: m.name,
+    positionIds: m.positionIds,
+    positionNames: m.positionNames,
+  }));
+  const fitFilter = (ids: string[]) =>
+    filterMasterIdsForServices(
+      ids,
+      serviceIds,
+      employeesForFit,
+      catalogForFit,
+      args.branchCrmId,
+    );
+
   const masterMap = buildDisambiguatedMasterMap(enrichedMasters);
   const excludeKey = args.excludeTime
     ? normalizeSlotTimeKey(args.excludeTime)
@@ -316,19 +349,28 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
 
   const offerDays: BookingSlotOffer['days'] = [];
   let daysShown = 0;
+  let filteredUnfitMasters = false;
   for (const [day, slots] of Object.entries(result.slots)) {
-    const filtered = (excludeKey
+    const withFit = (excludeKey
       ? slots.filter((s) => normalizeSlotTimeKey(s.time) !== excludeKey)
       : slots
-    ).slice(0, SLOT_TIMES_CANDIDATE_CAP);
+    )
+      .map((s) => {
+        const before = s.masterIds.length;
+        const masterIds = fitFilter(s.masterIds);
+        if (masterIds.length < before) filteredUnfitMasters = true;
+        return { ...s, masterIds };
+      })
+      .filter((s) => s.masterIds.length > 0)
+      .slice(0, SLOT_TIMES_CANDIDATE_CAP);
     const preferTimes =
       preferTimesForDate(args.preferOffer, day) ??
       (day === args.date ? preferTimesForDate(args.preferOffer, args.date) : undefined);
-    const daySlots = pickSlotTimesForDay(filtered, SLOT_TIMES_PER_DAY, preferTimes);
+    const daySlots = pickSlotTimesForDay(withFit, SLOT_TIMES_PER_DAY, preferTimes);
     if (daySlots.length === 0) continue;
     daysShown += 1;
     const slotMasterIds = parallelMasters && assigned.every((s) => s.masterId)
-      ? assigned.map((s) => s.masterId!).filter(Boolean)
+      ? fitFilter(assigned.map((s) => s.masterId!).filter(Boolean))
       : undefined;
     offerDays.push({
       date: day,
@@ -363,6 +405,13 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
       }
     }
     if (daysShown >= 5) break;
+  }
+
+  if (filteredUnfitMasters) {
+    lines.unshift(
+      'Майстрів без грейду/ціни на ці послуги прибрано зі слотів (напр. перукар на манікюр). Клієнту — лише імʼя без прізвища.',
+      '',
+    );
   }
 
   if (daysShown === 0) {

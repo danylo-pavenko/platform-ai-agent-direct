@@ -342,8 +342,8 @@ export async function notifyAgentTurnDebug(params: {
 }
 
 /**
- * Short follow-up while the thread is already in handoff (not a second full
- * escalation card). At most one of these is sent per handoff.
+ * SLA reminder while the thread is already in handoff (not a second full
+ * escalation card and not a live transcript of every client bubble).
  */
 export async function notifyHandoffFollowUp(params: {
   conversationId: string;
@@ -352,6 +352,7 @@ export async function notifyHandoffFollowUp(params: {
   clientIgUsername?: string | null;
   text: string;
   isVoice?: boolean;
+  slaHours?: number;
 }): Promise<void> {
   const body = unwrapCoalescePreamble(params.text).trim();
   if (!body) return;
@@ -365,9 +366,13 @@ export async function notifyHandoffFollowUp(params: {
     igUserId: params.clientIgUserId,
   });
   const icon = params.isVoice ? '👤🎤' : '👤';
+  const slaLabel =
+    typeof params.slaHours === 'number' && params.slaHours > 0
+      ? ` (${params.slaHours} роб. год.)`
+      : '';
 
   const text = [
-    `💬 <b>Клієнт написав під час ескалації</b>`,
+    `⏱ <b>Клієнт чекає довше SLA${slaLabel}</b>`,
     ``,
     `Клієнт: ${escapeHtml(clientLabel)}`,
     ``,

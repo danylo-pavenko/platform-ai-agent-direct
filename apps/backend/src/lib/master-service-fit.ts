@@ -21,23 +21,37 @@ export function normalizeMasterNameKey(name: string): string {
   return name.trim().toLocaleLowerCase('uk');
 }
 
+/** First token only — «Анастасія Грева» and «Анастасія» share a key. */
+export function masterFirstNameKey(name: string): string {
+  const first = name.trim().split(/\s+/)[0] ?? '';
+  return first.toLocaleLowerCase('uk');
+}
+
+/** Client-facing given name without surname. */
+export function masterGivenName(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return (first && first.trim()) || name.trim();
+}
+
 /**
  * When several professionals share a first/display name, append positions
  * (or a short id) so the model does not bind the wrong UUID by name alone.
+ * Labels for the agent/slots use given name only (no surname) — surname stays in CRM.
  */
 export function disambiguateMasterDisplayName(
   id: string,
   name: string,
   peers: Array<{ id: string; name: string; positionNames?: string[] }>,
 ): string {
-  const key = normalizeMasterNameKey(name);
-  if (!key) return name || id;
-  const same = peers.filter((p) => normalizeMasterNameKey(p.name) === key);
-  if (same.length <= 1) return name.trim() || id;
+  const given = masterGivenName(name);
+  if (!given) return id;
+  const key = masterFirstNameKey(name);
+  const same = peers.filter((p) => masterFirstNameKey(p.name) === key);
+  if (same.length <= 1) return given;
   const me = peers.find((p) => p.id === id);
   const pos = (me?.positionNames ?? []).map((p) => p.trim()).filter(Boolean);
-  if (pos.length > 0) return `${name.trim()} (${pos.join(', ')})`;
-  return `${name.trim()} [master_id=${id}]`;
+  if (pos.length > 0) return `${given} (${pos.join(', ')})`;
+  return `${given} [master_id=${id}]`;
 }
 
 /** Build id → disambiguated label map for slot / history formatting. */
@@ -49,6 +63,38 @@ export function buildDisambiguatedMasterMap(
     map.set(m.id, disambiguateMasterDisplayName(m.id, m.name, masters));
   }
   return map;
+}
+
+/**
+ * Drop masters whose BeautyPro grades have no price row for every listed service.
+ * Incomplete CRM data → keep the master (never false-positive filter).
+ */
+export function filterMasterIdsForServices(
+  masterIds: string[],
+  serviceIds: string[],
+  employees: CrmEmployee[],
+  catalog: CrmServiceItem[],
+  branchId?: string | null,
+): string[] {
+  if (masterIds.length === 0 || serviceIds.length === 0) return masterIds;
+  const byId = new Map(employees.map((e) => [e.id, e]));
+
+  return masterIds.filter((mid) => {
+    const employee = byId.get(mid);
+    const positionIds = employee?.positionIds ?? [];
+    if (positionIds.length === 0) return true;
+
+    for (const sid of serviceIds) {
+      const svc = catalog.find((s) => s.id === sid);
+      if (!svc?.priceRows || svc.priceRows.length === 0) continue;
+      const resolved = resolveServicePrice(svc, {
+        branchId,
+        masterPositionIds: positionIds,
+      });
+      if (resolved.kind === 'unavailable') return false;
+    }
+    return true;
+  });
 }
 
 export function findUnavailableMasterAssignments(opts: {

@@ -109,11 +109,13 @@ describe('notifyHandoffFollowUp', () => {
       clientIgUserId: '17841410659012767',
       clientIgUsername: 'cultura',
       text: '📞 +380979931530',
+      slaHours: 2,
     });
 
     expect(sendMessage).toHaveBeenCalledOnce();
     const [, text, options] = sendMessage.mock.calls[0];
-    expect(text).toContain('під час ескалації');
+    expect(text).toContain('чекає довше SLA');
+    expect(text).toContain('2 роб. год.');
     expect(text).toContain('+380979931530');
     expect(text).toContain('@cultura');
     expect(text).not.toContain('17841410659012767');
