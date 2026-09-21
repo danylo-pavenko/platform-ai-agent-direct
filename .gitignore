@@ -53,3 +53,6 @@ apps/admin/src/**/*.js
 
 # Marketing assets (generated creatives, local-only)
 docs/marketing/
+
+# Tenant-specific system prompts (local only — not for tenant deploys)
+docs/prompts/
