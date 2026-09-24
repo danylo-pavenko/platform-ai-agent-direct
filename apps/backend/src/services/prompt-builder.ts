@@ -53,6 +53,11 @@ export interface ClientProfile {
   crmBuyerId?: string;
   /** Last get_available_slots times still valid for this conversation. */
   bookingSlotOffer?: BookingSlotOffer;
+  /**
+   * Upcoming local appointments (today + next few days) — so “I’m late”
+   * still has visit context when civil-day history cut yesterday’s booking talk.
+   */
+  upcomingVisitsHint?: string;
 }
 
 /**
@@ -676,6 +681,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (profile.crmVisitHistory) {
     parts.push('\n' + profile.crmVisitHistory);
+  }
+  if (profile.upcomingVisitsHint) {
+    parts.push('\n' + profile.upcomingVisitsHint);
   }
   if (profile.bookingSlotOffer) {
     parts.push('\n' + formatBookingSlotOfferForPrompt(profile.bookingSlotOffer));

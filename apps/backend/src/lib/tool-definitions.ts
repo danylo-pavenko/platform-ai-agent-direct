@@ -404,7 +404,11 @@ const BOOK_APPOINTMENT: ToolDefinition = {
               type: 'string',
               description: 'ID послуги з search_services (число або UUID)',
             },
-            name: { type: 'string' },
+            name: {
+              type: 'string',
+              description:
+                'Людська назва послуги з search_services (напр. «Денний макіяж»). Обовʼязково — клієнту ніколи не показуй UUID',
+            },
             price: {
               type: 'number',
               description:

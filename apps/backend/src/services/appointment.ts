@@ -492,7 +492,7 @@ export async function handleBookAppointment(
         date,
         time,
         services: mergedServices.map((s) => ({
-          name: s.name,
+          name: resolveServiceDisplayName(s.name, s.id, serviceNameCatalog),
           startTime: s.startTime,
         })),
         clientMessage: options?.clientMessage,

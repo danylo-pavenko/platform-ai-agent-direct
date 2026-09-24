@@ -29,6 +29,10 @@ import {
 import { loadClaudeHistoryMessages } from './claude-history-load.js';
 import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { clearConversationBookingOffer } from './booking-slot-offer-store.js';
+import {
+  formatUpcomingVisitsForPrompt,
+  selectUpcomingVisits,
+} from '../lib/upcoming-visit.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
 import {
   isTimestampInHistoryWindow,
@@ -741,6 +745,35 @@ async function handleIncomingMessageImpl(
         agentCfg.sessionFreshnessDays,
       )
     : undefined;
+
+  // Upcoming local visits — civil-day Claude history may hide yesterday’s booking talk;
+  // “I’m late” still needs the appointment in the prompt.
+  if (modeHasBookingTools(agentCfg.mode)) {
+    try {
+      const upcomingRows = await prisma.appointment.findMany({
+        where: {
+          clientId: client.id,
+          status: { in: ['confirmed', 'synced'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: {
+          scheduledDate: true,
+          scheduledTime: true,
+          customerName: true,
+          services: true,
+        },
+      });
+      const upcoming = selectUpcomingVisits(upcomingRows, now, agentCfg.timezone, {
+        horizonDays: 3,
+        limit: 3,
+      });
+      const hint = formatUpcomingVisitsForPrompt(upcoming);
+      if (hint) clientProfile.upcomingVisitsHint = hint;
+    } catch (err) {
+      log.warn({ err, conversationId, clientId: client.id }, 'Failed to load upcoming visits for prompt');
+    }
+  }
 
   const branchesList = await formatBranchesForPrompt();
   const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });

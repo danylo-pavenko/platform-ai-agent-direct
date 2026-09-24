@@ -2,6 +2,11 @@
  * Customer-facing booking confirmation after CRM sync (no I/O).
  */
 
+import {
+  looksLikePlaceholderServiceName,
+  looksLikeServiceIdLeakInText,
+} from './service-display-name.js';
+
 export function normalizeServiceStartTime(raw: string | undefined | null): string | undefined {
   if (typeof raw !== 'string') return undefined;
   const t = raw.trim();
@@ -32,6 +37,12 @@ export function looksLikeFirmBookingConfirmation(text: string): boolean {
   );
 }
 
+function customerFacingServiceName(name: string | undefined): string {
+  const n = (name ?? '').trim();
+  if (!n || looksLikePlaceholderServiceName(n)) return 'Послуга';
+  return n;
+}
+
 export function buildBookingConfirmationText(params: {
   date: string;
   time: string;
@@ -42,7 +53,12 @@ export function buildBookingConfirmationText(params: {
   const { date, time, services } = params;
   const clientMessage = params.clientMessage?.trim() ?? '';
 
-  if (clientMessage && looksLikeFirmBookingConfirmation(clientMessage)) {
+  // Keep Claude's firm confirm only when it does not leak CRM UUIDs / «Послуга #…».
+  if (
+    clientMessage &&
+    looksLikeFirmBookingConfirmation(clientMessage) &&
+    !looksLikeServiceIdLeakInText(clientMessage)
+  ) {
     return clientMessage;
   }
 
@@ -50,7 +66,7 @@ export function buildBookingConfirmationText(params: {
     services.length > 0
       ? services.map((s) => {
           const start = normalizeServiceStartTime(s.startTime) || time;
-          const name = (s.name ?? '').trim() || 'Послуга';
+          const name = customerFacingServiceName(s.name);
           return `• ${name} — ${start}`;
         })
       : [`• візит — ${time}`];
