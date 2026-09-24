@@ -7,7 +7,7 @@ import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
-import { asCrmId, crmProviderRequiresNumericId, formatInvalidCrmIdToolResult, resolveCrmEntityId, shouldResolveBookingCrmIds } from '../lib/crm-ids.js';
+import { asCrmId, crmProviderRequiresGuid, crmProviderRequiresNumericId, formatInvalidCrmIdToolResult, isCrmGuid, isCrmGuidPrefix, isCrmNumericId, resolveCrmEntityId, shouldResolveBookingCrmIds } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder, notifyBookingLifecycle } from './telegram-notify.js';
@@ -45,6 +45,10 @@ import {
   buildBookingConfirmationText,
   normalizeServiceStartTime,
 } from '../lib/booking-confirmation.js';
+import {
+  buildServiceNameCatalog,
+  resolveServiceDisplayName,
+} from '../lib/service-display-name.js';
 import {
   checkBookingMasterServiceFit,
   formatMasterServiceMismatchToolResult,
@@ -96,6 +100,7 @@ export async function handleBookAppointment(
   const fallbackMasterId = asCrmId(args.master_id) ?? undefined;
 
   const rawServices = Array.isArray(args.services) ? args.services : [];
+  const serviceNameCatalog = buildServiceNameCatalog(await loadSyncedServices());
   const services: AppointmentServiceLine[] = rawServices.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const o = raw as Record<string, unknown>;
@@ -106,7 +111,10 @@ export async function handleBookAppointment(
         : typeof o.long === 'number'
           ? o.long
           : 60;
-    const name = typeof o.name === 'string' ? o.name : `Послуга #${id ?? '?'}`;
+    const rawName = typeof o.name === 'string' ? o.name : undefined;
+    const name = id
+      ? resolveServiceDisplayName(rawName, id, serviceNameCatalog)
+      : (rawName?.trim() || 'Послуга');
     const price = typeof o.price === 'number' ? o.price : 0;
     if (!id) return [];
     const masterId = asCrmId(o.master_id) ?? fallbackMasterId;
@@ -210,6 +218,7 @@ export async function handleBookAppointment(
     ];
     const names = collectOfferNameHints(offer);
     const resolveOpts = {
+      requireGuid: crmProviderRequiresGuid(crmProvider),
       requireNumeric: crmProviderRequiresNumericId(crmProvider),
       names,
     };
@@ -1433,6 +1442,30 @@ export async function handleRemoveAppointmentService(
   };
 }
 
+function isPlausibleToolCrmId(id: string | null): boolean {
+  if (!id) return false;
+  return isCrmGuid(id) || isCrmNumericId(id) || isCrmGuidPrefix(id);
+}
+
+/** ok = every line is a CRM id; junk = none are (e.g. id "reschedule"); mixed = both. */
+function classifyProvidedServiceIds(services: unknown): 'empty' | 'ok' | 'junk' | 'mixed' {
+  if (!Array.isArray(services) || services.length === 0) return 'empty';
+  let ok = 0;
+  let bad = 0;
+  for (const raw of services) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      bad++;
+      continue;
+    }
+    const id = asCrmId((raw as Record<string, unknown>).id);
+    if (isPlausibleToolCrmId(id)) ok++;
+    else bad++;
+  }
+  if (bad === 0) return 'ok';
+  if (ok === 0) return 'junk';
+  return 'mixed';
+}
+
 export async function handleRescheduleAppointment(
   conversationId: string,
   clientId: string,
@@ -1459,6 +1492,18 @@ export async function handleRescheduleAppointment(
       toolResult: '[reschedule_appointment] failed: потрібні date (ДД.ММ.РРРР) і time.',
     };
   }
+
+  const providedQuality = classifyProvidedServiceIds(args.services);
+  if (providedQuality === 'mixed') {
+    return {
+      appointmentId: appointment.id,
+      crmSynced: false,
+      toolResult:
+        '[reschedule_appointment] failed INVALID_CRM_ID — services[].id має бути повний id CRM (UUID або число), не слово reschedule. Старий візит не скасовано.',
+    };
+  }
+  const masterRaw = asCrmId(args.master_id);
+  const safeMasterId = masterRaw && isPlausibleToolCrmId(masterRaw) ? masterRaw : undefined;
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
@@ -1489,7 +1534,6 @@ export async function handleRescheduleAppointment(
   await markLocalAppointmentCancelled(appointment.id);
 
   const existingServices = normalizeAppointmentServices(appointment.services);
-  const hasNewServices = Array.isArray(args.services) && args.services.length > 0;
   const bookArgs: Record<string, unknown> = {
     customer_name:
       typeof args.customer_name === 'string' && args.customer_name.trim()
@@ -1505,8 +1549,8 @@ export async function handleRescheduleAppointment(
       typeof args.comment === 'string'
         ? args.comment
         : appointment.comment ?? undefined,
-    master_id: args.master_id,
-    services: hasNewServices
+    master_id: safeMasterId,
+    services: providedQuality === 'ok'
       ? args.services
       : existingServices.map((s) => ({
           id: s.id,

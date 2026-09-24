@@ -6,6 +6,7 @@
  * Salon: locations, services, employees/free_time, appointments, clients.
  */
 
+import { isCrmGuid } from '../../lib/crm-ids.js';
 import pino from 'pino';
 import { prisma } from '../../lib/prisma.js';
 import { getIntegrationConfig, invalidateIntegrationConfigCache } from '../../lib/integration-config.js';
@@ -1132,6 +1133,11 @@ export const beautyproAdapter: CrmAdapter = {
   },
 
   async createBooking(input: CrmBookingInput) {
+    for (const svc of input.services) {
+      if (!isCrmGuid(String(svc.id ?? ''))) {
+        throw new Error(`BeautyPro: service id '${svc.id}' is not a GUID`);
+      }
+    }
     const parts = parseAgentDate(input.date);
     if (!parts) {
       throw new Error(`BeautyPro: invalid booking date "${input.date}"`);

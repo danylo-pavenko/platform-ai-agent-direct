@@ -126,7 +126,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
             price: 820,
           },
         ],
-        master_id: 'master-1',
+        master_id: '22222222-2222-4222-8222-222222222221',
       },
       {
         clientIgUserId: 'ig-angela',
@@ -161,6 +161,30 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     );
   });
 
+  it('refuses a non-GUID service id such as reschedule before any local booking', async () => {
+    const result = await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Ружинська Марина',
+        phone: '+380991571312',
+        date: '28.09.2026',
+        time: '10:00',
+        services: [{ id: 'reschedule', duration_min: 60 }],
+      },
+      { clientIgUserId: 'ig-marina' },
+    );
+
+    expect(result?.crmSynced).toBe(false);
+    expect(result?.toolResult).toMatch(/INVALID_CRM_ID/);
+    expect(result?.toolResult).toContain('reschedule');
+    expect(prismaMock.appointment.create).not.toHaveBeenCalled();
+    expect(prismaMock.order.create).not.toHaveBeenCalled();
+    expect(notifyOrder).not.toHaveBeenCalled();
+    expect(sendText).not.toHaveBeenCalled();
+    expect(mirrorCreateBooking).not.toHaveBeenCalled();
+  });
+
   it('replaces confirmation tease with structured details', async () => {
     await handleBookAppointment(
       'conv-1',
@@ -172,19 +196,19 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         time: '10:30',
         services: [
           {
-            id: 'svc-tips',
+            id: '11111111-1111-4111-8111-111111111111',
             name: 'Стрижка кінчиків',
             duration_min: 30,
             price: 540,
-            master_id: 'm-1',
+            master_id: '22222222-2222-4222-8222-222222222221',
             start_time: '10:30',
           },
           {
-            id: 'svc-mani',
+            id: '11111111-1111-4111-8111-111111111112',
             name: 'Манікюр',
             duration_min: 115,
             price: 890,
-            master_id: 'm-2',
+            master_id: '22222222-2222-4222-8222-222222222222',
             start_time: '11:00',
           },
         ],
@@ -216,11 +240,11 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         time: '10:00',
         services: [
           {
-            id: 'svc-mani',
+            id: '11111111-1111-4111-8111-111111111112',
             name: 'Комплекс манікюр',
             duration_min: 115,
             price: 890,
-            master_id: 'm-1',
+            master_id: '22222222-2222-4222-8222-222222222221',
           },
         ],
       },
@@ -303,7 +327,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         phone: '+380501112233',
         date: '2026-08-08',
         time: '11:00',
-        services: [{ id: 'svc-1', name: 'Манікюр', duration_min: 60, price: 500 }],
+        services: [{ id: '11111111-1111-4111-8111-111111111113', name: 'Манікюр', duration_min: 60, price: 500 }],
       },
       { clientIgUserId: 'ig-angela', skipClientMessage: true },
     );
@@ -324,21 +348,21 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         time: '12:00',
         services: [
           {
-            id: 'svc-manicure',
+            id: '11111111-1111-4111-8111-111111111114',
             name: 'Комплекс манікюр',
             duration_min: 115,
             price: 820,
-            master_id: 'master-nails',
+            master_id: '22222222-2222-4222-8222-222222222223',
           },
           {
-            id: 'svc-brows',
+            id: '11111111-1111-4111-8111-111111111115',
             name: 'Брови',
             duration_min: 30,
             price: 350,
-            master_id: 'master-brows',
+            master_id: '22222222-2222-4222-8222-222222222224',
           },
         ],
-        master_id: 'master-nails',
+        master_id: '22222222-2222-4222-8222-222222222223',
       },
       { skipClientMessage: true },
     );
@@ -346,11 +370,14 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     const created = prismaMock.appointment.create.mock.calls[0]?.[0] as {
       data: { services: Array<{ masterId?: string }>; };
     };
-    expect(created.data.services.map((s) => s.masterId)).toEqual(['master-nails', 'master-brows']);
+    expect(created.data.services.map((s) => s.masterId)).toEqual([
+      '22222222-2222-4222-8222-222222222223',
+      '22222222-2222-4222-8222-222222222224',
+    ]);
     expect(prismaMock.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          note: expect.stringMatching(/master_id=master-nails[\s\S]*master_id=master-brows|master_id=master-brows[\s\S]*master_id=master-nails/),
+          note: expect.stringMatching(/master_id=22222222-2222-4222-8222-222222222223[\s\S]*master_id=22222222-2222-4222-8222-222222222224|master_id=22222222-2222-4222-8222-222222222224[\s\S]*master_id=22222222-2222-4222-8222-222222222223/),
         }),
       }),
     );
@@ -359,7 +386,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
   it('merges second book_appointment on the same slot into one visit', async () => {
     prismaMock.appointment.findFirst.mockResolvedValue({
       id: 'appt-existing',
-      services: [{ id: 'svc-1', durationMin: 60, masterId: 'm-1', name: 'Манікюр', price: 500 }],
+      services: [{ id: '11111111-1111-4111-8111-111111111113', durationMin: 60, masterId: '22222222-2222-4222-8222-222222222221', name: 'Манікюр', price: 500 }],
       crmRecordId: null,
       crmSyncStatus: 'pending',
       crmSyncError: null,
@@ -369,8 +396,8 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     prismaMock.appointment.update.mockResolvedValue({ id: 'appt-existing' });
     prismaMock.appointment.findUnique.mockResolvedValue({
       services: [
-        { id: 'svc-1', durationMin: 60, masterId: 'm-1', name: 'Манікюр', price: 500 },
-        { id: 'svc-2', durationMin: 30, masterId: 'm-2', name: 'Брови', price: 350 },
+        { id: '11111111-1111-4111-8111-111111111113', durationMin: 60, masterId: '22222222-2222-4222-8222-222222222221', name: 'Манікюр', price: 500 },
+        { id: '11111111-1111-4111-8111-111111111116', durationMin: 30, masterId: '22222222-2222-4222-8222-222222222222', name: 'Брови', price: 350 },
       ],
     });
     prismaMock.order.findFirst.mockResolvedValue({
@@ -387,7 +414,7 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
         phone: '+380501112233',
         date: '2026-08-08',
         time: '11:00',
-        services: [{ id: 'svc-2', name: 'Брови', duration_min: 30, price: 350, master_id: 'm-2' }],
+        services: [{ id: '11111111-1111-4111-8111-111111111116', name: 'Брови', duration_min: 30, price: 350, master_id: '22222222-2222-4222-8222-222222222222' }],
       },
       { skipClientMessage: true },
     );

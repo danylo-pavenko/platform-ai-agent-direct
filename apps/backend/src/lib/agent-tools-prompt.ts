@@ -84,7 +84,7 @@ export function formatAgentToolsPrompt(
       'Якщо tool повернув MASTER_DAY_CLOSED — у майстра немає відкритого дня/графіка на цю дату (не просто «зайнято»). Не кажи «записали»; get_available_slots на інший день або без цього master_id.',
       'Якщо tool повернув SLOT_NOT_AVAILABLE — час відсутній у free_time (зайнято або поза зміною). Лише години з свіжого get_available_slots.',
       'Дати всюди українським форматом ДД.ММ.РРРР (08.08.2026). Не використовуй YYYY-MM-DD у tool args і в тексті клієнту.',
-      'book_appointment — лише НОВИЙ запис. Перенесення існуючого візиту — reschedule_appointment (не другий book).',
+      'book_appointment — лише НОВИЙ запис. Перенесення існуючого візиту — reschedule_appointment (не другий book). services[].id — повний id з «Запропоновані вікна» / search_services (UUID BeautyPro або число CleverBOX). Ніколи не підставляй слово reschedule, назву tool чи «Послуга» замість id.',
     );
   }
   if (names.has('cancel_appointment')) {

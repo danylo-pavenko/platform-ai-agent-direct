@@ -45,6 +45,11 @@ describe('resolveCrmEntityId', () => {
     expect(got).toEqual({ ok: true, id: full });
   });
 
+  it('rejects a tool name such as reschedule instead of a BeautyPro GUID', () => {
+    const got = resolveCrmEntityId('reschedule', [], { requireGuid: true });
+    expect(got).toEqual({ ok: false, raw: 'reschedule', reason: 'not_guid' });
+  });
+
   it('rejects a truncated id with no candidates', () => {
     const got = resolveCrmEntityId('88d8645d', [], { requireGuid: true });
     expect(got).toEqual({ ok: false, raw: '88d8645d', reason: 'truncated' });
