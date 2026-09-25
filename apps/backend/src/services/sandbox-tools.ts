@@ -146,6 +146,22 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
           'Окремого CRM buyer у sandbox немає.',
       };
 
+    case 'lookup_client_by_phone': {
+      const phone = typeof tc.args.phone === 'string' ? tc.args.phone.trim() : '';
+      return {
+        content:
+          `[lookup_client_by_phone] РЕЗУЛЬТАТ (пісочниця): уявімо клієнта знайдено.\n` +
+          `Телефон: ${phone || '—'}\n` +
+          `Імʼя з CRM / профілю: Тестова — використай як customer_name у book_appointment; не питай імʼя знову.`,
+      };
+    }
+
+    case 'notify_client_running_late':
+      return {
+        dryRun: true,
+        content: '[notify_client_running_late] DRY-RUN: Telegram менеджерам не надіслано.',
+      };
+
     case 'book_appointment':
       return {
         dryRun: true,
@@ -214,7 +230,9 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
     'search_services',
     'get_delivery_cost',
     'get_available_slots',
+    'lookup_client_by_phone',
     'get_client_crm_history',
+    'notify_client_running_late',
     'update_client_info',
     'book_appointment',
     'cancel_appointment',

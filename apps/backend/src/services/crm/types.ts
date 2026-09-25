@@ -343,7 +343,7 @@ export interface CrmAdapter {
   searchOffers(params: OfferSearchParams): Promise<CrmOffer[]>;
 
   // Writes (optional)
-  findClient?(match: CrmClientMatch): Promise<{ crmBuyerId: string } | null>;
+  findClient?(match: CrmClientMatch): Promise<{ crmBuyerId: string; fullName?: string } | null>;
   upsertClient?(
     crmBuyerId: string | null,
     input: CrmClientInput,

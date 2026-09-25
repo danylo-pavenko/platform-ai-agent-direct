@@ -62,13 +62,19 @@ describe('igProfilePersonName', () => {
     expect(igProfilePersonName('Diana Dombek')).toBe('Diana Dombek');
   });
 
-  it('skips slogans and one-word Latin brands', () => {
+  it('skips slogans and one-word Latin brands, keeps given names', () => {
     expect(igProfilePersonName('Йога для вагітних і після пологів')).toBeUndefined();
     expect(igProfilePersonName('Moxito')).toBeUndefined();
+    expect(igProfilePersonName('Marta')).toBe('Marta');
+    expect(igProfilePersonName('Anna')).toBe('Anna');
   });
 });
 
 describe('effectiveClientPersonName', () => {
+  it('uses Latin IG given name when chat name is missing', () => {
+    expect(effectiveClientPersonName(null, 'Marta')).toBe('Marta');
+  });
+
   it('uses a person-like IG name when chat name is missing', () => {
     expect(effectiveClientPersonName(null, 'Олена Коваль')).toBe('Олена Коваль');
   });

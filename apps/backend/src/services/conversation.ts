@@ -40,7 +40,7 @@ import {
 } from '../lib/claude-history-window.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
-import { notifyAgentFailure, notifyAgentTurnDebug, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
+import { notifyAgentFailure, notifyAgentTurnDebug, notifyClientRunningLate, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import {
@@ -1372,6 +1372,79 @@ async function handleIncomingMessageImpl(
     const searchServicesCall = response.toolCalls.find((tc) => tc.name === 'search_services');
     const slotsCall = response.toolCalls.find((tc) => tc.name === 'get_available_slots');
     const crmHistoryCall = response.toolCalls.find((tc) => tc.name === 'get_client_crm_history');
+    const lookupPhoneCall = response.toolCalls.find((tc) => tc.name === 'lookup_client_by_phone');
+
+    if (
+      lookupPhoneCall &&
+      !handoff &&
+      !collectOrder &&
+      !createLocalOrder &&
+      !bookAppointment &&
+      !searchServicesCall &&
+      !slotsCall &&
+      !crmHistoryCall
+    ) {
+      if (!reuseNativeLookupsIfPresent(response, 'lookup_client_by_phone', responseText)) {
+        const toolResultContent = await runLookup(
+          'lookup_client_by_phone',
+          lookupPhoneCall.args,
+          response,
+        );
+        recordTurnTool(debug, 'lookup_client_by_phone', lookupPhoneCall.args, toolResultContent);
+
+        const response2 = await askTurnClaudeFollowUp(
+          {
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              {
+                role: 'assistant' as const,
+                content: response.text || '[Шукаю клієнта в базі за телефоном]',
+              },
+            ],
+            userMessage: toolResultContent,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = response2.text;
+        agentFallback = response2.fallback ?? agentFallback;
+        if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+        recordTurnRound(debug, {
+          label: 'after_lookup_client_by_phone',
+          toolCalls: (response2.toolCalls ?? []).map((tc) => tc.name),
+          textPreview: response2.text,
+          fallback: response2.fallback ?? null,
+        });
+        if (response2.toolCalls?.length) {
+          await runSideEffectToolCalls(
+            response2.toolCalls,
+            client.id,
+            conversationId,
+            mediaAttachments,
+            debug,
+          );
+          if (
+            await tryTerminalToolCalls(response2.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(response2.text),
+              turnStartedAt,
+              turnDebug: debug,
+              managerAction: opts?.managerAction,
+            })
+          ) {
+            return 'completed';
+          }
+        }
+      }
+    }
 
     if (crmHistoryCall && !handoff && !collectOrder && !createLocalOrder && !bookAppointment && !searchServicesCall) {
       if (!reuseNativeLookupsIfPresent(response, 'get_client_crm_history', responseText)) {
@@ -2866,6 +2939,53 @@ async function runSideEffectToolCalls(
         log.error({ err, conversationId, clientId }, 'Failed to attach reference photo');
       },
     );
+  }
+
+  const lateNotify = toolCalls.find((tc) => tc.name === 'notify_client_running_late');
+  if (lateNotify) {
+    if (turnDebug) {
+      recordTurnTool(
+        turnDebug,
+        'notify_client_running_late',
+        lateNotify.args,
+        '[notify_client_running_late] queued',
+      );
+    }
+    void (async () => {
+      try {
+        const row = await prisma.client.findUnique({
+          where: { id: clientId },
+          select: {
+            displayName: true,
+            igFullName: true,
+            igUserId: true,
+            phone: true,
+          },
+        });
+        const customerName =
+          effectiveClientPersonName(row?.displayName, row?.igFullName) ||
+          row?.displayName?.trim() ||
+          'Клієнт';
+        const minutesLate =
+          typeof lateNotify.args.minutes_late === 'number' ? lateNotify.args.minutes_late : null;
+        await notifyClientRunningLate({
+          conversationId,
+          clientIgUserId: row?.igUserId,
+          customerName,
+          phone: row?.phone,
+          minutesLate,
+          masterName:
+            typeof lateNotify.args.master_name === 'string' ? lateNotify.args.master_name : null,
+          scheduledTime:
+            typeof lateNotify.args.scheduled_time === 'string'
+              ? lateNotify.args.scheduled_time
+              : null,
+          note: typeof lateNotify.args.note === 'string' ? lateNotify.args.note : null,
+        });
+      } catch (err) {
+        log.error({ err, conversationId, clientId }, 'Failed to notify client running late');
+      }
+    })();
   }
 }
 

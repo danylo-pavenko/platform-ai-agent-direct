@@ -5,7 +5,7 @@
 
 import pino from 'pino';
 import { isLookupToolName } from '../lib/tool-definitions.js';
-import { fetchClientCrmHistory } from './client-crm-link.js';
+import { fetchClientCrmHistory, lookupClientByPhone } from './client-crm-link.js';
 import {
   executeGetAvailableSlotsTool,
   formatSearchServicesToolResult,
@@ -145,6 +145,24 @@ async function runCrmHistory(
   }
 }
 
+async function runLookupClientByPhone(
+  args: Record<string, unknown>,
+  ctx: LookupToolContext,
+): Promise<string> {
+  if (!ctx.clientId) {
+    return '[lookup_client_by_phone] ПОМИЛКА: немає клієнта в контексті.';
+  }
+  const phone = asString(args.phone);
+  if (!phone) return '[lookup_client_by_phone] ПОМИЛКА: phone обовʼязковий.';
+  try {
+    const result = await lookupClientByPhone(ctx.clientId, phone);
+    return result.text;
+  } catch (err) {
+    log.error({ err, clientId: ctx.clientId }, 'lookup_client_by_phone failed');
+    return '[lookup_client_by_phone] ПОМИЛКА: не вдалося пошукати в CRM.';
+  }
+}
+
 /**
  * Execute one readonly lookup. Safe to call from conversation.ts or MCP.
  */
@@ -171,6 +189,8 @@ export async function executeLookupTool(
         });
       case 'get_client_crm_history':
         return runCrmHistory(args, ctx);
+      case 'lookup_client_by_phone':
+        return runLookupClientByPhone(args, ctx);
       default:
         if (!isLookupToolName(name)) {
           return `[${name}] ПОМИЛКА: не lookup tool`;

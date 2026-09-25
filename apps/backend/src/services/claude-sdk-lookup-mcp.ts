@@ -209,6 +209,17 @@ export function createLookupMcpServer(
       ),
     );
   }
+  if (allowed.has('lookup_client_by_phone')) {
+    tools.push(
+      tool(
+        'lookup_client_by_phone',
+        'Пошук клієнта в CRM за телефоном («я в базі» / щойно дав номер). Повертає імʼя для book_appointment.',
+        { phone: z.string().describe('Номер з повідомлення клієнта') },
+        lookupHandler('lookup_client_by_phone', ctx),
+        { annotations: LOOKUP_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
 
   if (allowed.has('update_client_info')) {
     tools.push(
@@ -269,6 +280,22 @@ export function createLookupMcpServer(
         'Класифікувати намір клієнта (на першому повідомленні).',
         { intent: z.string(), confidence: z.number().optional() },
         hostQueuedHandler('classify_intent'),
+        { annotations: PROFILE_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
+  if (allowed.has('notify_client_running_late')) {
+    tools.push(
+      tool(
+        'notify_client_running_late',
+        'Telegram адміністраторам: клієнт запізнюється. Разом із лояльною відповіддю в DM.',
+        {
+          minutes_late: z.number().optional(),
+          master_name: z.string().optional(),
+          scheduled_time: z.string().optional(),
+          note: z.string().optional(),
+        },
+        hostQueuedHandler('notify_client_running_late'),
         { annotations: PROFILE_ANNOTATIONS, alwaysLoad: true },
       ),
     );

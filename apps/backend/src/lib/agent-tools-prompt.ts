@@ -152,6 +152,17 @@ export function formatAgentToolsPrompt(
       'Для слотів/запису довіряй тривалості з tool result (історія actual/booked); не вигадуй і не став сліпо лише каталожну duration_min, якщо історія каже інакше.',
     );
   }
+  if (names.has('lookup_client_by_phone')) {
+    rules.push(
+      'Клієнт дав телефон або сказав «я вже в базі / знайдіть мене» — у тій самій відповіді lookup_client_by_phone(phone). Якщо tool повернув імʼя — customer_name для book_appointment з нього; НЕ питай імʼя знову. Якщо в блоці «Імʼя:» уже є імʼя (навіть латиницею: Marta) — використай його; не питай «як Вас звати?».',
+      'Не кажи клієнту «шукаю в базі / CRM». Після знайденого телефону+імені й підтвердженого слоту — одразу book_appointment.',
+    );
+  }
+  if (names.has('notify_client_running_late')) {
+    rules.push(
+      'Клієнт пише що запізнюється — notify_client_running_late (хвилини/майстер/час з «Найближчі записи») + коротка лояльна відповідь в DM. Не починай новий запис.',
+    );
+  }
   if (names.has('submit_brief') && !names.has('collect_order')) {
     rules.push(
       'submit_brief — коли зібрано достатньо кваліфікації ліда (див. опис інструменту); не викликай collect_order — його немає в цьому режимі.',

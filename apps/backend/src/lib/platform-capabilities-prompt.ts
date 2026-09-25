@@ -18,20 +18,20 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт.
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history, lookup_client_by_phone) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки).
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
 Спільні: update_client_info, tag_client, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
-Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, якщо воно схоже на ПІБ). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ.
+Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment.
 
 sales: search_catalog, get_delivery_cost, collect_order
 leadgen: classify_intent, submit_brief
-booking: classify_intent, search_services, get_available_slots, get_client_crm_history, attach_reference_photo, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
+booking: classify_intent, search_services, get_available_slots, lookup_client_by_phone, get_client_crm_history, attach_reference_photo, notify_client_running_late, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
 general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
 Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment).
 
-Telegram-сповіщення менеджерам — НЕ окремий tool (йдуть з collect_order / create_local_order / brief / booking / handoff). Картка замовлення без кнопок Підтвердити/Відхилити: агент уже підтвердив клієнту.
+Telegram-сповіщення менеджерам — з collect_order / create_local_order / brief / booking / handoff; плюс notify_client_running_late при запізненні клієнта. Картка замовлення без кнопок Підтвердити/Відхилити: агент уже підтвердив клієнту.
 
 ## Замовлення (sales / collect_order / create_local_order) — джерело правди
 

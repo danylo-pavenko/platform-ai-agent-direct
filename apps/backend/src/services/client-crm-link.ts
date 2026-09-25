@@ -17,7 +17,8 @@ import {
   resolveRecommendedDuration,
 } from '../lib/client-service-duration.js';
 
-import { crmPersonFullName } from '../lib/client-person-name.js';
+import { crmPersonFullName, effectiveClientPersonName, isPlausiblePersonName } from '../lib/client-person-name.js';
+import { normalizeUaPhone } from '../lib/client-contact-heuristics.js';
 
 const log = pino({ name: 'client-crm-link' });
 
@@ -27,6 +28,8 @@ export interface LinkClientResult {
   provider: CrmProviderName | null;
   source: 'existing' | 'manual' | 'phone_match' | 'upsert' | 'unlinked' | 'skipped';
   message?: string;
+  /** CRM card name when found via findClient (BeautyPro etc.). */
+  fullName?: string | null;
 }
 
 async function resolveLinkProvider(
@@ -140,6 +143,7 @@ export async function linkClientToCrm(
   }
 
   let matchedId: string | null = null;
+  let matchedName: string | null = null;
   try {
     const match = await crm.findClient({
       phone: client.phone ?? undefined,
@@ -147,6 +151,10 @@ export async function linkClientToCrm(
       instagramUsername: client.igUsername ?? undefined,
     });
     matchedId = match?.crmBuyerId ?? null;
+    matchedName =
+      typeof match?.fullName === 'string' && match.fullName.trim()
+        ? match.fullName.trim()
+        : null;
   } catch (err) {
     log.warn({ err, clientId, provider }, 'findClient failed');
     return {
@@ -159,20 +167,32 @@ export async function linkClientToCrm(
   }
 
   if (matchedId) {
+    const localPerson = effectiveClientPersonName(client.displayName, client.igFullName);
+    const adoptCrmName =
+      matchedName &&
+      isPlausiblePersonName(matchedName) &&
+      !localPerson
+        ? matchedName
+        : undefined;
     await prisma.client.update({
       where: { id: clientId },
       data: {
         crmBuyerId: matchedId,
         crmProvider: provider,
         crmLinkedAt: new Date(),
+        ...(adoptCrmName ? { displayName: adoptCrmName } : {}),
       },
     });
-    log.info({ clientId, crmBuyerId: matchedId, provider }, 'Linked client by phone/email match');
+    log.info(
+      { clientId, crmBuyerId: matchedId, provider, adoptCrmName: Boolean(adoptCrmName) },
+      'Linked client by phone/email match',
+    );
     return {
       linked: true,
       crmBuyerId: matchedId,
       provider,
       source: 'phone_match',
+      fullName: matchedName,
     };
   }
 
@@ -364,6 +384,126 @@ export function formatCrmHistoryForPrompt(
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Agent tool: search CRM by phone, link local Client, optionally adopt CRM name.
+ * Read-only CRM match (no upsert create).
+ */
+export async function lookupClientByPhone(
+  clientId: string,
+  phoneRaw: string,
+): Promise<{
+  found: boolean;
+  crmBuyerId: string | null;
+  fullName: string | null;
+  phone: string | null;
+  text: string;
+}> {
+  const phone =
+    normalizeUaPhone(phoneRaw) ??
+    (phoneRaw.trim().replace(/\D/g, '').length >= 10 ? phoneRaw.trim() : null);
+  if (!phone) {
+    return {
+      found: false,
+      crmBuyerId: null,
+      fullName: null,
+      phone: null,
+      text: '[lookup_client_by_phone] ПОМИЛКА: некоректний телефон. Попроси номер ще раз.',
+    };
+  }
+
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) {
+    return {
+      found: false,
+      crmBuyerId: null,
+      fullName: null,
+      phone,
+      text: '[lookup_client_by_phone] ПОМИЛКА: клієнта не знайдено локально.',
+    };
+  }
+
+  if (!client.phone || client.phone !== phone) {
+    await prisma.client.update({
+      where: { id: clientId },
+      data: { phone },
+    });
+  }
+
+  const provider = await resolveLinkProvider(client.crmProvider);
+  const crm = getCrmAdapter(provider);
+  if (!crm.findClient) {
+    return {
+      found: false,
+      crmBuyerId: client.crmBuyerId,
+      fullName: effectiveClientPersonName(client.displayName, client.igFullName) ?? null,
+      phone,
+      text: `[lookup_client_by_phone] ПОМИЛКА: CRM ${provider} не підтримує пошук клієнта.`,
+    };
+  }
+
+  let match: { crmBuyerId: string; fullName?: string } | null = null;
+  try {
+    match = await crm.findClient({ phone });
+  } catch (err) {
+    log.warn({ err, clientId, phone }, 'lookupClientByPhone findClient failed');
+    return {
+      found: false,
+      crmBuyerId: null,
+      fullName: null,
+      phone,
+      text: '[lookup_client_by_phone] ПОМИЛКА: CRM тимчасово недоступна.',
+    };
+  }
+
+  if (match?.crmBuyerId) {
+    const crmName =
+      typeof match.fullName === 'string' && isPlausiblePersonName(match.fullName)
+        ? match.fullName.trim()
+        : null;
+    const localPerson = effectiveClientPersonName(client.displayName, client.igFullName);
+    await prisma.client.update({
+      where: { id: clientId },
+      data: {
+        phone,
+        crmBuyerId: match.crmBuyerId,
+        crmProvider: provider,
+        crmLinkedAt: new Date(),
+        ...(crmName && !localPerson ? { displayName: crmName } : {}),
+      },
+    });
+    const name = crmName ?? localPerson ?? null;
+    return {
+      found: true,
+      crmBuyerId: match.crmBuyerId,
+      fullName: name,
+      phone,
+      text: [
+        '[lookup_client_by_phone] РЕЗУЛЬТАТ: знайдено в CRM.',
+        `Телефон: ${phone}`,
+        name
+          ? `Імʼя з CRM / профілю: ${name} — використай як customer_name у book_appointment; не питай імʼя знову.`
+          : 'Імʼя в CRM не знайдено — якщо в блоці «Імʼя:» профілю є імʼя, використай його; інакше коротко спитай лише імʼя.',
+        'Далі можна get_client_crm_history (за потреби) і book_appointment з цим телефоном.',
+      ].join('\n'),
+    };
+  }
+
+  const localName = effectiveClientPersonName(client.displayName, client.igFullName);
+  return {
+    found: false,
+    crmBuyerId: null,
+    fullName: localName ?? null,
+    phone,
+    text: [
+      '[lookup_client_by_phone] РЕЗУЛЬТАТ: у CRM за цим телефоном не знайдено.',
+      `Телефон збережено: ${phone}`,
+      localName
+        ? `Імʼя з Instagram / профілю: ${localName} — використай для book_appointment; не питай імʼя знову.`
+        : 'Імʼя ще невідоме — коротко спитай лише як звертатись (одне слово), потім book_appointment.',
+    ].join('\n'),
+  };
 }
 
 /**

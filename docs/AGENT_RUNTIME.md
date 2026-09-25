@@ -112,7 +112,7 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 **Product order amounts:** `items[].price` = catalog/list price from search/file; `quoted_total` (required on `collect_order` / Insights `create_product_order`) = amount told to the customer. KeyCRM mirror scales line prices to `quotedTotal`; Telegram and admin show quoted (+ catalog when they differ). Legacy rows without `quotedTotal` fall back to catalog sum on read.
 | **leadgen** | Qualification / brief | `classify_intent`, `submit_brief` | Brief + Telegram (+ optional KeyCRM lead) |
-| **booking** | Salon appointment | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | CRM appointment |
+| **booking** | Salon appointment | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | CRM appointment |
 | **general** | All scenarios (**default**) | Union of sales + leadgen + booking (deduped) | Same handlers; pick tool by client intent |
 
 **general** is not a separate tool list: `buildAgentTools('general')` merges the specialized builders. When you add a tool to sales/leadgen/booking, it appears in general automatically (enforced by unit test).

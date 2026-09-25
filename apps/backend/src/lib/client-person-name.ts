@@ -47,6 +47,10 @@ export function isPlausiblePersonName(value: string | null | undefined): boolean
 
 const CYRILLIC_RE = /[А-ЯІЇЄҐа-яіїєґ]/u;
 
+/** One-word Latin IG names that are brands / handles, not people. */
+const LATIN_BRAND_DENY =
+  /^(moxito|studio|beauty|nails?|spa|barber|official|brand|shop|store|salon|clinic|fitness|yoga|team|admin|support|info|hello|welcome|instagram|meta|direct)$/iu;
+
 /**
  * Name said in chat (or typed in admin) — not a copy of the IG profile title.
  * `displayName === igFullName` is IG-seeded, so a later chat intro can replace it.
@@ -63,14 +67,17 @@ export function effectiveChatDisplayName(
 }
 
 /**
- * Instagram Graph `name` when it looks like a person (Олена Коваль, Діана).
- * Skips slogans and one-word Latin brands (Moxito).
+ * Instagram Graph `name` when it looks like a person (Олена Коваль, Діана, Marta).
+ * Skips slogans and one-word Latin brands (Moxito) — not given names like Marta/Anna.
  */
 export function igProfilePersonName(value: string | null | undefined): string | undefined {
   const t = (value ?? '').trim().replace(/\s+/g, ' ');
   if (!isPlausiblePersonName(t)) return undefined;
   const tokens = tokensOf(t);
-  if (tokens.length === 1 && !CYRILLIC_RE.test(tokens[0]!)) return undefined;
+  if (tokens.length === 1) {
+    const only = tokens[0]!;
+    if (!CYRILLIC_RE.test(only) && LATIN_BRAND_DENY.test(only)) return undefined;
+  }
   return t;
 }
 

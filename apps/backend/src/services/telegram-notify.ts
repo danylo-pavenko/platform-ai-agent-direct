@@ -516,6 +516,60 @@ export async function notifyOrder(params: {
 /**
  * Notify-only card when agent cancels / removes a service / reschedules a booking.
  */
+/**
+ * Client running late — short card for managers (not a handoff).
+ */
+export async function notifyClientRunningLate(params: {
+  conversationId: string;
+  clientIgUserId?: string | null;
+  customerName: string;
+  phone?: string | null;
+  minutesLate?: number | null;
+  masterName?: string | null;
+  scheduledTime?: string | null;
+  note?: string | null;
+}): Promise<void> {
+  const {
+    conversationId,
+    clientIgUserId,
+    customerName,
+    phone,
+    minutesLate,
+    masterName,
+    scheduledTime,
+    note,
+  } = params;
+  const adminUrl = adminConversationUrl(conversationId);
+  const delay =
+    typeof minutesLate === 'number' && Number.isFinite(minutesLate) && minutesLate > 0
+      ? `~${Math.round(minutesLate)} хв`
+      : 'час не уточнено';
+  const text = [
+    `⏱ <b>Клієнт запізнюється</b>`,
+    ``,
+    `Ім'я: ${escapeHtml(customerName || '—')}`,
+    phone ? `Телефон: ${escapeHtml(phone)}` : null,
+    clientIgUserId
+      ? `Клієнт: ${escapeHtml(
+          formatTelegramClientLabel({
+            displayName: customerName,
+            igUserId: clientIgUserId,
+          }),
+        )}`
+      : null,
+    masterName ? `Майстер: ${escapeHtml(masterName)}` : null,
+    scheduledTime ? `Запис на: ${escapeHtml(scheduledTime)}` : null,
+    `Запізнення: ${escapeHtml(delay)}`,
+    note ? `Примітка: ${escapeHtml(note)}` : null,
+    ``,
+    `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
+  ]
+    .filter((line) => line !== '' && line != null)
+    .join('\n');
+
+  await sendToManagerGroup(text, undefined, 'order');
+}
+
 export async function notifyBookingLifecycle(params: {
   kind: 'cancelled' | 'service_removed' | 'rescheduled';
   appointmentId: string;

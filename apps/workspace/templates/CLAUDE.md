@@ -9,7 +9,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 |------|------------------------|-------|
 | **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
-| **booking** | `search_services`, `get_available_slots`, `get_client_crm_history`, `attach_reference_photo`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
+| **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
@@ -18,7 +18,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment` (MODE: PARALLEL). Без master_id на рядках — MODE: SEQUENTIAL (не продавай як паралель).
 
-Платформа інжектить «Найближчі записи» (сьогодні + кілька днів). «Запізнююсь / я тут / через N хв» — про той візит, не новий `book_appointment`. У підтвердженні клієнту — назва послуги, ніколи UUID.
+Платформа інжектить «Найближчі записи» (сьогодні + кілька днів). «Запізнююсь / я тут / через N хв» — про той візит, не новий `book_appointment`; сповісти менеджерів через `notify_client_running_late`. У підтвердженні клієнту — назва послуги, ніколи UUID. Телефон / «я в базі» → `lookup_client_by_phone`; «Імʼя:» з профілю (включно з латиницею) — не перепитуй.
 
 Два майстри з однаковим імʼям — UUID зі слотів (+ positions у підписі); улюблений з історії лише для схожої послуги. Платформа може відхилити book з `MASTER_SERVICE_MISMATCH`.
 

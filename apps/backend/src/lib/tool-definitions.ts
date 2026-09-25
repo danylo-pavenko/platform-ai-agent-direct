@@ -36,6 +36,7 @@ export const LOOKUP_TOOL_NAMES = [
   'get_available_slots',
   'get_delivery_cost',
   'get_client_crm_history',
+  'lookup_client_by_phone',
 ] as const;
 
 export type LookupToolName = (typeof LOOKUP_TOOL_NAMES)[number];
@@ -51,6 +52,7 @@ export const PROFILE_TOOL_NAMES = [
   'set_conversation_branch',
   'attach_reference_photo',
   'classify_intent',
+  'notify_client_running_late',
 ] as const;
 
 export type ProfileToolName = (typeof PROFILE_TOOL_NAMES)[number];
@@ -490,6 +492,50 @@ const GET_CLIENT_CRM_HISTORY: ToolDefinition = {
   },
 };
 
+const LOOKUP_CLIENT_BY_PHONE: ToolDefinition = {
+  name: 'lookup_client_by_phone',
+  description:
+    'Знайти клієнта в CRM за телефоном (коли назвав номер або сказав «я вже в базі»). Зберігає телефон, привʼязує CRM id і повертає імʼя з картки — використай його в book_appointment, не питай імʼя знову якщо знайдено. Не згадуй клієнту сам факт пошуку.',
+  parameters: {
+    type: 'object',
+    properties: {
+      phone: {
+        type: 'string',
+        description: 'Номер з повідомлення клієнта (будь-який UA формат)',
+      },
+    },
+    required: ['phone'],
+  },
+};
+
+const NOTIFY_CLIENT_RUNNING_LATE: ToolDefinition = {
+  name: 'notify_client_running_late',
+  description:
+    'Повідомити адміністраторів у Telegram, що клієнт запізнюється на сьогоднішній візит. Викликай разом із короткою лояльною відповіддю клієнту (не замість неї).',
+  parameters: {
+    type: 'object',
+    properties: {
+      minutes_late: {
+        type: 'number',
+        description: 'Скільки хвилин запізнення (якщо клієнт сказав; інакше можна опустити)',
+      },
+      master_name: {
+        type: 'string',
+        description: 'Імʼя майстра з найближчого запису (без прізвища)',
+      },
+      scheduled_time: {
+        type: 'string',
+        description: 'Запланований час візиту ГГ:ХХ',
+      },
+      note: {
+        type: 'string',
+        description: 'Коротка примітка (напр. «буду через 5 хв»)',
+      },
+    },
+    required: [],
+  },
+};
+
 // ── Sales-mode-only tools ──────────────────────────────────────────────────
 
 const SEARCH_CATALOG: ToolDefinition = {
@@ -857,8 +903,10 @@ function buildBookingModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
     ...buildSharedBaseTools(opts),
     SEARCH_SERVICES,
     GET_AVAILABLE_SLOTS,
+    LOOKUP_CLIENT_BY_PHONE,
     GET_CLIENT_CRM_HISTORY,
     ATTACH_REFERENCE_PHOTO,
+    NOTIFY_CLIENT_RUNNING_LATE,
     BOOK_APPOINTMENT,
     CANCEL_APPOINTMENT,
     REMOVE_APPOINTMENT_SERVICE,

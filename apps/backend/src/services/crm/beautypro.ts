@@ -60,6 +60,7 @@ import {
   buildBeautyproClientWriteBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
+  formatBeautyproClientFullName,
   normalizeIgUsername,
   pickClientMatchingIg,
   type RawClientLike,
@@ -1023,7 +1024,13 @@ export const beautyproAdapter: CrmAdapter = {
       return { crmBuyerId: match.crmBuyerId };
     }
 
-    const tryPhone = async (phone: string): Promise<string | null> => {
+    type Hit = { id: string; fullName?: string };
+    const fromRow = (hit: RawClient | RawClientLike | undefined | null): Hit | null => {
+      if (!hit?.id) return null;
+      return { id: hit.id, fullName: formatBeautyproClientFullName(hit) };
+    };
+
+    const tryPhone = async (phone: string): Promise<Hit | null> => {
       for (const variant of buildClientPhoneSearchVariants(phone)) {
         try {
           const rows = await bpFetch<RawClient[]>('GET', '/clients', {
@@ -1033,8 +1040,8 @@ export const beautyproAdapter: CrmAdapter = {
               archive: false,
             },
           });
-          const hit = (rows ?? [])[0];
-          if (hit?.id) return hit.id;
+          const found = fromRow((rows ?? [])[0]);
+          if (found) return found;
         } catch (err) {
           log.warn({ err, variant }, 'BeautyPro client phone lookup failed');
         }
@@ -1042,7 +1049,7 @@ export const beautyproAdapter: CrmAdapter = {
       return null;
     };
 
-    const tryEmail = async (email: string): Promise<string | null> => {
+    const tryEmail = async (email: string): Promise<Hit | null> => {
       const normalized = email.trim().toLowerCase();
       if (!normalized) return null;
       try {
@@ -1053,8 +1060,7 @@ export const beautyproAdapter: CrmAdapter = {
             archive: false,
           },
         });
-        const hit = (rows ?? [])[0];
-        return hit?.id ?? null;
+        return fromRow((rows ?? [])[0]);
       } catch (err) {
         log.warn({ err, email: normalized }, 'BeautyPro client email lookup failed');
         return null;
@@ -1065,7 +1071,7 @@ export const beautyproAdapter: CrmAdapter = {
      * BeautyPro has no instagram filter. Match `name` ≈ handle.
      * Do not request `comment` in GET fields — live API 400s Unknown parameter.
      */
-    const tryInstagram = async (username: string): Promise<string | null> => {
+    const tryInstagram = async (username: string): Promise<Hit | null> => {
       const handle = normalizeIgUsername(username);
       if (!handle) return null;
       for (const nameQ of buildIgNameSearchVariants(handle)) {
@@ -1078,7 +1084,7 @@ export const beautyproAdapter: CrmAdapter = {
             },
           });
           const hit = pickClientMatchingIg(rows, handle);
-          if (hit?.id) return hit.id;
+          return fromRow(hit);
         } catch (err) {
           log.warn({ err, nameQ }, 'BeautyPro client IG/name lookup failed');
         }
@@ -1088,17 +1094,17 @@ export const beautyproAdapter: CrmAdapter = {
 
     if (match.phone) {
       const byPhone = await tryPhone(match.phone);
-      if (byPhone) return { crmBuyerId: byPhone };
+      if (byPhone) return { crmBuyerId: byPhone.id, fullName: byPhone.fullName };
     }
 
     if (match.email) {
       const byEmail = await tryEmail(match.email);
-      if (byEmail) return { crmBuyerId: byEmail };
+      if (byEmail) return { crmBuyerId: byEmail.id, fullName: byEmail.fullName };
     }
 
     if (match.instagramUsername) {
       const byIg = await tryInstagram(match.instagramUsername);
-      if (byIg) return { crmBuyerId: byIg };
+      if (byIg) return { crmBuyerId: byIg.id, fullName: byIg.fullName };
     }
 
     return null;

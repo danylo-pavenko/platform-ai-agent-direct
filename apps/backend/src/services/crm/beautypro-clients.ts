@@ -96,6 +96,20 @@ export type RawClientLike = {
   comments?: string | null;
 };
 
+/** Human-readable name from BeautyPro client list row. */
+export function formatBeautyproClientFullName(
+  row: Pick<RawClientLike, 'name' | 'firstname' | 'lastname'>,
+): string | undefined {
+  const composed = [row.firstname, row.lastname]
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter(Boolean)
+    .join(' ')
+    .trim();
+  const fromName = typeof row.name === 'string' ? row.name.trim() : '';
+  const n = fromName || composed;
+  return n || undefined;
+}
+
 export function clientNoteFromBeautyproRow(
   row: Pick<RawClientLike, 'comment' | 'comments'>,
 ): string | null {
