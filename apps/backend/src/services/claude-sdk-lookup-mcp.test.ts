@@ -13,10 +13,16 @@ describe('lookupToolsForMcp', () => {
     expect(lookupToolsForMcp(tools, { clientId: 'c1', crmHistoryAllowed: false })).toEqual([
       'search_services',
       'get_available_slots',
+      'lookup_client_by_phone',
     ]);
     expect(
       lookupToolsForMcp(tools, { clientId: 'c1', crmHistoryAllowed: true }),
-    ).toContain('get_client_crm_history');
+    ).toEqual([
+      'search_services',
+      'get_available_slots',
+      'lookup_client_by_phone',
+      'get_client_crm_history',
+    ]);
   });
 
   it('allowlists sales catalog lookups, not booking tools', () => {
@@ -36,10 +42,21 @@ describe('lookupToolsForMcp', () => {
       crmHistoryAllowed: true,
     });
     expect(names).toContain('search_services');
+    expect(names).toContain('lookup_client_by_phone');
     expect(names).toContain('book_appointment');
     expect(names).toContain('request_handoff');
     expect(names).toContain('update_client_info');
     expect(names).toContain('get_client_crm_history');
+    expect(names).toContain('notify_client_running_late');
+  });
+
+  it('keeps phone lookup when CRM history is gated off', () => {
+    const names = platformToolsForMcp(buildAgentTools('booking'), {
+      clientId: 'c1',
+      crmHistoryAllowed: false,
+    });
+    expect(names).toContain('lookup_client_by_phone');
+    expect(names).not.toContain('get_client_crm_history');
   });
 
   it('omits book/collect after mutations are disabled, but keeps handoff', () => {
@@ -49,6 +66,7 @@ describe('lookupToolsForMcp', () => {
     expect(names).not.toContain('book_appointment');
     expect(names).toContain('request_handoff');
     expect(names).toContain('search_services');
+    expect(names).toContain('lookup_client_by_phone');
   });
 
   it('names MCP tools mcp__platform__*', () => {

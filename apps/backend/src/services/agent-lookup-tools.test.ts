@@ -19,12 +19,13 @@ vi.mock('./booking-lookup.js', () => ({
 }));
 vi.mock('./client-crm-link.js', () => ({
   fetchClientCrmHistory: vi.fn(),
+  lookupClientByPhone: vi.fn(),
 }));
 
 import { executeLookupTool, lookupResultFromResponse } from './agent-lookup-tools.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { searchServicesWithFallback } from './booking-lookup.js';
-import { fetchClientCrmHistory } from './client-crm-link.js';
+import { fetchClientCrmHistory, lookupClientByPhone } from './client-crm-link.js';
 
 describe('executeLookupTool', () => {
   it('rejects empty search_services query', async () => {
@@ -66,6 +67,38 @@ describe('executeLookupTool', () => {
     );
     expect(text).toContain('РЕЗУЛЬТАТ');
     expect(text).toContain('манікюр');
+  });
+
+  it('requires phone for lookup_client_by_phone', async () => {
+    await expect(
+      executeLookupTool('lookup_client_by_phone', {}, { clientId: 'c1' }),
+    ).resolves.toMatch(/phone обовʼязковий/);
+    expect(lookupClientByPhone).not.toHaveBeenCalled();
+  });
+
+  it('requires clientId for lookup_client_by_phone', async () => {
+    await expect(
+      executeLookupTool('lookup_client_by_phone', { phone: '0938165670' }),
+    ).resolves.toMatch(/немає клієнта/);
+    expect(lookupClientByPhone).not.toHaveBeenCalled();
+  });
+
+  it('returns CRM name from lookup_client_by_phone without asking again', async () => {
+    vi.mocked(lookupClientByPhone).mockResolvedValueOnce({
+      found: true,
+      crmBuyerId: 'crm-1',
+      fullName: 'Марта',
+      phone: '+380938165670',
+      text: '[lookup_client_by_phone] РЕЗУЛЬТАТ: знайдено в CRM.\nІмʼя з CRM / профілю: Марта — використай як customer_name',
+    });
+    const text = await executeLookupTool(
+      'lookup_client_by_phone',
+      { phone: '0938165670' },
+      { clientId: 'c1' },
+    );
+    expect(text).toContain('знайдено в CRM');
+    expect(text).toContain('Марта');
+    expect(lookupClientByPhone).toHaveBeenCalledWith('c1', '0938165670');
   });
 
   it('formats catalog misses without leaking ids', async () => {

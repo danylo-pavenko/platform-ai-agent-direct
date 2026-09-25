@@ -115,13 +115,13 @@ describe('crmPersonFullName', () => {
     ).toBe('Олена Коваль');
   });
 
-  it('uses an IG-seeded person name stored as displayName', () => {
+  it('uses an IG-seeded Latin given name for CRM full name', () => {
     expect(
       crmPersonFullName({
-        displayName: 'Олена Коваль',
-        igFullName: 'Олена Коваль',
-        igUsername: 'olena.k',
+        displayName: 'Marta',
+        igFullName: 'Marta',
+        igUsername: 'martavibe.s',
       }),
-    ).toBe('Олена Коваль');
+    ).toBe('Marta');
   });
 });

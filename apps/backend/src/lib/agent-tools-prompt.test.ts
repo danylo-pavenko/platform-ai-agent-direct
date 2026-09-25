@@ -60,6 +60,17 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/TIME_CONFLICT/);
   });
 
+  it('teaches phone CRM lookup and Latin profile names for booking close', () => {
+    const tools = buildAgentTools('booking');
+    expect(tools.map((t) => t.name)).toContain('lookup_client_by_phone');
+    expect(tools.map((t) => t.name)).toContain('notify_client_running_late');
+    const prompt = formatAgentToolsPrompt(tools);
+    expect(prompt).toContain('lookup_client_by_phone');
+    expect(prompt).toMatch(/я вже в базі/);
+    expect(prompt).toMatch(/Marta/);
+    expect(prompt).toContain('notify_client_running_late');
+  });
+
   it('forbids deferred catalog promises without search_services in booking', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/Заборонено писати клієнту/);

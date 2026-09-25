@@ -6,6 +6,7 @@ import {
   buildIgNameSearchVariants,
   commentsContainIg,
   clientNoteFromBeautyproRow,
+  formatBeautyproClientFullName,
   formatPhoneForBeautyproWrite,
   igCommentMarker,
   normalizeIgUsername,
@@ -86,5 +87,14 @@ describe('beautypro client helpers', () => {
   it('formats UA phones for write as +380…', () => {
     expect(formatPhoneForBeautyproWrite('0958959421')).toBe('+380958959421');
     expect(formatPhoneForBeautyproWrite('+1 555')).toBe('+1 555');
+  });
+
+  it('formats client full name from name or firstname+lastname', () => {
+    expect(formatBeautyproClientFullName({ name: 'Марта Коваль' })).toBe('Марта Коваль');
+    expect(
+      formatBeautyproClientFullName({ firstname: 'Марта', lastname: 'Коваль' }),
+    ).toBe('Марта Коваль');
+    expect(formatBeautyproClientFullName({ firstname: 'Марта', lastname: '' })).toBe('Марта');
+    expect(formatBeautyproClientFullName({ name: '  ', firstname: '  ' })).toBeUndefined();
   });
 });
