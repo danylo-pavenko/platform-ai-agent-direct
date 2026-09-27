@@ -92,6 +92,26 @@ describe('notifyOrder', () => {
     expect(text).not.toMatch(/доставк/i);
     expect(options?.reply_markup).toBeUndefined();
   });
+
+  it('does not show 0 ₴ for booking lines without a known price', async () => {
+    await notifyOrder({
+      orderId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      conversationId: 'ffffffff-1111-2222-3333-444444444444',
+      clientIgUserId: '17841410659012767',
+      items: [
+        { name: 'Моделювання брів', price: 0, qty: 1 },
+        { name: 'Стрижка кінчиків', price: 0, qty: 1 },
+      ],
+      customerName: 'Nika Shevtsova',
+      phone: '+380967774930',
+      kind: 'booking',
+      summary: 'Запис: Моделювання брів, Стрижка кінчиків · 30.09.2026 12:00',
+    });
+
+    const [, text] = sendMessage.mock.calls[0];
+    expect(text).toContain('ціна в CRM');
+    expect(text).not.toMatch(/0 ₴/);
+  });
 });
 
 describe('notifyHandoffFollowUp', () => {

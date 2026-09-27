@@ -74,6 +74,39 @@ vi.mock('./client-crm-link.js', () => ({
   fetchClientCrmHistory: vi.fn(async () => ({ items: [], provider: null, crmBuyerId: null, text: '' })),
 }));
 
+vi.mock('../lib/synced-services.js', () => ({
+  loadSyncedServices: vi.fn(async () => [
+    {
+      id: '88d8645d-2022-fa67-6d46-f6ed12f7a6a2',
+      name: 'Комплекс манікюр',
+      price: 820,
+      durationMin: 115,
+      provider: 'beautypro',
+    },
+    {
+      id: '11111111-1111-4111-8111-111111111113',
+      name: 'Манікюр',
+      price: 500,
+      durationMin: 60,
+      provider: 'beautypro',
+    },
+    {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      name: 'Моделювання брів',
+      price: 450,
+      durationMin: 30,
+      provider: 'beautypro',
+    },
+    {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+      name: 'Стрижка кінчиків',
+      price: 300,
+      durationMin: 20,
+      provider: 'beautypro',
+    },
+  ]),
+}));
+
 import {
   handleBookAppointment,
   mirrorAppointmentToCrm,
@@ -158,6 +191,41 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     expect(sendText).toHaveBeenCalledWith(
       'ig-angela',
       '820 грн. Чекаємо тебе завтра о 11:00!',
+    );
+  });
+
+  it('fills Order/Telegram prices from synced catalog when agent omits services[].price', async () => {
+    const result = await handleBookAppointment(
+      'conv-1',
+      'client-1',
+      {
+        customer_name: 'Nika Shevtsova',
+        phone: '+380967774930',
+        date: '30.09.2026',
+        time: '12:00',
+        services: [
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1', name: 'Моделювання брів', duration_min: 30 },
+          { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2', name: 'Стрижка кінчиків', duration_min: 20 },
+        ],
+      },
+      { clientIgUserId: 'ig-nika' },
+    );
+
+    expect(result?.appointmentId).toBe('appt-1');
+    const createArg = prismaMock.order.create.mock.calls[0]?.[0] as {
+      data: { items: Array<{ name: string; price: number }> };
+    };
+    expect(createArg.data.items).toEqual([
+      { name: 'Моделювання брів', price: 450, qty: 1 },
+      { name: 'Стрижка кінчиків', price: 300, qty: 1 },
+    ]);
+    expect(notifyOrder).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [
+          { name: 'Моделювання брів', price: 450, qty: 1 },
+          { name: 'Стрижка кінчиків', price: 300, qty: 1 },
+        ],
+      }),
     );
   });
 

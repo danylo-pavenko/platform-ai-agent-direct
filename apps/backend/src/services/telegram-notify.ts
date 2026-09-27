@@ -435,7 +435,13 @@ export async function notifyOrder(params: {
       const qty = Number(item.qty) > 0 ? Number(item.qty) : 1;
       const price = Number(item.price) || 0;
       const variant = item.variant ? ` (${escapeHtml(item.variant)})` : '';
-      return `• ${escapeHtml(name)}${variant} × ${qty} - ${price} ₴`;
+      const priceLabel =
+        price > 0
+          ? `${price} ₴`
+          : kind === 'booking'
+            ? 'ціна в CRM'
+            : '0 ₴';
+      return `• ${escapeHtml(name)}${variant} × ${qty} - ${priceLabel}`;
     })
     .join('\n');
 

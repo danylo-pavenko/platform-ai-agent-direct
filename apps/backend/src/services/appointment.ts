@@ -56,6 +56,8 @@ import {
   buildServiceNameCatalog,
   resolveServiceDisplayName,
 } from '../lib/service-display-name.js';
+import { catalogLinePrice } from '../lib/service-price-resolve.js';
+import { enrichAppointmentServicePrices } from '../lib/booking-service-prices.js';
 import {
   checkBookingMasterServiceFit,
   formatMasterServiceMismatchToolResult,
@@ -107,8 +109,10 @@ export async function handleBookAppointment(
   const fallbackMasterId = asCrmId(args.master_id) ?? undefined;
 
   const rawServices = Array.isArray(args.services) ? args.services : [];
-  const serviceNameCatalog = buildServiceNameCatalog(await loadSyncedServices());
-  const services: AppointmentServiceLine[] = rawServices.flatMap((raw) => {
+  const syncedServices = await loadSyncedServices();
+  const serviceNameCatalog = buildServiceNameCatalog(syncedServices);
+  const serviceById = new Map(syncedServices.map((s) => [s.id, s]));
+  const parsedServices: AppointmentServiceLine[] = rawServices.flatMap((raw) => {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
     const o = raw as Record<string, unknown>;
     const id = asCrmId(o.id);
@@ -122,7 +126,10 @@ export async function handleBookAppointment(
     const name = id
       ? resolveServiceDisplayName(rawName, id, serviceNameCatalog)
       : (rawName?.trim() || 'Послуга');
-    const price = typeof o.price === 'number' ? o.price : 0;
+    const agentPrice =
+      typeof o.price === 'number' && Number.isFinite(o.price) && o.price > 0 ? o.price : 0;
+    const catalogPrice = id ? catalogLinePrice(serviceById.get(id) ?? null) : null;
+    const price = agentPrice > 0 ? agentPrice : (catalogPrice ?? 0);
     if (!id) return [];
     const masterId = asCrmId(o.master_id) ?? fallbackMasterId;
     const startTime = normalizeServiceStartTime(
@@ -134,6 +141,9 @@ export async function handleBookAppointment(
     );
     return [{ id, durationMin, name, price, masterId, startTime }];
   });
+
+  // Snapshot may have 0 base + priceRows; enrich grades / live CRM when still 0.
+  const services = await enrichAppointmentServicePrices(parsedServices);
 
   if (!customerName || !phone || !rawDate || !time || services.length === 0) {
     // Persist open funnel when slot is known but contacts are still missing (overnight close).

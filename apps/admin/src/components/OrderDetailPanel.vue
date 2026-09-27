@@ -5,7 +5,8 @@
       <div v-for="(line, i) in item.items" :key="i" class="mb-1">
         {{ line.name }}{{ line.variant ? ` (${line.variant})` : '' }}
         × {{ line.qty ?? 1 }} — {{ line.price * (line.qty ?? 1) }} ₴
-        <span class="text-medium-emphasis text-caption"> (каталог)</span>
+        <span v-if="item.kind !== 'booking'" class="text-medium-emphasis text-caption"> (каталог)</span>
+        <span v-else class="text-medium-emphasis text-caption"> (прайс послуг)</span>
       </div>
       <div class="mt-2">
         <strong>Озвучено клієнту:</strong>

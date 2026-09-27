@@ -35,24 +35,38 @@ export function mergeOrderLineItems(
   incoming: OrderLineItem[],
 ): OrderLineItem[] {
   const merged = existing.map((row) => ({ ...row }));
-  const seen = new Set(
-    merged.map((row) => row.name.trim().toLowerCase()).filter(Boolean),
+  const byName = new Map(
+    merged
+      .map((row, idx) => [row.name.trim().toLowerCase(), idx] as const)
+      .filter(([name]) => Boolean(name)),
   );
 
   for (const row of incoming) {
-    const name = row.name.trim();
-    const key = name.toLowerCase();
-    if (key && seen.has(key)) continue;
-    if (key) seen.add(key);
-    merged.push({
-      name: name || row.name,
-      variant: row.variant,
-      price: Number(row.price) || 0,
-      qty: Number(row.qty) > 0 ? Number(row.qty) : 1,
-    });
+    const key = row.name.trim().toLowerCase();
+    if (!key) {
+      merged.push({ ...row });
+      continue;
+    }
+    const idx = byName.get(key);
+    if (idx == null) {
+      byName.set(key, merged.length);
+      merged.push({ ...row });
+      continue;
+    }
+    const prev = merged[idx]!;
+    // Prefer a real price over a stale 0 from an earlier book without catalog fill.
+    const price =
+      row.price > 0 ? row.price : prev.price > 0 ? prev.price : 0;
+    const qty = Math.max(prev.qty || 1, row.qty || 1);
+    merged[idx] = {
+      ...prev,
+      ...row,
+      price,
+      qty,
+      name: prev.name || row.name,
+    };
   }
-
-  return merged.length > 0 ? merged : incoming;
+  return merged;
 }
 
 export function buildBookingOrderSummary(params: {

@@ -124,6 +124,26 @@ export function formatResolvedPrice(resolved: ResolvedServicePrice): string {
   }
 }
 
+/**
+ * Single line-item price for booking Order / Telegram when the agent omitted
+ * `services[].price`. Prefer fixed grade price; for ranges use the min
+ * (same as “від …” in client quotes).
+ */
+export function catalogLinePrice(
+  service: CrmServiceItem | undefined | null,
+  opts?: {
+    branchId?: string | null;
+    masterPositionIds?: string[] | null;
+  },
+): number | null {
+  if (!service) return null;
+  const resolved = resolveServicePrice(service, opts);
+  if (resolved.kind === 'fixed' && resolved.price > 0) return resolved.price;
+  if (resolved.kind === 'range' && resolved.min > 0) return resolved.min;
+  if (typeof service.price === 'number' && service.price > 0) return service.price;
+  return null;
+}
+
 /** Short grade breakdown for catalog / Sync UI (only grades present on the service). */
 export function formatGradeBreakdown(item: CrmServiceItem): string {
   const grades = gradePriceBreakdown(item);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CrmServiceItem } from '../services/crm/types.js';
 import {
+  catalogLinePrice,
   formatGradeBreakdown,
   formatResolvedPrice,
   gradePriceBreakdown,
@@ -85,5 +86,26 @@ describe('gradePriceBreakdown / uniqueBranchCount', () => {
 
   it('counts unique branches not grade rows', () => {
     expect(uniqueBranchCount(manicure)).toBe(2);
+  });
+});
+
+describe('catalogLinePrice', () => {
+  it('uses range min when agent omitted price', () => {
+    expect(catalogLinePrice(manicure)).toBe(400);
+  });
+
+  it('uses fixed grade price when master positions given', () => {
+    expect(
+      catalogLinePrice(manicure, { masterPositionIds: ['premium'] }),
+    ).toBe(650);
+  });
+
+  it('falls back to base price without rows', () => {
+    expect(catalogLinePrice(svc({ id: 'x', name: 'Стрижка', price: 350 }))).toBe(350);
+  });
+
+  it('returns null when unknown', () => {
+    expect(catalogLinePrice(svc({ id: 'x', name: 'X', price: 0 }))).toBeNull();
+    expect(catalogLinePrice(null)).toBeNull();
   });
 });

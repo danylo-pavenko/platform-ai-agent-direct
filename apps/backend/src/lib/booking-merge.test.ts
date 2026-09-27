@@ -47,6 +47,15 @@ describe('booking-merge', () => {
     expect(merged.map((row) => row.name)).toEqual(['Манікюр', 'Брови']);
   });
 
+  it('prefers a real price over a stale zero when merging', () => {
+    const merged = mergeOrderLineItems(
+      [{ name: 'Моделювання брів', price: 0, qty: 1 }],
+      [{ name: 'Моделювання брів', price: 450, qty: 1 }],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.price).toBe(450);
+  });
+
   it('builds booking order summary', () => {
     expect(
       buildBookingOrderSummary({

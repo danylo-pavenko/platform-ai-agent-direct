@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { prisma } from '../lib/prisma.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { computeOrderTotals } from '../lib/order-totals.js';
 import { buildKeycrmOrderUrl, resolveKeycrmAppUrl } from '../lib/keycrm-urls.js';
 import { parseAppointmentIdFromOrderNote } from '../lib/order-appointment.js';
 import { normalizeAppointmentServices } from '../lib/appointment-services.js';
+import { normalizeOrderItems } from '../lib/order-normalize.js';
+import { enrichBookingOrderItems } from '../lib/booking-service-prices.js';
 import { buildOrderCrmView, type OrderCrmAppointment } from '../lib/order-crm-view.js';
 import { crmRetrySuccessMessage, OrderCrmRetryError, retryOrderCrmSync } from '../services/order-crm-retry.js';
 import {
@@ -42,7 +44,7 @@ type OrderRow = {
 
 type AppointmentForOrder = OrderCrmAppointment & { services?: unknown };
 
-function serializeOrder(
+async function serializeOrder(
   order: OrderRow,
   keycrmAppUrl: string | null,
   appointment?: AppointmentForOrder | null,
@@ -53,11 +55,35 @@ function serializeOrder(
       ? buildKeycrmOrderUrl(order.keycrmOrderId, keycrmAppUrl)
       : null;
 
-  const totals = computeOrderTotals(order.items, order.quotedTotal);
+  let items = order.items;
+  const kind = order.kind ?? 'product';
+  if (kind === 'booking') {
+    const lines = normalizeOrderItems(order.items, '');
+    const needsPrice = lines.some((l) => !(l.price > 0));
+    if (needsPrice && lines.length > 0) {
+      const apptServices = appointment
+        ? normalizeAppointmentServices(appointment.services)
+        : [];
+      const enriched = await enrichBookingOrderItems(lines, apptServices);
+      if (enriched.changed) {
+        items = enriched.items;
+        // Persist repair so Telegram/admin stay consistent next load.
+        prisma.order
+          .update({
+            where: { id: order.id },
+            data: { items: toInputJsonValue(enriched.items)! },
+          })
+          .catch(() => undefined);
+      }
+    }
+  }
+
+  const totals = computeOrderTotals(items, order.quotedTotal);
 
   return {
     ...order,
-    kind: order.kind ?? 'product',
+    items,
+    kind,
     /** Customer-facing total (quoted; legacy falls back to catalog). */
     total: totals.quotedTotal,
     catalogTotal: totals.catalogTotal,
@@ -79,7 +105,7 @@ function serializeOrder(
     canRetryCrm: crm.canRetryCrm,
     canCancel: order.status !== 'cancelled',
     /** Booking with a CRM record id — admin may also cancel in CRM. */
-    canCancelInCrm: (order.kind ?? 'product') === 'booking' && Boolean(crm.crmRecordId),
+    canCancelInCrm: kind === 'booking' && Boolean(crm.crmRecordId),
     client: order.client?.displayName
       ?? (order.client?.igUserId ? `IG ${order.client.igUserId.slice(-6)}` : '—'),
     clientId: order.client?.id ?? order.clientId,
@@ -157,8 +183,8 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
 
     const appointments = await loadAppointmentsForOrders(rows);
 
-    return {
-      data: rows.map((row) => {
+    const data = await Promise.all(
+      rows.map((row) => {
         const appointmentId = parseAppointmentIdFromOrderNote(row.note);
         return serializeOrder(
           row,
@@ -166,6 +192,10 @@ export async function orderRoutes(app: FastifyInstance): Promise<void> {
           appointmentId ? appointments.get(appointmentId) ?? null : null,
         );
       }),
+    );
+
+    return {
+      data,
       total,
       page,
       limit,
