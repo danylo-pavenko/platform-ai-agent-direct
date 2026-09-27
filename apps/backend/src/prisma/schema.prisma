@@ -102,6 +102,8 @@ model Conversation {
   bookingOffer    Json?               @map("booking_offer") @db.JsonB
   // Open booking funnel (selected/offered slot across civil-day cuts) — ~36h TTL.
   bookingFunnel   Json?               @map("booking_funnel") @db.JsonB
+  // Soft unfinished thread (import / live) — logical next step; ~7d TTL.
+  openAgenda      Json?               @map("open_agenda") @db.JsonB
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid

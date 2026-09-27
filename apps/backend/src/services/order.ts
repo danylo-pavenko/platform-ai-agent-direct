@@ -165,6 +165,10 @@ export async function handleCollectOrder(
   });
 
   await clearConversationBookingOffer(conversationId);
+  const { clearConversationOpenAgenda } = await import('./open-agenda-store.js');
+  const { clearConversationBookingFunnel } = await import('./booking-funnel-store.js');
+  await clearConversationBookingFunnel(conversationId).catch(() => undefined);
+  await clearConversationOpenAgenda(conversationId).catch(() => undefined);
 
   const confirmationText =
     options?.clientMessage?.trim() ||

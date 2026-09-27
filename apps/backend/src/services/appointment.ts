@@ -36,6 +36,8 @@ import {
   clearConversationBookingFunnel,
   persistBookingFunnel,
 } from './booking-funnel-store.js';
+import { clearConversationOpenAgenda, persistOpenAgenda } from './open-agenda-store.js';
+import { agendaFromBookingFunnel } from '../lib/open-agenda.js';
 import { funnelFromBookArgs, type BookingFunnelMissing } from '../lib/booking-funnel.js';
 import { collectOfferCrmIds, collectOfferNameHints } from '../lib/booking-slot-offer.js';
 import { loadSyncedServices } from '../lib/synced-services.js';
@@ -143,20 +145,22 @@ export async function handleBookAppointment(
         if (!phone) missing.push('phone');
         if (missing.length > 0) {
           const masterId = services[0]?.masterId ?? fallbackMasterId;
-          await persistBookingFunnel(
+          const funnel = funnelFromBookArgs({
+            date: dateTry,
+            time,
+            services: services.map((s) => ({
+              id: s.id,
+              durationMin: s.durationMin,
+              masterId: s.masterId,
+              name: s.name,
+            })),
+            masterId,
+            missing,
+          });
+          await persistBookingFunnel(conversationId, funnel).catch(() => undefined);
+          await persistOpenAgenda(
             conversationId,
-            funnelFromBookArgs({
-              date: dateTry,
-              time,
-              services: services.map((s) => ({
-                id: s.id,
-                durationMin: s.durationMin,
-                masterId: s.masterId,
-                name: s.name,
-              })),
-              masterId,
-              missing,
-            }),
+            agendaFromBookingFunnel(funnel, 'live'),
           ).catch(() => undefined);
         }
       }
@@ -518,6 +522,7 @@ export async function handleBookAppointment(
   if (crmSynced) {
     await clearConversationBookingOffer(conversationId);
     await clearConversationBookingFunnel(conversationId);
+    await clearConversationOpenAgenda(conversationId).catch(() => undefined);
     const igUserId = options?.clientIgUserId?.trim();
     const skipDuplicateConfirm = mergedIntoExisting && addedServiceCount === 0;
     if (igUserId && !options?.skipClientMessage && !skipDuplicateConfirm) {
@@ -1279,6 +1284,7 @@ export async function handleCancelAppointment(
 
   await markLocalAppointmentCancelled(appointment.id);
   await clearConversationBookingFunnel(conversationId).catch(() => undefined);
+  await clearConversationOpenAgenda(conversationId).catch(() => undefined);
   notifyBookingLifecycle({
     kind: 'cancelled',
     appointmentId: appointment.id,
@@ -1621,6 +1627,8 @@ export async function handleRescheduleAppointment(
       ),
     };
   }
+
+  await clearConversationOpenAgenda(conversationId).catch(() => undefined);
 
   notifyBookingLifecycle({
     kind: 'rescheduled',

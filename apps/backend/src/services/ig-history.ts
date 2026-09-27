@@ -205,6 +205,15 @@ export async function importIgConversationHistory(
       { conversationId, imported, skipped },
       'IG history import complete',
     );
+    // Soft open agenda (+ optional hard funnel promote) from imported Graph history.
+    const { ensureOpenAgendaForConversation } = await import('./open-agenda-infer.js');
+    await ensureOpenAgendaForConversation({
+      conversationId,
+      clientId: conversation?.clientId,
+      source: 'ig_import',
+    }).catch((err) => {
+      log.warn({ err, conversationId }, 'Open agenda infer after IG import failed (non-fatal)');
+    });
   }
 
   return { imported, skipped, total: igMessages.length, managerReplies };

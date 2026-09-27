@@ -58,6 +58,10 @@ export interface ClientProfile {
    */
   bookingFunnelHint?: string;
   /**
+   * Soft unfinished thread (IG import / live) — logical next step (~7d).
+   */
+  openAgendaHint?: string;
+  /**
    * Upcoming local appointments (today + next few days) — so “I’m late”
    * still has visit context when civil-day history cut yesterday’s booking talk.
    */
@@ -357,7 +361,7 @@ ${catalogLabel}
 - ID розмови, product_id, offer_id, service_id, master_id - ніколи не показуй клієнту.
 - Бренд, контакти, доставка, FAQ, бізнес-правила — зі системного промпту вище.
 - Кілька повідомлень клієнта підряд без відповіді бота між ними — це ОДНА репліка (наприклад час + ПІБ + телефон). Відповідай на весь блок, не лише на останній рядок.
-- Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в рядку «Імʼя:» / «Телефон:» блоку «Вже відомо про клієнта». Рядок «Імʼя:» може бути латиницею (Marta, Anna) — це валідне імʼя для book_appointment. Якщо є рядок «Назва профілю Instagram» — це шапка акаунта, не ПІБ; не підставляй її в update_client_info.full_name / customer_name / CRM. Телефон + «я в базі» → lookup_client_by_phone, не запитуй імʼя навмання. Якщо є блок «Незавершений запис» — це продовження вчорашнього/недавнього funnel; при контакті закривай book_appointment з ids з того блоку, не починай новий пошук послуги.
+- Не перепитуй імʼя, прізвище, телефон, дату чи час, якщо вони вже є в історії цього діалогу, у поточному повідомленні або в рядку «Імʼя:» / «Телефон:» блоку «Вже відомо про клієнта». Рядок «Імʼя:» може бути латиницею (Marta, Anna) — це валідне імʼя для book_appointment. Якщо є рядок «Назва профілю Instagram» — це шапка акаунта, не ПІБ; не підставляй її в update_client_info.full_name / customer_name / CRM. Телефон + «я в базі» → lookup_client_by_phone, не запитуй імʼя навмання. Якщо є блок «Незавершений запис» — це продовження вчорашнього/недавнього funnel; при контакті закривай book_appointment з ids з того блоку, не починай новий пошук послуги. Якщо є «Відкритий тред» без funnel — закривай nextAction (не починай з нуля).
 - Якщо є блок «Запропоновані вікна» — клієнт обирає з тих годин. Не викликай get_available_slots знову і не кажи що вікон немає, поки не змінили послугу/дату/майстра або book_appointment не повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.
 - Фрази «написала вище», «я ж написала», «див. вище», «там вище» — візьми дані з попередніх повідомлень клієнта; не проси повторити і не роби handoff лише через це.
 ${buildIntroSessionRule(botAlreadyReplied, sessionResumeAfterGap, newCivilDay)}
@@ -690,6 +694,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (profile.bookingFunnelHint) {
     parts.push('\n' + profile.bookingFunnelHint);
+  }
+  if (profile.openAgendaHint) {
+    parts.push('\n' + profile.openAgendaHint);
   }
   if (profile.upcomingVisitsHint) {
     parts.push('\n' + profile.upcomingVisitsHint);

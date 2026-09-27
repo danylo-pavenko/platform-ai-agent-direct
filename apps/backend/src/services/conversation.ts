@@ -39,6 +39,17 @@ import {
   persistBookingFunnel,
 } from './booking-funnel-store.js';
 import {
+  agendaFromBookingFunnel,
+  formatOpenAgendaForPrompt,
+  freshOpenAgenda,
+  hasOpenAgendaInferAttempt,
+} from '../lib/open-agenda.js';
+import {
+  clearConversationOpenAgenda,
+  persistOpenAgenda,
+} from './open-agenda-store.js';
+import { ensureOpenAgendaForConversation } from './open-agenda-infer.js';
+import {
   formatUpcomingVisitsForPrompt,
   selectUpcomingVisits,
 } from '../lib/upcoming-visit.js';
@@ -533,6 +544,7 @@ async function handleIncomingMessageImpl(
 
   const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
   let bookingFunnel = freshBookingFunnel(conversation.bookingFunnel);
+  let openAgenda = freshOpenAgenda(conversation.openAgenda);
   if (messageText.trim() && (slotOffer || bookingFunnel)) {
     const selected = applyTimeSelectionFromClientText({
       text: messageText,
@@ -544,6 +556,33 @@ async function handleIncomingMessageImpl(
       persistBookingFunnel(conversationId, selected).catch((err) =>
         log.warn({ err, conversationId }, 'persistBookingFunnel after time match failed'),
       );
+      openAgenda = agendaFromBookingFunnel(selected, 'live');
+      persistOpenAgenda(conversationId, openAgenda).catch(() => undefined);
+    }
+  }
+
+  // Lazy open-agenda infer: first bot turn after IG import (or import timeout).
+  if (!openAgenda && !bookingFunnel && !hasOpenAgendaInferAttempt(conversation.openAgenda)) {
+    const botCount = await prisma.message.count({
+      where: { conversationId, sender: 'bot' },
+    });
+    if (botCount === 0) {
+      const ensured = await ensureOpenAgendaForConversation({
+        conversationId,
+        clientId: client.id,
+        source: 'ig_import',
+      });
+      if (ensured.agenda) openAgenda = ensured.agenda;
+      if (ensured.funnelPromoted) {
+        bookingFunnel = freshBookingFunnel(
+          (
+            await prisma.conversation.findUnique({
+              where: { id: conversationId },
+              select: { bookingFunnel: true },
+            })
+          )?.bookingFunnel,
+        );
+      }
     }
   }
 
@@ -570,6 +609,9 @@ async function handleIncomingMessageImpl(
   }
   if (conversation.bookingFunnel && !bookingFunnel) {
     clearConversationBookingFunnel(conversationId).catch(() => undefined);
+  }
+  if (conversation.openAgenda && !openAgenda && !hasOpenAgendaInferAttempt(conversation.openAgenda)) {
+    clearConversationOpenAgenda(conversationId).catch(() => undefined);
   }
 
   // Salon CRM: compact link hint only (full visits via get_client_crm_history tool).
@@ -776,6 +818,14 @@ async function handleIncomingMessageImpl(
 
   // Upcoming local visits — civil-day Claude history may hide yesterday’s booking talk;
   // “I’m late” still needs the appointment in the prompt.
+  if (openAgenda) {
+    clientProfile.openAgendaHint = formatOpenAgendaForPrompt(
+      openAgenda,
+      now,
+      agentCfg.timezone,
+    );
+  }
+
   if (modeHasBookingTools(agentCfg.mode)) {
     if (bookingFunnel) {
       clientProfile.bookingFunnelHint = formatBookingFunnelForPrompt(

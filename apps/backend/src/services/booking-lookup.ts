@@ -19,6 +19,8 @@ import {
   persistBookingFunnel,
 } from './booking-funnel-store.js';
 import { funnelFromSlotOffer } from '../lib/booking-funnel.js';
+import { agendaFromBookingFunnel } from '../lib/open-agenda.js';
+import { persistOpenAgenda } from './open-agenda-store.js';
 
 export {
   broadenServiceQueries,
@@ -81,10 +83,12 @@ export async function executeGetAvailableSlotsTool(params: {
       if (offer) {
         await persistBookingSlotOffer(params.conversationId, offer);
         const prevFunnel = await loadFreshBookingFunnel(params.conversationId);
-        await persistBookingFunnel(
+        const nextFunnel = funnelFromSlotOffer(offer, prevFunnel);
+        await persistBookingFunnel(params.conversationId, nextFunnel);
+        await persistOpenAgenda(
           params.conversationId,
-          funnelFromSlotOffer(offer, prevFunnel),
-        );
+          agendaFromBookingFunnel(nextFunnel, 'live'),
+        ).catch(() => undefined);
       } else {
         await clearConversationBookingOffer(params.conversationId);
       }

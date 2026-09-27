@@ -35,6 +35,7 @@ export type ClaudeSpawnPurpose =
   | 'latency_probe'
   | 'conversation_retry'
   | 'follow_up'
+  | 'open_agenda_infer'
   | 'unspecified';
 
 /** Fallback when 429 has no parseable reset (session windows are ~5h). */
@@ -74,6 +75,7 @@ const BACKGROUND_PURPOSES = new Set<ClaudeSpawnPurpose>([
   'latency_probe',
   'conversation_retry',
   'follow_up',
+  'open_agenda_infer',
 ]);
 
 let state: ClaudeQuotaMemoryState = emptyState();
@@ -608,7 +610,7 @@ export function shouldArmClaudeQuotaCircuit(
   armQuotaCircuit?: boolean,
 ): boolean {
   if (armQuotaCircuit === false) return false;
-  if (purpose === 'warmup') return false;
+  if (purpose === 'warmup' || purpose === 'open_agenda_infer') return false;
   return true;
 }
 

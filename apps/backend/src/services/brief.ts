@@ -165,6 +165,9 @@ export async function handleSubmitBrief(
 
   const brief = await prisma.presaleBrief.create({ data: data as any });
 
+  const { clearConversationOpenAgenda } = await import('./open-agenda-store.js');
+  await clearConversationOpenAgenda(conversationId).catch(() => undefined);
+
   log.info(
     {
       briefId: brief.id,
