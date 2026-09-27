@@ -32,6 +32,11 @@ import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { lookupAvailableSlotsForContext } from './service-search.js';
 import { persistBookingSlotOffer, clearConversationBookingOffer, loadFreshBookingSlotOffer } from './booking-slot-offer-store.js';
+import {
+  clearConversationBookingFunnel,
+  persistBookingFunnel,
+} from './booking-funnel-store.js';
+import { funnelFromBookArgs, type BookingFunnelMissing } from '../lib/booking-funnel.js';
 import { collectOfferCrmIds, collectOfferNameHints } from '../lib/booking-slot-offer.js';
 import { loadSyncedServices } from '../lib/synced-services.js';
 import { applyPersonalDurations } from './personal-duration.js';
@@ -129,6 +134,33 @@ export async function handleBookAppointment(
   });
 
   if (!customerName || !phone || !rawDate || !time || services.length === 0) {
+    // Persist open funnel when slot is known but contacts are still missing (overnight close).
+    if (rawDate && time && services.length > 0) {
+      const dateTry = normalizeToUaDate(rawDate);
+      if (parseAgentDate(dateTry)) {
+        const missing: BookingFunnelMissing[] = [];
+        if (!customerName || !effectiveChatDisplayName(customerName)) missing.push('name');
+        if (!phone) missing.push('phone');
+        if (missing.length > 0) {
+          const masterId = services[0]?.masterId ?? fallbackMasterId;
+          await persistBookingFunnel(
+            conversationId,
+            funnelFromBookArgs({
+              date: dateTry,
+              time,
+              services: services.map((s) => ({
+                id: s.id,
+                durationMin: s.durationMin,
+                masterId: s.masterId,
+                name: s.name,
+              })),
+              masterId,
+              missing,
+            }),
+          ).catch(() => undefined);
+        }
+      }
+    }
     log.warn({ conversationId }, 'book_appointment missing required fields');
     return null;
   }
@@ -485,6 +517,7 @@ export async function handleBookAppointment(
 
   if (crmSynced) {
     await clearConversationBookingOffer(conversationId);
+    await clearConversationBookingFunnel(conversationId);
     const igUserId = options?.clientIgUserId?.trim();
     const skipDuplicateConfirm = mergedIntoExisting && addedServiceCount === 0;
     if (igUserId && !options?.skipClientMessage && !skipDuplicateConfirm) {
@@ -1245,6 +1278,7 @@ export async function handleCancelAppointment(
   }
 
   await markLocalAppointmentCancelled(appointment.id);
+  await clearConversationBookingFunnel(conversationId).catch(() => undefined);
   notifyBookingLifecycle({
     kind: 'cancelled',
     appointmentId: appointment.id,

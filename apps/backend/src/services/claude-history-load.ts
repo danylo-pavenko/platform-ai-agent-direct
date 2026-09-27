@@ -8,6 +8,7 @@ import {
 } from '../lib/claude-history-window.js';
 import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import type { HistoryMessageRow } from '../lib/conversation-history.js';
+import { PRIOR_DIGEST_MAX_MESSAGES } from '../lib/prior-session-digest.js';
 
 const log = pino({ name: 'claude-history-load' });
 
@@ -116,4 +117,36 @@ export async function loadClaudeHistoryMessages(params: {
     'Claude history window loaded',
   );
   return { rows, meta };
+}
+
+/**
+ * Messages strictly before the Claude history window (for prior-session digest).
+ * Oldest→newest, capped.
+ */
+export async function loadPriorSessionDigestMessages(params: {
+  conversationId: string;
+  conversationCreatedAt: Date;
+  timeZone: string;
+  now?: Date;
+  take?: number;
+}): Promise<Array<{ direction: string; sender: string | null; text: string | null; createdAt: Date }>> {
+  const window = await resolveConversationClaudeHistoryWindow(params);
+  const take = params.take ?? PRIOR_DIGEST_MAX_MESSAGES;
+  const raw = await prisma.message.findMany({
+    where: {
+      conversationId: params.conversationId,
+      createdAt: { lt: window.from },
+      sender: { in: ['client', 'bot', 'manager'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: take + 4,
+    select: {
+      direction: true,
+      text: true,
+      sender: true,
+      createdAt: true,
+    },
+  });
+  const withText = raw.filter((m) => typeof m.text === 'string' && m.text.trim().length > 0);
+  return withText.slice(0, take).reverse();
 }

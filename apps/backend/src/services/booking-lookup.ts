@@ -14,6 +14,11 @@ import {
   loadFreshBookingSlotOffer,
   persistBookingSlotOffer,
 } from './booking-slot-offer-store.js';
+import {
+  loadFreshBookingFunnel,
+  persistBookingFunnel,
+} from './booking-funnel-store.js';
+import { funnelFromSlotOffer } from '../lib/booking-funnel.js';
 
 export {
   broadenServiceQueries,
@@ -73,8 +78,16 @@ export async function executeGetAvailableSlotsTool(params: {
       preferOffer,
     });
     if (params.conversationId) {
-      if (offer) await persistBookingSlotOffer(params.conversationId, offer);
-      else await clearConversationBookingOffer(params.conversationId);
+      if (offer) {
+        await persistBookingSlotOffer(params.conversationId, offer);
+        const prevFunnel = await loadFreshBookingFunnel(params.conversationId);
+        await persistBookingFunnel(
+          params.conversationId,
+          funnelFromSlotOffer(offer, prevFunnel),
+        );
+      } else {
+        await clearConversationBookingOffer(params.conversationId);
+      }
     }
     return `[get_available_slots] РЕЗУЛЬТАТ:\n${text}`;
   } catch (err) {

@@ -26,13 +26,23 @@ import {
   buildClaudeHistoryTurns,
   formatSessionGapNotice,
 } from '../lib/conversation-history.js';
-import { loadClaudeHistoryMessages } from './claude-history-load.js';
+import { loadClaudeHistoryMessages, loadPriorSessionDigestMessages } from './claude-history-load.js';
 import { freshBookingSlotOffer } from '../lib/booking-slot-offer.js';
 import { clearConversationBookingOffer } from './booking-slot-offer-store.js';
+import {
+  applyTimeSelectionFromClientText,
+  formatBookingFunnelForPrompt,
+  freshBookingFunnel,
+} from '../lib/booking-funnel.js';
+import {
+  clearConversationBookingFunnel,
+  persistBookingFunnel,
+} from './booking-funnel-store.js';
 import {
   formatUpcomingVisitsForPrompt,
   selectUpcomingVisits,
 } from '../lib/upcoming-visit.js';
+import { formatPriorSessionDigestForPrompt } from '../lib/prior-session-digest.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
 import {
   isTimestampInHistoryWindow,
@@ -522,6 +532,21 @@ async function handleIncomingMessageImpl(
   }
 
   const slotOffer = freshBookingSlotOffer(conversation.bookingOffer);
+  let bookingFunnel = freshBookingFunnel(conversation.bookingFunnel);
+  if (messageText.trim() && (slotOffer || bookingFunnel)) {
+    const selected = applyTimeSelectionFromClientText({
+      text: messageText,
+      offer: slotOffer,
+      funnel: bookingFunnel,
+    });
+    if (selected) {
+      bookingFunnel = selected;
+      persistBookingFunnel(conversationId, selected).catch((err) =>
+        log.warn({ err, conversationId }, 'persistBookingFunnel after time match failed'),
+      );
+    }
+  }
+
   const clientProfile: ClientProfile = {
     displayName: effectiveClientPersonName(client.displayName, client.igFullName),
     igUsername: client.igUsername ?? undefined,
@@ -542,6 +567,9 @@ async function handleIncomingMessageImpl(
 
   if (conversation.bookingOffer && !slotOffer) {
     clearConversationBookingOffer(conversationId).catch(() => undefined);
+  }
+  if (conversation.bookingFunnel && !bookingFunnel) {
+    clearConversationBookingFunnel(conversationId).catch(() => undefined);
   }
 
   // Salon CRM: compact link hint only (full visits via get_client_crm_history tool).
@@ -749,6 +777,13 @@ async function handleIncomingMessageImpl(
   // Upcoming local visits — civil-day Claude history may hide yesterday’s booking talk;
   // “I’m late” still needs the appointment in the prompt.
   if (modeHasBookingTools(agentCfg.mode)) {
+    if (bookingFunnel) {
+      clientProfile.bookingFunnelHint = formatBookingFunnelForPrompt(
+        bookingFunnel,
+        now,
+        agentCfg.timezone,
+      );
+    }
     try {
       const upcomingRows = await prisma.appointment.findMany({
         where: {
@@ -773,6 +808,20 @@ async function handleIncomingMessageImpl(
     } catch (err) {
       log.warn({ err, conversationId, clientId: client.id }, 'Failed to load upcoming visits for prompt');
     }
+  }
+
+  // Prior-session digest — messages before civil-day Claude window (soft context, not live transcript).
+  try {
+    const priorRows = await loadPriorSessionDigestMessages({
+      conversationId,
+      conversationCreatedAt: conversation.createdAt,
+      timeZone: agentCfg.timezone,
+      now,
+    });
+    const digest = formatPriorSessionDigestForPrompt(priorRows, now, agentCfg.timezone);
+    if (digest) clientProfile.priorSessionDigest = digest;
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to load prior-session digest for prompt');
   }
 
   const branchesList = await formatBranchesForPrompt();
