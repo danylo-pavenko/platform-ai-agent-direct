@@ -139,7 +139,7 @@ All CRM I/O goes through `getCrmAdapter` + `resolveCrmProvider(action)`. Never c
 
 Routing modes: `single` | `by_action` | `prompt`. Hybrid example: catalog/order → KeyCRM, services/booking → BeautyPro.
 
-Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). Details: `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, BeautyPro: `docs/BEAUTYPRO_CRM_INTEGRATION.md`.
+Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). A chat name updates the local client only. CRM `firstname`/`full_name` is sent when creating a buyer; an existing CRM card is not renamed (BeautyPro PUT, KeyCRM PUT, CleverBOX `slots/save` with `client_id`). Details: `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, BeautyPro: `docs/BEAUTYPRO_CRM_INTEGRATION.md`.
 
 ---
 

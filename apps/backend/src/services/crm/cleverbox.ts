@@ -233,11 +233,10 @@ export const cleverboxAdapter: CrmAdapter = {
   },
 
   async createBooking(input: CrmBookingInput) {
-    const res = await cboxJson<RawBookingResponse>('v3', '/slots/save', {
+    const payload: Record<string, unknown> = {
       date: input.date,
       salon_id: toCboxNumericId(input.branchId),
       client_id: input.clientId ? toCboxNumericId(input.clientId) : 0,
-      name: input.clientName,
       phone: input.phone.replace(/\D/g, ''),
       comment: input.comment,
       services: input.services.map((s) => ({
@@ -246,7 +245,10 @@ export const cleverboxAdapter: CrmAdapter = {
         master_id: s.masterId ? toCboxNumericId(s.masterId) : undefined,
         time: s.startTime,
       })),
-    });
+    };
+    // Existing CleverBOX client: do not send name (it overwrites the card).
+    if (!input.clientId) payload.name = input.clientName;
+    const res = await cboxJson<RawBookingResponse>('v3', '/slots/save', payload);
 
     if (!res.ok || !res.record_id) {
       throw new Error(res.comment ?? 'CleverBOX booking failed');

@@ -1112,24 +1112,35 @@ export const beautyproAdapter: CrmAdapter = {
 
   async upsertClient(crmBuyerId: string | null, input: CrmClientInput) {
     const { firstname, lastname } = splitClientName(input.fullName);
-    const body = buildBeautyproClientWriteBody({
-      mode: crmBuyerId ? 'update' : 'create',
-      firstname,
-      lastname,
-      phone: input.phone,
-      email: input.email,
-    });
+    // Create sends the name. Update rebuilds a body without firstname/lastname.
     // input.note / instagramUsername are not client write fields (live POST
     // 400s `comment`). Booking notes go on the appointment `comments`.
 
     if (crmBuyerId) {
+      const body = buildBeautyproClientWriteBody({
+        mode: 'update',
+        firstname,
+        lastname,
+        phone: input.phone,
+        email: input.email,
+      });
+      if (Object.keys(body).length === 0) {
+        log.info({ crmBuyerId }, 'BeautyPro existing client — name left unchanged, nothing else to write');
+        return { crmBuyerId };
+      }
       await bpFetch('PUT', `/clients/${crmBuyerId}`, { body });
       return { crmBuyerId };
     }
 
     const created = await bpFetch<{ id: string }>('POST', '/clients', {
       // Official POST example returns `{ id }`. Do not send `fields` or `id`.
-      body,
+      body: buildBeautyproClientWriteBody({
+        mode: 'create',
+        firstname,
+        lastname,
+        phone: input.phone,
+        email: input.email,
+      }),
     });
 
     if (!created?.id) {

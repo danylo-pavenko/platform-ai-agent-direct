@@ -122,7 +122,7 @@ export type BeautyproClientWriteMode = 'create' | 'update';
 /**
  * POST/PUT /clients body. Do not send `comment` / `comments` / `fields` / `id` —
  * live create rejects `comment`; docs create example has no note field.
- * PUT examples use phone/email arrays; POST examples use scalars.
+ * PUT of an existing card sends phone/email only — never firstname/lastname.
  */
 export function buildBeautyproClientWriteBody(input: {
   mode: BeautyproClientWriteMode;
@@ -135,7 +135,12 @@ export function buildBeautyproClientWriteBody(input: {
   const lastname = input.lastname.trim();
   const phone = formatPhoneForBeautyproWrite(input.phone);
   const email = input.email?.trim().toLowerCase() || undefined;
-  const body: Record<string, string | string[]> = { firstname, lastname };
+  const body: Record<string, string | string[]> = {};
+  // Existing CRM cards keep the salon name. Chat/local name must not PUT over it.
+  if (input.mode === 'create') {
+    body.firstname = firstname;
+    body.lastname = lastname;
+  }
   if (phone) body.phone = input.mode === 'update' ? [phone] : phone;
   if (email) body.email = input.mode === 'update' ? [email] : email;
   return body;

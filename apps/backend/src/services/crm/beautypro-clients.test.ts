@@ -77,7 +77,15 @@ describe('beautypro client helpers', () => {
       phone: '+380930152179',
     });
     expect(updated.phone).toEqual(['+380930152179']);
+    expect(updated).not.toHaveProperty('firstname');
+    expect(updated).not.toHaveProperty('lastname');
     expect(updated).not.toHaveProperty('comment');
+    const nameOnly = buildBeautyproClientWriteBody({
+      mode: 'update',
+      firstname: 'Максима',
+      lastname: 'До',
+    });
+    expect(nameOnly).toEqual({});
   });
 
   it('builds name search variants for IG', () => {

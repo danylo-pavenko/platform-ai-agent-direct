@@ -65,7 +65,7 @@
 
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. Agent tool: `cancel_appointment` / part of `reschedule_appointment`. |
 | `removeBookingService` | `GET` services on appointment → `PUT` `services: [{ id: lineId, action: 'delete' }]`. Agent: `remove_appointment_service`. Last line → full cancel. |
-| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: **без** `comment`/`comments` (live 400). **POST/PUT body** — лише `firstname`, `lastname`, `phone`, `email`. Живий POST 400 `Unknown parameter 'comment'`. Нотатки візиту → `POST /appointments` поле **`comments`**. |
+| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: **без** `comment`/`comments` (live 400). **POST** body — `firstname`, `lastname`, `phone`, `email` (новий клієнт). **PUT** існуючої картки — лише телефон/email, **без** `firstname`/`lastname` (імʼя салону не перезаписуємо; локальне імʼя лишається в нашій базі). |
 
 ## Agent: cancel / move / pay
 
@@ -87,7 +87,7 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 | `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг; нотатка = **`comments`**. У body clients **не** слати `comment`/`comments` — лише імʼя + телефон/email. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |
 | `GET /appointments` (lookup після 409) | `fields=date,location,client` + `client`/`location`/`from`/`to`/`state`. Без `fields=id`. |
 | `GET /clients` | `name,firstname,lastname,phone,email,archive` — **без** `comment`/`comments` (live 07.09.2026: 400 Unknown parameter 'comment'). |
-| `POST/PUT /clients` | Body як у docs create example: `firstname`, `lastname`, `phone` (scalar на POST, масив на PUT), `email`. Live 400 на `comment` у body. |
+| `POST/PUT /clients` | POST (новий клієнт): `firstname`, `lastname`, `phone`, `email`. PUT існуючого: лише `phone` (масив) / `email`, без імені — інакше чат перезаписує картку салону. Live 400 на `comment` у body. |
 | `GET /services` | Не слати `no_professional_price` (docs має, live 400). Ціни з `location_prices`. |
 | `GET /locations` | Лише `fields=name,city,street,phone,timezone,active`. Фільтр `active=true` є на `GET /locations/{id}`, не на списку — фільтруємо в коді. |
 | `GET /clients/{id}/history` | Підмножина офіційного списку; `items(id,name,type,quantity,sum)` дозволено docs. |

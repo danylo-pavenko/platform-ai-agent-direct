@@ -431,9 +431,9 @@ export const keycrmAdapter: CrmAdapter = {
   },
 
   async upsertClient(crmBuyerId: string | null, input: CrmClientInput) {
-    const body: Record<string, unknown> = {
-      full_name: input.fullName,
-    };
+    const body: Record<string, unknown> = {};
+    // Name is set only when creating a buyer. An existing KeyCRM card keeps its name.
+    if (!crmBuyerId) body.full_name = input.fullName;
     if (input.email) body.email = [input.email];
     if (input.phone) body.phone = [input.phone];
 
