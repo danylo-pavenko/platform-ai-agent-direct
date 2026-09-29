@@ -6,6 +6,14 @@
 const BOOKING_CONFIRM_RE =
   /чекаємо\s+(на\s+)?(тебе|вас)|чекаємо\s+(завтра|сьогодні|післязавтра)|будемо\s+чекати\s+(тебе|вас)|записую\s+(тебе|вас)|записала?\s+(тебе|вас)|записав\s+(тебе|вас)|записали\s+(вас|тебе)|ти\s+записан|вас\s+записан|ви\s+записан|запис\s+(підтверджено|створено|оформлено|готовий)|бачимось\s+(завтра|сьогодні|о\s+\d)|забронювала?\s+(тебе|вас|на\s+)|закріплю\s+за\s+вами/i;
 
+/** Hard “you are booked” claims. A late-arrival “чекаємо” is not one of these. */
+const HARD_BOOKING_CLAIM_RE =
+  /записую\s+(тебе|вас)|записала?\s+(тебе|вас)|записав\s+(тебе|вас)|записали\s+(вас|тебе)|ти\s+записан|вас\s+записан|ви\s+записан|запис\s+(підтверджено|створено|оформлено|готовий)|бачимось\s+(завтра|сьогодні|о\s+\d)|забронювала?\s+(тебе|вас|на\s+)|закріплю\s+за\s+вами/i;
+
+/** Client is late / already on the way — not a request to book a new slot. */
+const RUNNING_LATE_RE =
+  /запізн|спізн|в\s+дорозі|біля\s+(студі|салон)|(?:^|[.!?]\s*)я\s+тут\b|буду\s+через|через\s+\d{1,2}\s*(?:[-–]\s*\d{1,2}\s*)?(?:хв|хвилин)/iu;
+
 /** Pure questions offering to book — not a false confirmation. */
 const BOOKING_QUESTION_RE =
   /^(чи\s+)?(можемо|можна|хочеш|хочете|будеш|будете|давай|давайте|запишемо|записати)\b/i;
@@ -26,6 +34,31 @@ export function looksLikeBookingConfirmation(text: string): boolean {
     }
   }
 
+  return true;
+}
+
+export function looksLikeRunningLateMessage(text: string): boolean {
+  return RUNNING_LATE_RE.test(text.trim());
+}
+
+/**
+ * Skip the “you claimed a booking without book_appointment” rewrite when the
+ * turn is a late arrival. “Чекаємо на вас” is the right reply; asking to
+ * confirm the slot again is not.
+ */
+export function shouldRecoverFalseBookingConfirm(opts: {
+  responseText: string;
+  clientMessage?: string | null;
+  lateNotifyCalled?: boolean;
+}): boolean {
+  if (!looksLikeBookingConfirmation(opts.responseText)) return false;
+  if (opts.lateNotifyCalled) return false;
+  if (
+    looksLikeRunningLateMessage(opts.clientMessage ?? '') &&
+    !HARD_BOOKING_CLAIM_RE.test(opts.responseText)
+  ) {
+    return false;
+  }
   return true;
 }
 

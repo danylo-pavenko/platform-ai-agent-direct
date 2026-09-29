@@ -133,8 +133,8 @@ import {
 } from '../lib/service-search-intent.js';
 import {
   buildFalseBookingConfirmNudge,
-  looksLikeBookingConfirmation,
   sanitizeFalseBookingConfirmReply,
+  shouldRecoverFalseBookingConfirm,
 } from '../lib/false-booking-confirm.js';
 import { buildClientFacingTimeConflictReply } from '../lib/booking-time-conflict.js';
 import {
@@ -2329,13 +2329,18 @@ async function handleIncomingMessageImpl(
     (t) => t.name === 'book_appointment' && /\[book_appointment\]\s*ok\b/i.test(t.resultPreview),
   );
 
+  const lateNotifyCalled = debug.tools.some((t) => t.name === 'notify_client_running_late');
   if (
     !agentFallback &&
     modeHasBookingTools(agentCfg.mode) &&
     canBookAppointment &&
     !bookSucceeded &&
     !debug.falseBookingRecovery &&
-    looksLikeBookingConfirmation(responseText)
+    shouldRecoverFalseBookingConfirm({
+      responseText,
+      clientMessage: messageText,
+      lateNotifyCalled,
+    })
   ) {
     const nudge = buildFalseBookingConfirmNudge();
     log.warn(
@@ -2394,7 +2399,11 @@ async function handleIncomingMessageImpl(
     );
     if (
       !bookedAfterRecovery &&
-      looksLikeBookingConfirmation(responseText)
+      shouldRecoverFalseBookingConfirm({
+        responseText,
+        clientMessage: messageText,
+        lateNotifyCalled,
+      })
     ) {
       responseText = sanitizeFalseBookingConfirmReply(responseText);
       log.warn(

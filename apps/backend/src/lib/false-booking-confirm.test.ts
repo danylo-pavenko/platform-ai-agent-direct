@@ -3,6 +3,7 @@ import {
   buildFalseBookingConfirmNudge,
   looksLikeBookingConfirmation,
   sanitizeFalseBookingConfirmReply,
+  shouldRecoverFalseBookingConfirm,
 } from './false-booking-confirm.js';
 
 describe('looksLikeBookingConfirmation', () => {
@@ -40,6 +41,36 @@ describe('looksLikeBookingConfirmation', () => {
         '820 грн у Соломії за зняття, чистку і покриття, десь 115 хвилин 💅',
       ),
     ).toBe(false);
+  });
+});
+
+describe('shouldRecoverFalseBookingConfirm', () => {
+  it('does not rewrite a late-arrival “чекаємо” after notify_client_running_late', () => {
+    expect(
+      shouldRecoverFalseBookingConfirm({
+        responseText: 'Нічого страшного, чекаємо на Вас 😊',
+        clientMessage: 'Я до 5-7 хвилин запізнюсь, дуже перепрошую',
+        lateNotifyCalled: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('does not ask to re-confirm a slot when the client is only running late', () => {
+    expect(
+      shouldRecoverFalseBookingConfirm({
+        responseText: 'Добре, чекаємо на Вас 😊 До зустрічі о 16:00!',
+        clientMessage: 'Я до 5-7 хвилин запізнюсь, дуже перепрошую',
+      }),
+    ).toBe(false);
+  });
+
+  it('still recovers a hard booking claim without book_appointment', () => {
+    expect(
+      shouldRecoverFalseBookingConfirm({
+        responseText: 'Чекаємо тебе завтра о 11:00!',
+        clientMessage: 'Так, запишіть',
+      }),
+    ).toBe(true);
   });
 });
 
