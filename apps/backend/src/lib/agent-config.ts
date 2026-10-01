@@ -18,6 +18,7 @@
  *     responseDelayMaxSeconds: number,  // random in [min, max]; max >= min
  *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
  *     timezone: 'Europe/Kyiv',         // salon calendar / working hours / CRM day bounds
+ *     autoUpdateEnabled: boolean,     // midnight SA poll → request Deploy (default true)
  *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
  *     paymentRequisites: string, // IBAN / card text for the admin chat button
  *   }
@@ -72,6 +73,11 @@ export interface AgentConfig {
   claudeModel: ClaudeReplyModelId;
   /** IANA timezone for "now", working hours, and CRM slot/booking day bounds. */
   timezone: string;
+  /**
+   * When true, midnight (salon TZ) polls SA for a newer VERSION.code and
+   * requests Deploy via the existing SA → worker pipeline.
+   */
+  autoUpdateEnabled: boolean;
   /** Canned customer replies when Claude is busy / times out (per language). */
   fallbackMessages: FallbackMessages;
   /** IBAN / card copy sent from admin Conversation Detail. Empty = button returns 400. */
@@ -109,6 +115,7 @@ const DEFAULTS: AgentConfig = {
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
   timezone: DEFAULT_TENANT_TIMEZONE,
+  autoUpdateEnabled: true,
   fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
   paymentRequisites: '',
 };
@@ -152,6 +159,15 @@ export function normalizeClaudeReplyModel(
 ): ClaudeReplyModelId {
   if (value === 'sonnet' || value === 'opus') return value;
   return fallback;
+}
+
+/** Coerce settings/UI values to boolean; default true when unset. */
+export function normalizeAutoUpdateEnabled(value: unknown): boolean {
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  // Absent / unknown → default on (plan: auto-update enabled by default).
+  if (value == null || value === '') return DEFAULTS.autoUpdateEnabled;
+  return Boolean(value);
 }
 
 function pickLocaleText(raw: unknown, fallback: string): string {
@@ -231,6 +247,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     responseDelayMaxSeconds: delay.max,
     claudeModel: normalizeClaudeReplyModel(raw.claudeModel, envFallback),
     timezone: normalizeTenantTimezone(raw.timezone, DEFAULTS.timezone),
+    autoUpdateEnabled: normalizeAutoUpdateEnabled(raw.autoUpdateEnabled),
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
     paymentRequisites: normalizePaymentRequisites(raw.paymentRequisites),
   };

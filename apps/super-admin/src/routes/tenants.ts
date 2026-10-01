@@ -816,6 +816,54 @@ export async function tenantsRoutes(app: FastifyInstance) {
     },
   );
 
+  // Tenant midnight auto-update: request Deploy via existing SA → worker pipeline.
+  // Auth: X-Supervisor-Token (same as access / webhook-config).
+  app.post<{ Params: { instanceId: string } }>(
+    '/api/tenants/by-instance/:instanceId/auto-update',
+    async (req, reply) => {
+      const token = req.headers['x-supervisor-token'];
+      if (!config.SUPERVISOR_SHARED_SECRET || token !== config.SUPERVISOR_SHARED_SECRET) {
+        return reply.status(401).send({ error: 'Unauthorized' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { instanceId: req.params.instanceId },
+      });
+      if (!tenant) return reply.status(404).send({ error: 'Tenant not found' });
+
+      try {
+        const result = await startDeployJob(tenant.id, {
+          source: '[auto-update] requested by tenant',
+        });
+        if (result.error && !result.started) {
+          return reply.status(409).send({
+            started: false,
+            reason: result.error,
+            job: result.job,
+          });
+        }
+        if (!result.started) {
+          return {
+            started: false,
+            reason: 'Deploy already running',
+            job: result.job,
+          };
+        }
+        app.log.info(
+          { instanceId: tenant.instanceId, jobId: result.job.id },
+          '[auto-update] deploy job started',
+        );
+        return { started: true, job: result.job };
+      } catch (err: any) {
+        app.log.error({ err, instanceId: req.params.instanceId }, 'auto-update failed to start');
+        return reply.status(500).send({
+          started: false,
+          reason: err?.message ?? 'Failed to start deploy',
+        });
+      }
+    },
+  );
+
   // Proxy Claude CLI health probe to tenant backend.
   // Returns { ok, path, version, error } — lets super-admin see whether
   // the tenant's `claude` binary is reachable and authenticated, instead

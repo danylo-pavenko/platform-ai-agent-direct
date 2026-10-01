@@ -14,6 +14,7 @@ import { trackedLinksRoutes } from './routes/tracked-links.js';
 import { leadsRoutes } from './routes/leads.js';
 import { metaOAuthHubRoutes } from './routes/meta-oauth-hub.js';
 import { workersRoutes } from './routes/workers.js';
+import { platformVersionRoutes } from './routes/platform-version.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +61,7 @@ await app.register(trackedLinksRoutes);
 await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
 await app.register(workersRoutes);
+await app.register(platformVersionRoutes);
 
 // Health check
 app.get('/api/health', async () => {

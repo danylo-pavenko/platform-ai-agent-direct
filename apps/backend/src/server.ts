@@ -141,6 +141,9 @@ try {
   const { startLogRetentionMonitor } = await import('./services/log-retention.js');
   startLogRetentionMonitor(app.log);
 
+  const { startAutoUpdateMonitor } = await import('./services/auto-update.js');
+  startAutoUpdateMonitor(app.log);
+
   if (config.CLAUDE_WARMUP_ON_START) {
     const { warmUpClaudeRuntime } = await import('./services/claude.js');
     void warmUpClaudeRuntime().catch((err) => {

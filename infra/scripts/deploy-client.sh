@@ -62,6 +62,58 @@ if ! flock -n 9; then
 fi
 echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
 
+# ── Fail-safe: pin SHA before pull; restore on build/health failure ──────────
+# Prisma migrations are forward-only (not rolled back). Keep migrations
+# backward-compatible with the previous VERSION.code for one release.
+PREV_SHA=""
+DEPLOY_PULLED=0
+
+rollback_to_prev() {
+  local reason="${1:-deploy failed}"
+  if [ -z "${PREV_SHA}" ]; then
+    echo "  [rollback] skip — PREV_SHA unset" >&2
+    return 1
+  fi
+  echo "  [rollback] ${reason}" >&2
+  echo "  [rollback] git reset --hard ${PREV_SHA}" >&2
+  if ! git reset --hard "${PREV_SHA}"; then
+    echo "  [rollback] ERROR: git reset --hard ${PREV_SHA} failed" >&2
+    return 1
+  fi
+  echo "  [rollback] tree restored — rebuilding previous binaries..." >&2
+  npm_ci_with_enotempty_retry || echo "  [rollback] WARN: npm ci failed during rollback" >&2
+  (
+    cd "${PROJECT_ROOT}/apps/backend"
+    npx prisma generate >>"${DEPLOY_LOG}" 2>&1 || true
+  )
+  npm run build:backend >>"${DEPLOY_LOG}" 2>&1 \
+    || echo "  [rollback] WARN: backend build failed during rollback" >&2
+  if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
+    npm run build:admin >>"${DEPLOY_LOG}" 2>&1 \
+      || echo "  [rollback] WARN: admin build failed during rollback" >&2
+  fi
+  local _prefix="${INSTANCE_ID_UPPER}"
+  if command -v pm2 >/dev/null 2>&1 && pm2 describe "${_prefix}-api" > /dev/null 2>&1; then
+    echo "  [rollback] restarting PM2 on restored build..." >&2
+    PM2_PREFIX="${_prefix}"
+    pm2_deploy_apps || echo "  [rollback] WARN: pm2 restart during rollback failed" >&2
+  fi
+  echo "  [rollback] restored ${PREV_SHA}" >&2
+  return 0
+}
+
+# Call after git pull advanced the tree — always attempt rollback then exit 1.
+fail_deploy() {
+  local msg="${1:-Deploy failed}"
+  echo "  ${msg}" >&2
+  if [ "${DEPLOY_PULLED}" = "1" ]; then
+    rollback_to_prev "${msg}" || true
+  fi
+  exit 1
+}
+
+# Checklist (manual): PREV_SHA set → pull → fail build → tree back; fail health → PM2 on old SHA.
+
 # npm ci can fail with ENOTEMPTY when node_modules is partially corrupted; one clean retry only.
 # Long hangs are killed via DEPLOY_NPM_CI_TIMEOUT_SEC (default 20 min) with stdout heartbeats.
 #
@@ -247,7 +299,12 @@ echo "════════════════════════�
 
 # ── 1. Pull latest ──
 echo "[1/11] Pulling latest code..."
+PREV_SHA="$(git rev-parse HEAD)"
+echo "  PREV_SHA=${PREV_SHA} (rollback target if deploy fails)"
 git pull --ff-only
+DEPLOY_PULLED=1
+NEW_SHA="$(git rev-parse HEAD)"
+echo "  HEAD after pull: ${NEW_SHA}"
 
 # ── 1b. npm version ──
 echo "[1b/11] Ensuring npm ${TARGET_NPM:-11.18.0}..."
@@ -297,19 +354,18 @@ echo "[9/11] Building backend..."
 if ! npm run build:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Build failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
-  exit 1
+  fail_deploy "Backend build failed"
 fi
 BACKEND_ENTRY="${PROJECT_ROOT}/apps/backend/dist/server.js"
 if [ ! -f "${BACKEND_ENTRY}" ]; then
-  echo "  ERROR: backend build artifact missing: ${BACKEND_ENTRY}" >&2
-  exit 1
+  fail_deploy "ERROR: backend build artifact missing: ${BACKEND_ENTRY}"
 fi
 
 echo "[9b/11] Running backend unit tests..."
 if ! npm run test:backend >>"${DEPLOY_LOG}" 2>&1; then
   echo "  Unit tests failed — see ${DEPLOY_LOG}" >&2
   tail -40 "${DEPLOY_LOG}" >&2
-  exit 1
+  fail_deploy "Backend unit tests failed"
 fi
 
 # ── 8. Build admin panel ──
@@ -318,12 +374,11 @@ if [ -f apps/admin/vite.config.ts ] || [ -f apps/admin/vite.config.js ]; then
   if ! npm run build:admin >>"${DEPLOY_LOG}" 2>&1; then
     echo "  Admin build failed — see ${DEPLOY_LOG}" >&2
     tail -40 "${DEPLOY_LOG}" >&2
-    exit 1
+    fail_deploy "Admin build failed"
   fi
   ADMIN_INDEX="${PROJECT_ROOT}/apps/admin/dist/index.html"
   if [ ! -f "${ADMIN_INDEX}" ]; then
-    echo "  ERROR: admin build artifact missing: ${ADMIN_INDEX}" >&2
-    exit 1
+    fail_deploy "ERROR: admin build artifact missing: ${ADMIN_INDEX}"
   fi
 else
   echo "[10/11] Admin panel not built yet — skipping"
@@ -482,5 +537,5 @@ echo "    Full deploy log: ${DEPLOY_LOG}"
 echo ""
 
 if [ "${HEALTH_STATE}" = "FAILED" ]; then
-  exit 1
+  fail_deploy "Health check FAILED after PM2 restart — rolling back to ${PREV_SHA}"
 fi

@@ -244,6 +244,7 @@ Per-domain certbot, як раніше.
 | PM2 + `pm2 startup` (systemd) | **Provision** (обовʼязково) + Deploy (перевірка) | Unit `pm2-<user>.service` enabled; helper `/usr/local/sbin/platform-pm2-startup` ставить pm2 за потреби, seeds dump |
 | nginx vhost | Provision / Deploy | — |
 | `claude auth login` | **Вручну** (tenant admin Settings або SSH) | CLI ставиться автоматично (`setup-claude-cli.sh`); OAuth — інтерактивно |
+| Midnight auto-update | Tenant API → SA Deploy (якщо `autoUpdateEnabled`) | Порівняння `VERSION.json` `code`; fail → `git reset --hard` + rebuild у `deploy-client.sh`. Міграції лише forward. |
 
 **Linux password** генерується при кожному provision (або береться з `LINUX_PASSWORD`). SSH-ключі лишаються основним способом входу. Для вже створених юзерів без пароля — повторний idempotent `provision-client.sh` або вручну:
 

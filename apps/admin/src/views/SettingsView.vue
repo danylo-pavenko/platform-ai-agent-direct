@@ -858,6 +858,47 @@
           <div class="text-caption text-medium-emphasis">
             Зберігається одразу при зміні (без кнопки внизу сторінки). Рестарт PM2 не потрібен.
           </div>
+          <div class="text-caption text-medium-emphasis mt-3">
+            Поточна версія панелі: {{ formatPlatformVersion(platformVersion) }}
+          </div>
+        </v-card-text>
+      </v-card>
+
+      <!-- Midnight auto-update -->
+      <v-card class="mb-4">
+        <v-card-title class="d-flex align-center">
+          <v-icon start color="indigo">mdi-update</v-icon>
+          Автооновлення
+        </v-card-title>
+        <v-card-subtitle class="pb-2">
+          Опівночі за часом салону ({{ agentConfig.timezone }}) панель питає Super Admin про
+          новіший код і, якщо є, просить Deploy. При збої збірки або health — відкат на попередній SHA.
+        </v-card-subtitle>
+        <v-card-text>
+          <v-switch
+            v-model="agentConfig.autoUpdateEnabled"
+            color="indigo"
+            hide-details
+            density="comfortable"
+            :loading="autoUpdateSaving"
+            :disabled="autoUpdateSaving"
+            label="Автооновлення опівночі (час салону)"
+            @update:model-value="onAutoUpdateEnabledChange"
+          />
+          <v-alert
+            v-if="autoUpdateSaveError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mt-2 mb-0"
+            closable
+            @click:close="autoUpdateSaveError = ''"
+          >
+            {{ autoUpdateSaveError }}
+          </v-alert>
+          <div v-if="autoUpdateSavedOk" class="text-caption text-success mt-2">
+            Налаштування автооновлення збережено.
+          </div>
         </v-card-text>
       </v-card>
 
@@ -2701,6 +2742,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { formatPlatformVersion, platformVersion } from '@/lib/platform-version';
 import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
@@ -3483,6 +3525,11 @@ const timezoneSavedOk = ref(false);
 let timezoneSavedTimer: ReturnType<typeof setTimeout> | null = null;
 let lastPersistedTimezone = 'Europe/Kyiv';
 
+const autoUpdateSaving = ref(false);
+const autoUpdateSaveError = ref('');
+const autoUpdateSavedOk = ref(false);
+let autoUpdateSavedTimer: ReturnType<typeof setTimeout> | null = null;
+
 async function persistAgentConfigPatch(patch: Partial<AgentConfigShape>) {
   await api.put('/settings', {
     agent_config: {
@@ -3541,6 +3588,32 @@ async function onTimezoneChange(value: unknown) {
       e.response?.data?.error ?? 'Не вдалося зберегти часовий пояс';
   } finally {
     timezoneSaving.value = false;
+  }
+}
+
+async function onAutoUpdateEnabledChange(value: unknown) {
+  const enabled = value !== false;
+  agentConfig.value.autoUpdateEnabled = enabled;
+  if (!runtimeHydrated) return;
+  autoUpdateSaving.value = true;
+  autoUpdateSaveError.value = '';
+  autoUpdateSavedOk.value = false;
+  if (autoUpdateSavedTimer) {
+    clearTimeout(autoUpdateSavedTimer);
+    autoUpdateSavedTimer = null;
+  }
+  try {
+    await persistAgentConfigPatch({ autoUpdateEnabled: enabled });
+    autoUpdateSavedOk.value = true;
+    autoUpdateSavedTimer = setTimeout(() => {
+      autoUpdateSavedOk.value = false;
+      autoUpdateSavedTimer = null;
+    }, 4000);
+  } catch (e: any) {
+    autoUpdateSaveError.value =
+      e.response?.data?.error ?? 'Не вдалося зберегти автооновлення';
+  } finally {
+    autoUpdateSaving.value = false;
   }
 }
 
@@ -4419,6 +4492,7 @@ interface AgentConfigShape {
   responseDelayMaxSeconds: number;
   claudeModel: 'sonnet' | 'opus';
   timezone: string;
+  autoUpdateEnabled: boolean;
   fallbackMessages: FallbackMessagesShape;
   paymentRequisites: string;
 }
@@ -4432,6 +4506,7 @@ const agentConfig = ref<AgentConfigShape>({
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
   timezone: 'Europe/Kyiv',
+  autoUpdateEnabled: true,
   fallbackMessages: { ...DEFAULT_FALLBACK_MESSAGES, busy: { ...DEFAULT_FALLBACK_MESSAGES.busy }, timeout: { ...DEFAULT_FALLBACK_MESSAGES.timeout } },
   paymentRequisites: '',
 });
@@ -4617,6 +4692,11 @@ async function fetchSettings() {
             ? raw.claudeModel
             : 'sonnet',
         timezone: normalizeTimezoneId((raw as { timezone?: unknown }).timezone),
+        autoUpdateEnabled: (() => {
+          const v = (raw as { autoUpdateEnabled?: unknown }).autoUpdateEnabled;
+          if (v === false || v === 0 || v === '0' || v === 'false') return false;
+          return true;
+        })(),
         fallbackMessages: normalizeFallbackMessagesShape(
           (raw as { fallbackMessages?: unknown }).fallbackMessages,
         ),
@@ -4735,6 +4815,7 @@ async function saveSettings() {
             ? agentConfig.value.claudeModel
             : 'sonnet',
         timezone: normalizeTimezoneId(agentConfig.value.timezone),
+        autoUpdateEnabled: agentConfig.value.autoUpdateEnabled !== false,
         responseDelayMinSeconds: (() => {
           const n = Math.floor(Number(agentConfig.value.responseDelayMinSeconds) || 0);
           return Math.max(0, Math.min(60, n));

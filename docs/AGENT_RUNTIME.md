@@ -194,6 +194,20 @@ Optimization directions (roadmap): parallelize independent tool lookups where sa
 
 ---
 
+## Tenant auto-update (midnight)
+
+At **00:00** in `agent_config.timezone` (default `Europe/Kyiv`), the tenant API polls Super Admin:
+
+1. `GET /api/platform/version` (`X-Supervisor-Token`) — compare integer `VERSION.json` `code` only.
+2. If remote `code` > local → `POST /api/tenants/by-instance/:instanceId/auto-update` → SA `startDeployJob` (same pipeline as Clients → Deploy). Log prefix: `[auto-update] requested by tenant`.
+3. Toggle: `agent_config.autoUpdateEnabled` (default **on**). Off = skip. Missing `SA_INTERNAL_URL` / `SUPERVISOR_SHARED_SECRET` = skip.
+
+`infra/scripts/deploy-client.sh` pins `PREV_SHA` before `git pull`. On build/test fail **or** health fail after PM2 restart: `git reset --hard PREV_SHA` → rebuild → `pm2 restart`. Prisma migrations are **not** rolled back — keep migrations backward-compatible with the previous `code` for one release.
+
+Code: `apps/backend/src/services/auto-update.ts`, SA `routes/platform-version.ts` + `tenants` auto-update.
+
+---
+
 ## Sync checklist when changing agent surface
 
 1. Update `tool-definitions.ts` + `agent-tools-prompt.ts`  

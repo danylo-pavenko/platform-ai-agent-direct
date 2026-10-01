@@ -191,7 +191,10 @@ async function finishJob(
  * Start a background deploy job for the tenant.
  * Returns existing running job if one is already in progress (idempotent attach).
  */
-export async function startDeployJob(tenantId: string): Promise<{
+export async function startDeployJob(
+  tenantId: string,
+  opts?: { source?: string },
+): Promise<{
   job: DeployJobPublic;
   started: boolean;
   error?: string;
@@ -244,6 +247,10 @@ export async function startDeployJob(tenantId: string): Promise<{
         logPath,
       },
     });
+
+    if (opts?.source?.trim()) {
+      appendLine(logPath, opts.source.trim());
+    }
 
     const jobPublic = toDeployJobPublic(created);
 

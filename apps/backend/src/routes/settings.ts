@@ -6,7 +6,8 @@ import {
   SENSITIVE_FIELDS,
   META_ENV_ONLY_FIELDS,
 } from '../lib/integration-config.js';
-import { invalidateAgentConfigCache } from '../lib/agent-config.js';
+import { invalidateAgentConfigCache, normalizeAutoUpdateEnabled } from '../lib/agent-config.js';
+import { z } from 'zod';
 import { getFollowUpConfig } from '../lib/follow-up-config.js';
 import { onFollowUpConfigSaved } from '../lib/follow-up-schedule.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
@@ -52,6 +53,24 @@ const INTEGRATION_KEYS = [
   'integration_novaposhta',
 ];
 
+/** Soft-normalize agent_config on PUT (autoUpdateEnabled + keep other fields). */
+const agentConfigPutSchema = z
+  .object({
+    autoUpdateEnabled: z.unknown().optional(),
+  })
+  .passthrough();
+
+function normalizeAgentConfigForStore(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const parsed = agentConfigPutSchema.safeParse(value);
+  if (!parsed.success) return value;
+  const next = { ...parsed.data } as Record<string, unknown>;
+  if ('autoUpdateEnabled' in next) {
+    next.autoUpdateEnabled = normalizeAutoUpdateEnabled(next.autoUpdateEnabled);
+  }
+  return next;
+}
+
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // GET / - Get all non-integration settings
   app.get('/', { onRequest: [app.authenticate, app.requireOwner] }, async () => {
@@ -90,13 +109,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       'follow_up_config' in filtered ? await getFollowUpConfig() : null;
 
     await Promise.all(
-      Object.entries(filtered).map(([key, value]) =>
-        prisma.setting.upsert({
+      Object.entries(filtered).map(([key, value]) => {
+        const stored = key === 'agent_config' ? normalizeAgentConfigForStore(value) : value;
+        return prisma.setting.upsert({
           where: { key },
-          create: { key, value: value as any },
-          update: { value: value as any },
-        }),
-      ),
+          create: { key, value: stored as any },
+          update: { value: stored as any },
+        });
+      }),
     );
 
     if ('agent_config' in filtered) {

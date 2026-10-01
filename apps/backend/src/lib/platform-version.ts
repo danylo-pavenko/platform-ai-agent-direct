@@ -21,3 +21,12 @@ export function parsePlatformVersion(raw: unknown): PlatformVersion | null {
   if (!name || !Number.isFinite(code) || code < 1) return null;
   return { name, code: Math.floor(code) };
 }
+
+/**
+ * Tenant midnight gate: request SA Deploy only when remote VERSION.code is strictly higher.
+ * Equal or newer local → skip (noop).
+ */
+export function shouldRequestAutoUpdate(localCode: number, remoteCode: number): boolean {
+  if (!Number.isFinite(localCode) || !Number.isFinite(remoteCode)) return false;
+  return Math.floor(remoteCode) > Math.floor(localCode);
+}
