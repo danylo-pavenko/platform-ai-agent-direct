@@ -7,11 +7,11 @@
 #
 # Usage:
 #   bash infra/scripts/ensure-npm.sh
-#   TARGET_NPM=11.18.0 bash infra/scripts/ensure-npm.sh
+#   TARGET_NPM=11.21.0 bash infra/scripts/ensure-npm.sh
 #
 set -u
 
-TARGET_NPM="${TARGET_NPM:-11.18.0}"
+TARGET_NPM="${TARGET_NPM:-11.21.0}"
 
 if ! command -v npm >/dev/null 2>&1; then
   echo "  WARN: npm not found — skip ensure-npm"

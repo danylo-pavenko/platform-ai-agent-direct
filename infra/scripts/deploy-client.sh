@@ -307,7 +307,7 @@ NEW_SHA="$(git rev-parse HEAD)"
 echo "  HEAD after pull: ${NEW_SHA}"
 
 # ── 1b. npm version ──
-echo "[1b/11] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+echo "[1b/11] Ensuring npm ${TARGET_NPM:-11.21.0}..."
 bash "${SCRIPT_DIR}/ensure-npm.sh" || true
 
 # ── 2. Claude Code CLI (install if missing, update if present) ──

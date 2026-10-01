@@ -32,7 +32,7 @@ echo "[1/6] Pulling latest..."
 git pull --ff-only
 
 # ── 1b. npm version ──
-echo "[1b/6] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+echo "[1b/6] Ensuring npm ${TARGET_NPM:-11.21.0}..."
 bash "${SCRIPT_DIR}/ensure-npm.sh" || true
 
 # ── 2. Install deps (include dev — потрібен tsc для build) ──

@@ -46,7 +46,7 @@ fi
 echo "  Node: $(node -v), npm: $(npm -v)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-echo "[2b/6] Ensuring npm ${TARGET_NPM:-11.18.0}..."
+echo "[2b/6] Ensuring npm ${TARGET_NPM:-11.21.0}..."
 bash "${SCRIPT_DIR}/ensure-npm.sh" || true
 
 # ── 3. PM2 ──
