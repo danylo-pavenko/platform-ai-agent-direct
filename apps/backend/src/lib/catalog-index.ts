@@ -108,6 +108,72 @@ export function tokenizeProductQuery(query: string): string[] {
     .filter((t) => t.length >= 2);
 }
 
+const GARMENT_PREFIXES = [
+  'футбол',
+  'худі',
+  'худи',
+  'світшот',
+  'лонг',
+  'сороч',
+  'шопер',
+  'кепк',
+  'зіп',
+];
+
+/** Color, size, and garment words are not a design name. */
+const NON_DESIGN_PREFIXES = [
+  ...GARMENT_PREFIXES,
+  'чорн',
+  'біл',
+  'молоч',
+  'беж',
+  'сір',
+  'син',
+  'рожев',
+  'шоколад',
+  'вишн',
+  'хакі',
+  'зелен',
+  'блакит',
+  'багрян',
+  'слонов',
+  'оверсайз',
+  'унісекс',
+  'розмір',
+  'xs',
+  'sm',
+  'ml',
+  'xl',
+  'xxl',
+  '2xl',
+];
+
+function isGarmentToken(token: string): boolean {
+  return GARMENT_PREFIXES.some((prefix) => token.startsWith(prefix));
+}
+
+function matchesDesign(productNameLower: string, designTokens: string[]): boolean {
+  const strong = designTokens.filter((token) => token.length >= 5);
+  const required = strong.length > 0 ? strong : designTokens;
+  return required.every((token) => tokenInProductName(productNameLower, token));
+}
+
+function isDesignToken(token: string): boolean {
+  if (token.length < 3) return false;
+  if (isGarmentToken(token)) return false;
+  return !NON_DESIGN_PREFIXES.some((prefix) => token.startsWith(prefix));
+}
+
+/** Exact substring, or a short Ukrainian stem so «дорогоцінна» hits «Дорогоцінний». */
+export function tokenInProductName(productNameLower: string, token: string): boolean {
+  if (productNameLower.includes(token)) return true;
+  if (token.length >= 7 && /[а-яіїєґ]/i.test(token)) {
+    const stem = token.slice(0, -2);
+    if (stem.length >= 5 && productNameLower.includes(stem)) return true;
+  }
+  return false;
+}
+
 export function scoreProductNameMatch(
   productNameLower: string,
   tokens: string[],
@@ -117,7 +183,7 @@ export function scoreProductNameMatch(
 
   let matched = 0;
   for (const token of tokens) {
-    if (productNameLower.includes(token)) matched++;
+    if (tokenInProductName(productNameLower, token)) matched++;
   }
   if (matched === 0) return 0;
 
@@ -126,6 +192,31 @@ export function scoreProductNameMatch(
     score += 0.5;
   }
   return score;
+}
+
+/**
+ * The asked-for print exists only on another garment.
+ * «Chosen» on a t-shirt is not «Child of God» hoodie.
+ */
+export function designGarmentMismatchNote(query: string, productNames: string[]): string | null {
+  const tokens = tokenizeProductQuery(query);
+  const designTokens = tokens.filter(isDesignToken);
+  const garmentTokens = tokens.filter(isGarmentToken);
+  if (designTokens.length === 0 || garmentTokens.length === 0 || productNames.length === 0) {
+    return null;
+  }
+  const names = productNames.map((name) => name.toLowerCase());
+  const designHits = names.filter((name) => matchesDesign(name, designTokens));
+  if (designHits.length === 0) return null;
+  const sameGarment = designHits.some((name) =>
+    garmentTokens.some((token) => tokenInProductName(name, token)),
+  );
+  if (sameGarment) return null;
+  return (
+    'УВАГА: напис із запиту є в каталозі, але на іншому типі виробу. ' +
+    'Не називай це тим самим товаром на запитуваному виробі і не підміняй іншим дизайном. ' +
+    'Той самий напис на іншому виробі — індивідуальне замовлення, не ціна готової позиції.'
+  );
 }
 
 /** Rank active products from the local sync snapshot. */
@@ -138,6 +229,7 @@ export function searchLocalProducts(
   if (tokens.length === 0) return [];
 
   const fullQueryLower = query.trim().toLowerCase();
+  const designTokens = tokens.filter(isDesignToken);
   const ranked: Array<{ product: CrmProduct; score: number }> = [];
 
   for (const product of products) {
@@ -147,6 +239,14 @@ export function searchLocalProducts(
     if (score > 0) ranked.push({ product, score });
   }
 
-  ranked.sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, 'uk'));
-  return ranked.slice(0, limit).map((row) => row.product);
+  let pool = ranked;
+  if (designTokens.length > 0) {
+    const withDesign = ranked.filter((row) =>
+      matchesDesign((row.product.name ?? '').toLowerCase(), designTokens),
+    );
+    if (withDesign.length > 0) pool = withDesign;
+  }
+
+  pool.sort((a, b) => b.score - a.score || a.product.name.localeCompare(b.product.name, 'uk'));
+  return pool.slice(0, limit).map((row) => row.product);
 }

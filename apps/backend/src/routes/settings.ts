@@ -10,7 +10,7 @@ import { invalidateAgentConfigCache } from '../lib/agent-config.js';
 import { getFollowUpConfig } from '../lib/follow-up-config.js';
 import { onFollowUpConfigSaved } from '../lib/follow-up-schedule.js';
 import { invalidateRuntimeConfigCache } from '../lib/runtime-config.js';
-import { resolveCityRef } from '../services/nova-poshta.js';
+import { resolveCityRef, testNovaPoshtaConnection } from '../services/nova-poshta.js';
 import { runTenantHealthCheck } from '../services/health-check.js';
 import {
   parsePm2Targets,
@@ -708,4 +708,32 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return result;
     },
   );
+
+  /**
+   * POST /settings/nova-poshta/test
+   * Common.getCargoTypes. Body may include unsaved apiKey (masked → DB).
+   */
+  app.post<{
+    Body: {
+      apiKey?: string;
+    };
+  }>('/nova-poshta/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const result = await testNovaPoshtaConnection({
+        apiKey: body.apiKey,
+      });
+      if (!result.ok) {
+        return reply.code(400).send(result);
+      }
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({
+        ok: false,
+        status: 'error',
+        message,
+      });
+    }
+  });
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CrmProduct } from '../services/crm/types.js';
 import {
+  designGarmentMismatchNote,
   scoreProductNameMatch,
   searchLocalProducts,
   tokenizeProductQuery,
@@ -50,6 +51,24 @@ describe('searchLocalProducts', () => {
     const hits = searchLocalProducts(catalog, 'кепка sb', 3);
     expect(hits).toHaveLength(0);
   });
+
+  it('does not swap a t-shirt print onto another hoodie design', () => {
+    const hits = searchLocalProducts(
+      [product(10, 'Футболка Chosen'), product(11, 'Худі Child of God')],
+      'чорне худі chosen by god',
+      5,
+    );
+    expect(hits.map((hit) => hit.id)).toEqual([10]);
+  });
+
+  it('finds Дорогоцінний by a stemmed word', () => {
+    const hits = searchLocalProducts(
+      [product(4, 'Футболка Дорогоцінний')],
+      'хочу таку футболку дорогоцінна',
+      3,
+    );
+    expect(hits[0]?.id).toBe(4);
+  });
 });
 
 describe('scoreProductNameMatch', () => {
@@ -61,5 +80,16 @@ describe('scoreProductNameMatch', () => {
       'біла футболка',
     );
     expect(full).toBeGreaterThan(partial);
+  });
+});
+
+describe('designGarmentMismatchNote', () => {
+  it('warns when the print exists only on another garment', () => {
+    const note = designGarmentMismatchNote('худі chosen', ['Футболка Chosen']);
+    expect(note).toMatch(/іншому типі виробу/);
+  });
+
+  it('stays quiet when the same garment has the print', () => {
+    expect(designGarmentMismatchNote('худі child of god', ['Худі Child of God'])).toBeNull();
   });
 });

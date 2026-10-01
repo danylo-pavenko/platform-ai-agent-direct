@@ -2134,7 +2134,7 @@
           <v-icon start color="red-darken-1">mdi-truck-fast</v-icon>
           Нова Пошта
         </v-card-title>
-        <v-card-subtitle class="pb-2">API ключ для розрахунку вартості доставки по Украъни</v-card-subtitle>
+        <v-card-subtitle class="pb-2">API ключ для доставки по Україні і пошуку ТТН</v-card-subtitle>
         <v-card-text>
           <v-row dense>
             <v-col cols="12" sm="7">
@@ -2162,9 +2162,9 @@
                   style="flex:1;"
                 />
                 <v-btn
-                  size="small"
                   variant="tonal"
                   color="primary"
+                  style="min-height: 44px; min-width: 44px"
                   :loading="npCityLoading"
                   :disabled="!integrations.novaposhta.senderCity.trim()"
                   @click="resolveNpSenderCity"
@@ -2185,8 +2185,35 @@
               </v-alert>
             </v-col>
           </v-row>
+          <div class="d-flex flex-wrap align-center ga-2 mt-3 mb-2">
+            <v-btn
+              color="green-darken-1"
+              variant="tonal"
+              style="min-height: 44px"
+              :loading="npTestLoading"
+              :disabled="savingIntegrations"
+              prepend-icon="mdi-lan-check"
+              @click="runNpConnectionTest"
+            >
+              Перевірити підключення
+            </v-btn>
+            <span class="text-caption text-medium-emphasis">
+              Окремо від збереження. Бере ключ з поля, якщо він не маска ••••••.
+            </span>
+          </div>
+          <v-alert
+            v-if="npTestMessage"
+            :type="npTestOk ? 'success' : 'error'"
+            variant="tonal"
+            density="compact"
+            closable
+            class="mb-2"
+            @click:close="npTestMessage = ''"
+          >
+            {{ npTestMessage }}
+          </v-alert>
           <div class="text-caption text-medium-emphasis mt-2">
-            Ключ отримайте в особистому кабінеті НП - Налаштування - API. Агент буде автоматично відповідати на питання про вартість доставки.
+            Ключ отримайте в особистому кабінеті НП — Налаштування — API. Той самий ключ рахує вартість доставки і, якщо CRM не знайшла ТТН, шукає відправлення клієнта.
           </div>
         </v-card-text>
       </v-card>
@@ -2928,6 +2955,37 @@ const showSecrets = ref({
 
 const npCityLoading = ref(false);
 const npCityError = ref('');
+const npTestLoading = ref(false);
+const npTestOk = ref(false);
+const npTestMessage = ref('');
+
+async function runNpConnectionTest() {
+  if (npTestLoading.value) return;
+  npTestLoading.value = true;
+  npTestMessage.value = '';
+  try {
+    const apiKey = integrations.value.novaposhta.apiKey.trim();
+    const { data } = await api.post<{
+      ok: boolean;
+      status: string;
+      message: string;
+      durationMs?: number;
+    }>('/settings/nova-poshta/test', {
+      apiKey: apiKey && apiKey !== '••••••' ? apiKey : undefined,
+    });
+    npTestOk.value = data.ok === true;
+    npTestMessage.value = data.message || (data.ok ? 'Підключено' : 'Помилка');
+  } catch (err: unknown) {
+    npTestOk.value = false;
+    const ax = err as { response?: { data?: { message?: string } }; message?: string };
+    npTestMessage.value =
+      ax.response?.data?.message ||
+      ax.message ||
+      'Не вдалося перевірити Нову Пошту';
+  } finally {
+    npTestLoading.value = false;
+  }
+}
 
 async function resolveNpSenderCity() {
   const cityName = integrations.value.novaposhta.senderCity.trim();

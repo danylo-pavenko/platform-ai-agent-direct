@@ -10,6 +10,7 @@
 
 import pino from 'pino';
 import {
+  designGarmentMismatchNote,
   loadCatalogIndex,
   loadManualCatalogIndex,
   searchLocalProducts,
@@ -63,13 +64,10 @@ function pricesDifferMaterially(
   return diff / base >= ALT_PRICE_PCT || diff >= ALT_PRICE_ABS;
 }
 
-function activeOffersForProduct(
-  offers: CrmOffer[],
-  maxPerProduct: number,
-): CrmOffer[] {
-  return offers
-    .filter((o) => !o.isArchived && o.quantity - o.inReserve > 0)
-    .slice(0, maxPerProduct);
+function offersForHit(hit: RankedHit, maxPerProduct: number): CrmOffer[] {
+  const live = hit.offers.filter((offer) => !offer.isArchived);
+  if (hit.priceSource === 'file') return live.slice(0, maxPerProduct);
+  return live.filter((offer) => offer.quantity - offer.inReserve > 0).slice(0, maxPerProduct);
 }
 
 type RankedHit = {
@@ -93,25 +91,31 @@ function buildMergedContext(
   const productLines: string[] = [];
 
   for (const hit of hits) {
-    const activeOffers = activeOffersForProduct(hit.offers, MAX_OFFERS_PER_PRODUCT);
-    if (activeOffers.length === 0 && hit.quantity <= 0) continue;
+    const activeOffers = offersForHit(hit, MAX_OFFERS_PER_PRODUCT);
+    const madeToOrder = hit.priceSource === 'file';
+    if (!madeToOrder && activeOffers.length === 0 && hit.quantity <= 0) continue;
+    if (madeToOrder && activeOffers.length === 0 && hit.quantity <= 0) continue;
 
     const priceStr = formatPrice(hit.canonicalMin, hit.canonicalMax);
-    const priceLabel = hit.priceSource === 'file' ? 'ціна з файлу' : 'ціна з CRM';
+    const priceLabel = madeToOrder ? 'ціна з файлу' : 'ціна з CRM';
     const confNote =
       hit.matchConfidence === 'medium'
         ? ' | match: medium — уточни розмір/модель, якщо кілька схожих'
         : '';
 
     if (activeOffers.length === 0) {
+      const stock = madeToOrder
+        ? 'доступно до замовлення'
+        : `В наявності: ${hit.quantity} шт`;
       productLines.push(
-        `• ${hit.displayName} | ${priceStr} (${priceLabel}) | В наявності: ${hit.quantity} шт${confNote}`,
+        `• ${hit.displayName} | ${priceStr} (${priceLabel}) | ${stock}${confNote}`,
       );
     } else {
       const variantLines = activeOffers.map((offer) => {
         const variantDesc = formatVariantProps(offer.properties);
         const available = offer.quantity - offer.inReserve;
-        return `  – ${variantDesc || 'без варіанту'} | ${offer.price}₴ | ${available} шт`;
+        const stock = madeToOrder ? 'доступно до замовлення' : `${available} шт`;
+        return `  – ${variantDesc || 'без варіанту'} | ${offer.price}₴ | ${stock}`;
       });
       productLines.push(
         `• ${hit.displayName} | ${priceStr} (${priceLabel})${confNote}\n${variantLines.join('\n')}`,
@@ -132,11 +136,18 @@ function buildMergedContext(
     return { contextBlock: '', matchCount: 0 };
   }
 
+  const mismatch = designGarmentMismatchNote(
+    keywords,
+    hits.map((hit) => hit.displayName),
+  );
   const contextBlock = [
     `Знайдено в каталозі (за запитом "${keywords}"):`,
     productLines.join('\n'),
     '(Ціна канонічна за налаштуванням pricePreference; наявність з обраного джерела варіантів)',
-  ].join('\n');
+    mismatch ?? '',
+  ]
+    .filter((line) => line.length > 0)
+    .join('\n');
 
   return { contextBlock, matchCount: hits.length };
 }

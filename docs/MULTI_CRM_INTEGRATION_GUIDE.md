@@ -145,7 +145,7 @@ client_upsert: 'keycrm'
 | Філії | ❌ | ✅ | ✅ | `branches.ts`, `fetchBranches` |
 | Слоти / запис | ❌ | ✅ | ✅ | `appointment.ts`, adapters |
 | Замовлення | ✅ | ❌ | ❌ | `crm-sync.ts` |
-| ТТН / статус відправки | ✅ `lookupShipments` (`filter[tracking_code]`, buyer, локальний order id) | ❌ | ❌ | `shipment-lookup.ts` → tool `lookup_order_shipment` |
+| ТТН / статус відправки | ✅ `lookupShipments` (`filter[tracking_code]`, buyer, локальний order id). Якщо порожньо — fallback у кабінет Нової Пошти, коли збережено `integration_novaposhta` | ❌ CRM, але той самий NP fallback | ❌ CRM, але той самий NP fallback | `shipment-lookup.ts` → tool `lookup_order_shipment` |
 | Запис (booking) | ❌ | ✅ | ✅ | `appointment.ts` + `POST /orders/:id/sync-crm` |
 | Ліди | ✅ | ❌ | ❌ | `crm-sync.ts` |
 | Клієнт upsert | ✅ | ❌ | ✅ | `crm-sync.ts`, `beautypro.ts` |

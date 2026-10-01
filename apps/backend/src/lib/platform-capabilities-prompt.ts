@@ -18,7 +18,7 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, lookup_order_shipment, get_client_crm_history, lookup_client_by_phone) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки). lookup_order_shipment — sales/general: статус відправки і ТТН цього клієнта в CRM замовлень (KeyCRM filter[tracking_code] / телефон). Чужу ТТН не розкривати. Не вигадувати «на виробництві» без tool.
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, lookup_order_shipment, get_client_crm_history, lookup_client_by_phone) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки). lookup_order_shipment — sales/general: статус відправки і ТТН цього клієнта в CRM замовлень (KeyCRM filter[tracking_code] / телефон). Якщо CRM порожня або без ТТН і збережено ключ Нової Пошти — пошук у кабінеті НП (номер від клієнта або телефон отримувача). Чужу ТТН не розкривати і не трекати в НП. Не вигадувати «на виробництві» без tool.
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
@@ -109,7 +109,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Knowledge / prompts (tenant)
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
-- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл.
+- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл. Пошук не підміняє дизайн: якщо напис є лише на іншому типі виробу, search_catalog це позначає, а не віддає сусіднє худі. CSV Shop-Express має InStock і IsAvailable; Available з нульовим InStock лишається «доступно до замовлення», без кількості штук.
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 

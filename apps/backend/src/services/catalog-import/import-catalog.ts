@@ -99,7 +99,7 @@ function buildManualCatalogText(draft: CatalogImportDraft): string {
       const offers = (offersByPid.get(p.id) ?? []).filter((o) => !o.isArchived);
       for (const o of offers.slice(0, 40)) {
         const variant = o.properties.map((x) => `${x.name}: ${x.value}`).join(', ') || '—';
-        lines.push(`  - ${variant} | ${o.price}₴ | ${o.quantity} шт${o.sku ? ` | ${o.sku}` : ''}`);
+        lines.push(`  - ${variant} | ${o.price}₴ | доступно до замовлення${o.sku ? ` | ${o.sku}` : ''}`);
       }
       lines.push('');
     }

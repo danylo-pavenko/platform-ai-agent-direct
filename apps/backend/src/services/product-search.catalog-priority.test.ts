@@ -145,6 +145,8 @@ describe('product-search catalog match + price preference', () => {
     expect(result.matchCount).toBeGreaterThan(0);
     expect(result.contextBlock).toContain('2189');
     expect(result.contextBlock).toContain('ціна з файлу');
+    expect(result.contextBlock).toContain('доступно до замовлення');
+    expect(result.contextBlock).not.toMatch(/\d+ шт/);
     expect(result.contextBlock).toMatch(/CRM:.*2290/);
   });
 

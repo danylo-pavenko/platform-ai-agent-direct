@@ -7,7 +7,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 | Mode | Tools (окрім спільних) | Фінал |
 |------|------------------------|-------|
-| **sales** | `search_catalog`, `get_delivery_cost`, `lookup_order_shipment`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума. Статус відправки / ТТН — `lookup_order_shipment`, не вигадуй номер |
+| **sales** | `search_catalog`, `get_delivery_cost`, `lookup_order_shipment`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума. Статус відправки / ТТН — `lookup_order_shipment` (CRM, далі Нова Пошта якщо ключ збережено), не вигадуй номер |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
 | **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |

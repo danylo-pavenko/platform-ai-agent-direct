@@ -32,6 +32,8 @@ vi.mock('./product-search.js', () => ({
 
 vi.mock('./nova-poshta.js', () => ({
   getDeliveryCost: vi.fn(async () => ({ cost: 80, city: 'Львів' })),
+  trackNovaPoshtaDocument: vi.fn(async () => ({ error: 'not_configured' })),
+  findNovaPoshtaDocumentsByPhone: vi.fn(async () => ({ status: 'not_configured' })),
 }));
 
 vi.mock('./booking-branch.js', () => ({

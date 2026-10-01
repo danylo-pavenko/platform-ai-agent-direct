@@ -10,7 +10,12 @@ import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { prisma } from '../lib/prisma.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmShipment } from './crm/types.js';
-import { trackNovaPoshtaDocument, type NpTrackingStatus } from './nova-poshta.js';
+import {
+  findNovaPoshtaDocumentsByPhone,
+  trackNovaPoshtaDocument,
+  type NpSenderDocument,
+  type NpTrackingStatus,
+} from './nova-poshta.js';
 
 const log = pino({ name: 'shipment-lookup' });
 
@@ -154,6 +159,8 @@ export interface FormatShipmentLookupInput {
   trackingByCode: Map<string, NpTrackingStatus>;
   /** Admin sandbox: show the CRM row even without a conversation client. */
   unverified?: boolean;
+  /** Nova Poshta cabinet fallback when CRM has no TTN or no order. */
+  npNote?: string | null;
 }
 
 export function formatShipmentLookupResult(input: FormatShipmentLookupInput): string {
@@ -185,10 +192,11 @@ export function formatShipmentLookupResult(input: FormatShipmentLookupInput): st
   }
   if (input.owned.length === 0) {
     const ttnBit = input.ttnQuery ? ` за ТТН ${input.ttnQuery}` : '';
-    return (
-      `${head} РЕЗУЛЬТАТ: у ${input.providerLabel} не знайдено замовлень цього клієнта${ttnBit}. ` +
-      'Не вигадуй статус і номер ТТН. Якщо клієнт наполягає на точній даті — request_handoff.'
-    );
+    const np = input.npNote?.trim() ? `\n${input.npNote.trim()}\n` : ' ';
+    const tail = input.npNote?.trim()
+      ? 'Клієнту називай лише факти вище. Якщо є ТТН Нової Пошти — її можна сказати. Не вигадуй товари, суму чи статус виробництва.'
+      : 'Не вигадуй статус і номер ТТН. Якщо клієнт наполягає на точній даті — request_handoff.';
+    return `${head} РЕЗУЛЬТАТ: у ${input.providerLabel} не знайдено замовлень цього клієнта${ttnBit}.${np}${tail}`;
   }
 
   const rows = input.owned.slice(0, 5).map((shipment, index) => {
@@ -207,11 +215,98 @@ export function formatShipmentLookupResult(input: FormatShipmentLookupInput): st
     input.foreignTtn && input.ttnQuery
       ? `\nТТН ${input.ttnQuery} належить іншому покупцю — її дані вище не показані.`
       : '';
+  const npBlock = input.npNote?.trim() ? `\n${input.npNote.trim()}` : '';
   return (
-    `${head} РЕЗУЛЬТАТ (${scope}):\n${ttnNote}${rows.join('\n')}${foreignNote}\n` +
+    `${head} РЕЗУЛЬТАТ (${scope}):\n${ttnNote}${rows.join('\n')}${foreignNote}${npBlock}\n` +
     'Клієнту: статус замовлення, чи є ТТН, і статус Нової Пошти якщо він є. ' +
+    'ТТН з блоку Нової Пошти можна назвати, навіть якщо в CRM номера ще немає. ' +
     'Не обіцяй дату відправки, якщо її немає в результаті. Не називай внутрішні id CRM.'
   );
+}
+
+interface NpNote {
+  text: string;
+  hasDocument: boolean;
+}
+
+function formatTrackedNp(tracked: NpTrackingStatus): string {
+  const when = tracked.scheduledDeliveryDate ? `, орієнтовно ${tracked.scheduledDeliveryDate}` : '';
+  const place = [tracked.cityRecipient, tracked.warehouseRecipient].filter(Boolean).join(', ');
+  const placeBit = place ? `\n   Доставка: ${place}` : '';
+  return `ТТН: ${tracked.number}\n   Статус Нової Пошти: ${tracked.status}${when}${placeBit}`;
+}
+
+function formatSenderDocument(doc: NpSenderDocument, index: number): string {
+  const lines = [`${index}. ТТН: ${doc.number}`, `   Статус Нової Пошти: ${doc.status}`];
+  const place = [doc.cityRecipient, doc.warehouseRecipient].filter(Boolean).join(', ');
+  if (place) lines.push(`   Доставка: ${place}`);
+  if (doc.recipientName) lines.push(`   Отримувач: ${doc.recipientName}`);
+  if (doc.estimatedDeliveryDate) lines.push(`   Орієнтовна доставка: ${doc.estimatedDeliveryDate}`);
+  return lines.join('\n');
+}
+
+const NP_NOT_CONNECTED =
+  'Кабінет Нової Пошти не підключено. Не кажи клієнту про ключ API. Не вигадуй ТТН.';
+
+/**
+ * CRM miss or an owned order that still has no tracking code.
+ * A TTN that CRM already tied to another buyer is not sent to Nova Poshta.
+ */
+async function buildNovaPoshtaNote(input: {
+  ttnQuery: string | null;
+  ownedTtn: boolean;
+  phone?: string;
+  timeZone: string;
+  crmHasOrders: boolean;
+  crmHasTtn: boolean;
+}): Promise<NpNote | null> {
+  if (input.crmHasTtn && (!input.ttnQuery || input.ownedTtn)) return null;
+
+  const parts: string[] = [];
+  let hasDocument = false;
+  const seen = new Set<string>();
+
+  if (input.ttnQuery && /^\d{11,14}$/.test(input.ttnQuery) && !input.ownedTtn) {
+    const tracked = await trackNovaPoshtaDocument(input.ttnQuery, input.phone);
+    if (!('error' in tracked)) {
+      seen.add(tracked.number.replace(/\D/g, ''));
+      parts.push(`За номером, який надіслав клієнт, Нова Пошта:\n${formatTrackedNp(tracked)}`);
+      hasDocument = true;
+    } else if (tracked.error === 'not_configured') {
+      return input.crmHasOrders ? null : { text: NP_NOT_CONNECTED, hasDocument: false };
+    } else if (tracked.error === 'not_found') {
+      parts.push(`ТТН ${input.ttnQuery}: Нова Пошта не повернула статус.`);
+    }
+  }
+
+  if (!input.crmHasTtn && input.phone) {
+    const found = await findNovaPoshtaDocumentsByPhone(input.phone, { timeZone: input.timeZone });
+    if (found.status === 'not_configured') {
+      if (parts.length > 0) return { text: parts.join('\n'), hasDocument };
+      return input.crmHasOrders ? null : { text: NP_NOT_CONNECTED, hasDocument: false };
+    }
+    if (found.status === 'found') {
+      const extra = found.documents.filter((doc) => !seen.has(doc.number));
+      if (extra.length > 0) {
+        hasDocument = true;
+        parts.push(
+          'Відправлення цього телефону в кабінеті Нової Пошти:\n' +
+            extra.map((doc, index) => formatSenderDocument(doc, index + 1)).join('\n'),
+        );
+      }
+    } else if (found.status === 'no_phone_on_documents' && !hasDocument) {
+      parts.push(
+        'Нова Пошта повернула накладні відправника без телефону отримувача, зіставити з клієнтом не можна. Не кажи, що відправки немає.',
+      );
+    } else if (found.status === 'none' && !hasDocument) {
+      parts.push('Нова Пошта: за цим телефоном відправлень за останні 45 днів немає.');
+    } else if (found.status === 'unavailable' && !hasDocument) {
+      parts.push('Нова Пошта тимчасово не відповіла. Не вигадуй ТТН.');
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return { text: parts.join('\n'), hasDocument };
 }
 
 export async function lookupOrderShipment(input: {
@@ -248,6 +343,21 @@ export async function lookupOrderShipment(input: {
   const providerLabel = providerDisplayName(provider);
   const crm = getCrmAdapter(provider);
   if (!crm.capabilities.orders || !crm.lookupShipments) {
+    const phone = await loadClientPhone(input.clientId);
+    const np = await buildNovaPoshtaNote({
+      ttnQuery,
+      ownedTtn: false,
+      phone,
+      timeZone,
+      crmHasOrders: false,
+      crmHasTtn: false,
+    });
+    if (np?.hasDocument) {
+      return (
+        `[lookup_order_shipment] РЕЗУЛЬТАТ: CRM ${providerLabel} не шукає замовлення.\n${np.text}\n` +
+        'Клієнту можна назвати лише ТТН і статус Нової Пошти з цього результату. Не вигадуй товари чи статус виробництва.'
+      );
+    }
     return formatShipmentLookupResult({
       providerLabel,
       ttnQuery,
@@ -359,6 +469,18 @@ export async function lookupOrderShipment(input: {
     if (!('error' in tracked)) trackingByCode.set(code, tracked);
   }
 
+  const crmHasTtn = visible.some((row) => Boolean(row.trackingCode?.trim()));
+  const np = foreignTtn
+    ? null
+    : await buildNovaPoshtaNote({
+        ttnQuery,
+        ownedTtn,
+        phone,
+        timeZone,
+        crmHasOrders: visible.length > 0,
+        crmHasTtn,
+      });
+
   return formatShipmentLookupResult({
     providerLabel,
     ttnQuery,
@@ -371,5 +493,16 @@ export async function lookupOrderShipment(input: {
     timeZone,
     trackingByCode,
     unverified: unverifiedRows.length > 0,
+    npNote: np?.text ?? null,
   });
+}
+
+async function loadClientPhone(clientId?: string | null): Promise<string | undefined> {
+  if (!clientId) return undefined;
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { phone: true },
+  });
+  const phone = client?.phone?.trim();
+  return phone || undefined;
 }

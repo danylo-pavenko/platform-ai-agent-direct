@@ -14,12 +14,13 @@ vi.mock('./crm/index.js', () => ({
 }));
 vi.mock('./nova-poshta.js', () => ({
   trackNovaPoshtaDocument: vi.fn(),
+  findNovaPoshtaDocumentsByPhone: vi.fn(),
 }));
 
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { getCrmAdapter } from './crm/index.js';
-import { trackNovaPoshtaDocument } from './nova-poshta.js';
+import { findNovaPoshtaDocumentsByPhone, trackNovaPoshtaDocument } from './nova-poshta.js';
 import {
   formatShipmentLookupResult,
   lookupOrderShipment,
@@ -34,6 +35,7 @@ const orderFind = vi.mocked(prisma.order.findMany);
 const resolveProvider = vi.mocked(resolveCrmProvider);
 const adapterOf = vi.mocked(getCrmAdapter);
 const trackNp = vi.mocked(trackNovaPoshtaDocument);
+const findNp = vi.mocked(findNovaPoshtaDocumentsByPhone);
 
 function shipment(overrides: Partial<CrmShipment> = {}): CrmShipment {
   return {
@@ -112,6 +114,7 @@ describe('lookupOrderShipment', () => {
     } as never);
     orderFind.mockResolvedValue([] as never);
     trackNp.mockResolvedValue({ error: 'not_configured' });
+    findNp.mockResolvedValue({ status: 'not_configured' });
   });
 
   it('tells the agent the order is in production and has no TTN yet', async () => {
@@ -136,6 +139,99 @@ describe('lookupOrderShipment', () => {
     expect(text).not.toContain('crmOrderId');
     expect(text).not.toMatch(/\b101\b/);
     expect(trackNp).not.toHaveBeenCalled();
+    expect(findNp).toHaveBeenCalledWith('+380971442540', { timeZone: 'Europe/Kyiv' });
+    expect(text).not.toContain('ключ API');
+  });
+
+  it('adds a Nova Poshta TTN when CRM has the order but no tracking code', async () => {
+    const lookupShipments = vi.fn().mockResolvedValue([shipment()]);
+    adapterOf.mockReturnValue({
+      name: 'keycrm',
+      capabilities: { orders: true },
+      lookupShipments,
+    } as never);
+    findNp.mockResolvedValue({
+      status: 'found',
+      documents: [
+        {
+          number: '20450123456789',
+          status: 'Відправлення прямує до міста',
+          cityRecipient: 'Камінь-Каширський',
+          warehouseRecipient: 'Відділення №1',
+          recipientName: 'Подмовська Юля',
+          estimatedDeliveryDate: '02.10.2026',
+        },
+      ],
+    });
+
+    const text = await lookupOrderShipment({
+      clientId: 'client-1',
+      timeZone: 'Europe/Kyiv',
+    });
+
+    expect(text).toContain('На виробництві');
+    expect(text).toContain('20450123456789');
+    expect(text).toContain('Відправлення прямує до міста');
+    expect(text).toContain('Камінь-Каширський');
+  });
+
+  it('uses Nova Poshta when CRM has no order for this client', async () => {
+    const lookupShipments = vi.fn().mockResolvedValue([]);
+    adapterOf.mockReturnValue({
+      name: 'keycrm',
+      capabilities: { orders: true },
+      lookupShipments,
+    } as never);
+    findNp.mockResolvedValue({
+      status: 'found',
+      documents: [
+        {
+          number: '20450123456789',
+          status: 'Створено',
+          cityRecipient: 'Камінь-Каширський',
+          warehouseRecipient: null,
+          recipientName: null,
+          estimatedDeliveryDate: null,
+        },
+      ],
+    });
+
+    const text = await lookupOrderShipment({
+      clientId: 'client-1',
+      timeZone: 'Europe/Kyiv',
+    });
+
+    expect(text).toContain('не знайдено');
+    expect(text).toContain('20450123456789');
+    expect(text).toContain('Нової Пошти');
+  });
+
+  it('tracks a pasted TTN on Nova Poshta when CRM does not have it', async () => {
+    const lookupShipments = vi.fn().mockResolvedValue([]);
+    adapterOf.mockReturnValue({
+      name: 'keycrm',
+      capabilities: { orders: true },
+      lookupShipments,
+    } as never);
+    trackNp.mockResolvedValue({
+      number: '20450123456789',
+      status: 'Прибув у відділення',
+      statusCode: '7',
+      scheduledDeliveryDate: null,
+      cityRecipient: 'Камінь-Каширський',
+      warehouseRecipient: 'Відділення №1',
+    });
+    findNp.mockResolvedValue({ status: 'none' });
+
+    const text = await lookupOrderShipment({
+      clientId: 'client-1',
+      trackingCode: '2045 0123 4567 89',
+      timeZone: 'Europe/Kyiv',
+    });
+
+    expect(trackNp).toHaveBeenCalledWith('20450123456789', '+380971442540');
+    expect(text).toContain('Прибув у відділення');
+    expect(text).toContain('20450123456789');
   });
 
   it('adds Nova Poshta status when the owned order has a TTN', async () => {
@@ -202,6 +298,7 @@ describe('lookupOrderShipment', () => {
     expect(text).not.toContain('Львів');
     expect(text).not.toContain('Секрет');
     expect(trackNp).not.toHaveBeenCalled();
+    expect(findNp).not.toHaveBeenCalled();
   });
 
   it('says the order CRM cannot look up shipments', async () => {
@@ -214,6 +311,33 @@ describe('lookupOrderShipment', () => {
     const text = await lookupOrderShipment({ clientId: 'client-1' });
     expect(text).toMatch(/BeautyPro/);
     expect(text).toMatch(/не вміє шукати ТТН/);
-    expect(clientFind).not.toHaveBeenCalled();
+    expect(clientFind).toHaveBeenCalled();
+    expect(findNp).toHaveBeenCalled();
+  });
+
+  it('answers from Nova Poshta when the order CRM cannot look up shipments', async () => {
+    resolveProvider.mockResolvedValue('beautypro');
+    adapterOf.mockReturnValue({
+      name: 'beautypro',
+      capabilities: { orders: false },
+    } as never);
+    findNp.mockResolvedValue({
+      status: 'found',
+      documents: [
+        {
+          number: '20450123456789',
+          status: 'Створено',
+          cityRecipient: null,
+          warehouseRecipient: null,
+          recipientName: null,
+          estimatedDeliveryDate: null,
+        },
+      ],
+    });
+
+    const text = await lookupOrderShipment({ clientId: 'client-1' });
+    expect(text).toContain('20450123456789');
+    expect(text).toContain('Нової Пошти');
+    expect(text).not.toMatch(/не вміє шукати ТТН/);
   });
 });
