@@ -201,3 +201,64 @@ export async function resolveCityRef(cityName: string): Promise<{ ref: string; n
   if (!apiKey) return null;
   return findCityRef(apiKey, cityName);
 }
+
+export interface NpTrackingStatus {
+  number: string;
+  status: string;
+  statusCode: string | null;
+  scheduledDeliveryDate: string | null;
+  cityRecipient: string | null;
+  warehouseRecipient: string | null;
+}
+
+interface NpTrackingRow {
+  Number?: string;
+  Status?: string;
+  StatusCode?: string | number;
+  ScheduledDeliveryDate?: string;
+  CityRecipient?: string;
+  WarehouseRecipient?: string;
+}
+
+/**
+ * Live Nova Poshta document status. Missing API key is a soft skip
+ * (`error: not_configured`) so CRM shipment answers still stand.
+ */
+export async function trackNovaPoshtaDocument(
+  documentNumber: string,
+  phone?: string,
+): Promise<NpTrackingStatus | { error: string }> {
+  const number = documentNumber.replace(/\D/g, '');
+  if (!/^\d{11,14}$/.test(number)) {
+    return { error: 'invalid_ttn' };
+  }
+  const apiKey = await resolveApiKey();
+  if (!apiKey) return { error: 'not_configured' };
+
+  const doc: Record<string, string> = { DocumentNumber: number };
+  const phoneDigits = phone?.replace(/\D/g, '') ?? '';
+  if (phoneDigits.length >= 10) doc.Phone = phoneDigits;
+
+  try {
+    const resp = await npCall<NpTrackingRow>(apiKey, 'TrackingDocument', 'getStatusDocuments', {
+      Documents: [doc],
+    });
+    const row = resp.success ? resp.data[0] : undefined;
+    const status = row?.Status?.trim();
+    if (!status) {
+      log.warn({ errors: resp.errors, number }, 'Nova Poshta tracking returned no status');
+      return { error: 'not_found' };
+    }
+    return {
+      number: row?.Number?.trim() || number,
+      status,
+      statusCode: row?.StatusCode != null ? String(row.StatusCode) : null,
+      scheduledDeliveryDate: row?.ScheduledDeliveryDate?.trim() || null,
+      cityRecipient: row?.CityRecipient?.trim() || null,
+      warehouseRecipient: row?.WarehouseRecipient?.trim() || null,
+    };
+  } catch (err) {
+    log.error({ err, number }, 'Nova Poshta tracking failed');
+    return { error: 'unavailable' };
+  }
+}

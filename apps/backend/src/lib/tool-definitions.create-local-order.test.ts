@@ -53,7 +53,12 @@ describe('buildAgentTools mode surfaces (sales / leadgen / booking / general)', 
     const sales = buildAgentTools('sales').map((t) => t.name);
     const leadgen = buildAgentTools('leadgen').map((t) => t.name);
     expect(sales).toEqual(
-      expect.arrayContaining(['search_catalog', 'get_delivery_cost', 'collect_order']),
+      expect.arrayContaining([
+        'search_catalog',
+        'get_delivery_cost',
+        'lookup_order_shipment',
+        'collect_order',
+      ]),
     );
     expect(sales).not.toContain('submit_brief');
     expect(leadgen).toEqual(expect.arrayContaining(['classify_intent', 'submit_brief']));

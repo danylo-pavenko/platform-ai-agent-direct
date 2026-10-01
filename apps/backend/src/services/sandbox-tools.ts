@@ -11,6 +11,7 @@ import { parseSearchServicesLimit } from './booking-lookup.js';
 import { formatSearchServicesToolResult, parseGetAvailableSlotsArgs } from '../lib/booking-lookup-format.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
+import { lookupOrderShipment } from './shipment-lookup.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 
 const log = pino({ name: 'sandbox-tools' });
@@ -104,6 +105,22 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
       } catch (err) {
         log.error({ err, city }, 'sandbox get_delivery_cost failed');
         return { content: '[get_delivery_cost] ПОМИЛКА: Nova Poshta недоступна.' };
+      }
+    }
+
+    case 'lookup_order_shipment': {
+      const ttn = asString(tc.args.ttn);
+      try {
+        const agentCfg = await getAgentConfig();
+        const content = await lookupOrderShipment({
+          trackingCode: ttn || null,
+          timeZone: agentCfg.timezone,
+          allowUnverified: true,
+        });
+        return { content };
+      } catch (err) {
+        log.error({ err }, 'sandbox lookup_order_shipment failed');
+        return { content: '[lookup_order_shipment] ПОМИЛКА: CRM тимчасово недоступна.' };
       }
     }
 
@@ -229,6 +246,7 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
     'search_catalog',
     'search_services',
     'get_delivery_cost',
+    'lookup_order_shipment',
     'get_available_slots',
     'lookup_client_by_phone',
     'get_client_crm_history',
@@ -260,6 +278,8 @@ export function stageLabelForTool(name: string): string {
       return 'Дивлюсь вільні вікна…';
     case 'get_delivery_cost':
       return 'Рахую доставку…';
+    case 'lookup_order_shipment':
+      return 'Перевіряю ТТН і статус відправки…';
     case 'get_client_crm_history':
       return 'Дивлюсь історію клієнта…';
     case 'book_appointment':

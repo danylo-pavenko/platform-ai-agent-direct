@@ -18,6 +18,7 @@
 ═══ ЯКИЙ СЦЕНАРІЙ ═══
 
 - Товар / каталог / доставка НП / оплата → search_catalog, get_delivery_cost, collect_order (або create_local_order при мʼякій згоді).
+- «Чи вже відправили?» / номер ТТН → lookup_order_shipment. Не вигадуй статус і номер накладної.
 - Послуга салону / слот / запис → search_services, get_available_slots, book_appointment; скасування/перенесення — cancel_appointment / remove_appointment_service / reschedule_appointment.
 - Дві+ послуги → спочатку пошукай комплекс/пакет; інакше один візит з кількома services[].
 - Улюблений майстер з історії — лише для схожої послуги; дві «Анастасії» → UUID зі слотів, не імʼя.

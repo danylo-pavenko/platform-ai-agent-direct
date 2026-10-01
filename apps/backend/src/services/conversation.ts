@@ -148,6 +148,7 @@ import {
 } from '../lib/agent-turn-debug.js';
 import { createTurnClaudeSessions } from '../lib/turn-claude-sessions.js';
 import { executeLookupTool, lookupResultFromResponse, hasNativeLookupResult } from './agent-lookup-tools.js';
+import { SHIPMENT_LOOKUP_NUDGE, turnMentionsShipment } from './shipment-lookup.js';
 import {
   absorbLateInboundIntoTurn,
   claimInboundMessages,
@@ -1301,8 +1302,24 @@ async function handleIncomingMessageImpl(
       turnDebug,
     );
 
+    const shipmentToolAvailable = tools.some((t) => t.name === 'lookup_order_shipment');
+    const shipmentAlreadyCalled = response.toolCalls.some((tc) => tc.name === 'lookup_order_shipment');
+    const shipmentNative = hasNativeLookupResult(response.lookupResults, 'lookup_order_shipment');
+    const forceShipmentLookup =
+      shipmentToolAvailable &&
+      !shipmentAlreadyCalled &&
+      !opts?.managerAction &&
+      response.toolCalls.some((tc) => tc.name === 'request_handoff') &&
+      turnMentionsShipment(messageText, history);
+    const delayHandoffForShipment =
+      shipmentAlreadyCalled && !shipmentNative && !opts?.managerAction;
+    const holdHandoff = forceShipmentLookup || delayHandoffForShipment;
+    const terminalCalls = holdHandoff
+      ? response.toolCalls.filter((tc) => tc.name !== 'request_handoff')
+      : response.toolCalls;
+
     if (
-      await tryTerminalToolCalls(response.toolCalls, {
+      await tryTerminalToolCalls(terminalCalls, {
         conversationId,
         client,
         agentMode: agentCfg.mode,
@@ -1315,7 +1332,21 @@ async function handleIncomingMessageImpl(
       return 'completed';
     }
 
-    const handoff = response.toolCalls.find((tc) => tc.name === 'request_handoff');
+    if (holdHandoff) {
+      const skipped = response.toolCalls.find((tc) => tc.name === 'request_handoff');
+      if (skipped) {
+        recordTurnTool(
+          debug,
+          'request_handoff',
+          skipped.args,
+          '[request_handoff] відкладено — спершу lookup_order_shipment',
+        );
+      }
+    }
+
+    const handoff = holdHandoff
+      ? undefined
+      : response.toolCalls.find((tc) => tc.name === 'request_handoff');
     const collectOrder = response.toolCalls.find((tc) => tc.name === 'collect_order');
     const createLocalOrder = response.toolCalls.find((tc) => tc.name === 'create_local_order');
     const bookAppointment = response.toolCalls.find((tc) => tc.name === 'book_appointment');
@@ -1465,6 +1496,78 @@ async function handleIncomingMessageImpl(
         }
       }
       log.info({ conversationId, city, toolResultContent }, 'Delivery cost fetched and Claude re-invoked');
+      }
+    }
+
+    const shipmentCall = response.toolCalls.find((tc) => tc.name === 'lookup_order_shipment');
+    if (
+      shipmentCall &&
+      !handoff &&
+      !collectOrder &&
+      !createLocalOrder &&
+      !searchCatalogCall &&
+      !deliveryCostCall
+    ) {
+      if (!reuseNativeLookupsIfPresent(response, 'lookup_order_shipment', responseText)) {
+        const toolResultContent = await runLookup(
+          'lookup_order_shipment',
+          shipmentCall.args,
+          response,
+        );
+        recordTurnTool(debug, 'lookup_order_shipment', shipmentCall.args, toolResultContent);
+
+        const response2 = await askTurnClaudeFollowUp(
+          {
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              {
+                role: 'assistant' as const,
+                content: response.text || '[Перевіряю статус відправки в CRM]',
+              },
+            ],
+            userMessage: toolResultContent,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+
+        responseText = response2.text;
+        agentFallback = response2.fallback ?? agentFallback;
+        if (response2.errorDetail) agentErrorDetail = response2.errorDetail;
+        recordTurnRound(debug, {
+          label: 'after_lookup_order_shipment',
+          toolCalls: (response2.toolCalls ?? []).map((tc) => tc.name),
+          textPreview: response2.text,
+          fallback: response2.fallback ?? null,
+        });
+        if (response2.toolCalls?.length) {
+          await runSideEffectToolCalls(
+            response2.toolCalls,
+            client.id,
+            conversationId,
+            mediaAttachments,
+            debug,
+          );
+          if (
+            await tryTerminalToolCalls(response2.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(response2.text),
+              turnStartedAt,
+              turnDebug: debug,
+              managerAction: opts?.managerAction,
+            })
+          ) {
+            return 'completed';
+          }
+        }
       }
     }
 
@@ -1793,6 +1896,118 @@ async function handleIncomingMessageImpl(
       }
       }
     }
+    if (
+      forceShipmentLookup &&
+      !debug.tools.some((t) => t.name === 'lookup_order_shipment')
+    ) {
+      log.info({ conversationId }, 'Shipment question handed off without lookup — forcing lookup_order_shipment');
+      const recovery = await askTurnClaudeFollowUp(
+        {
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            { role: 'assistant' as const, content: response.text || '[Передаю менеджеру]' },
+          ],
+          userMessage: SHIPMENT_LOOKUP_NUDGE,
+          tools,
+        },
+        {
+          channel: conversation.channel,
+          conversationId,
+          clientId: client.id,
+          model: agentCfg.claudeModel,
+        },
+      );
+      recordTurnRound(debug, {
+        label: 'shipment_lookup_recovery',
+        toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: recovery.text,
+        fallback: recovery.fallback ?? null,
+      });
+      const recoveredLookup = recovery.toolCalls?.find((tc) => tc.name === 'lookup_order_shipment');
+      if (recoveredLookup && !hasNativeLookupResult(recovery.lookupResults, 'lookup_order_shipment')) {
+        const toolResultContent = await runLookup(
+          'lookup_order_shipment',
+          recoveredLookup.args,
+          recovery,
+        );
+        recordTurnTool(debug, 'lookup_order_shipment', recoveredLookup.args, toolResultContent);
+        const after = await askTurnClaudeFollowUp(
+          {
+            conversationHistory: [
+              ...history,
+              { role: 'user' as const, content: enrichedMessageText },
+              {
+                role: 'assistant' as const,
+                content: recovery.text || '[Перевіряю статус відправки в CRM]',
+              },
+            ],
+            userMessage: toolResultContent,
+            tools,
+          },
+          {
+            channel: conversation.channel,
+            conversationId,
+            clientId: client.id,
+            model: agentCfg.claudeModel,
+          },
+        );
+        responseText = after.text;
+        agentFallback = after.fallback ?? agentFallback;
+        if (after.errorDetail) agentErrorDetail = after.errorDetail;
+        recordTurnRound(debug, {
+          label: 'after_lookup_order_shipment',
+          toolCalls: (after.toolCalls ?? []).map((tc) => tc.name),
+          textPreview: after.text,
+          fallback: after.fallback ?? null,
+        });
+        if (after.toolCalls?.length) {
+          await runSideEffectToolCalls(after.toolCalls, client.id, conversationId, mediaAttachments, debug);
+          if (
+            await tryTerminalToolCalls(after.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(after.text),
+              turnStartedAt,
+              turnDebug: debug,
+              managerAction: opts?.managerAction,
+            })
+          ) {
+            return 'completed';
+          }
+        }
+      } else {
+        if (hasNativeLookupResult(recovery.lookupResults, 'lookup_order_shipment')) {
+          reuseNativeLookupsIfPresent(recovery, 'lookup_order_shipment', recovery.text);
+        }
+        responseText = recovery.text;
+        agentFallback = recovery.fallback ?? agentFallback;
+        if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+        if (recovery.toolCalls?.length) {
+          await runSideEffectToolCalls(
+            recovery.toolCalls,
+            client.id,
+            conversationId,
+            mediaAttachments,
+            debug,
+          );
+          if (
+            await tryTerminalToolCalls(recovery.toolCalls, {
+              conversationId,
+              client,
+              agentMode: agentCfg.mode,
+              clientMessage: stripMarkdownForInstagram(recovery.text),
+              turnStartedAt,
+              turnDebug: debug,
+              managerAction: opts?.managerAction,
+            })
+          ) {
+            return 'completed';
+          }
+        }
+      }
+    }
   }
 
   const slotsExecuted = debug.tools.some((t) => t.name === 'get_available_slots');
@@ -1963,6 +2178,7 @@ async function handleIncomingMessageImpl(
         }
       }
     }
+
   }
 
   // Recover once when the model promised a catalog lookup without any lookup tools.

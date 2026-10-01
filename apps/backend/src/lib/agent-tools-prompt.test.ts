@@ -12,6 +12,7 @@ describe('formatAgentToolsPrompt', () => {
     const sales = buildAgentTools('sales');
     const prompt = formatAgentToolsPrompt(sales);
     expect(prompt).toContain('collect_order');
+    expect(prompt).toContain('lookup_order_shipment');
     expect(prompt).toContain('ПОВНИЙ підсумок e-commerce');
     expect(prompt).not.toContain('submit_brief');
     expect(prompt).not.toContain('classify_intent — на початку');

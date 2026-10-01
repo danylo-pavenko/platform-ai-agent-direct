@@ -327,6 +327,36 @@ export interface CrmCapabilities {
   booking: boolean;
 }
 
+/** One CRM order row for shipment / TTN answers. No payment or manager notes. */
+export interface CrmShipment {
+  crmOrderId: string;
+  buyerId?: string;
+  statusName?: string;
+  closed: boolean;
+  trackingCode: string | null;
+  carrier?: string | null;
+  shippingStatus?: string | null;
+  city?: string | null;
+  receivePoint?: string | null;
+  recipientName?: string | null;
+  /** Phones from buyer + shipping recipient — ownership check only, not for the client. */
+  phones: string[];
+  shippedAt?: string | null;
+  createdAt?: string | null;
+  grandTotal?: number | null;
+  items: Array<{ name: string; qty?: number }>;
+}
+
+export interface CrmShipmentQuery {
+  /** Carrier tracking number (Nova Poshta TTN and similar). */
+  trackingCode?: string;
+  buyerId?: string;
+  phone?: string;
+  /** Locally mirrored CRM order ids for this client. */
+  orderIds?: string[];
+  limit?: number;
+}
+
 // ── The adapter itself ─────────────────────────────────────────────────────
 
 export interface CrmAdapter {
@@ -349,6 +379,11 @@ export interface CrmAdapter {
     input: CrmClientInput,
   ): Promise<{ crmBuyerId: string }>;
   createOrder?(input: CrmOrderInput): Promise<{ crmOrderId: string }>;
+  /**
+   * Read shipment / TTN for orders this tenant already has in the CRM.
+   * KeyCRM: `GET /order` with `filter[tracking_code]` or `filter[buyer_id]`.
+   */
+  lookupShipments?(query: CrmShipmentQuery): Promise<CrmShipment[]>;
   createLead?(input: CrmLeadInput): Promise<{ crmLeadId: string }>;
 
   // Salon / booking (optional — CleverBOX)

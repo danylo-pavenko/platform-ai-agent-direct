@@ -23,6 +23,8 @@ import type {
   CrmOrderInput,
   CrmLeadInput,
   CrmCustomFieldDef,
+  CrmShipment,
+  CrmShipmentQuery,
   ProductSearchParams,
   OfferSearchParams,
 } from './types.js';
@@ -307,6 +309,195 @@ async function paginate<Raw>(
   return items;
 }
 
+// ── Shipment / TTN lookup ───────────────────────────────────────────────────
+
+const SHIPMENT_INCLUDE = 'buyer,status,shipping.deliveryService,products.offer';
+
+interface RawKeycrmShipping {
+  tracking_code?: string | null;
+  shipping_status?: string | null;
+  shipping_address_city?: string | null;
+  shipping_receive_point?: string | null;
+  recipient_full_name?: string | null;
+  recipient_phone?: string | null;
+  shipping_date_actual?: string | null;
+  delivery_service?: { name?: string | null } | null;
+}
+
+interface RawKeycrmShipmentOrder {
+  id: number;
+  grand_total?: number | null;
+  created_at?: string | null;
+  closed_at?: string | null;
+  status?: { name?: string | null };
+  buyer?: { id?: number; phone?: string[] | null } | null;
+  products?: Array<{ name?: string | null; quantity?: number | null }> | null;
+  shipping?: RawKeycrmShipping | RawKeycrmShipping[] | null;
+}
+
+function asShipping(raw: RawKeycrmShipmentOrder['shipping']): RawKeycrmShipping | null {
+  if (!raw) return null;
+  if (Array.isArray(raw)) return raw[0] ?? null;
+  return raw;
+}
+
+function uaPhoneFilterValues(raw: string): string[] {
+  const trimmed = raw.trim();
+  const digits = trimmed.replace(/\D/g, '');
+  const out: string[] = [];
+  const push = (value: string) => {
+    const v = value.trim();
+    if (v && !out.includes(v)) out.push(v);
+  };
+  push(trimmed);
+  if (digits.startsWith('380') && digits.length === 12) {
+    push(`+${digits}`);
+    push(digits);
+    push(`0${digits.slice(3)}`);
+  } else if (digits.length === 10 && digits.startsWith('0')) {
+    push(`+38${digits}`);
+    push(`38${digits}`);
+    push(digits);
+  }
+  return out.slice(0, 3);
+}
+
+function mapShipmentOrder(raw: RawKeycrmShipmentOrder): CrmShipment {
+  const shipping = asShipping(raw.shipping);
+  const tracking = shipping?.tracking_code?.trim() || null;
+  const phones: string[] = [];
+  const pushPhone = (value: string | null | undefined) => {
+    const v = value?.trim();
+    if (v && !phones.includes(v)) phones.push(v);
+  };
+  for (const phone of raw.buyer?.phone ?? []) pushPhone(phone);
+  pushPhone(shipping?.recipient_phone);
+  const items: Array<{ name: string; qty?: number }> = [];
+  for (const line of raw.products ?? []) {
+    const name = line.name?.trim();
+    if (!name) continue;
+    const qty =
+      typeof line.quantity === 'number' && Number.isFinite(line.quantity)
+        ? line.quantity
+        : undefined;
+    items.push(qty === undefined ? { name } : { name, qty });
+  }
+
+  return {
+    crmOrderId: String(raw.id),
+    buyerId: raw.buyer?.id != null ? String(raw.buyer.id) : undefined,
+    statusName: raw.status?.name?.trim() || undefined,
+    closed: Boolean(raw.closed_at),
+    trackingCode: tracking,
+    carrier: shipping?.delivery_service?.name?.trim() || null,
+    shippingStatus: shipping?.shipping_status?.trim() || null,
+    city: shipping?.shipping_address_city?.trim() || null,
+    receivePoint: shipping?.shipping_receive_point?.trim() || null,
+    recipientName: shipping?.recipient_full_name?.trim() || null,
+    phones,
+    shippedAt: shipping?.shipping_date_actual?.trim() || null,
+    createdAt: raw.created_at?.trim() || null,
+    grandTotal:
+      typeof raw.grand_total === 'number' && Number.isFinite(raw.grand_total)
+        ? raw.grand_total
+        : null,
+    items,
+  };
+}
+
+async function listKeycrmShipmentOrders(
+  params: Record<string, string>,
+): Promise<RawKeycrmShipmentOrder[]> {
+  const result = await keycrmGet<PaginatedResponse<RawKeycrmShipmentOrder>>(
+    '/order',
+    params,
+    { retry: false },
+  );
+  return Array.isArray(result.data) ? result.data : [];
+}
+
+async function findKeycrmBuyerIdByPhone(phone: string): Promise<string | null> {
+  for (const variant of uaPhoneFilterValues(phone)) {
+    try {
+      const found = await keycrmGet<PaginatedResponse<RawBuyer>>(
+        '/buyer',
+        { limit: '1', page: '1', 'filter[buyer_phone]': variant },
+        { retry: false },
+      );
+      const id = found.data[0]?.id;
+      if (id != null) return String(id);
+    } catch (err) {
+      log.warn({ err, variant }, 'KeyCRM buyer lookup by phone failed');
+    }
+  }
+  return null;
+}
+
+/**
+ * KeyCRM OpenAPI: list orders by tracking code and/or buyer, plus direct
+ * reads of locally mirrored order ids. `filter[tracking_code]` is the
+ * Nova Poshta TTN field on `shipping.tracking_code`.
+ */
+export async function lookupKeycrmShipments(query: CrmShipmentQuery): Promise<CrmShipment[]> {
+  const limit = Math.min(Math.max(query.limit ?? 5, 1), 15);
+  const byId = new Map<string, CrmShipment>();
+  const remember = (rows: RawKeycrmShipmentOrder[]) => {
+    for (const row of rows) {
+      if (row?.id == null) continue;
+      const mapped = mapShipmentOrder(row);
+      byId.set(mapped.crmOrderId, mapped);
+    }
+  };
+
+  const listParams = (filterKey: string, filterValue: string): Record<string, string> => ({
+    limit: String(limit),
+    page: '1',
+    include: SHIPMENT_INCLUDE,
+    sort: '-id',
+    [filterKey]: filterValue,
+  });
+
+  const tracking = query.trackingCode?.trim();
+  if (tracking) {
+    try {
+      remember(await listKeycrmShipmentOrders(listParams('filter[tracking_code]', tracking)));
+    } catch (err) {
+      log.warn({ err, tracking }, 'KeyCRM order lookup by tracking_code failed');
+    }
+  }
+
+  let buyerId = query.buyerId?.trim() || '';
+  if (!buyerId && query.phone?.trim()) {
+    buyerId = (await findKeycrmBuyerIdByPhone(query.phone)) ?? '';
+  }
+  if (/^\d+$/.test(buyerId)) {
+    try {
+      remember(await listKeycrmShipmentOrders(listParams('filter[buyer_id]', buyerId)));
+    } catch (err) {
+      log.warn({ err, buyerId }, 'KeyCRM order lookup by buyer_id failed');
+    }
+  }
+
+  const extraIds = (query.orderIds ?? [])
+    .map((id) => id.trim())
+    .filter((id) => /^\d+$/.test(id) && !byId.has(id))
+    .slice(0, limit);
+  for (const orderId of extraIds) {
+    try {
+      const row = await keycrmGet<RawKeycrmShipmentOrder>(
+        `/order/${orderId}`,
+        { include: SHIPMENT_INCLUDE },
+        { retry: false },
+      );
+      if (row?.id != null) remember([row]);
+    } catch (err) {
+      log.warn({ err, orderId }, 'KeyCRM order snapshot for shipment failed');
+    }
+  }
+
+  return [...byId.values()];
+}
+
 // ── Adapter ─────────────────────────────────────────────────────────────────
 
 export const keycrmAdapter: CrmAdapter = {
@@ -505,6 +696,10 @@ export const keycrmAdapter: CrmAdapter = {
     );
     const res = await keycrmJson<{ id: number }>('POST', '/order', body);
     return { crmOrderId: String(res.id) };
+  },
+
+  async lookupShipments(query: CrmShipmentQuery): Promise<CrmShipment[]> {
+    return lookupKeycrmShipments(query);
   },
 
   async createLead(input: CrmLeadInput) {

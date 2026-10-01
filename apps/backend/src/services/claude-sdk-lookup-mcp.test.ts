@@ -29,6 +29,7 @@ describe('lookupToolsForMcp', () => {
     expect(lookupToolsForMcp(buildAgentTools('sales'), {})).toEqual([
       'search_catalog',
       'get_delivery_cost',
+      'lookup_order_shipment',
     ]);
   });
 

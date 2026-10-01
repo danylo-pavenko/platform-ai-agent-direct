@@ -108,12 +108,14 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 | Mode | Purpose | Mode-specific tools | Terminal outcome |
 |------|---------|---------------------|------------------|
-| **sales** | E-commerce | `search_catalog`, `get_delivery_cost`, `collect_order` | Local order (+ optional CRM mirror) |
-
-**Product order amounts:** `items[].price` = catalog/list price from search/file; `quoted_total` (required on `collect_order` / Insights `create_product_order`) = amount told to the customer. KeyCRM mirror scales line prices to `quotedTotal`; Telegram and admin show quoted (+ catalog when they differ). Legacy rows without `quotedTotal` fall back to catalog sum on read.
+| **sales** | E-commerce | `search_catalog`, `get_delivery_cost`, `lookup_order_shipment`, `collect_order` | Local order (+ optional CRM mirror) |
 | **leadgen** | Qualification / brief | `classify_intent`, `submit_brief` | Brief + Telegram (+ optional KeyCRM lead) |
 | **booking** | Salon appointment | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | CRM appointment |
 | **general** | All scenarios (**default**) | Union of sales + leadgen + booking (deduped) | Same handlers; pick tool by client intent |
+
+**Product order amounts:** `items[].price` = catalog/list price from search/file; `quoted_total` (required on `collect_order` / Insights `create_product_order`) = amount told to the customer. KeyCRM mirror scales line prices to `quotedTotal`; Telegram and admin show quoted (+ catalog when they differ). Legacy rows without `quotedTotal` fall back to catalog sum on read.
+
+**Shipment / TTN:** `lookup_order_shipment` (sales and general) answers «чи вже відправили?» and a pasted Nova Poshta number. It uses `resolveCrmProvider('order')` + `lookupShipments`. KeyCRM lists `GET /order` with `filter[tracking_code]` and/or `filter[buyer_id]` (`include=shipping.deliveryService`). The reply includes only orders tied to this client's phone, numeric `crmBuyerId` for that provider, or local `Order.keycrmOrderId`. A TTN that belongs to another buyer is not described. If the Nova Poshta API key is set and the carrier is NP, the same result adds `TrackingDocument.getStatusDocuments`. CleverBOX and BeautyPro do not implement this read. Do not hand off before the tool runs, and do not invent a production status or TTN.
 
 **general** is not a separate tool list: `buildAgentTools('general')` merges the specialized builders. When you add a tool to sales/leadgen/booking, it appears in general automatically (enforced by unit test).
 
@@ -133,7 +135,7 @@ All CRM I/O goes through `getCrmAdapter` + `resolveCrmProvider(action)`. Never c
 
 | Provider | Typical actions |
 |----------|-----------------|
-| KeyCRM | catalog, orders, leads, client upsert |
+| KeyCRM | catalog, orders, leads, client upsert, shipment/TTN (`lookup_order_shipment`) |
 | CleverBOX | services, branches, booking |
 | BeautyPro | services, branches, booking, client upsert, visit history |
 

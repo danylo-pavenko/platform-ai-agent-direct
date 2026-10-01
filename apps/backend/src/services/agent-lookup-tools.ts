@@ -14,6 +14,7 @@ import {
 } from './booking-lookup.js';
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
+import { lookupOrderShipment } from './shipment-lookup.js';
 
 const log = pino({ name: 'agent-lookup-tools' });
 
@@ -163,6 +164,25 @@ async function runLookupClientByPhone(
   }
 }
 
+async function runOrderShipment(
+  args: Record<string, unknown>,
+  ctx: LookupToolContext,
+): Promise<string> {
+  if (!ctx.clientId) {
+    return '[lookup_order_shipment] ПОМИЛКА: немає клієнта в контексті.';
+  }
+  try {
+    return await lookupOrderShipment({
+      clientId: ctx.clientId,
+      trackingCode: asString(args.ttn) || null,
+      timeZone: ctx.timeZone,
+    });
+  } catch (err) {
+    log.error({ err, clientId: ctx.clientId }, 'lookup_order_shipment failed');
+    return '[lookup_order_shipment] ПОМИЛКА: не вдалося перевірити відправку в CRM';
+  }
+}
+
 /**
  * Execute one readonly lookup. Safe to call from conversation.ts or MCP.
  */
@@ -177,6 +197,8 @@ export async function executeLookupTool(
         return runSearchCatalog(args);
       case 'get_delivery_cost':
         return runDeliveryCost(args);
+      case 'lookup_order_shipment':
+        return runOrderShipment(args, ctx);
       case 'search_services':
         return runSearchServices(args, ctx);
       case 'get_available_slots':

@@ -18,14 +18,14 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, get_client_crm_history, lookup_client_by_phone) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки).
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, lookup_order_shipment, get_client_crm_history, lookup_client_by_phone) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки). lookup_order_shipment — sales/general: статус відправки і ТТН цього клієнта в CRM замовлень (KeyCRM filter[tracking_code] / телефон). Чужу ТТН не розкривати. Не вигадувати «на виробництві» без tool.
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
 Спільні: update_client_info, tag_client, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
 Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment.
 
-sales: search_catalog, get_delivery_cost, collect_order
+sales: search_catalog, get_delivery_cost, lookup_order_shipment, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, lookup_client_by_phone, get_client_crm_history, attach_reference_photo, notify_client_running_late, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
 general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
@@ -44,7 +44,7 @@ Telegram-сповіщення менеджерам — з collect_order / create
 
 | Provider | Що вміє |
 |----------|---------|
-| keycrm | catalog, orders, leads, client upsert |
+| keycrm | catalog, orders, leads, client upsert, shipment/TTN lookup |
 | cleverbox | services, branches, booking |
 | beautypro | services, branches, booking, client upsert, visit history |
 

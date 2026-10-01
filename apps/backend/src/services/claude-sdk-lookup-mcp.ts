@@ -133,6 +133,13 @@ const HISTORY_SCHEMA = {
   master_id: z.string().optional(),
 };
 
+const SHIPMENT_SCHEMA = {
+  ttn: z
+    .string()
+    .optional()
+    .describe('Номер ТТН / накладної, якщо клієнт його надіслав. Інакше не передавай.'),
+};
+
 const LOOSE_OBJECT = z.record(z.string(), z.unknown()).optional();
 
 function lookupHandler(name: LookupToolName, ctx: LookupToolContext) {
@@ -183,6 +190,17 @@ export function createLookupMcpServer(
         'Вартість доставки Новою Поштою по Україні.',
         DELIVERY_SCHEMA,
         lookupHandler('get_delivery_cost', ctx),
+        { annotations: LOOKUP_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
+  if (allowed.has('lookup_order_shipment')) {
+    tools.push(
+      tool(
+        'lookup_order_shipment',
+        'Статус відправки і ТТН замовлення цього клієнта в CRM. Не вигадуй номер накладної.',
+        SHIPMENT_SCHEMA,
+        lookupHandler('lookup_order_shipment', ctx),
         { annotations: LOOKUP_ANNOTATIONS, alwaysLoad: true },
       ),
     );

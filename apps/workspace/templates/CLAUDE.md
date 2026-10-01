@@ -7,7 +7,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 | Mode | Tools (окрім спільних) | Фінал |
 |------|------------------------|-------|
-| **sales** | `search_catalog`, `get_delivery_cost`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума |
+| **sales** | `search_catalog`, `get_delivery_cost`, `lookup_order_shipment`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума. Статус відправки / ТТН — `lookup_order_shipment`, не вигадуй номер |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
 | **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
@@ -28,7 +28,7 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 
 ## CRM (коротко)
 
-- **KeyCRM** — каталог товарів, замовлення, ліди.
+- **KeyCRM** — каталог товарів, замовлення, ліди, пошук ТТН / статусу відправки (`lookup_order_shipment`).
 - **CleverBOX / BeautyPro** — послуги, філії, слоти, запис; BeautyPro ще історія візитів (тривалість).
 - Routing per-tenant (`crm_routing`). Після телефону клієнт може привʼязатись до CRM (`crmBuyerId`).
 

@@ -35,6 +35,7 @@ export const LOOKUP_TOOL_NAMES = [
   'search_services',
   'get_available_slots',
   'get_delivery_cost',
+  'lookup_order_shipment',
   'get_client_crm_history',
   'lookup_client_by_phone',
 ] as const;
@@ -162,7 +163,7 @@ const TAG_CLIENT: ToolDefinition = {
 const REQUEST_HANDOFF: ToolDefinition = {
   name: 'request_handoff',
   description:
-    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
+    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. Якщо в цьому режимі є lookup_order_shipment — статус відправки / ТТН спочатку через нього, не handoff. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
   parameters: {
     type: 'object',
     properties: {
@@ -578,6 +579,23 @@ const GET_DELIVERY_COST: ToolDefinition = {
   },
 };
 
+const LOOKUP_ORDER_SHIPMENT: ToolDefinition = {
+  name: 'lookup_order_shipment',
+  description:
+    'Статус відправки замовлення цього клієнта в підключеній CRM (KeyCRM: замовлення і ТТН Нової Пошти). Викликай у тій самій відповіді, коли клієнт питає чи відправили, де посилка, номер ТТН/накладної, або пише «?» / «чекаю» після такого питання. Якщо клієнт надіслав номер — передай ttn; якщо ні — виклич без ttn (платформа шукає за телефоном профілю і локальними замовленнями). Не вигадуй статус «на виробництві», дату відправки чи номер ТТН без результату tool. Не називай клієнту внутрішні id. request_handoff — лише якщо tool повернув, що CRM не підтримує відправки, нічого не знайдено, або клієнт просить те, чого в результаті немає.',
+  parameters: {
+    type: 'object',
+    properties: {
+      ttn: {
+        type: 'string',
+        description:
+          'Номер ТТН / експрес-накладної Нової Пошти, якщо клієнт його надіслав. Якщо номера немає — не передавай поле.',
+      },
+    },
+    required: [],
+  },
+};
+
 const COLLECT_ORDER: ToolDefinition = {
   name: 'collect_order',
   description:
@@ -884,7 +902,7 @@ function buildSharedBaseTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
 }
 
 function buildSalesModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
-  return [...buildSharedBaseTools(opts), SEARCH_CATALOG, GET_DELIVERY_COST, COLLECT_ORDER];
+  return [...buildSharedBaseTools(opts), SEARCH_CATALOG, GET_DELIVERY_COST, LOOKUP_ORDER_SHIPMENT, COLLECT_ORDER];
 }
 
 function buildLeadgenModeTools(opts: BuildAgentToolsOptions): ToolDefinition[] {

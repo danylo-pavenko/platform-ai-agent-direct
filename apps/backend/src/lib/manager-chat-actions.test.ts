@@ -102,6 +102,7 @@ describe('buildManagerForcedTurnUserMessage', () => {
     expect(msg).toContain('Продаж товару');
     expect(msg).toContain('search_catalog');
     expect(msg).toContain('get_delivery_cost');
+    expect(msg).toContain('lookup_order_shipment');
     expect(msg).toContain('місто Київ');
     expect(msg).toMatch(/Не викликай collect_order \/ create_local_order/);
     expect(msg).not.toContain('get_available_slots');

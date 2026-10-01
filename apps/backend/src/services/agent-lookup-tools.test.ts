@@ -6,6 +6,9 @@ vi.mock('./product-search.js', () => ({
 vi.mock('./nova-poshta.js', () => ({
   getDeliveryCost: vi.fn(),
 }));
+vi.mock('./shipment-lookup.js', () => ({
+  lookupOrderShipment: vi.fn(),
+}));
 vi.mock('./booking-lookup.js', () => ({
   executeGetAvailableSlotsTool: vi.fn(),
   formatSearchServicesToolResult: vi.fn(
@@ -26,6 +29,7 @@ import { executeLookupTool, lookupResultFromResponse } from './agent-lookup-tool
 import { searchActiveProductsForContext } from './product-search.js';
 import { searchServicesWithFallback } from './booking-lookup.js';
 import { fetchClientCrmHistory, lookupClientByPhone } from './client-crm-link.js';
+import { lookupOrderShipment } from './shipment-lookup.js';
 
 describe('executeLookupTool', () => {
   it('rejects empty search_services query', async () => {
@@ -109,6 +113,30 @@ describe('executeLookupTool', () => {
     const text = await executeLookupTool('search_catalog', { query: 'худі' });
     expect(text).toContain('Нічого не знайдено');
     expect(text).not.toMatch(/product_id|uuid/i);
+  });
+
+  it('requires a client before looking up a shipment', async () => {
+    await expect(executeLookupTool('lookup_order_shipment', { ttn: '20450123456789' })).resolves.toMatch(
+      /немає клієнта/,
+    );
+    expect(lookupOrderShipment).not.toHaveBeenCalled();
+  });
+
+  it('passes ttn and timezone into shipment lookup', async () => {
+    vi.mocked(lookupOrderShipment).mockResolvedValueOnce(
+      '[lookup_order_shipment] РЕЗУЛЬТАТ: ТТН: ще немає',
+    );
+    const text = await executeLookupTool(
+      'lookup_order_shipment',
+      { ttn: '20450123456789' },
+      { clientId: 'c1', timeZone: 'Europe/Kyiv' },
+    );
+    expect(text).toContain('ще немає');
+    expect(lookupOrderShipment).toHaveBeenCalledWith({
+      clientId: 'c1',
+      trackingCode: '20450123456789',
+      timeZone: 'Europe/Kyiv',
+    });
   });
 });
 
