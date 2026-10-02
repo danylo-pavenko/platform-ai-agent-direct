@@ -215,3 +215,46 @@ export function civilDayBoundsUtcIso(
   });
   return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() };
 }
+
+/** Minutes before a same-day slot start we still offer it (matches BeautyPro add_now_time). */
+export const SLOT_BOOKING_LEAD_MINUTES = 20;
+
+export function clockToMinutes(time: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(time.trim());
+  if (!m) return null;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+function civilDateKey(raw: string): number | null {
+  const dmy = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(raw.trim());
+  if (dmy) return Number(dmy[3]) * 10000 + Number(dmy[2]) * 100 + Number(dmy[1]);
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw.trim());
+  if (iso) return Number(iso[1]) * 10000 + Number(iso[2]) * 100 + Number(iso[3]);
+  return null;
+}
+
+/**
+ * Same-day starts earlier than now+lead are already gone in the salon clock.
+ * Future days stay. Unparseable day/time is kept (fail open).
+ */
+export function isSlotStartStillBookable(opts: {
+  day: string;
+  time: string;
+  now: Date;
+  timeZone: string;
+  leadMinutes?: number;
+}): boolean {
+  const dayKey = civilDateKey(opts.day);
+  if (dayKey == null) return true;
+  const z = getZonedDateTimeParts(opts.now, opts.timeZone);
+  const todayKey = z.year * 10000 + z.month * 100 + z.day;
+  if (dayKey > todayKey) return true;
+  if (dayKey < todayKey) return false;
+  const start = clockToMinutes(opts.time);
+  if (start == null) return true;
+  const lead = opts.leadMinutes ?? SLOT_BOOKING_LEAD_MINUTES;
+  return start >= z.hour * 60 + z.minute + lead;
+}

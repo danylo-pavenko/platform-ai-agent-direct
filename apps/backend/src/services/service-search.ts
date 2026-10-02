@@ -23,7 +23,7 @@ import {
   resolveServicePrice,
 } from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
-import { normalizeTenantTimezone } from '../lib/tenant-timezone.js';
+import { isSlotStartStillBookable, normalizeTenantTimezone } from '../lib/tenant-timezone.js';
 import type { CrmEmployee, CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
@@ -362,6 +362,14 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
         return { ...s, masterIds };
       })
       .filter((s) => s.masterIds.length > 0)
+      .filter((s) =>
+        isSlotStartStillBookable({
+          day,
+          time: s.time,
+          now: new Date(),
+          timeZone,
+        }),
+      )
       .slice(0, SLOT_TIMES_CANDIDATE_CAP);
     const preferTimes =
       preferTimesForDate(args.preferOffer, day) ??

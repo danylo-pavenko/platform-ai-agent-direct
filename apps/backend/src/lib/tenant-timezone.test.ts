@@ -4,6 +4,7 @@ import {
   civilDayBoundsUtcIso,
   formatZonedSessionClock,
   getZonedDateTimeParts,
+  isSlotStartStillBookable,
   normalizeTenantTimezone,
 } from './tenant-timezone.js';
 
@@ -53,5 +54,33 @@ describe('zoned civil clock', () => {
     const bounds = civilDayBoundsUtcIso({ y: 2026, m: 8, d: 5 }, 'UTC');
     expect(bounds.from).toBe('2026-08-05T00:00:00.000Z');
     expect(bounds.to).toBe('2026-08-05T23:59:59.000Z');
+  });
+
+  it('drops a same-day slot that already started in the salon clock', () => {
+    const now = new Date('2026-10-02T08:10:00.000Z'); // 11:10 Europe/Kyiv
+    expect(
+      isSlotStartStillBookable({
+        day: '02.10.2026',
+        time: '11:00',
+        now,
+        timeZone: 'Europe/Kyiv',
+      }),
+    ).toBe(false);
+    expect(
+      isSlotStartStillBookable({
+        day: '2026-10-02',
+        time: '11:30',
+        now,
+        timeZone: 'Europe/Kyiv',
+      }),
+    ).toBe(true);
+    expect(
+      isSlotStartStillBookable({
+        day: '03.10.2026',
+        time: '11:00',
+        now,
+        timeZone: 'Europe/Kyiv',
+      }),
+    ).toBe(true);
   });
 });
