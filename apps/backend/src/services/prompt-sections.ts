@@ -14,7 +14,7 @@ export interface PromptSection {
 const DOUBLE_LINE = /^═══\s*(.+?)\s*═══\s*$/gm;
 const MD_HEADER = /^(#{1,3})\s+(.+)$/gm;
 const WINDOW_CHARS = 3500;
-const MAX_SELECTED = 3;
+const MAX_SELECTED = 8;
 const FULL_PROMPT_SECTION_THRESHOLD = 2;
 
 function slugify(title: string, index: number): string {

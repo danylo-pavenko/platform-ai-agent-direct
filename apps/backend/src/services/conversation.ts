@@ -52,6 +52,8 @@ import { ensureOpenAgendaForConversation } from './open-agenda-infer.js';
 import {
   formatUpcomingVisitsForPrompt,
   selectUpcomingVisits,
+  UPCOMING_VISIT_HORIZON_DAYS,
+  UPCOMING_VISIT_LIMIT,
 } from '../lib/upcoming-visit.js';
 import { formatPriorSessionDigestForPrompt } from '../lib/prior-session-digest.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
@@ -842,7 +844,7 @@ async function handleIncomingMessageImpl(
           status: { in: ['confirmed', 'synced'] },
         },
         orderBy: { createdAt: 'desc' },
-        take: 15,
+        take: 25,
         select: {
           scheduledDate: true,
           scheduledTime: true,
@@ -851,8 +853,8 @@ async function handleIncomingMessageImpl(
         },
       });
       const upcoming = selectUpcomingVisits(upcomingRows, now, agentCfg.timezone, {
-        horizonDays: 3,
-        limit: 3,
+        horizonDays: UPCOMING_VISIT_HORIZON_DAYS,
+        limit: UPCOMING_VISIT_LIMIT,
       });
       const hint = formatUpcomingVisitsForPrompt(upcoming);
       if (hint) clientProfile.upcomingVisitsHint = hint;

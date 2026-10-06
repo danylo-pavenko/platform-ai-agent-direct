@@ -133,7 +133,7 @@ async function runCrmHistory(
         : undefined;
     const masterId = asString(args.master_id) || undefined;
     const history = await fetchClientCrmHistory(ctx.clientId, {
-      limit: 10,
+      limit: 16,
       serviceId,
       serviceName,
       catalogDurationMin,

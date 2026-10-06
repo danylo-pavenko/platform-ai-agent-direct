@@ -104,6 +104,27 @@ describe('upcoming-visit', () => {
     expect(uaDateSortKey('24.09.2026')).toBe(20260924);
   });
 
+  it('includes visits about a week out with default horizon', () => {
+    const now = new Date('2026-09-24T09:00:00.000Z');
+    const picked = selectUpcomingVisits(
+      [
+        {
+          scheduledDate: '24.09.2026',
+          scheduledTime: '09:50',
+          services: [{ name: 'today' }],
+        },
+        {
+          scheduledDate: '30.09.2026',
+          scheduledTime: '12:00',
+          services: [{ name: 'next week' }],
+        },
+      ],
+      now,
+      'Europe/Kyiv',
+    );
+    expect(picked.map((p) => p.scheduledDate)).toEqual(['24.09.2026', '30.09.2026']);
+  });
+
   it('formats lateness rule for prompt', () => {
     const block = formatUpcomingVisitsForPrompt([
       {

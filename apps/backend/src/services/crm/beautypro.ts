@@ -80,7 +80,7 @@ import {
 const log = pino({ name: 'crm:beautypro' });
 
 /** Max sales to resolve per history fetch (avoid API spam). */
-const HISTORY_SALE_LOOKUP_CAP = 8;
+const HISTORY_SALE_LOOKUP_CAP = 16;
 
 const AUTH_HOST = 'https://api.aihelps.com/v1';
 
@@ -1392,7 +1392,7 @@ export const beautyproAdapter: CrmAdapter = {
     crmBuyerId: string,
     opts?: { limit?: number },
   ): Promise<CrmVisitHistoryItem[]> {
-    const limit = opts?.limit ?? 15;
+    const limit = opts?.limit ?? 20;
     const raw = await bpFetch<
       Array<{
         id: string;

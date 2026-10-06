@@ -280,4 +280,27 @@ describe('getAvailableSlotsForContext preferred master', () => {
     expect(text).toContain('10:00');
     expect(text).not.toMatch(/після паузи клієнта — свіжий get_available_slots/);
   });
+
+  it('returns at most 14 days with slots and notes leftover days', async () => {
+    const slots: Record<string, Array<{ date: string; time: string; masterIds: string[] }>> = {};
+    for (let d = 1; d <= 16; d++) {
+      const date = `${String(d).padStart(2, '0')}.12.2026`;
+      slots[date] = [{ date, time: '10:00', masterIds: ['a'] }];
+    }
+    getAvailableSlots.mockResolvedValue({
+      slots,
+      masters: [{ id: 'a', name: 'Anna' }],
+    });
+
+    const text = await getAvailableSlotsForContext({
+      date: '01.12.2026',
+      branchCrmId: 'loc-1',
+      services: [{ id: 'svc-1', durationMin: 45 }],
+    });
+
+    expect(text).toContain('## 01.12.2026');
+    expect(text).toContain('## 14.12.2026');
+    expect(text).not.toContain('## 15.12.2026');
+    expect(text).toContain('Показано до 14 найближчих днів');
+  });
 });

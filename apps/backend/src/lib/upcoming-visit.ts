@@ -39,6 +39,9 @@ function serviceLabelsFromJson(services: unknown): string[] {
   return out;
 }
 
+export const UPCOMING_VISIT_HORIZON_DAYS = 14;
+export const UPCOMING_VISIT_LIMIT = 8;
+
 /**
  * Pick visits on/after today (tenant TZ), soonest first, capped.
  */
@@ -49,8 +52,8 @@ export function selectUpcomingVisits(
   opts?: { horizonDays?: number; limit?: number },
 ): UpcomingVisitRow[] {
   const todayKey = todayUaDateSortKey(now, timeZone);
-  const horizon = opts?.horizonDays ?? 3;
-  const limit = opts?.limit ?? 3;
+  const horizon = opts?.horizonDays ?? UPCOMING_VISIT_HORIZON_DAYS;
+  const limit = opts?.limit ?? UPCOMING_VISIT_LIMIT;
 
   return rows
     .filter((r) => Boolean(parseAgentDate(r.scheduledDate)))

@@ -43,7 +43,7 @@ export function buildDeferredLookupNudge(
       `get_available_slots (або виклик не був виконаний). Заборонено обіцяти слоти без tool_call. ` +
       `Зараз ОБОВ'ЯЗКОВО: якщо вже є service id + duration_min з search_services — виклич ` +
       `get_available_slots на дату клієнта; якщо послуги ще немає — спочатку search_services, ` +
-      `потім get_available_slots. У відповіді клієнту дай 2–3 конкретні вікна з іменами майстрів. ` +
+      `потім get_available_slots. У відповіді клієнту дай години з результату tool (з іменами майстрів), не обрізай список до 2–3 вікон. ` +
       `Не вигадуй ціни/послуги. Не пиши знову «зараз перевірю».`
     );
   }

@@ -29,7 +29,7 @@ import type {
 
 const log = pino({ name: 'product-search' });
 
-const MAX_PRODUCT_RESULTS = 5;
+const MAX_PRODUCT_RESULTS = 12;
 const MAX_OFFERS_PER_PRODUCT = 10;
 const ALT_PRICE_ABS = 50;
 const ALT_PRICE_PCT = 0.05;

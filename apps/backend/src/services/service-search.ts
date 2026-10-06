@@ -153,7 +153,7 @@ export async function searchServicesForContext(
 export function formatSlotMastersLine(
   masterIds: string[],
   masterMap: Map<string, string>,
-  limit = 4,
+  limit = 8,
 ): string {
   return masterIds
     .slice(0, limit)
@@ -166,6 +166,8 @@ export function formatSlotMastersLine(
 }
 
 const SLOT_TIMES_PER_DAY = 8;
+/** Max calendar days with slots in one tool result (after CRM month broaden). */
+const SLOT_DAYS_SHOWN = 14;
 
 async function enrichMastersWithPositions(
   masters: Array<{ id: string; name: string }>,
@@ -414,7 +416,14 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
         `Показано ${daySlots.length} з ${withFit.length} вільних годин цього дня (вибірка по дню, не весь графік). Якщо клієнт хоче інший час цього дня — новий get_available_slots. Не кажи що інших годин немає.`,
       );
     }
-    if (daysShown >= 5) break;
+    if (daysShown >= SLOT_DAYS_SHOWN) break;
+  }
+
+  if (daysShown >= SLOT_DAYS_SHOWN) {
+    lines.push(
+      '',
+      `Показано до ${SLOT_DAYS_SHOWN} найближчих днів з вільними слотами. Пізніша дата — новий get_available_slots саме на неї; не кажи що пізніше місць немає без цього виклику.`,
+    );
   }
 
   if (filteredUnfitMasters) {

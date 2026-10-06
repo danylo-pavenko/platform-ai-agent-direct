@@ -102,7 +102,7 @@ export function formatManagerForcedKnownFacts(params: {
       );
     } else {
       lines.push(
-        'Запропоновані вікна в сесії: немає свіжих. Якщо клієнт питає час/запис — search_services (якщо ще немає id) і get_available_slots, потім 2–3 години.',
+        'Запропоновані вікна в сесії: немає свіжих. Якщо клієнт питає час/запис — search_services (якщо ще немає id) і get_available_slots, потім години з результату tool (не обрізай до 2–3).',
       );
     }
   }

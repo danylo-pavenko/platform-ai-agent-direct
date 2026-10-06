@@ -532,7 +532,7 @@ export const keycrmAdapter: CrmAdapter = {
     return raw.map(mapOffer);
   },
 
-  async searchProducts({ nameQuery, activeOnly = true, limit = 5 }) {
+  async searchProducts({ nameQuery, activeOnly = true, limit = 12 }) {
     const params: Record<string, string> = {
       limit: String(limit),
       page: '1',

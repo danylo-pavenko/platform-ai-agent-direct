@@ -39,7 +39,7 @@ export async function applyPersonalDurations(opts: {
 
   let visits;
   try {
-    const history = await fetchClientCrmHistory(opts.clientId, { limit: 15 });
+    const history = await fetchClientCrmHistory(opts.clientId, { limit: 20 });
     visits = history.items;
   } catch (err) {
     log.warn({ err, clientId: opts.clientId }, 'personal duration: history fetch failed');

@@ -59,7 +59,7 @@ export function buildClientFacingTimeConflictReply(toolResult: string): string {
   const slotLines = toolResult
     .split('\n')
     .filter((line) => /^-\s*\d{1,2}:\d{2}/.test(line.trim()))
-    .slice(0, 3)
+    .slice(0, 8)
     .map((line) => line.replace(/\s*\|\s*tools:.*$/, '').trim());
   const dayHeaders = toolResult
     .split('\n')

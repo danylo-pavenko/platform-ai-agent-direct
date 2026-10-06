@@ -296,7 +296,7 @@ export function formatCrmHistoryForPrompt(
     masterId?: string;
   },
 ): string {
-  const limit = opts?.limit ?? 8;
+  const limit = opts?.limit ?? 16;
   const slice = items.slice(0, limit);
   if (slice.length === 0) {
     return 'CRM історія візитів: записів за останні ~2 місяці немає.';
@@ -600,14 +600,14 @@ export async function fetchClientCrmHistory(
 
   try {
     const items = await crm.fetchClientHistory(refreshed.crmBuyerId, {
-      limit: opts?.limit ?? 15,
+      limit: opts?.limit ?? 20,
     });
     return {
       items,
       provider,
       crmBuyerId: refreshed.crmBuyerId,
       text: formatCrmHistoryForPrompt(items, {
-        limit: opts?.limit ?? 8,
+        limit: opts?.limit ?? 16,
         serviceId: opts?.serviceId,
         serviceName: opts?.serviceName,
         catalogDurationMin: opts?.catalogDurationMin,
