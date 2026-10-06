@@ -11,6 +11,7 @@ import {
   isSuppressedFallbackRetryNote,
   shouldHandoffAfterAgentFallback,
   shouldSuppressDuplicateCustomerFallback,
+  AGENT_AUTH_EXPIRED_SYSTEM_NOTE,
 } from './agent-fallback.js';
 
 describe('isAgentFallbackReply', () => {
@@ -138,5 +139,17 @@ describe('formatBotFailureDetail', () => {
     expect(detail).toContain('Привіт! На коли є вільно на манікюр?');
     expect(detail).toContain('Текст агента:');
     expect(detail).toContain('product_id=9');
+  });
+
+  it('describes OAuth expiry without implying a customer timeout', () => {
+    const detail = formatBotFailureDetail({
+      code: 'auth',
+      errorDetail: 'Failed to authenticate: OAuth session expired and could not be refreshed.',
+      clientMessage: 'Дякую поки 🙂',
+    });
+    expect(detail).toContain('OAuth');
+    expect(detail).toContain('не надсилали');
+    expect(detail).toContain('Дякую поки');
+    expect(AGENT_AUTH_EXPIRED_SYSTEM_NOTE).toMatch(/клієнту нічого не надіслали/i);
   });
 });

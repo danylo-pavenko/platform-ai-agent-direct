@@ -154,7 +154,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       include: {
         client: true,
         messages: { orderBy: { createdAt: 'asc' } },
-        orders: true,
+        orders: { orderBy: { createdAt: 'desc' } },
       },
     });
 
@@ -163,10 +163,22 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const assignee = await resolveConversationAssignee(conversation.handedOffTo);
+    const lastOrder = conversation.orders[0]
+      ? {
+          id: conversation.orders[0].id,
+          kind: conversation.orders[0].kind,
+          status: conversation.orders[0].status,
+          customerName: conversation.orders[0].customerName,
+          createdAt: conversation.orders[0].createdAt,
+          items: conversation.orders[0].items,
+          quotedTotal: conversation.orders[0].quotedTotal,
+        }
+      : null;
 
     return {
       ...conversation,
       messages: dedupeConversationMessages(conversation.messages),
+      lastOrder,
       assignee,
       assigneeLabel: assignee ? formatAdminLabel(assignee) : null,
     };

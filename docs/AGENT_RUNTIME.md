@@ -183,6 +183,7 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 | Tool follow-ups | Same reply model `--resume` (one session per turn) |
 | Slot / search tool results | Display cap **8** slot times/day (spread across the day; leftover hours rotate on a second lookup); **14** days max in one slots result; service search default **12** (max 20); catalog product search **12**; CRM history **16** visits in prompt (sale-duration enrich up to **16**); upcoming visits **8** / **14** days; meta-agent FAQ sections **8** |
 | Semaphore max 2 | Queue / busy fallback under load |
+| Claude OAuth expired | **No** Instagram canned fallback; Telegram auth alert with Settings → Claude deep-link (`#settings-claude`); retry worker skips until re-login |
 | Large system prompt + catalog + history on cold start | Token and TTFT cost (booking omits services-live dump) |
 | Intentional `responseDelay` | Product latency (0–60s), not a bug |
 | Insights snapshot | In-memory TTL (~45s) per period — chat turns reuse one snapshot |

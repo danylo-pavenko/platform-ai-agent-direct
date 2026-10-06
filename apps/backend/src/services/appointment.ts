@@ -20,7 +20,7 @@ import {
   type ServiceMasterAssignment,
 } from '../lib/appointment-services.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
-import { effectiveChatDisplayName } from '../lib/client-person-name.js';
+import { effectiveChatDisplayName, effectiveClientPersonName } from '../lib/client-person-name.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -179,19 +179,62 @@ export async function handleBookAppointment(
     return null;
   }
 
-  if (!effectiveChatDisplayName(customerName)) {
+  // Prefer a real person name: agent arg → client profile → prior booking. Never «Так Фарба».
+  const clientRow = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { displayName: true, igFullName: true, igUsername: true },
+  });
+  let resolvedCustomerName =
+    effectiveChatDisplayName(customerName, clientRow?.igFullName) ??
+    effectiveClientPersonName(clientRow?.displayName, clientRow?.igFullName) ??
+    '';
+  if (!resolvedCustomerName) {
+    const priorVisit = await prisma.appointment.findFirst({
+      where: {
+        clientId,
+        status: { in: ['confirmed', 'synced'] },
+        NOT: { customerName: { equals: '' } },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { customerName: true },
+    });
+    const priorName = priorVisit?.customerName?.trim() ?? '';
+    if (priorName && effectiveChatDisplayName(priorName, clientRow?.igFullName)) {
+      resolvedCustomerName = priorName;
+    }
+  }
+
+  if (!resolvedCustomerName) {
     log.warn(
       { conversationId, customerName },
       'book_appointment rejected customer_name — not a chat person name',
     );
+    // Drop polluted profile names so admin / next turn do not keep «Так Фарба».
+    if (clientRow?.displayName && !effectiveChatDisplayName(clientRow.displayName, clientRow.igFullName)) {
+      await prisma.client
+        .update({
+          where: { id: clientId },
+          data: { displayName: null },
+        })
+        .catch((err) => {
+          log.warn({ err, clientId }, 'Failed to clear invalid client displayName');
+        });
+    }
     return {
       appointmentId: '',
       crmSynced: false,
       toolResult:
-        '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name must be a person name (row «Імʼя:» or as said in chat), not an Instagram profile headline. Ask their name, update_client_info(full_name), then book again.',
+        '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name must be a person name (напр. «Діана»), not a service answer («Так Фарба», «хна») and not an Instagram profile headline. Ask how to address them, update_client_info(full_name), then book again.',
     };
   }
 
+  if (resolvedCustomerName !== customerName) {
+    log.info(
+      { conversationId, fromAgent: customerName, resolved: resolvedCustomerName },
+      'book_appointment replaced invalid customer_name with profile/prior name',
+    );
+  }
+  const bookCustomerName = resolvedCustomerName;
   const date = normalizeToUaDate(rawDate);
   if (!parseAgentDate(date)) {
     log.warn({ conversationId, rawDate }, 'book_appointment invalid date (need DD.MM.YYYY)');
@@ -400,7 +443,7 @@ export async function handleBookAppointment(
       where: { id: mergeTarget.id },
       data: {
         services: toInputJsonValue(servicesToJson(merged))!,
-        customerName,
+        customerName: bookCustomerName,
         phone,
         comment: comment ?? undefined,
         branchId: resolved.branchId ?? mergeTarget.branchId,
@@ -437,7 +480,7 @@ export async function handleBookAppointment(
         services: toInputJsonValue(services)!,
         scheduledDate: date,
         scheduledTime: time,
-        customerName,
+        customerName: bookCustomerName,
         phone,
         comment,
         status: 'confirmed',
@@ -464,7 +507,7 @@ export async function handleBookAppointment(
     conversationId,
     clientId,
     clientIgUserId: options?.clientIgUserId ?? null,
-    customerName,
+    customerName: bookCustomerName,
     phone,
     date,
     time,

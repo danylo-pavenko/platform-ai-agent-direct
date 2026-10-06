@@ -619,6 +619,7 @@
               :client="conversation?.client"
               :conversation-id="props.id"
               :lead-summary="leadSummary"
+              :last-order="conversation?.lastOrder ?? conversation?.orders?.[0] ?? null"
               @updated="onClientUpdated"
               @profile-editing="onProfileEditing"
             />
@@ -713,6 +714,7 @@
           :client="conversation?.client"
           :conversation-id="props.id"
           :lead-summary="leadSummary"
+          :last-order="conversation?.lastOrder ?? conversation?.orders?.[0] ?? null"
           @updated="onClientUpdated"
           @profile-editing="onProfileEditing"
         />
@@ -861,6 +863,16 @@ interface ClientData {
   crmLinkedAt?: string | null;
 }
 
+interface ConversationOrderSummary {
+  id: string;
+  kind?: string | null;
+  status: string;
+  customerName?: string | null;
+  createdAt: string;
+  items?: unknown;
+  quotedTotal?: number | null;
+}
+
 interface ConversationData {
   id: string;
   client: ClientData;
@@ -872,7 +884,8 @@ interface ConversationData {
   firstInboundAt?: string | null;
   lastMessageAt?: string | null;
   messages: Message[];
-  orders?: Array<{ id: string; status: string; items: unknown[] }>;
+  orders?: ConversationOrderSummary[];
+  lastOrder?: ConversationOrderSummary | null;
   briefQuality?: number | null;
   briefQualityNote?: string | null;
   assigneeLabel?: string | null;
@@ -1488,6 +1501,7 @@ const ClientProfilePanel = defineComponent({
     client: { type: Object as () => ClientData | undefined, default: undefined },
     conversationId: { type: String, required: true },
     leadSummary: { type: Object as PropType<LeadSummary | undefined>, default: undefined },
+    lastOrder: { type: Object as PropType<ConversationOrderSummary | null | undefined>, default: null },
   },
   emits: ['updated', 'profileEditing'],
   setup(props, { emit }) {
@@ -1580,6 +1594,21 @@ const ClientProfilePanel = defineComponent({
     function intentLabel(intent: string | null | undefined): string {
       if (!intent) return '—';
       return INTENT_LABELS[intent] ?? intent;
+    }
+
+    function summarizeOrderItems(items: unknown): string {
+      if (!Array.isArray(items) || items.length === 0) return '';
+      const names: string[] = [];
+      for (const raw of items) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+        const name = typeof (raw as { name?: unknown }).name === 'string'
+          ? (raw as { name: string }).name.trim()
+          : '';
+        if (name) names.push(name);
+      }
+      if (names.length === 0) return '';
+      if (names.length === 1) return names[0]!;
+      return `${names[0]} +${names.length - 1}`;
     }
 
     async function importHistory() {
@@ -1894,6 +1923,59 @@ const ClientProfilePanel = defineComponent({
         ]),
 
         h('hr', { class: 'v-divider' }),
+
+        // Last order / booking (only the newest)
+        (() => {
+          const order = props.lastOrder;
+          if (!order?.id) return null;
+          const itemLabel = summarizeOrderItems(order.items);
+          const kindLabel =
+            order.kind === 'booking'
+              ? 'Запис'
+              : order.kind === 'brief'
+                ? 'Бриф'
+                : order.kind === 'callback'
+                  ? 'Дзвінок'
+                  : 'Замовлення';
+          const statusUa: Record<string, string> = {
+            draft: 'Чернетка',
+            submitted: 'Подано',
+            confirmed: 'Підтверджено',
+            cancelled: 'Скасовано',
+          };
+          const statusLabel = order.status
+            ? (statusUa[order.status] ?? order.status)
+            : '';
+          return h('div', { class: 'pa-3' }, [
+            h(
+              'div',
+              {
+                class: 'text-caption text-grey text-uppercase mb-2',
+                style: 'letter-spacing:0.04em;',
+              },
+              'Останнє замовлення',
+            ),
+            h('div', { class: 'text-body-2 mb-1' }, itemLabel || kindLabel),
+            h('div', { class: 'text-caption text-grey mb-2' }, [
+              `${kindLabel} · ${formatLeadDate(order.createdAt)}`,
+              statusLabel ? ` · ${statusLabel}` : '',
+            ].join('')),
+            h(
+              'a',
+              {
+                class: 'profile-external-link',
+                href: `/orders?open=${encodeURIComponent(order.id)}`,
+                onClick: (e: MouseEvent) => {
+                  e.preventDefault();
+                  router.push({ name: 'orders', query: { open: order.id } });
+                },
+              },
+              'Відкрити в Замовленнях',
+            ),
+          ]);
+        })(),
+
+        props.lastOrder?.id ? h('hr', { class: 'v-divider' }) : null,
 
         // CRM link + visit history
         h('div', { class: 'pa-3' }, [

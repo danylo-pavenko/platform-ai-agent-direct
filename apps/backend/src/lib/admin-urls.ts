@@ -13,3 +13,8 @@ export function adminSettingsUrl(): string {
     : `https://${config.ADMIN_DOMAIN}`;
   return `${base}/settings`;
 }
+
+/** Deep-link to Settings → Claude auth card (`#settings-claude` in admin UI). */
+export function adminClaudeAuthSettingsUrl(): string {
+  return `${adminSettingsUrl()}#settings-claude`;
+}

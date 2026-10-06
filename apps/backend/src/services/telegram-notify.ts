@@ -8,7 +8,7 @@ import {
 } from '../lib/telegram-groups.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { config } from '../config.js';
-import { adminConversationUrl, adminSettingsUrl } from '../lib/admin-urls.js';
+import { adminClaudeAuthSettingsUrl, adminConversationUrl } from '../lib/admin-urls.js';
 import {
   resolveTelegramBotsForChannel,
   type TelegramNotifyChannel,
@@ -182,15 +182,42 @@ async function sendToManagerGroup(
 
 // ── Public API ──────────────────────────────────────────────────────────
 
+/** Soft debounce for mid-turn OAuth alerts (many clients hit the same expired session). */
+const CLAUDE_AUTH_TURN_NOTIFY_COOLDOWN_MS = 5 * 60_000;
+let lastClaudeAuthTurnNotifyAt = 0;
+
 /**
- * Daily alert when Claude CLI session is missing or expired.
+ * Alert when Claude CLI session is missing or expired.
+ * Daily monitor + live turn (OAuth died mid-conversation) share this helper.
  */
 export async function notifyClaudeAuthRequired(params: {
   sessionExpired: boolean;
   binaryOk: boolean;
+  /** When set, apply a global cooldown so every IG message does not spam the group. */
+  source?: 'daily' | 'turn';
+  conversationId?: string;
+  clientMessage?: string | null;
+  errorDetail?: string | null;
 }): Promise<void> {
-  const { sessionExpired, binaryOk } = params;
-  const settingsUrl = adminSettingsUrl();
+  const {
+    sessionExpired,
+    binaryOk,
+    source = 'daily',
+    conversationId,
+    clientMessage,
+    errorDetail,
+  } = params;
+
+  if (source === 'turn') {
+    const now = Date.now();
+    if (now - lastClaudeAuthTurnNotifyAt < CLAUDE_AUTH_TURN_NOTIFY_COOLDOWN_MS) {
+      log.debug('Skipping Claude-auth turn Telegram notify (cooldown)');
+      return;
+    }
+    lastClaudeAuthTurnNotifyAt = now;
+  }
+
+  const settingsUrl = adminClaudeAuthSettingsUrl();
 
   const title = !binaryOk
     ? 'Claude недоступний на сервері'
@@ -198,15 +225,36 @@ export async function notifyClaudeAuthRequired(params: {
       ? 'Сесія Claude застаріла'
       : 'Потрібна авторизація Claude';
 
-  const text = [
-    `🔑 <b>${title}</b>`,
+  const lines = [
+    `🔑 <b>${title}</b> [${escapeHtml(config.INSTANCE_ID)}]`,
     ``,
-    `AI-агент і мета-агент не відповідатимуть, доки не оновите сесію.`,
-    ``,
-    `<a href="${escapeHtml(settingsUrl)}">Адмінка → Налаштування → Claude</a>`,
-  ].join('\n');
+    `AI-агент не відповідатиме клієнтам у Direct, доки не оновите сесію.`,
+    `Клієнтам зараз нічого не надсилаємо (без «менеджер відпише пізніше»).`,
+  ];
+  if (errorDetail?.trim()) {
+    const detail =
+      errorDetail.trim().length > 400
+        ? `${errorDetail.trim().slice(0, 400)}…`
+        : errorDetail.trim();
+    lines.push(``, `<code>${escapeHtml(detail)}</code>`);
+  }
+  if (clientMessage?.trim()) {
+    lines.push(``, `Останній запит: «${escapeHtml(clientMessage.trim().slice(0, 160))}»`);
+  }
+  lines.push(``);
+  lines.push(`<a href="${escapeHtml(settingsUrl)}">Адмінка → Налаштування → Claude (авторизація)</a>`);
+  if (conversationId) {
+    lines.push(
+      `<a href="${escapeHtml(adminConversationUrl(conversationId))}">Відкрити діалог в адмінці</a>`,
+    );
+  }
 
-  await sendToManagerGroup(text, undefined, 'auth');
+  await sendToManagerGroup(lines.join('\n'), undefined, 'auth');
+}
+
+/** Test helper: reset turn-notify cooldown. */
+export function resetClaudeAuthTurnNotifyCooldownForTests(): void {
+  lastClaudeAuthTurnNotifyAt = 0;
 }
 
 /**

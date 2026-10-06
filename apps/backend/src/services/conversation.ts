@@ -63,7 +63,8 @@ import {
 } from '../lib/claude-history-window.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
-import { notifyAgentFailure, notifyAgentTurnDebug, notifyClientRunningLate, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
+import { notifyAgentFailure, notifyAgentTurnDebug, notifyClaudeAuthRequired, notifyClientRunningLate, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
+import { clearClaudeAuthLiveCache } from './claude-auth.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
 import { formatTelegramBotsPromptBlock } from '../lib/telegram-bots.js';
 import {
@@ -162,6 +163,7 @@ import {
   releaseInboundClaim,
 } from '../lib/inbound-coalesce.js';
 import {
+  AGENT_AUTH_EXPIRED_SYSTEM_NOTE,
   AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveBotFallbacks,
   detectClientLanguage,
@@ -175,6 +177,7 @@ import {
   shouldSuppressDuplicateCustomerFallback,
   type BotFailureCode,
 } from '../lib/agent-fallback.js';
+import { isClaudeAuthFailureFromTurn } from '../lib/claude-auth-probe.js';
 import { isClaudeVisionMediaPath } from '../lib/claude-vision.js';
 import {
   extractVisionInterpretation,
@@ -2639,8 +2642,14 @@ async function handleIncomingMessageImpl(
   let clientFacingText = stripMarkdownForInstagram(gated.text);
 
   // Localize canned busy/timeout for the customer's preferred language.
+  // OAuth expiry is NOT a customer-facing fallback — silence IG, alert Telegram.
+  const claudeAuthExpired = isClaudeAuthFailureFromTurn({
+    errorDetail: agentErrorDetail,
+    agentText: responseText,
+  });
   if (
     agentFallback &&
+    !claudeAuthExpired &&
     (agentFallback === 'busy' || agentFallback === 'timeout') &&
     CUSTOMER_CHANNELS.has(conversation.channel)
   ) {
@@ -2709,8 +2718,10 @@ async function handleIncomingMessageImpl(
   }
 
   // After several consecutive agent fallbacks, escalate to a live manager.
+  // Auth expiry is a platform outage — do not hand off every dialog or spam IG.
   if (
     agentFallback &&
+    !claudeAuthExpired &&
     !opts?.managerAction &&
     CUSTOMER_CHANNELS.has(conversation.channel)
   ) {
@@ -2802,7 +2813,40 @@ async function handleIncomingMessageImpl(
   let botFailureDetail: string | null = null;
   let suppressCustomerSend = false;
 
-  if (outputValidationFailure) {
+  if (claudeAuthExpired && CUSTOMER_CHANNELS.has(conversation.channel)) {
+    botFailureCode = 'auth';
+    botFailureDetail = formatBotFailureDetail({
+      code: 'auth',
+      errorDetail: agentErrorDetail,
+      clientMessage: messageText,
+      agentText: responseText,
+    });
+    suppressCustomerSend = true;
+    clientFacingText = AGENT_AUTH_EXPIRED_SYSTEM_NOTE;
+    await igTyping.end();
+    clearClaudeAuthLiveCache();
+    log.warn(
+      {
+        event: 'bot_auth_expired_silent',
+        conversationId,
+        clientId: client.id,
+        errorDetail: agentErrorDetail ?? null,
+        botFailureDetail,
+        clientMessage: messageText.slice(0, 300),
+      },
+      'Claude OAuth expired — suppressing customer reply, notifying managers',
+    );
+    notifyClaudeAuthRequired({
+      sessionExpired: true,
+      binaryOk: true,
+      source: 'turn',
+      conversationId,
+      clientMessage: messageText,
+      errorDetail: agentErrorDetail ?? botFailureDetail,
+    }).catch((err) =>
+      log.warn({ err, conversationId }, 'notifyClaudeAuthRequired failed (non-fatal)'),
+    );
+  } else if (outputValidationFailure) {
     botFailureCode = 'output_validation';
     botFailureDetail = formatBotFailureDetail({
       code: 'output_validation',
@@ -2945,9 +2989,14 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 12. Persist: customer bot bubble, or admin-only system note ──
+  const persistAuthExpiredNote =
+    suppressCustomerSend && botFailureCode === 'auth';
   const persistAdminRetryNote =
     suppressCustomerSend && isSuppressedFallbackRetryNote(clientFacingText);
-  const skipCustomerBotPersist = persistAdminRetryNote || Boolean(opts?.managerAction && suppressCustomerSend);
+  const skipCustomerBotPersist =
+    persistAuthExpiredNote ||
+    persistAdminRetryNote ||
+    Boolean(opts?.managerAction && suppressCustomerSend);
 
   if (!skipCustomerBotPersist) {
     await persistIgOutboundMessage({
@@ -2961,6 +3010,17 @@ async function handleIncomingMessageImpl(
     markFirstOutboundAt(conversationId).catch((err) =>
       log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
     );
+  } else if (persistAuthExpiredNote) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text: AGENT_AUTH_EXPIRED_SYSTEM_NOTE,
+        botFailureCode,
+        botFailureDetail,
+      },
+    });
   } else if (persistAdminRetryNote) {
     await prisma.message.create({
       data: {
@@ -2978,6 +3038,7 @@ async function handleIncomingMessageImpl(
     !skipCustomerBotPersist &&
     botFailureCode &&
     botFailureDetail &&
+    botFailureCode !== 'auth' &&
     CUSTOMER_CHANNELS.has(conversation.channel)
   ) {
     notifyAgentFailure({
@@ -3541,7 +3602,7 @@ async function tryTerminalToolCalls(
         : bookResult.toolResult.includes('SLOT_NOT_AVAILABLE')
           ? 'На цей час вікна вже немає. Зараз запропоную інші години з розкладу.'
         : bookResult.toolResult.includes('INVALID_CUSTOMER_NAME')
-          ? 'Підкажіть, будь ласка, як до вас звертатись — запишемо саме ваше імʼя, не назву профілю Instagram.'
+          ? 'Підкажіть, будь ласка, як до вас звертатись (імʼя) — відповідь на послугу на кшталт «фарба» / «так» імʼям не є.'
         : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
           'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
       try {

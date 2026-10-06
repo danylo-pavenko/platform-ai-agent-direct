@@ -48,6 +48,7 @@
               hover
               item-value="id"
               show-expand
+              v-model:expanded="expanded"
               @update:page="page = $event"
               @update:items-per-page="limit = $event"
             >
@@ -181,6 +182,7 @@
           <template #cards>
             <MobileListCard
               v-for="item in orders"
+              :id="`order-row-${item.id}`"
               :key="item.id"
               @click="toggleExpanded(item.id)"
             >
@@ -352,7 +354,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { useRoute } from 'vue-router';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import PageHeader from '@/components/PageHeader.vue';
@@ -360,6 +363,8 @@ import MobileListCard from '@/components/MobileListCard.vue';
 import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
 import OrderDetailPanel from '@/components/OrderDetailPanel.vue';
 import { useTouchDensity } from '@/composables/useTouchDensity';
+
+const route = useRoute();
 
 interface OrderItem {
   name: string;
@@ -428,6 +433,8 @@ const cancelTarget = ref<Order | null>(null);
 const cancelAlsoCrm = ref(false);
 const savingMastersId = ref<string | null>(null);
 const expandedId = ref<string | null>(null);
+/** Desktop v-data-table expand keys (item-value = id). */
+const expanded = ref<string[]>([]);
 const masterOptions = ref<Array<{ id: string; name: string }>>([]);
 const snackbar = ref(false);
 const snackbarText = ref('');
@@ -456,6 +463,7 @@ const headers = [
 
 function toggleExpanded(id: string) {
   expandedId.value = expandedId.value === id ? null : id;
+  expanded.value = expandedId.value ? [expandedId.value] : [];
 }
 
 function statusColor(status: string): string {
@@ -610,10 +618,48 @@ async function fetchOrders() {
     const { data } = await api.get('/orders', { params });
     orders.value = Array.isArray(data?.data) ? data.data : [];
     total.value = data?.total ?? 0;
+    await ensureOpenOrderVisible();
   } catch (e) {
     console.error('Failed to fetch orders', e);
   } finally {
     loading.value = false;
+  }
+}
+
+function openOrderIdFromRoute(): string | null {
+  const raw = route.query.open;
+  return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+}
+
+/** Expand `?open=` order; if missing from the current page, fetch and prepend it. */
+async function ensureOpenOrderVisible() {
+  const openId = openOrderIdFromRoute();
+  if (!openId) return;
+
+  expandedId.value = openId;
+  expanded.value = [openId];
+  if (orders.value.some((o) => o.id === openId)) {
+    await nextTick();
+    document.getElementById(`order-row-${openId}`)?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    });
+    return;
+  }
+
+  try {
+    const { data } = await api.get(`/orders/${openId}`);
+    const order = data?.data ?? data;
+    if (order?.id) {
+      orders.value = [order as Order, ...orders.value.filter((o) => o.id !== order.id)];
+      await nextTick();
+      document.getElementById(`order-row-${openId}`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }
+  } catch (e) {
+    console.error('Failed to load order from ?open=', openId, e);
   }
 }
 
@@ -713,6 +759,13 @@ watch(includeArchived, () => {
   page.value = 1;
   fetchOrders();
 });
+
+watch(
+  () => route.query.open,
+  () => {
+    void ensureOpenOrderVisible();
+  },
+);
 
 onMounted(() => {
   fetchOrders();

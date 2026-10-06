@@ -181,7 +181,11 @@ export function shouldHandoffAfterAgentFallback(priorConsecutiveFallbacks: numbe
   return priorConsecutiveFallbacks >= AGENT_FALLBACK_MAX_BEFORE_HANDOFF;
 }
 
-export type BotFailureCode = 'busy' | 'timeout' | 'output_validation';
+export type BotFailureCode = 'busy' | 'timeout' | 'output_validation' | 'auth';
+
+/** Admin-only note when Claude OAuth died — never send a canned reply to Instagram. */
+export const AGENT_AUTH_EXPIRED_SYSTEM_NOTE =
+  'Claude OAuth сесія закінчилась — клієнту нічого не надіслали. Увійдіть знову: Налаштування → Claude.';
 
 const AGENT_TEXT_PREVIEW_MAX = 500;
 
@@ -213,6 +217,15 @@ export function formatBotFailureDetail(params: {
     const tech = errorDetail?.trim();
     const queueHint = tech ? ` (${tech})` : '';
     return `Агент перевантажений — занадто багато одночасних запитів до Claude.${queueHint}${clientPart}${agentPart}`;
+  }
+
+  if (code === 'auth') {
+    const tech = errorDetail?.trim();
+    const hint = tech ? ` ${tech}.` : '';
+    return (
+      `Claude OAuth сесія недійсна або прострочена — клієнту відповідь не надсилали.` +
+      `${hint}${clientPart}${agentPart}`
+    );
   }
 
   if (code === 'output_validation') {

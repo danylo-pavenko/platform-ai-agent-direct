@@ -22,6 +22,10 @@ export function isClaudeAuthFailure(text: string): boolean {
     lower.includes('401') ||
     lower.includes('invalid authentication') ||
     lower.includes('authentication credentials') ||
+    lower.includes('failed to authenticate') ||
+    lower.includes('oauth session expired') ||
+    lower.includes('session expired and could not be refreshed') ||
+    lower.includes('could not be refreshed') ||
     lower.includes('not logged in') ||
     lower.includes('not authenticated') ||
     lower.includes('login required') ||
@@ -30,6 +34,14 @@ export function isClaudeAuthFailure(text: string): boolean {
     lower.includes('run /login') ||
     lower.includes('please run /login')
   );
+}
+
+/** Combine turn error + agent text for auth classification (SDK often sets fallback=timeout). */
+export function isClaudeAuthFailureFromTurn(parts: {
+  errorDetail?: string | null;
+  agentText?: string | null;
+}): boolean {
+  return isClaudeAuthFailure([parts.errorDetail ?? '', parts.agentText ?? ''].join('\n'));
 }
 
 /** Quota / session window rejection — auth credentials are still valid. */

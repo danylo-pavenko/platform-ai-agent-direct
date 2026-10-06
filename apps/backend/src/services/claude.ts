@@ -519,6 +519,7 @@ export type { ClaudeAuthHealth } from '../lib/claude-auth-probe.js';
 export {
   classifyClaudeLiveProbe,
   isClaudeAuthFailure,
+  isClaudeAuthFailureFromTurn,
   isClaudeRateLimitSignal,
 } from '../lib/claude-auth-probe.js';
 

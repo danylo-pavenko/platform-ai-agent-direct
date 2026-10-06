@@ -10,8 +10,16 @@ const SLOGAN_MARKERS =
 
 const IG_TITLE_SEPARATORS = /[|·•—–]|🙂|✨|💕|🌿|🧘/;
 
+/** Service / day / greeting words — never a person name token. */
 const NAME_STOP =
-  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|комплекс|дизайн|френч|укріплення|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя|йога|тренер|студія|салон|онлайн|доброго|привіт|вітаю|здрастуй|hello|hi)$/iu;
+  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|фарба|фарбою|хна|хною|гель|лак|покриття|корекція|укладка|ламінування|нарощування|комплекс|дизайн|френч|укріплення|чоловічий|жіночий|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя|йога|тренер|студія|салон|онлайн|доброго|привіт|вітаю|здрастуй|hello|hi)$/iu;
+
+/**
+ * Affirmations / fillers that models glue onto the next service word
+ * («Так Фарба», «Ні хна», «Ок гель») — not a ПІБ.
+ */
+const DISCOURSE_PARTICLE =
+  /^(так|ні|нет|да|ок|окей|okay|yes|no|добре|давайте|будьласка|дякую|супер|ага|угу|звісно|конечно|мм+|хм+)$/iu;
 
 function normalizeNameKey(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA');
@@ -19,6 +27,15 @@ function normalizeNameKey(value: string): string {
 
 function tokensOf(value: string): string[] {
   return value.trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+}
+
+function isBlockedNameToken(token: string): boolean {
+  const compact = token.replace(/['’]/g, '');
+  return (
+    NAME_STOP.test(token) ||
+    DISCOURSE_PARTICLE.test(token) ||
+    DISCOURSE_PARTICLE.test(compact)
+  );
 }
 
 /** Instagram headline / business title — not a person. */
@@ -30,18 +47,20 @@ export function isIgProfileTitleNotPersonName(value: string | null | undefined):
   if (SLOGAN_MARKERS.test(t)) return true;
   const tokens = tokensOf(t);
   if (tokens.length > 4) return true;
-  if (tokens.some((w) => NAME_STOP.test(w))) return true;
+  if (tokens.some((w) => isBlockedNameToken(w))) return true;
   return false;
 }
 
-/** 1–4 name tokens, no slogan / service words. Allows «Діана» or «Тимофіїв Анжела». */
+/** 1–4 name tokens, no slogan / service / affirmation words. Allows «Діана» or «Тимофіїв Анжела». */
 export function isPlausiblePersonName(value: string | null | undefined): boolean {
   const t = (value ?? '').trim().replace(/\s+/g, ' ');
   if (t.length < 2 || t.length > 48) return false;
   if (isIgProfileTitleNotPersonName(t)) return false;
   const tokens = tokensOf(t);
   if (tokens.length < 1 || tokens.length > 4) return false;
-  if (tokens.some((w) => !NAME_TOKEN_RE.test(w) || NAME_STOP.test(w))) return false;
+  if (tokens.some((w) => !NAME_TOKEN_RE.test(w) || isBlockedNameToken(w))) return false;
+  // «Так Фарба» / «Ні хна» — first token is a yes/no filler.
+  if (tokens.length >= 2 && DISCOURSE_PARTICLE.test(tokens[0]!)) return false;
   return true;
 }
 

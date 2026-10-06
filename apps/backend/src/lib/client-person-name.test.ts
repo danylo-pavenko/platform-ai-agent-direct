@@ -28,9 +28,13 @@ describe('isPlausiblePersonName', () => {
     expect(isPlausiblePersonName('Тимофіїв Анжела')).toBe(true);
   });
 
-  it('rejects greetings and slogans', () => {
+  it('rejects greetings, slogans, and service answers glued to yes/no', () => {
     expect(isPlausiblePersonName('Доброго дня')).toBe(false);
     expect(isPlausiblePersonName('Йога для вагітних і після пологів')).toBe(false);
+    expect(isPlausiblePersonName('Так Фарба')).toBe(false);
+    expect(isPlausiblePersonName('Ні хна')).toBe(false);
+    expect(isPlausiblePersonName('Фарба')).toBe(false);
+    expect(isPlausiblePersonName('Так')).toBe(false);
   });
 });
 
