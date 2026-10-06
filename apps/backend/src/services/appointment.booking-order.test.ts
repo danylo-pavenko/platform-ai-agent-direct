@@ -11,6 +11,7 @@ const {
 } = vi.hoisted(() => ({
   prismaMock: {
     conversation: { findUnique: vi.fn(), update: vi.fn() },
+    client: { findUnique: vi.fn(), update: vi.fn() },
     appointment: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
@@ -121,6 +122,12 @@ describe('handleBookAppointment Order + Telegram mirror', () => {
     resolveCrmProvider.mockResolvedValue('beautypro');
     prismaMock.conversation.findUnique.mockResolvedValue({ branchId: 'branch-1' });
     prismaMock.conversation.update.mockResolvedValue({});
+    prismaMock.client.findUnique.mockResolvedValue({
+      displayName: null,
+      igFullName: null,
+      igUsername: null,
+    });
+    prismaMock.client.update.mockResolvedValue({});
     prismaMock.appointment.findFirst.mockResolvedValue(null);
     resolveBookingBranchForAppointment.mockResolvedValue({
       branchId: 'branch-1',
