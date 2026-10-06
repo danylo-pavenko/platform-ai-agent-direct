@@ -207,15 +207,37 @@ export function formatBookingSlotOfferForPrompt(offer: BookingSlotOffer): string
     ...dayLines,
     'Якщо клієнт обрав одну з цих годин — book_appointment з service_id/master_id з ЦЬОГО блоку, БЕЗ нового get_available_slots.',
     'На годині кілька майстрів і клієнт не назвав кого — спитай, або бери перший master_id саме цього рядка (не з історії іншої послуги).',
-    'Новий get_available_slots лише коли змінили послугу, дату чи майстра, або book повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.',
-    'Клієнту показуй лише імена й години, не id.',
+    'Новий get_available_slots: змінили послугу/дату/майстра; клієнт просить інші години цього дня; або book повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.',
+    'Не кажи що інших годин немає лише тому, що в цьому блоці короткий список — це вибірка. Клієнту показуй лише імена й години, не id.',
   ]
     .filter(Boolean)
     .join('\n');
 }
 
+/** Spread `n` picks across the list (first…last), not only the earliest hours. */
+export function evenSampleSlots<T>(items: T[], n: number): T[] {
+  if (n <= 0 || items.length === 0) return [];
+  if (items.length <= n) return items;
+  if (n === 1) return [items[0]];
+  const out: T[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    const idx = Math.round((i * (items.length - 1)) / (n - 1));
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+    out.push(items[idx]);
+  }
+  for (let i = 0; i < items.length && out.length < n; i++) {
+    if (seen.has(i)) continue;
+    seen.add(i);
+    out.push(items[i]);
+  }
+  return out;
+}
+
 /**
- * Keep previously offered clock times if they are still in CRM, then fill up to `cap`.
+ * Keep previously offered clock times if they are still in CRM, then fill up to `cap`
+ * by sampling across the day. A second lookup after a full slice rotates to unused hours.
  */
 export function pickSlotTimesForDay<T extends { time: string }>(
   slots: T[],
@@ -223,29 +245,30 @@ export function pickSlotTimesForDay<T extends { time: string }>(
   preferTimes?: string[],
 ): T[] {
   if (cap <= 0 || slots.length === 0) return [];
+  const unique: T[] = [];
   const byKey = new Map<string, T>();
   for (const slot of slots) {
     const key = normalizeSlotTimeKey(slot.time);
-    if (!byKey.has(key)) byKey.set(key, slot);
+    if (byKey.has(key)) continue;
+    byKey.set(key, slot);
+    unique.push(slot);
   }
-  const picked: T[] = [];
-  const seen = new Set<string>();
+  const pinned: T[] = [];
+  const pinnedKeys = new Set<string>();
   for (const raw of preferTimes ?? []) {
     const key = normalizeSlotTimeKey(raw);
     const hit = byKey.get(key);
-    if (!hit || seen.has(key)) continue;
-    picked.push(hit);
-    seen.add(key);
-    if (picked.length >= cap) return picked;
+    if (!hit || pinnedKeys.has(key)) continue;
+    pinned.push(hit);
+    pinnedKeys.add(key);
   }
-  for (const slot of slots) {
-    const key = normalizeSlotTimeKey(slot.time);
-    if (seen.has(key)) continue;
-    picked.push(slot);
-    seen.add(key);
-    if (picked.length >= cap) break;
+  const unused = unique.filter((s) => !pinnedKeys.has(normalizeSlotTimeKey(s.time)));
+  if (pinned.length >= cap && unused.length > 0) {
+    return evenSampleSlots(unused, cap);
   }
-  return picked;
+  if (pinned.length >= cap) return pinned.slice(0, cap);
+  const rest = evenSampleSlots(unused, cap - pinned.length);
+  return [...pinned, ...rest];
 }
 
 export function preferTimesForDate(

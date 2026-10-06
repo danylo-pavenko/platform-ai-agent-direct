@@ -108,6 +108,29 @@ describe('pickSlotTimesForDay', () => {
     const picked = pickSlotTimesForDay(slots, 3, ['16:00', '10:00']);
     expect(picked.map((s) => s.time)).toEqual(['16:00', '10:00', '09:00']);
   });
+
+  it('spreads remaining picks across the day instead of only earliest hours', () => {
+    const slots = Array.from({ length: 10 }, (_, i) => ({
+      time: `${String(9 + i).padStart(2, '0')}:00`,
+    }));
+    const picked = pickSlotTimesForDay(slots, 4);
+    expect(picked.map((s) => s.time)).toEqual(['09:00', '12:00', '15:00', '18:00']);
+  });
+
+  it('rotates to unused hours when the previous slice already filled the cap', () => {
+    const slots = Array.from({ length: 8 }, (_, i) => ({
+      time: `${String(10 + i).padStart(2, '0')}:00`,
+    }));
+    const first = pickSlotTimesForDay(slots, 3);
+    expect(first.map((s) => s.time)).toEqual(['10:00', '14:00', '17:00']);
+    const second = pickSlotTimesForDay(
+      slots,
+      3,
+      first.map((s) => s.time),
+    );
+    expect(second.map((s) => s.time)).toEqual(['11:00', '13:00', '16:00']);
+    expect(second.some((s) => first.some((f) => f.time === s.time))).toBe(false);
+  });
 });
 
 describe('preferTimesForDate', () => {

@@ -181,7 +181,7 @@ Vision: IG screenshots are downscaled (long edge 1568px); PDF files attach as Cl
 |--------|--------|
 | Fresh CLI spawn on **first** round of a turn | Cold start cost (Opus/Sonnet) |
 | Tool follow-ups | Same reply model `--resume` (one session per turn) |
-| Slot / search tool results | Display cap **3** slot times/day (previously offered times stay if still free); service search default limit **8** |
+| Slot / search tool results | Display cap **8** slot times/day (spread across the day; previously offered times stay if still free; leftover hours rotate on a second lookup); service search default limit **8** |
 | Semaphore max 2 | Queue / busy fallback under load |
 | Large system prompt + catalog + history on cold start | Token and TTFT cost (booking omits services-live dump) |
 | Intentional `responseDelay` | Product latency (0–60s), not a bug |

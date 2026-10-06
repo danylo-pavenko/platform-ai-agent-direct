@@ -131,7 +131,7 @@ function analyzeReplyScenarioPlaybook(mode: AgentMode): string {
     blocks.push(
       'Запис / послуга:',
       '- Факти послуг — search_services. get_client_crm_history — якщо є телефон/привʼязка.',
-      '- get_available_slots — лише коли свіжих «Запропонованих вікон» немає або змінили послугу/дату/майстра.',
+      '- get_available_slots — коли свіжих «Запропонованих вікон» немає, змінили послугу/дату/майстра, або клієнт просить інші години цього дня.',
       '- Якщо клієнт підтвердив конкретну годину з запропонованих вікон і є імʼя+телефон — book_appointment. Перенесення → reschedule_appointment; скасування → cancel_appointment / remove_appointment_service. Не другий book як move.',
     );
   }

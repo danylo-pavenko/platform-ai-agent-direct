@@ -165,9 +165,7 @@ export function formatSlotMastersLine(
     .join(', ');
 }
 
-const SLOT_TIMES_PER_DAY = 3;
-/** Pull more from CRM/intersect before capping display (parallel races). */
-const SLOT_TIMES_CANDIDATE_CAP = 12;
+const SLOT_TIMES_PER_DAY = 8;
 
 async function enrichMastersWithPositions(
   masters: Array<{ id: string; name: string }>,
@@ -209,7 +207,7 @@ export type AvailableSlotsLookupArgs = {
   clientId?: string | null;
   /** Salon IANA timezone for CRM day bounds. */
   timeZone?: string | null;
-  /** Previously offered times still free stay in the 3-slot slice. */
+  /** Previously offered times still free stay in the display slice; extra hours rotate in on a second lookup. */
   preferOffer?: BookingSlotOffer | null;
 };
 
@@ -369,8 +367,7 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
           now: new Date(),
           timeZone,
         }),
-      )
-      .slice(0, SLOT_TIMES_CANDIDATE_CAP);
+      );
     const preferTimes =
       preferTimesForDate(args.preferOffer, day) ??
       (day === args.date ? preferTimesForDate(args.preferOffer, args.date) : undefined);
@@ -412,6 +409,11 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
         lines.push(`- ${slot.time}${endHint} | майстри: ${mastersLabel || '—'}`);
       }
     }
+    if (withFit.length > daySlots.length) {
+      lines.push(
+        `Показано ${daySlots.length} з ${withFit.length} вільних годин цього дня (вибірка по дню, не весь графік). Якщо клієнт хоче інший час цього дня — новий get_available_slots. Не кажи що інших годин немає.`,
+      );
+    }
     if (daysShown >= 5) break;
   }
 
@@ -447,7 +449,7 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
       'PARALLEL binding (різні майстри, один start):',
       ...binding,
       'Swap майстрів між послугами або додавання ще однієї послуги → НОВИЙ get_available_slots з оновленими services[].master_id, потім book_appointment.',
-      'Якщо клієнт обрав годину з цього списку — book_appointment без нового get_available_slots (пауза на контакти не скидає вікна). Новий lookup лише коли змінили послугу/дату/майстра або book повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.',
+      'Якщо клієнт обрав годину з цього списку — book_appointment без нового get_available_slots (пауза на контакти не скидає вікна). Новий lookup: змінили послугу/дату/майстра, клієнт просить інші години цього дня, або book повернув SLOT_NOT_AVAILABLE / TIME_CONFLICT / MASTER_DAY_CLOSED.',
       'Пропонуй клієнту лише години з цього результату — не змішуй з іншим викликом tool.',
     );
   } else if (multiService) {
