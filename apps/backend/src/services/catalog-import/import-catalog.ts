@@ -97,6 +97,19 @@ function buildManualCatalogText(draft: CatalogImportDraft): string {
             : 'ціна уточнюється';
       lines.push(`### ${p.name} - ${price}`);
       const offers = (offersByPid.get(p.id) ?? []).filter((o) => !o.isArchived);
+      const colors: string[] = [];
+      const seenColors = new Set<string>();
+      for (const o of offers) {
+        for (const prop of o.properties) {
+          if (prop.name !== 'Колір') continue;
+          const value = prop.value.trim();
+          const key = value.toLowerCase();
+          if (!key || seenColors.has(key)) continue;
+          seenColors.add(key);
+          colors.push(value);
+        }
+      }
+      if (colors.length > 0) lines.push(`  Кольори: ${colors.join(', ')}`);
       for (const o of offers.slice(0, 40)) {
         const variant = o.properties.map((x) => `${x.name}: ${x.value}`).join(', ') || '—';
         lines.push(`  - ${variant} | ${o.price}₴ | доступно до замовлення${o.sku ? ` | ${o.sku}` : ''}`);

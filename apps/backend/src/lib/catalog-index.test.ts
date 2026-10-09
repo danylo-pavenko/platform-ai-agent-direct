@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CrmProduct } from '../services/crm/types.js';
 import {
+  designColorSiblings,
   designGarmentMismatchNote,
   scoreProductNameMatch,
   searchLocalProducts,
@@ -80,6 +81,19 @@ describe('scoreProductNameMatch', () => {
       'біла футболка',
     );
     expect(full).toBeGreaterThan(partial);
+  });
+});
+
+describe('designColorSiblings', () => {
+  it('joins Blessed and Благословенний hoodies and skips another garment', () => {
+    const all = [
+      product(1, 'Худі (вишня) Blessed'),
+      product(2, 'Худі чорний "Благословенний"'),
+      product(3, 'Футболка "Благословенний"'),
+      product(4, 'Худі рожевий "Благословенний"', true),
+    ];
+    const extras = designColorSiblings(all, ['Худі (вишня) Blessed']);
+    expect(extras.map((item) => item.id)).toEqual([2]);
   });
 });
 

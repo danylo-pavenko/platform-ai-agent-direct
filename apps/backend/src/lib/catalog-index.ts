@@ -152,6 +152,62 @@ function isGarmentToken(token: string): boolean {
   return GARMENT_PREFIXES.some((prefix) => token.startsWith(prefix));
 }
 
+const DESIGN_PHRASE_ALIASES: Record<string, string> = {
+  blessed: 'благословенний',
+  благословенний: 'благословенний',
+};
+
+function normalizeDesignPhrase(phrase: string): string {
+  const compact = phrase.toLowerCase().replace(/\s+/g, ' ').trim();
+  return DESIGN_PHRASE_ALIASES[compact] ?? compact;
+}
+
+/** Quoted print, or a bare “Blessed” that Shop-Express left outside quotes. */
+export function designKeyFromName(name: string): string | null {
+  const quoted = name.match(/["«“]([^"»”]+)["»”]/);
+  if (quoted?.[1]?.trim()) return normalizeDesignPhrase(quoted[1]);
+  if (/(^|[^a-z])blessed([^a-z]|$)/i.test(name)) return 'благословенний';
+  return null;
+}
+
+export function garmentFamily(name: string): string | null {
+  const lower = name.toLowerCase();
+  for (const prefix of GARMENT_PREFIXES) {
+    if (lower.includes(prefix)) return prefix;
+  }
+  return null;
+}
+
+/**
+ * Colorways of one print are often separate Shop-Express products
+ * («Худі чорний "Благословенний"» and «Худі (вишня) Blessed»).
+ * Pull the rest of that garment+print so search does not show a single color.
+ */
+export function designColorSiblings(all: CrmProduct[], hitNames: string[]): CrmProduct[] {
+  const keys = new Set<string>();
+  for (const name of hitNames) {
+    const design = designKeyFromName(name);
+    const garment = garmentFamily(name);
+    if (design && garment) keys.add(`${garment}::${design}`);
+  }
+  if (keys.size === 0) return [];
+
+  const seen = new Set(hitNames.map((name) => name.toLowerCase()));
+  const extras: CrmProduct[] = [];
+  for (const product of all) {
+    if (product.isArchived) continue;
+    const name = product.name ?? '';
+    if (!name || seen.has(name.toLowerCase())) continue;
+    const design = designKeyFromName(name);
+    const garment = garmentFamily(name);
+    if (!design || !garment || !keys.has(`${garment}::${design}`)) continue;
+    seen.add(name.toLowerCase());
+    extras.push(product);
+    if (extras.length >= 24) break;
+  }
+  return extras;
+}
+
 function matchesDesign(productNameLower: string, designTokens: string[]): boolean {
   const strong = designTokens.filter((token) => token.length >= 5);
   const required = strong.length > 0 ? strong : designTokens;

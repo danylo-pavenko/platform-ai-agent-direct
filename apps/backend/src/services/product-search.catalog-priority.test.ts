@@ -150,6 +150,59 @@ describe('product-search catalog match + price preference', () => {
     expect(result.contextBlock).toMatch(/CRM:.*2290/);
   });
 
+  it('offers every available color of a Blessed hoodie, including split products', async () => {
+    const offer = (id: number, productId: number, color: string, archived = false) => ({
+      id,
+      productId,
+      price: 2190,
+      quantity: 1,
+      inReserve: 0,
+      isArchived: archived,
+      properties: [{ name: 'Колір', value: color }],
+      sku: null,
+      barcode: null,
+      thumbnailUrl: null,
+      purchasedPrice: 0,
+    });
+    const item = (id: number, name: string) => ({
+      id,
+      name,
+      isArchived: false,
+      minPrice: 2190,
+      maxPrice: 2190,
+      quantity: 1,
+    });
+    loadCatalogMatches.mockResolvedValue([]);
+    loadCatalogIndex.mockResolvedValue(null);
+    loadManualCatalogIndex.mockResolvedValue({
+      mtimeMs: 1,
+      source: 'manual',
+      products: [
+        item(1, 'Худі (вишня) Blessed'),
+        item(2, 'Худі чорний "Благословенний"'),
+        item(3, 'Худі рожевий "Благословенний"'),
+        item(4, 'Футболка "Благословенний"'),
+      ],
+      offersByProductId: new Map([
+        [1, [offer(11, 1, 'Багряний'), offer(12, 1, 'Білий', true)]],
+        [2, [offer(21, 2, 'Чорний')]],
+        [3, [offer(31, 3, 'рожевий')]],
+        [4, [offer(41, 4, 'Білий')]],
+      ]),
+    });
+    getCatalogImportSettings.mockResolvedValue({
+      sourcePriority: 'file',
+      pricePreference: 'file',
+    });
+
+    const result = await searchActiveProductsForContext('худі blessed');
+    expect(result.contextBlock).toContain(
+      'Кольори худі «благословенний», які можна пропонувати: Багряний, Чорний, рожевий',
+    );
+    expect(result.contextBlock).not.toContain('Футболка');
+    expect(result.contextBlock).not.toMatch(/Кольори худі.*Білий/);
+  });
+
   it('quotes CRM price when pricePreference is crm', async () => {
     getCatalogImportSettings.mockResolvedValue({
       sourcePriority: 'file',

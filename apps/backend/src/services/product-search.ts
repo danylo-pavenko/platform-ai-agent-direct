@@ -10,7 +10,10 @@
 
 import pino from 'pino';
 import {
+  designColorSiblings,
   designGarmentMismatchNote,
+  designKeyFromName,
+  garmentFamily,
   loadCatalogIndex,
   loadManualCatalogIndex,
   searchLocalProducts,
@@ -62,6 +65,66 @@ function pricesDifferMaterially(
   if (diff < ALT_PRICE_ABS) return false;
   const base = Math.max(a, b, 1);
   return diff / base >= ALT_PRICE_PCT || diff >= ALT_PRICE_ABS;
+}
+
+const GARMENT_PALETTE_LABEL: Record<string, string> = {
+  футбол: 'футболки',
+  худі: 'худі',
+  худи: 'худі',
+  світшот: 'світшота',
+  лонг: 'лонга',
+  сороч: 'сорочки',
+  шопер: 'шопера',
+  кепк: 'кепки',
+  зіп: 'зіпа',
+};
+
+function offerColorValues(offers: CrmOffer[]): string[] {
+  const seen = new Set<string>();
+  const colors: string[] = [];
+  for (const offer of offers) {
+    if (offer.isArchived) continue;
+    for (const prop of offer.properties ?? []) {
+      if (prop.name !== 'Колір') continue;
+      const value = prop.value.trim();
+      const key = value.toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      colors.push(value);
+    }
+  }
+  return colors;
+}
+
+function filePaletteLines(hits: RankedHit[]): string[] {
+  const groups = new Map<string, { label: string; colors: string[] }>();
+  for (const hit of hits) {
+    if (hit.priceSource !== 'file') continue;
+    const design = designKeyFromName(hit.displayName);
+    const garment = garmentFamily(hit.displayName);
+    if (!design || !garment) continue;
+    const key = `${garment}::${design}`;
+    let group = groups.get(key);
+    if (!group) {
+      const garmentLabel = GARMENT_PALETTE_LABEL[garment] ?? garment;
+      group = { label: `${garmentLabel} «${design}»`, colors: [] };
+      groups.set(key, group);
+    }
+    const seen = new Set(group.colors.map((color) => color.toLowerCase()));
+    for (const color of offerColorValues(hit.offers)) {
+      if (seen.has(color.toLowerCase())) continue;
+      seen.add(color.toLowerCase());
+      group.colors.push(color);
+    }
+  }
+  const lines: string[] = [];
+  for (const group of groups.values()) {
+    if (group.colors.length === 0) continue;
+    lines.push(
+      `Кольори ${group.label}, які можна пропонувати: ${group.colors.join(', ')}`,
+    );
+  }
+  return lines;
 }
 
 function offersForHit(hit: RankedHit, maxPerProduct: number): CrmOffer[] {
@@ -140,8 +203,10 @@ function buildMergedContext(
     keywords,
     hits.map((hit) => hit.displayName),
   );
+  const palette = filePaletteLines(hits);
   const contextBlock = [
     `Знайдено в каталозі (за запитом "${keywords}"):`,
+    palette.join('\n'),
     productLines.join('\n'),
     '(Ціна канонічна за налаштуванням pricePreference; наявність з обраного джерела варіантів)',
     mismatch ?? '',
@@ -323,10 +388,24 @@ async function searchMerged(
   }
 
   hits.sort((a, b) => b.score - a.score);
-  const top = hits.slice(0, MAX_PRODUCT_RESULTS);
-  if (top.length === 0) return null;
+  const seed = hits.slice(0, MAX_PRODUCT_RESULTS);
+  const beforeSiblings = hits.length;
+  if (manual && seed.length > 0) {
+    const extras = designColorSiblings(
+      manual.products,
+      seed.map((hit) => hit.displayName),
+    );
+    for (const product of extras) {
+      const link = matchByManual.get(product.id) ?? null;
+      const crmProduct =
+        link && crm ? crm.products.find((item) => item.id === link.crmProductId) ?? null : null;
+      pushHit(product, crmProduct, link, seed[0]?.score ?? 1);
+    }
+  }
+  const shown = [...seed, ...hits.slice(beforeSiblings)];
+  if (shown.length === 0) return null;
 
-  const result = buildMergedContext(keywords, top);
+  const result = buildMergedContext(keywords, shown);
   if (result.matchCount === 0) return null;
   log.info(
     { keywords, found: result.matchCount, primary, pricePreference },

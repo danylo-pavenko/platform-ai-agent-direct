@@ -109,7 +109,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Knowledge / prompts (tenant)
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
-- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл. Пошук не підміняє дизайн: якщо напис є лише на іншому типі виробу, search_catalog це позначає, а не віддає сусіднє худі. CSV Shop-Express має InStock і IsAvailable; Available з нульовим InStock лишається «доступно до замовлення», без кількості штук.
+- **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл. Пошук не підміняє дизайн: якщо напис є лише на іншому типі виробу, search_catalog це позначає, а не віддає сусіднє худі. CSV Shop-Express має InStock і IsAvailable; Available з нульовим InStock лишається «доступно до замовлення», без кількості штук. Пошук з файлу збирає кольори одного дизайну (навіть якщо кожен колір — окремий товар) у рядок «Кольори … які можна пропонувати».
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
 
