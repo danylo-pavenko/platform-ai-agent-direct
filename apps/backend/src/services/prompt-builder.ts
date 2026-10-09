@@ -66,6 +66,11 @@ export interface ClientProfile {
    * still has visit context when civil-day history cut yesterday’s booking talk.
    */
   upcomingVisitsHint?: string;
+  /**
+   * This turn: client is confirming an existing visit after an admin reminder
+   * (not choosing a newly offered slot).
+   */
+  existingVisitConfirmHint?: string;
   /** Compact digest of messages before the civil-day Claude window. */
   priorSessionDigest?: string;
 }
@@ -700,6 +705,9 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (profile.upcomingVisitsHint) {
     parts.push('\n' + profile.upcomingVisitsHint);
+  }
+  if (profile.existingVisitConfirmHint) {
+    parts.push('\n' + profile.existingVisitConfirmHint);
   }
   if (profile.priorSessionDigest) {
     parts.push('\n' + profile.priorSessionDigest);

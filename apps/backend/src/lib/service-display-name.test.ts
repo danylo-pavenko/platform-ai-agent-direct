@@ -125,7 +125,7 @@ describe('upcoming-visit', () => {
     expect(picked.map((p) => p.scheduledDate)).toEqual(['24.09.2026', '30.09.2026']);
   });
 
-  it('formats lateness rule for prompt', () => {
+  it('formats lateness and visit-confirm rules for prompt', () => {
     const block = formatUpcomingVisitsForPrompt([
       {
         scheduledDate: '24.09.2026',
@@ -137,5 +137,7 @@ describe('upcoming-visit', () => {
     expect(block).toContain('Комплекс манікюр');
     expect(block).toMatch(/запізнюється/i);
     expect(block).toMatch(/НЕ новий запис/);
+    expect(block).toMatch(/Підтверджую/);
+    expect(block).toMatch(/get_available_slots/);
   });
 });

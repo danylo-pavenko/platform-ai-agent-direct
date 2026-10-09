@@ -43,16 +43,21 @@ export function looksLikeRunningLateMessage(text: string): boolean {
 
 /**
  * Skip the “you claimed a booking without book_appointment” rewrite when the
- * turn is a late arrival. “Чекаємо на вас” is the right reply; asking to
- * confirm the slot again is not.
+ * turn is a late arrival or an existing-visit confirm after an admin reminder.
+ * Soft “Чекаємо на вас” is the right reply; forcing book_appointment is not.
  */
 export function shouldRecoverFalseBookingConfirm(opts: {
   responseText: string;
   clientMessage?: string | null;
   lateNotifyCalled?: boolean;
+  /** Admin reminded about an existing visit; client said «Підтверджую». */
+  existingVisitConfirm?: boolean;
 }): boolean {
   if (!looksLikeBookingConfirmation(opts.responseText)) return false;
   if (opts.lateNotifyCalled) return false;
+  if (opts.existingVisitConfirm && !HARD_BOOKING_CLAIM_RE.test(opts.responseText)) {
+    return false;
+  }
   if (
     looksLikeRunningLateMessage(opts.clientMessage ?? '') &&
     !HARD_BOOKING_CLAIM_RE.test(opts.responseText)

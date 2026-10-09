@@ -139,6 +139,11 @@ import {
   sanitizeFalseBookingConfirmReply,
   shouldRecoverFalseBookingConfirm,
 } from '../lib/false-booking-confirm.js';
+import {
+  formatExistingVisitConfirmHint,
+  isExistingVisitConfirmTurn,
+  looksLikeVisitReminderText,
+} from '../lib/existing-visit-confirm.js';
 import { buildClientFacingTimeConflictReply } from '../lib/booking-time-conflict.js';
 import {
   createAgentTurnDebugCollector,
@@ -863,6 +868,31 @@ async function handleIncomingMessageImpl(
       if (hint) clientProfile.upcomingVisitsHint = hint;
     } catch (err) {
       log.warn({ err, conversationId, clientId: client.id }, 'Failed to load upcoming visits for prompt');
+    }
+
+    // Admin reminder «Підтвердіть візит» + client «Підтверджую» — not a new booking.
+    try {
+      const recentOutbound = await prisma.message.findMany({
+        where: {
+          conversationId,
+          direction: 'out',
+          sender: { in: ['manager', 'bot'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+        select: { text: true },
+      });
+      const outboundTexts = recentOutbound
+        .map((m) => m.text?.trim() ?? '')
+        .filter(Boolean);
+      if (isExistingVisitConfirmTurn({ clientMessage: messageText, recentOutboundTexts: outboundTexts })) {
+        const reminder = outboundTexts.find((t) => looksLikeVisitReminderText(t)) ?? null;
+        clientProfile.existingVisitConfirmHint = formatExistingVisitConfirmHint({
+          reminderSnippet: reminder,
+        });
+      }
+    } catch (err) {
+      log.warn({ err, conversationId }, 'Failed to detect existing-visit confirm turn');
     }
   }
 
@@ -2561,6 +2591,7 @@ async function handleIncomingMessageImpl(
       responseText,
       clientMessage: messageText,
       lateNotifyCalled,
+      existingVisitConfirm: Boolean(clientProfile.existingVisitConfirmHint),
     })
   ) {
     const nudge = buildFalseBookingConfirmNudge();
@@ -2624,6 +2655,7 @@ async function handleIncomingMessageImpl(
         responseText,
         clientMessage: messageText,
         lateNotifyCalled,
+        existingVisitConfirm: Boolean(clientProfile.existingVisitConfirmHint),
       })
     ) {
       responseText = sanitizeFalseBookingConfirmReply(responseText);

@@ -112,6 +112,13 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/чекаємо тебе/);
   });
 
+  it('distinguishes existing-visit confirm from new booking confirm', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/Підтвердження існуючого візиту/);
+    expect(prompt).toMatch(/Підтвердіть візит/);
+    expect(prompt).toMatch(/Запропоновані вікна/);
+  });
+
   it('does not force book_appointment with empty contact placeholders', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/порожн/);

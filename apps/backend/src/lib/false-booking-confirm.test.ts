@@ -72,6 +72,26 @@ describe('shouldRecoverFalseBookingConfirm', () => {
       }),
     ).toBe(true);
   });
+
+  it('does not rewrite soft ack after existing-visit confirm', () => {
+    expect(
+      shouldRecoverFalseBookingConfirm({
+        responseText: 'Дякуємо за підтвердження! Чекаємо на Вас 10.10 о 14:00 🌸',
+        clientMessage: 'Підтверджую',
+        existingVisitConfirm: true,
+      }),
+    ).toBe(false);
+  });
+
+  it('still recovers hard «записали» even on visit-confirm turn', () => {
+    expect(
+      shouldRecoverFalseBookingConfirm({
+        responseText: 'Записали Вас на 10.10 о 14:00!',
+        clientMessage: 'Підтверджую',
+        existingVisitConfirm: true,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe('sanitizeFalseBookingConfirmReply', () => {
