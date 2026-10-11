@@ -2,11 +2,12 @@
   <v-card id="settings-telegram" class="mb-4">
     <v-card-title class="d-flex align-center flex-wrap ga-2">
       <v-icon start color="blue">mdi-send</v-icon>
-      <span>Telegram боти</span>
+      <span>Telegram менеджерам</span>
       <v-chip size="small" variant="tonal" color="blue">{{ bots.length }}</v-chip>
     </v-card-title>
     <v-card-subtitle class="pb-2">
-      Кілька ботів зі своїми ролями: куди слати ескалації, ліди, замовлення чи системні алерти.
+      Сповіщення <strong>адміністраторам</strong> (ескалації, замовлення, ліди) — не діалоги з клієнтами.
+      Клієнтські повідомлення йдуть з блоку «Канали з клієнтами» (зараз Instagram).
       Основний бот — fallback і interactive (/login, кнопки takeover).
     </v-card-subtitle>
 

@@ -70,6 +70,8 @@
         {{ error }}
       </v-alert>
 
+      <BotRuntimeModeCard v-if="authStore.isOwner" variant="dashboard" />
+
       <!-- KPI grid -->
       <v-row dense class="kpi-row">
         <v-col cols="12" sm="6" lg="3">
@@ -357,6 +359,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import api from '@/api';
+import BotRuntimeModeCard from '@/components/BotRuntimeModeCard.vue';
+import { useAuthStore } from '@/stores/auth';
+
+const authStore = useAuthStore();
 
 interface Totals {
   clientsContacted: number;

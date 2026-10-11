@@ -16,7 +16,7 @@
           <v-select
             class="d-lg-none mb-4"
             :model-value="activeSection"
-            :items="settingsNavFlat"
+            :items="settingsNavFlatForSelect"
             item-title="title"
             item-value="id"
             label="Розділ"
@@ -39,7 +39,11 @@
                   color="primary"
                   rounded
                   @click="selectSection(item.id)"
-                />
+                >
+                  <template v-if="item.comingSoon" #append>
+                    <v-chip size="x-small" variant="tonal" class="ms-1">Скоро</v-chip>
+                  </template>
+                </v-list-item>
               </template>
               <template v-if="authStore.isOwner">
                 <v-divider class="my-2" />
@@ -591,14 +595,14 @@
           <v-icon start :color="runtimeMode === 'public' ? 'success' : 'warning'">
             {{ runtimeMode === 'public' ? 'mdi-earth' : 'mdi-bug-outline' }}
           </v-icon>
-          <span>Режим роботи бота</span>
+          <span>Кому відповідає бот</span>
           <v-chip
             size="small"
             :color="runtimeMode === 'public' ? 'success' : 'warning'"
             variant="tonal"
             class="ml-2"
           >
-            {{ runtimeMode === 'public' ? 'Public — відповідає всім' : 'Debug — лише whitelist' }}
+            {{ runtimeMode === 'public' ? 'Для всіх клієнтів' : 'Лише тест' }}
           </v-chip>
           <v-chip
             v-if="runtimeSaveState === 'saving'"
@@ -629,8 +633,8 @@
           </v-chip>
         </v-card-title>
         <v-card-subtitle class="pb-2">
-          Керує тим, з ким бот спілкуватиметься в реальному Instagram.
-          В Debug повідомлення від усіх, хто не у списку, ігноруються ще до запису в БД.
+          Хто отримує відповіді бота в Instagram. Те саме перемикання є на Дашборді —
+          зручно швидко «приглушити» агента, якщо щось пішло не так.
         </v-card-subtitle>
         <v-card-text>
           <v-radio-group
@@ -641,9 +645,10 @@
             <v-radio value="public">
               <template #label>
                 <div class="radio-label">
-                  <strong>Public</strong>
+                  <strong>Для всіх клієнтів</strong>
                   <div class="text-caption text-medium-emphasis">
-                    Бот відповідає усім клієнтам. Перед першим увімкненням — завантажте останні розмови нижче.
+                    Бот відповідає кожному, хто пише. Перед першим увімкненням завантажте
+                    останні розмови нижче (історичний імпорт).
                   </div>
                 </div>
               </template>
@@ -651,9 +656,10 @@
             <v-radio value="debug" class="mt-1">
               <template #label>
                 <div class="radio-label">
-                  <strong>Debug</strong>
+                  <strong>Лише тест</strong>
                   <div class="text-caption text-medium-emphasis">
-                    Бот відповідає лише @нікнеймам з переліку нижче — для тестування на підключеному Instagram.
+                    Бот відповідає тільки акаунтам зі списку нижче. Інші клієнти відповіді
+                    від бота не отримають — для тестування або аварійного вимкнення.
                   </div>
                 </div>
               </template>
@@ -663,7 +669,8 @@
           <v-expand-transition>
             <div v-if="runtimeMode === 'debug'" class="debug-whitelist-block">
               <div class="text-caption text-medium-emphasis mb-1">
-                Whitelist @нікнеймів — через кому. Регістр не важливий, «@» можна залишати або опускати.
+                Кому можна писати в режимі «Лише тест» — @нікнейми через кому.
+                Регістр не важливий, «@» можна залишати або опускати.
               </div>
               <v-textarea
                 v-model="debugWhitelistRaw"
@@ -693,7 +700,7 @@
                 density="compact"
                 class="text-caption mt-2"
               >
-                Список порожній — у Debug-режимі бот не відповідатиме нікому.
+                Список порожній — у режимі «Лише тест» бот не відповідатиме нікому.
               </v-alert>
             </div>
           </v-expand-transition>
@@ -703,10 +710,10 @@
           <div class="bot-ignore-block">
             <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
               <v-icon size="16">mdi-account-cancel-outline</v-icon>
-              Чорний список @нікнеймів
+              Не відповідати цим @нікнеймам
             </div>
             <div class="text-caption text-medium-emphasis mb-1">
-              Бот <strong>ніколи не відповідає</strong> цим користувачам — у Public і Debug.
+              Бот <strong>ніколи не відповідає</strong> цим користувачам — і «для всіх», і в тесті.
               Повідомлення зберігаються в діалозі, менеджер може відповісти вручну.
               Через кому, регістр не важливий.
             </div>
@@ -742,7 +749,7 @@
                 Історичний імпорт IG-розмов
               </div>
               <div class="text-caption text-medium-emphasis">
-                Завантажує останні <strong>N</strong> IG-тредів — потрібно перед першим перемиканням у Public.
+                Завантажує останні <strong>N</strong> IG-тредів — потрібно перед першим увімкненням режиму «Для всіх клієнтів».
               </div>
             </div>
             <div class="backfill-controls">
@@ -1392,13 +1399,20 @@
       </div>
 
       <div v-if="activeSection === 'settings-instagram'" class="settings-section">
+      <MessageSourcesIntro
+        :active-section-id="activeSection"
+        @select="selectSection"
+      />
       <!-- Instagram -->
       <v-card id="settings-instagram" class="mb-4">
         <v-card-title class="d-flex align-center">
           <v-icon start color="pink-darken-2">mdi-instagram</v-icon>
           Instagram
         </v-card-title>
-        <v-card-subtitle class="pb-2">Facebook Login for Business — авторизація через Facebook Page → Page Access Token</v-card-subtitle>
+        <v-card-subtitle class="pb-2">
+          Підключіть бізнес-акаунт Instagram, щоб агент отримував Direct від клієнтів
+          і відповіді менеджерів з додатку. Без цього діалоги сюди не потрапляють.
+        </v-card-subtitle>
         <v-card-text>
           <!-- Instructions -->
           <v-btn
@@ -1869,6 +1883,39 @@
         @save="saveIntegrations"
         @restart="confirmPm2Restart"
       />
+      </div>
+
+      <div
+        v-if="activeComingSoonSource"
+        class="settings-section"
+      >
+        <MessageSourcesIntro
+          :active-section-id="activeSection"
+          @select="selectSection"
+        />
+        <v-card class="mb-4">
+          <v-card-title class="d-flex align-center flex-wrap ga-2">
+            <v-icon start>{{ activeComingSoonSource.icon }}</v-icon>
+            <span>{{ activeComingSoonSource.title }}</span>
+            <v-chip size="small" variant="tonal">Скоро</v-chip>
+          </v-card-title>
+          <v-card-subtitle class="pb-2">
+            {{ activeComingSoonSource.whyItMatters }}
+          </v-card-subtitle>
+          <v-card-text>
+            <p class="text-body-2 mb-3">
+              {{ activeComingSoonSource.comingSoonBody }}
+            </p>
+            <v-btn
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-instagram"
+              @click="selectSection('settings-instagram')"
+            >
+              Налаштувати Instagram зараз
+            </v-btn>
+          </v-card-text>
+        </v-card>
       </div>
 
       <div v-if="activeSection === 'settings-telegram'" class="settings-section">
@@ -2749,71 +2796,39 @@ import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import BeautyproCard from '@/components/settings/BeautyproCard.vue';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
+import MessageSourcesIntro from '@/components/settings/MessageSourcesIntro.vue';
+import {
+  buildSettingsNavGroups,
+  flattenSettingsNav,
+  resolveClientChannelView,
+  sectionNeedsIntegrationsLoad,
+  settingsNavSelectItems,
+  visibleSettingsNavGroups as filterSettingsNavGroups,
+} from '@/lib/settings-nav';
 
-const settingsNavGroups = [
-  {
-    label: 'Система',
-    ownerOnly: true,
-    items: [
-      { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
-      { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
-      { id: 'settings-runtime', title: 'Режим бота', icon: 'mdi-toggle-switch' },
-      { id: 'settings-agent', title: 'Агент і SLA', icon: 'mdi-head-cog' },
-    ],
-  },
-  {
-    label: 'CRM і філії',
-    ownerOnly: true,
-    items: [
-      { id: 'settings-crm-routing', title: 'CRM routing', icon: 'mdi-routes' },
-      { id: 'settings-branches', title: 'Філії', icon: 'mdi-store-marker' },
-    ],
-  },
-  {
-    label: 'Інтеграції',
-    ownerOnly: true,
-    items: [
-      { id: 'settings-instagram', title: 'Instagram', icon: 'mdi-instagram' },
-      { id: 'settings-telegram', title: 'Telegram', icon: 'mdi-send' },
-      { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
-      { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
-      { id: 'settings-beautypro', title: 'BeautyPro', icon: 'mdi-spa' },
-      { id: 'settings-novaposhta', title: 'Нова Пошта', icon: 'mdi-truck-fast' },
-    ],
-  },
-  {
-    label: 'Акаунт',
-    ownerOnly: false,
-    items: [
-      { id: 'settings-account', title: 'Обліковий запис', icon: 'mdi-account-key' },
-    ],
-  },
-] as const;
-
-type SettingsSectionId = (typeof settingsNavGroups)[number]['items'][number]['id'];
+type SettingsSectionId = string;
 
 const authStore = useAuthStore();
+const settingsNavGroups = buildSettingsNavGroups();
 
 const visibleSettingsNavGroups = computed(() =>
-  settingsNavGroups.filter((g) => !g.ownerOnly || authStore.isOwner),
+  filterSettingsNavGroups(settingsNavGroups, authStore.isOwner),
 );
 
-const settingsNavFlat = computed(() =>
-  visibleSettingsNavGroups.value.flatMap((g) => [...g.items]),
+const settingsNavFlat = computed(() => flattenSettingsNav(visibleSettingsNavGroups.value));
+
+const settingsNavFlatForSelect = computed(() =>
+  settingsNavSelectItems(settingsNavFlat.value),
 );
 
 const activeSection = ref<SettingsSectionId>('settings-health');
 const integrationsLoaded = ref(false);
 const claudeSectionLoaded = ref(false);
 
-const INTEGRATION_SECTION_SET = new Set<string>([
-  'settings-instagram',
-  'settings-telegram',
-  'settings-keycrm',
-  'settings-cleverbox',
-  'settings-beautypro',
-  'settings-novaposhta',
-]);
+const activeComingSoonSource = computed(() => {
+  const view = resolveClientChannelView(activeSection.value);
+  return view.kind === 'coming_soon' ? view.source : null;
+});
 
 function selectSection(id: SettingsSectionId) {
   activeSection.value = id;
@@ -2830,7 +2845,7 @@ function onMobileSectionSelect(id: unknown) {
 }
 
 async function ensureSectionData(id: SettingsSectionId) {
-  if (INTEGRATION_SECTION_SET.has(id) && !integrationsLoaded.value) {
+  if (sectionNeedsIntegrationsLoad(id) && !integrationsLoaded.value) {
     await fetchIntegrations();
     integrationsLoaded.value = true;
   }

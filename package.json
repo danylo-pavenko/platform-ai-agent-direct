@@ -1,6 +1,6 @@
 {
   "name": "platform-ai-agent-direct",
-  "version": "1.6.69",
+  "version": "1.7.70",
   "private": true,
   "workspaces": [
     "apps/backend",
