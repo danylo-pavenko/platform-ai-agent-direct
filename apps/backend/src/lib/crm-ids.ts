@@ -38,7 +38,7 @@ export function crmProviderRequiresGuid(provider: string | null | undefined): bo
 }
 
 export function crmProviderRequiresNumericId(provider: string | null | undefined): boolean {
-  return provider === 'cleverbox';
+  return provider === 'cleverbox' || provider === 'altegio';
 }
 
 /** Host-side expand/reject of tool ids before CRM POST (BeautyPro + CleverBOX). */
@@ -181,7 +181,7 @@ export function formatInvalidCrmIdToolResult(fail: CrmIdResolveFail): string {
           : 'очікується повний id CRM, не імʼя і не короткий фрагмент';
   return [
     `[book_appointment] failed INVALID_CRM_ID — значення '${fail.raw}' (${why}).`,
-    'Потрібен повний id з блоку «Запропоновані вікна» або з останнього search_services / get_available_slots (`[service_id=…]` / `[master_id=…]`): UUID для BeautyPro, число для CleverBOX.',
+    'Потрібен повний id з блоку «Запропоновані вікна» або з останнього search_services / get_available_slots (`[service_id=…]` / `[master_id=…]`): UUID для BeautyPro, число для CleverBOX і Altegio.',
     'Не кажи клієнту що записано. Візьми повний id з сесії і виклич book_appointment знову.',
   ].join('\n');
 }

@@ -47,6 +47,7 @@ Telegram-сповіщення менеджерам — з collect_order / create
 | keycrm | catalog, orders, leads, client upsert, shipment/TTN lookup |
 | cleverbox | services, branches, booking |
 | beautypro | services, branches, booking, client upsert, visit history |
+| altegio | services, branches, booking, client upsert, visit history (B2B v2; slots and create stay on Online Booking v1) |
 
 Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox).
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
@@ -58,7 +59,8 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 - Інша категорія (напр. тонування після манікюру в історії) — НЕ reuse улюбленого master_id; слоти без нього або з майстром зі слотів саме для нової послуги.
 - Два майстри з однаковим імʼям — у слотах підпис з positions / повний [master_id=id]; у tools завжди повний id з «Запропоновані вікна» або останнього get_available_slots, не імʼя і не обрізаний фрагмент.
 - Платформа відхиляє book_appointment з MASTER_SERVICE_MISMATCH, якщо грейд майстра не має ціни на послугу (типовий кейс «не та Анастасія»).
-- BeautyPro і CleverBOX: book_appointment потребує повний service_id / master_id з «Запропоновані вікна» (UUID або число). Обрізаний префікс чи імʼя платформа розгортає з оферу/каталогу, якщо унікально; інакше INVALID_CRM_ID, без локального запису і без POST. Слово reschedule — не id послуги.
+- BeautyPro, CleverBOX і Altegio: book_appointment потребує повний service_id / master_id з «Запропоновані вікна» (UUID або число). Обрізаний префікс чи імʼя платформа розгортає з оферу/каталогу, якщо унікально; інакше INVALID_CRM_ID, без локального запису і без POST. Слово reschedule — не id послуги.
+- Altegio: один запис = один майстер. Послуги різних майстрів — окремі book_appointment, не один services[] з різними master_id. Id послуг і майстрів — числа.
 - Перед записом платформа звіряє GET /employees/free_time: MASTER_DAY_CLOSED (день не відкритий у графіку майстра) або SLOT_NOT_AVAILABLE (час не в free_time). force=true більше не дозволяє пропихнути запис у закритий день з агентного шляху.
 - Новий клієнт: get_available_slots без master_id → підтвердження → book; master_id лише якщо клієнт обрав майстра зі слотів.
 - Паралельно (манікюр + брови в один час): різні майстри → services[].master_id на кожному рядку get_available_slots і book_appointment. Один майстер на всі послуги — top-level master_id (послуги йдуть підряд у часі).

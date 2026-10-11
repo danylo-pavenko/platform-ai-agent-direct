@@ -83,6 +83,11 @@ const envSchema = z.object({
   BEAUTYPRO_DEFAULT_LOCATION_ID: z.string().default(''),
   BEAUTYPRO_SYNC_INTERVAL_MIN: z.coerce.number().default(60),
 
+  ALTEGIO_PARTNER_TOKEN: z.string().default(''),
+  ALTEGIO_USER_TOKEN: z.string().default(''),
+  ALTEGIO_LOCATION_ID: z.string().default(''),
+  ALTEGIO_SYNC_INTERVAL_MIN: z.coerce.number().default(60),
+
   // Facebook / Instagram (Facebook Login for Business — Page Access Token)
   // Defaults: shared platform Meta App — override per tenant in .env if needed.
   FACEBOOK_APP_ID: envNonemptyString('26228249720190273'),

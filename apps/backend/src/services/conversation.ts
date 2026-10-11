@@ -3597,60 +3597,66 @@ async function tryTerminalToolCalls(
     }
   }
 
-  const bookAppointment = toolCalls.find((tc) => tc.name === 'book_appointment');
-  if (bookAppointment && modeHasBookingTools(agentMode) && client.igUserId) {
-    if (turnDebug) {
-      recordTurnTool(turnDebug, 'book_appointment', bookAppointment.args, '[book_appointment] …');
-    }
-    const bookResult = await handleBookAppointment(
-      conversationId,
-      client.id,
-      bookAppointment.args,
-      {
-        clientIgUserId: client.igUserId,
-        clientMessage: ctx.clientMessage,
-        // Confirmation sent only after CRM sync inside handleBookAppointment.
-      },
-    );
-    if (turnDebug) {
-      const last = turnDebug.tools[turnDebug.tools.length - 1];
-      if (last?.name === 'book_appointment') {
-        last.resultPreview = bookResult?.toolResult
-          ?? '[book_appointment] failed (no CRM location or missing fields)';
+  const bookCalls = toolCalls.filter((tc) => tc.name === 'book_appointment');
+  if (bookCalls.length > 0 && modeHasBookingTools(agentMode) && client.igUserId) {
+    let handled = false;
+    for (const bookAppointment of bookCalls) {
+      if (turnDebug) {
+        recordTurnTool(turnDebug, 'book_appointment', bookAppointment.args, '[book_appointment] …');
+      }
+      const bookResult = await handleBookAppointment(
+        conversationId,
+        client.id,
+        bookAppointment.args,
+        {
+          clientIgUserId: client.igUserId,
+          clientMessage: ctx.clientMessage,
+          // Confirmation sent only after CRM sync inside handleBookAppointment.
+        },
+      );
+      if (turnDebug) {
+        const last = turnDebug.tools[turnDebug.tools.length - 1];
+        if (last?.name === 'book_appointment') {
+          last.resultPreview = bookResult?.toolResult
+            ?? '[book_appointment] failed (no CRM location or missing fields)';
+        }
+      }
+      if (bookResult?.crmSynced) {
+        handled = true;
+        continue;
+      }
+      if (bookResult && !bookResult.crmSynced) {
+        // CRM rejected — do not leave the agent's false «Записали» as the reply.
+        const reply = bookResult.toolResult.includes('TIME_CONFLICT')
+          ? buildClientFacingTimeConflictReply(bookResult.toolResult)
+          : bookResult.toolResult.includes('ALTEGIO_ONE_MASTER')
+            ? 'Ці послуги в різних майстрів — їх треба записати двома окремими візитами. Напишіть, яку закріпити першою.'
+          : bookResult.toolResult.includes('MASTER_SERVICE_MISMATCH')
+            ? 'Цей майстер не виконує обрану послугу — зараз підберу іншого спеціаліста або інший час. Зачекайте хвильку.'
+          : bookResult.toolResult.includes('MASTER_DAY_CLOSED')
+            ? 'Цього дня майстер не працює за графіком. Підкажу інші дати зі свіжих слотів.'
+          : bookResult.toolResult.includes('SLOT_NOT_AVAILABLE')
+            ? 'На цей час вікна вже немає. Зараз запропоную інші години з розкладу.'
+          : bookResult.toolResult.includes('INVALID_CUSTOMER_NAME')
+            ? 'Підкажіть, будь ласка, як до вас звертатись (імʼя) — відповідь на послугу на кшталт «фарба» / «так» імʼям не є.'
+          : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
+            'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
+        try {
+          const igMessageIds = await sendText(client.igUserId, reply);
+          await persistIgOutboundMessage({
+            conversationId,
+            sender: 'bot',
+            text: reply,
+            igMessageIds,
+          });
+          markFirstOutboundAt(conversationId).catch(() => undefined);
+        } catch (err) {
+          log.error({ err, conversationId }, 'Failed to send booking failure client reply');
+        }
+        handled = true;
       }
     }
-    if (bookResult?.crmSynced) {
-      return true;
-    }
-    if (bookResult && !bookResult.crmSynced) {
-      // CRM rejected (e.g. TIME_CONFLICT) — do not leave the agent's false «Записали» as the reply.
-      // handleBookAppointment skipped IG confirm; send alternatives instead.
-      const reply = bookResult.toolResult.includes('TIME_CONFLICT')
-        ? buildClientFacingTimeConflictReply(bookResult.toolResult)
-        : bookResult.toolResult.includes('MASTER_SERVICE_MISMATCH')
-          ? 'Цей майстер не виконує обрану послугу — зараз підберу іншого спеціаліста або інший час. Зачекайте хвильку.'
-        : bookResult.toolResult.includes('MASTER_DAY_CLOSED')
-          ? 'Цього дня майстер не працює за графіком. Підкажу інші дати зі свіжих слотів.'
-        : bookResult.toolResult.includes('SLOT_NOT_AVAILABLE')
-          ? 'На цей час вікна вже немає. Зараз запропоную інші години з розкладу.'
-        : bookResult.toolResult.includes('INVALID_CUSTOMER_NAME')
-          ? 'Підкажіть, будь ласка, як до вас звертатись (імʼя) — відповідь на послугу на кшталт «фарба» / «так» імʼям не є.'
-        : sanitizeFalseBookingConfirmReply(ctx.clientMessage ?? '') ||
-          'На жаль, зараз не вдалося закріпити цей час у розкладі. Підкажіть інший зручний слот — перевіримо наявність.';
-      try {
-        const igMessageIds = await sendText(client.igUserId, reply);
-        await persistIgOutboundMessage({
-          conversationId,
-          sender: 'bot',
-          text: reply,
-          igMessageIds,
-        });
-        markFirstOutboundAt(conversationId).catch(() => undefined);
-      } catch (err) {
-        log.error({ err, conversationId }, 'Failed to send TIME_CONFLICT client reply');
-      }
-      return true;
-    }
+    if (handled) return true;
   }
 
   return false;

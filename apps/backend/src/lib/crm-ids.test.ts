@@ -21,6 +21,7 @@ describe('crm guid helpers', () => {
     expect(crmProviderRequiresGuid('beautypro')).toBe(true);
     expect(crmProviderRequiresGuid('cleverbox')).toBe(false);
     expect(crmProviderRequiresNumericId('cleverbox')).toBe(true);
+    expect(crmProviderRequiresNumericId('altegio')).toBe(true);
     expect(crmProviderRequiresNumericId('beautypro')).toBe(false);
     expect(shouldResolveBookingCrmIds('beautypro')).toBe(true);
     expect(shouldResolveBookingCrmIds('cleverbox')).toBe(true);

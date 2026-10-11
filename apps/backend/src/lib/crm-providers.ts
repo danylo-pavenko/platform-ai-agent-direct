@@ -2,7 +2,7 @@
  * CRM provider registry types — extensible list for multi-CRM tenants.
  */
 
-export const CRM_PROVIDER_NAMES = ['keycrm', 'cleverbox', 'beautypro'] as const;
+export const CRM_PROVIDER_NAMES = ['keycrm', 'cleverbox', 'beautypro', 'altegio'] as const;
 export type CrmProviderName = (typeof CRM_PROVIDER_NAMES)[number];
 
 export type CrmAction =
@@ -22,5 +22,6 @@ export function providerDisplayName(name: CrmProviderName): string {
   if (name === 'keycrm') return 'KeyCRM';
   if (name === 'cleverbox') return 'CleverBOX';
   if (name === 'beautypro') return 'BeautyPro';
+  if (name === 'altegio') return 'Altegio';
   return name;
 }

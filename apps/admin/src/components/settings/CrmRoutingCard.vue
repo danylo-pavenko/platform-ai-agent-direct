@@ -5,7 +5,7 @@
       Маршрутизація CRM
     </v-card-title>
     <v-card-subtitle class="pb-2">
-      Який CRM обробляє каталог, запис, замовлення та філії (KeyCRM / CleverBOX / BeautyPro).
+      Який CRM обробляє каталог, запис, замовлення та філії (KeyCRM / CleverBOX / BeautyPro / Altegio).
       Перший підключений CRM автоматично стає єдиним для всіх дій; другий+ — додається в
       увімкнені, маршрути гібриду налаштовуйте вручну.
     </v-card-subtitle>
@@ -88,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-export type CrmProviderValue = 'keycrm' | 'cleverbox' | 'beautypro';
+export type CrmProviderValue = 'keycrm' | 'cleverbox' | 'beautypro' | 'altegio';
 export type CrmRoutingMode = 'single' | 'by_action' | 'prompt';
 
 export interface CrmRoutingShape {
@@ -110,6 +110,7 @@ const providerItems = [
   { title: 'KeyCRM', value: 'keycrm' },
   { title: 'CleverBOX', value: 'cleverbox' },
   { title: 'BeautyPro', value: 'beautypro' },
+  { title: 'Altegio', value: 'altegio' },
 ] as const;
 
 const actionRows = [

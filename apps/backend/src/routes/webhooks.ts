@@ -19,6 +19,7 @@ import {
   effectiveChatDisplayName,
   igProfilePersonName,
 } from '../lib/client-person-name.js';
+import { applyAltegioWebhook, authorizeAltegioWebhook } from '../services/crm/altegio-webhook.js';
 import { importFirstContactIgHistory } from '../services/ig-history.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { isConversationStaleForNewSession } from '../lib/session-freshness.js';
@@ -410,6 +411,31 @@ async function processWebhookEvents(
       }
     }
   }
+
+  app.post<{
+    Querystring: { token?: string };
+    Body: unknown;
+  }>('/webhooks/altegio', async (request, reply) => {
+    const header = request.headers['x-webhook-token'];
+    const presented = request.query.token
+      || (typeof header === 'string' ? header : undefined);
+    const allowed = await authorizeAltegioWebhook(request.body, presented);
+    if (!allowed.ok) {
+      request.log.warn({ reason: allowed.reason }, 'Altegio webhook rejected');
+      return reply.code(401).send({ ok: false });
+    }
+    try {
+      const result = await applyAltegioWebhook(request.body);
+      request.log.info(
+        { applied: result.applied, updated: result.updated },
+        'Altegio webhook applied',
+      );
+      return { ok: true, ...result };
+    } catch (err) {
+      request.log.error({ err }, 'Altegio webhook failed');
+      return reply.code(500).send({ ok: false });
+    }
+  });
 }
 
 /**

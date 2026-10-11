@@ -34,6 +34,7 @@ import {
 import { sendTelegramTestMessage } from '../services/telegram-test.js';
 import { runMetaAgentTest } from '../services/meta-agent-test.js';
 import { probeBeautyproDatasets, testBeautyproConnection } from '../services/crm/beautypro.js';
+import { testAltegioConnection } from '../services/crm/altegio.js';
 import { testKeycrmConnection } from '../services/crm/keycrm.js';
 import {
   cancelClaudeAuthLogin,
@@ -50,6 +51,7 @@ const INTEGRATION_KEYS = [
   'integration_keycrm',
   'integration_cleverbox',
   'integration_beautypro',
+  'integration_altegio',
   'integration_novaposhta',
 ];
 
@@ -165,6 +167,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       integration_keycrm: {},
       integration_cleverbox: {},
       integration_beautypro: {},
+      integration_altegio: {},
       integration_novaposhta: {},
     };
 
@@ -589,6 +592,32 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         status: 'error',
         message,
       });
+    }
+  });
+
+  /**
+   * POST /settings/altegio/test
+   * GET company + staff + services. Masked tokens fall back to the saved secret.
+   */
+  app.post<{
+    Body: {
+      partnerToken?: string;
+      userToken?: string;
+      locationId?: string;
+    };
+  }>('/altegio/test', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const result = await testAltegioConnection({
+        partnerToken: body.partnerToken,
+        userToken: body.userToken,
+        locationId: body.locationId,
+      });
+      if (!result.ok) return reply.code(400).send(result);
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return reply.code(400).send({ ok: false, status: 'error', message });
     }
   });
 

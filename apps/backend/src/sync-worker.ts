@@ -523,13 +523,14 @@ function buildMastersCatalog(
 
 async function listConfiguredSalonProviders(): Promise<CrmProviderName[]> {
   const routing = await getCrmRouting({ fresh: true });
-  const { cleverbox, beautypro } = await getIntegrationConfig({ fresh: true });
+  const { cleverbox, beautypro, altegio } = await getIntegrationConfig({ fresh: true });
   const out: CrmProviderName[] = [];
 
   const beautyproOk = Boolean(
     beautypro.applicationId && beautypro.applicationSecret && beautypro.databaseCode,
   );
   const cleverboxOk = Boolean(cleverbox.apiToken);
+  const altegioOk = Boolean(altegio.partnerToken && altegio.userToken && altegio.locationId);
 
   let servicesRoute: CrmProviderName = 'keycrm';
   try {
@@ -546,11 +547,13 @@ async function listConfiguredSalonProviders(): Promise<CrmProviderName[]> {
   for (const p of candidates) {
     if (p === 'beautypro' && beautyproOk) out.push('beautypro');
     if (p === 'cleverbox' && cleverboxOk) out.push('cleverbox');
+    if (p === 'altegio' && altegioOk) out.push('altegio');
   }
 
   // Connected salon CRMs even if not yet in enabled_providers (pre-routing save)
   if (beautyproOk && !out.includes('beautypro')) out.push('beautypro');
   if (cleverboxOk && !out.includes('cleverbox')) out.push('cleverbox');
+  if (altegioOk && !out.includes('altegio')) out.push('altegio');
 
   return [...new Set(out)];
 }

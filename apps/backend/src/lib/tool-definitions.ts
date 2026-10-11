@@ -248,7 +248,7 @@ const SEARCH_SERVICES: ToolDefinition = {
       },
       crm_provider: {
         type: 'string',
-        enum: ['cleverbox', 'beautypro', 'keycrm'],
+        enum: ['cleverbox', 'beautypro', 'altegio', 'keycrm'],
         description: 'Лише якщо системний промпт вказує інший CRM для послуг',
       },
     },
@@ -440,7 +440,7 @@ const BOOK_APPOINTMENT: ToolDefinition = {
       comment: { type: 'string' },
       crm_provider: {
         type: 'string',
-        enum: ['cleverbox', 'beautypro', 'keycrm'],
+        enum: ['cleverbox', 'beautypro', 'altegio', 'keycrm'],
         description: 'Лише якщо промпт вказує інший CRM для запису',
       },
     },

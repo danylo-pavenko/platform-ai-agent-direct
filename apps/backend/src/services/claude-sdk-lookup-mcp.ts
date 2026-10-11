@@ -96,7 +96,7 @@ const SEARCH_SERVICES_SCHEMA = {
   query: z.string().describe('Ключові слова з запиту клієнта'),
   limit: z.number().optional().describe('Скільки варіантів повернути (1–20)'),
   crm_provider: z
-    .enum(['cleverbox', 'beautypro', 'keycrm'])
+    .enum(['cleverbox', 'beautypro', 'altegio', 'keycrm'])
     .optional()
     .describe('Лише якщо системний промпт вказує інший CRM для послуг'),
 };
@@ -351,7 +351,7 @@ export function createLookupMcpServer(
           ),
           master_id: z.string().optional(),
           comment: z.string().optional(),
-          crm_provider: z.enum(['cleverbox', 'beautypro', 'keycrm']).optional(),
+          crm_provider: z.enum(['cleverbox', 'beautypro', 'altegio', 'keycrm']).optional(),
         },
         hostQueuedHandler('book_appointment'),
         { annotations: HOST_ANNOTATIONS, alwaysLoad: true },

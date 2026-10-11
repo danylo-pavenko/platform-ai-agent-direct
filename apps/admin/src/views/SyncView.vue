@@ -1025,12 +1025,14 @@ function providerLabel(p?: string): string {
   if (p === 'keycrm') return 'KeyCRM';
   if (p === 'cleverbox') return 'CleverBOX';
   if (p === 'beautypro') return 'BeautyPro';
+  if (p === 'altegio') return 'Altegio';
   return p;
 }
 
 function providerColor(p?: string): string {
   if (p === 'cleverbox') return 'deep-purple';
   if (p === 'beautypro') return 'pink-darken-2';
+  if (p === 'altegio') return 'teal-darken-2';
   if (p === 'keycrm') return 'green-darken-1';
   return 'grey';
 }

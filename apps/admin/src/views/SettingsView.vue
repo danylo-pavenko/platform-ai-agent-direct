@@ -2203,6 +2203,18 @@
       />
       </div>
 
+      <div v-if="activeSection === 'settings-altegio'" class="settings-section">
+      <AltegioCard v-model="integrations.altegio" />
+
+      <IntegrationsSaveBar
+        :saving="savingIntegrations"
+        :saved="integrationsSaved"
+        :restarting="pm2RestartLoading"
+        @save="saveIntegrations"
+        @restart="confirmPm2Restart"
+      />
+      </div>
+
       <div v-if="activeSection === 'settings-beautypro'" class="settings-section">
       <BeautyproCard v-model="integrations.beautypro" />
 
@@ -2794,6 +2806,7 @@ import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import BeautyproCard from '@/components/settings/BeautyproCard.vue';
+import AltegioCard from '@/components/settings/AltegioCard.vue';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
 import MessageSourcesIntro from '@/components/settings/MessageSourcesIntro.vue';
@@ -2994,6 +3007,13 @@ const integrations = ref({
     tokenExpiresAt: '',
     apiServer: 1,
     authStatus: '' as '' | 'pending' | 'granted' | 'refused',
+  },
+  altegio: {
+    partnerToken: '',
+    userToken: '',
+    locationId: '',
+    webhookSecret: '',
+    syncIntervalMin: 60,
   },
   novaposhta: {
     apiKey: '',
@@ -4750,13 +4770,14 @@ async function fetchSettings() {
       const defaultProvider =
         raw.default === 'cleverbox' ||
         raw.default === 'keycrm' ||
-        raw.default === 'beautypro'
+        raw.default === 'beautypro' ||
+        raw.default === 'altegio'
           ? raw.default
           : base.default;
       const enabledRaw = Array.isArray(raw.enabled_providers) ? raw.enabled_providers : [];
       const enabled = enabledRaw.filter(
-        (p): p is 'keycrm' | 'cleverbox' | 'beautypro' =>
-          p === 'keycrm' || p === 'cleverbox' || p === 'beautypro',
+        (p): p is 'keycrm' | 'cleverbox' | 'beautypro' | 'altegio' =>
+          p === 'keycrm' || p === 'cleverbox' || p === 'beautypro' || p === 'altegio',
       );
       const routesRaw =
         raw.routes && typeof raw.routes === 'object' && !Array.isArray(raw.routes)
@@ -4764,7 +4785,7 @@ async function fetchSettings() {
           : {};
       const routes = { ...base.routes };
       for (const [key, val] of Object.entries(routesRaw)) {
-        if (val === 'keycrm' || val === 'cleverbox' || val === 'beautypro') {
+        if (val === 'keycrm' || val === 'cleverbox' || val === 'beautypro' || val === 'altegio') {
           routes[key] = val;
         }
       }
@@ -4896,6 +4917,7 @@ async function fetchIntegrations() {
     const k = data.integration_keycrm ?? {};
     const cb = data.integration_cleverbox ?? {};
     const bp = data.integration_beautypro ?? {};
+    const ag = data.integration_altegio ?? {};
     const np = data.integration_novaposhta ?? {};
 
     metaPageTokenMasked.value = m.pageAccessToken === '••••••';
@@ -4937,6 +4959,13 @@ async function fetchIntegrations() {
       tokenExpiresAt: bp.tokenExpiresAt ?? '',
       apiServer: typeof bp.apiServer === 'number' ? bp.apiServer : 1,
       authStatus: bpAuth,
+    };
+    integrations.value.altegio = {
+      partnerToken: ag.partnerToken ?? '',
+      userToken: ag.userToken ?? '',
+      locationId: ag.locationId ?? '',
+      webhookSecret: ag.webhookSecret ?? '',
+      syncIntervalMin: ag.syncIntervalMin ?? 60,
     };
     integrations.value.novaposhta = {
       apiKey:         np.apiKey         ?? '',
@@ -5061,6 +5090,17 @@ async function saveIntegrations() {
       beautyproPayload.refreshToken = bpRefresh;
     }
 
+    const altegioPayload: Record<string, unknown> = {
+      locationId: integrations.value.altegio.locationId.trim(),
+      syncIntervalMin: integrations.value.altegio.syncIntervalMin,
+    };
+    const agPartner = integrations.value.altegio.partnerToken.trim();
+    if (agPartner && agPartner !== '••••••') altegioPayload.partnerToken = agPartner;
+    const agUser = integrations.value.altegio.userToken.trim();
+    if (agUser && agUser !== '••••••') altegioPayload.userToken = agUser;
+    const agHook = integrations.value.altegio.webhookSecret.trim();
+    if (agHook && agHook !== '••••••') altegioPayload.webhookSecret = agHook;
+
     const npPayload: Record<string, unknown> = {
       senderCity: integrations.value.novaposhta.senderCity,
       senderCityRef: integrations.value.novaposhta.senderCityRef,
@@ -5084,6 +5124,7 @@ async function saveIntegrations() {
         integration_keycrm: keycrmPayload,
         integration_cleverbox: cleverboxPayload,
         integration_beautypro: beautyproPayload,
+        integration_altegio: altegioPayload,
         integration_novaposhta: npPayload,
       }),
       api.put('/settings', {
@@ -5105,7 +5146,9 @@ async function saveIntegrations() {
           ? 'BeautyPro'
           : routingUpdate.config.default === 'cleverbox'
             ? 'CleverBOX'
-            : 'KeyCRM';
+            : routingUpdate.config.default === 'altegio'
+              ? 'Altegio'
+              : 'KeyCRM';
       crmRoutingSnackbarText.value = `${name} став єдиним CRM для всіх дій (авто).`;
       crmRoutingSnackbar.value = true;
     } else if (routingUpdate?.applied === 'enabled_only' && routingUpdate.config) {

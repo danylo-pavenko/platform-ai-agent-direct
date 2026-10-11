@@ -30,6 +30,7 @@ export const INTEGRATION_SECTION_IDS = [
   'settings-keycrm',
   'settings-cleverbox',
   'settings-beautypro',
+  'settings-altegio',
   'settings-novaposhta',
 ] as const;
 
@@ -71,6 +72,7 @@ export function buildSettingsNavGroups(): SettingsNavGroup[] {
         { id: 'settings-keycrm', title: 'KeyCRM', icon: 'mdi-database' },
         { id: 'settings-cleverbox', title: 'CleverBOX', icon: 'mdi-calendar-clock' },
         { id: 'settings-beautypro', title: 'BeautyPro', icon: 'mdi-spa' },
+        { id: 'settings-altegio', title: 'Altegio', icon: 'mdi-calendar-account' },
         { id: 'settings-novaposhta', title: 'Нова Пошта', icon: 'mdi-truck-fast' },
       ],
     },

@@ -8,6 +8,7 @@ import type { CrmAdapter } from './types.js';
 import { keycrmAdapter } from './keycrm.js';
 import { cleverboxAdapter } from './cleverbox.js';
 import { beautyproAdapter } from './beautypro.js';
+import { altegioAdapter } from './altegio.js';
 
 const _instances = new Map<CrmProviderName, CrmAdapter>();
 
@@ -19,6 +20,8 @@ function createAdapter(name: CrmProviderName): CrmAdapter {
       return cleverboxAdapter;
     case 'beautypro':
       return beautyproAdapter;
+    case 'altegio':
+      return altegioAdapter;
     default:
       throw new Error(`Unknown CRM provider "${name}"`);
   }
@@ -44,7 +47,7 @@ export function getCrmAdapter(provider?: CrmProviderName): CrmAdapter {
 }
 
 export function listRegisteredCrmProviders(): CrmProviderName[] {
-  return ['keycrm', 'cleverbox', 'beautypro'];
+  return ['keycrm', 'cleverbox', 'beautypro', 'altegio'];
 }
 
 /** Test-only: reset cached adapters. */

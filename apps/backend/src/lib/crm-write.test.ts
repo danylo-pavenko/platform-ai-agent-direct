@@ -34,6 +34,13 @@ const emptyCreds = {
     apiServer: 1,
     authStatus: '' as const,
   },
+  altegio: {
+    partnerToken: '',
+    userToken: '',
+    locationId: '',
+    webhookSecret: '',
+    syncIntervalMin: 30,
+  },
 };
 
 describe('providerWriteCredentialsReason', () => {
@@ -84,6 +91,21 @@ describe('providerWriteCredentialsReason', () => {
         beautypro: { ...granted.beautypro, authStatus: 'refused' },
       }),
     ).toMatch(/відхилено/);
+  });
+
+  it('requires Altegio partner token, user token and location id', () => {
+    expect(providerWriteCredentialsReason('altegio', emptyCreds)).toMatch(/Altegio/);
+    expect(
+      providerWriteCredentialsReason('altegio', {
+        ...emptyCreds,
+        altegio: {
+          ...emptyCreds.altegio,
+          partnerToken: 'p',
+          userToken: 'u',
+          locationId: '42',
+        },
+      }),
+    ).toBeNull();
   });
 });
 

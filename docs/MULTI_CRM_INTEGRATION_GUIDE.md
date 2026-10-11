@@ -151,7 +151,69 @@ client_upsert: 'keycrm'
 | Клієнт upsert | ✅ | ❌ | ✅ | `crm-sync.ts`, `beautypro.ts` |
 | Custom fields | ✅ | ❌ | ❌ | `crm-fields.ts`, `listCustomFields` |
 
-**Гібридний tenant (салон + магазин):** `crm_routing.mode = by_action`, KeyCRM для catalog/order, CleverBOX для services/booking/branches.
+**Гібридний tenant (салон + магазин):** `crm_routing.mode = by_action`, KeyCRM для catalog/order, CleverBOX, BeautyPro або Altegio для services/booking/branches.
+
+Altegio (салон, B2B v2 + Online Booking) — окремо в §4.1. Для салону він покриває те саме, що BeautyPro: послуги, філії, слоти, запис, клієнт, історія. Каталог товарів, замовлення, ТТН і ліди — ні.
+
+---
+
+## 4.1 Altegio
+
+Два живі контракти, обидва з `Accept: application/vnd.api.v2+json` і `Authorization: Bearer {partner_token}, User {user_token}`:
+
+| Шар | Base | Навіщо |
+|-----|------|--------|
+| **B2B v2** | `https://api.alteg.io/api/v2` | Послуги (`attendance_services`), майстри (`team_members`), історія і скасування запису. [Документація](https://developer.alteg.io/en/b2b-v2/openapi) радить v2 для нових інтеграцій |
+| **Online Booking** | `https://api.alteg.io/api/v1` | `book_dates`, `book_times` і `POST /records/{location}` — у v2 немає вільних слотів і створення звичайного візиту |
+
+[B2B v3 OpenAPI](https://developer.alteg.io/en/b2b-v3/openapi) — preview. Ендпоінти не розгорнуті. Платформа **не** кличе `/api/v3`.
+
+Кожен тенант створює підключення у своєму Altegio і вносить дані в **Налаштування → Altegio**:
+
+| Поле | Навіщо |
+|------|--------|
+| Partner token | Токен партнера підключення |
+| User token | Токен користувача салону |
+| ID компанії | Числовий `company_id` / location |
+| Секрет вебхука | Опційно. Якщо задано, колбек мусить передати його в `?token=` або `X-Webhook-Token`. Якщо порожньо — у тілі вебхука має бути partner token |
+
+Кнопка **Перевірити підключення** (`POST /settings/altegio/test`) робить GET компанії, майстрів і послуг. Масковані `••••••` беруться зі збереженого секрету.
+
+Маршрут для салону:
+
+```json
+{
+  "mode": "by_action",
+  "enabled_providers": ["altegio"],
+  "routes": {
+    "services": "altegio",
+    "branches": "altegio",
+    "booking": "altegio",
+    "client_upsert": "altegio"
+  }
+}
+```
+
+Після збереження одного CRM маршрутизація ставить його на всі дії сама. Для магазину + салону лишіть catalog/order на KeyCRM, services/booking/branches на `altegio`.
+
+Адаптер (`services/crm/altegio.ts`):
+
+| Дія агента | Куди |
+|------------|------|
+| Послуги, ціни, тривалість | v2 `GET /locations/{id}/attendance_services` |
+| Майстри | v2 `GET /locations/{id}/team_members?filter[fired]=0&filter[deleted]=0` |
+| Філія | v2 `GET /locations/{id}` (якщо ресурсу немає — id локації) |
+| Вільні дні | v1 `GET /book_dates/{id}` |
+| Слоти | v1 `GET /book_dates/{id}` + `GET /book_times/{id}/{staff_id}/{YYYY-MM-DD}`. Конкретна дата — усі години цього дня і всі майстри. `fullMonth` — 31 день уперед від цієї дати, теж без ліміту на кількість майстрів |
+| Запис | v1 `POST /records/{id}` (`save_if_busy: false`, datetime з offset таймзони тенанта) |
+| Скасувати / перенести | v2 `DELETE /locations/{id}/appointments/{id}`; перенесення = cancel + новий запис |
+| Прибрати послугу | v1 GET/PUT запису; останній рядок → v2 DELETE |
+| Історія | v2 `GET /locations/{id}/appointments?filter[client_id]` |
+| Клієнт | v1 `POST /company/{id}/clients/search` (пошуку клієнта у v2 немає) |
+
+Один запис Altegio = один майстер. Паралельні послуги різних майстрів — окремі `book_appointment`. Перед POST платформа звіряє `book_times`: `MASTER_DAY_CLOSED` / `SLOT_NOT_AVAILABLE`. Id послуг і майстрів — числа.
+
+Вебхук опційний: тенант у Altegio вказує `POST https://<api-домен>/webhooks/altegio` на події record create/update/delete (і за бажанням client). Без окремого секрету тіло має містити `partner_token`, що збігається зі збереженим. Якщо Altegio його не надсилає — задайте секрет і додайте `?token=` в URL. Платформа оновлює локальний `Appointment` з тим самим `crmRecordId` (дата/час або `cancelled`) і імʼя клієнта, якщо картка вже привʼязана. Події іншої `company_id` ігноруються. Токени в логи не пишуться.
 
 ---
 
@@ -316,7 +378,20 @@ enabled_providers = [keycrm, cleverbox]
 
 Одна IG-сторінка, кілька філій салону — через `branches` + `set_conversation_branch` tool.
 
-### 8.4 Після deploy
+### 8.4 Тільки салон (Altegio)
+
+```
+crm_routing.mode = by_action
+routes: services, booking, branches, client_upsert → altegio
+agent_config.mode = booking
+Налаштування → Altegio: partner token, user token, ID компанії
+Кнопка «Перевірити підключення», потім Sync (послуги / майстри / філія)
+Опційно: webhook POST https://<api>/webhooks/altegio на record create/update/delete
+```
+
+Один візит в Altegio — один майстер. Скасування і перенесення йдуть тими самими tools, що й для інших салонів.
+
+### 8.5 Після deploy
 
 ```bash
 cd apps/backend
@@ -337,6 +412,8 @@ Admin → Settings → Health Check → Sync.
 | Hardcode `getCrmAdapter('keycrm')` у новому коді | Використовуй `resolveCrmProvider(action)` |
 | Зберігати філії тільки в CRM без `branches` table | Runtime prompt/tools потребують локальний slug |
 | Додавати scope OAuth Meta для CRM | Meta scopes — окремо (див. `.cursor/rules/meta-oauth-scopes.mdc`) |
+| Викликати Altegio `/api/v3` | B2B v3 — preview, ендпоінти не розгорнуті. Живе API — v1 (`altegio.ts`) |
+| Класти послуги різних майстрів в один запис Altegio | Один record = один staff_id |
 | Змішувати `Order` і `Appointment` | Різні домени, різні CRM actions |
 | Реальні ціни в коді | Tenant system prompt + knowledge files |
 
@@ -426,6 +503,7 @@ API документація / endpoints:
 | `services/crm/keycrm.ts` | E-commerce reference |
 | `services/crm/cleverbox.ts` | Salon/booking reference (CleverBOX) |
 | `services/crm/beautypro.ts` | Salon/booking (BeautyPro / AI Helps) |
+| `services/crm/altegio.ts` | Salon/booking (Altegio B2B v2 + Online Booking v1) |
 | `lib/integration-config.ts` | Per-tenant secrets (DB + env) |
 | `sync-worker.ts` | Catalog + services sync |
 | `services/crm-sync.ts` | Mirror client/order/lead |

@@ -1,0 +1,22 @@
+---
+description: Altegio CRM — B2B v2 plus Online Booking v1, not the undeployed B2B v3 preview
+alwaysApply: true
+---
+
+# Altegio CRM
+
+**Business Management v2:** `https://api.alteg.io/api/v2` — services, team members, appointment history, delete. Auth `Authorization: Bearer {partner_token}, User {user_token}` plus `Accept: application/vnd.api.v2+json`. Docs: https://developer.alteg.io/en/b2b-v2/openapi
+
+**Online Booking stays `/api/v1`:** `book_dates`, `book_times`, and `POST /records/{location}`. v2 has no free-slot or individual-appointment create.
+
+**Do not call B2B v3** (`/api/v3`). That OpenAPI is a preview and is not deployed.
+
+## Tenant credentials
+
+`integration_altegio`: `partnerToken`, `userToken`, numeric `locationId`, optional `webhookSecret`. Env fallbacks `ALTEGIO_*` only when the DB field is empty. Connection test: `POST /settings/altegio/test`.
+
+## Booking
+
+Adapter `services/crm/altegio.ts` via `getCrmAdapter('altegio')`. One record = one `staff_id`. Slots: v1 `book_dates` + `book_times`. Create: v1 `POST /records/{location}` with `save_if_busy: false`. Cancel: v2 `DELETE /locations/{id}/appointments/{id}`. Reschedule stays cancel-then-book. Ids are numeric strings.
+
+Webhook (optional): `POST /webhooks/altegio`. Require body `partner_token` or `?token=` / `X-Webhook-Token` equal to the saved webhook secret. Ignore other company ids. Do not log tokens.

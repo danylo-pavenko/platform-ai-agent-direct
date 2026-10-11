@@ -81,12 +81,23 @@ export interface IntegrationBeautypro {
   authStatus: 'pending' | 'granted' | 'refused' | '';
 }
 
+export interface IntegrationAltegio {
+  partnerToken: string;
+  userToken: string;
+  /** Altegio company / location id (numeric). */
+  locationId: string;
+  /** Optional callback secret. When set, webhooks must send it as ?token= or X-Webhook-Token. */
+  webhookSecret: string;
+  syncIntervalMin: number;
+}
+
 export interface IntegrationConfig {
   meta: IntegrationMeta;
   telegram: IntegrationTelegram;
   keycrm: IntegrationKeycrm;
   cleverbox: IntegrationCleverbox;
   beautypro: IntegrationBeautypro;
+  altegio: IntegrationAltegio;
   novaposhta: IntegrationNovaPoshta;
 }
 
@@ -108,6 +119,7 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
           'integration_keycrm',
           'integration_cleverbox',
           'integration_beautypro',
+          'integration_altegio',
           'integration_novaposhta',
         ],
       },
@@ -124,6 +136,7 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
   const k = (db['integration_keycrm'] ?? {}) as Partial<IntegrationKeycrm>;
   const cb = (db['integration_cleverbox'] ?? {}) as Partial<IntegrationCleverbox>;
   const bp = (db['integration_beautypro'] ?? {}) as Partial<IntegrationBeautypro>;
+  const ag = (db['integration_altegio'] ?? {}) as Partial<IntegrationAltegio>;
   const np = (db['integration_novaposhta'] ?? {}) as Partial<IntegrationNovaPoshta>;
 
   const bpAuthStatus =
@@ -190,6 +203,16 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
         typeof bp.apiServer === 'number' && bp.apiServer > 0 ? bp.apiServer : 1,
       authStatus: bpAuthStatus,
     },
+    altegio: {
+      partnerToken:
+        sanitizeIntegrationSecret(ag.partnerToken) || config.ALTEGIO_PARTNER_TOKEN,
+      userToken: sanitizeIntegrationSecret(ag.userToken) || config.ALTEGIO_USER_TOKEN,
+      locationId:
+        (typeof ag.locationId === 'string' ? ag.locationId.trim() : '') ||
+        config.ALTEGIO_LOCATION_ID,
+      webhookSecret: sanitizeIntegrationSecret(ag.webhookSecret),
+      syncIntervalMin: ag.syncIntervalMin ?? config.ALTEGIO_SYNC_INTERVAL_MIN,
+    },
     novaposhta: {
       apiKey:          sanitizeIntegrationSecret(np.apiKey) || config.NOVA_POSHTA_API_KEY,
       senderCity:      np.senderCity      || 'Київ',
@@ -213,6 +236,7 @@ export const SENSITIVE_FIELDS: Record<string, string[]> = {
   integration_keycrm:      ['apiKey'],
   integration_cleverbox:   ['apiToken'],
   integration_beautypro:   ['applicationSecret', 'accessToken', 'refreshToken'],
+  integration_altegio:     ['partnerToken', 'userToken', 'webhookSecret'],
   integration_novaposhta:  ['apiKey'],
 };
 

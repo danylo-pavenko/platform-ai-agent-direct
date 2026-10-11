@@ -19,6 +19,7 @@ import {
   type AppointmentServiceLine,
   type ServiceMasterAssignment,
 } from '../lib/appointment-services.js';
+import { bookingVisitsCanMerge } from '../lib/booking-visit-merge.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import { effectiveChatDisplayName, effectiveClientPersonName } from '../lib/client-person-name.js';
 import { sendText } from './instagram.js';
@@ -408,7 +409,7 @@ export async function handleBookAppointment(
       });
   }
 
-  const mergeTarget = await prisma.appointment.findFirst({
+  let mergeTarget = await prisma.appointment.findFirst({
     where: {
       conversationId,
       scheduledDate: date,
@@ -431,6 +432,21 @@ export async function handleBookAppointment(
   let mergedIntoExisting = false;
   let addedServiceCount = 0;
   let previousServiceCount = 0;
+
+  if (
+    mergeTarget
+    && !bookingVisitsCanMerge(
+      crmProvider,
+      normalizeAppointmentServices(mergeTarget.services),
+      services,
+    )
+  ) {
+    log.info(
+      { conversationId, appointmentId: mergeTarget.id, crmProvider },
+      'book_appointment: same clock time, different Altegio master — new visit',
+    );
+    mergeTarget = null;
+  }
 
   if (mergeTarget) {
     const existingServices = normalizeAppointmentServices(mergeTarget.services);

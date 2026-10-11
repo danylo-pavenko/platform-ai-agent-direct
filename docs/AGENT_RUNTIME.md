@@ -119,7 +119,7 @@ Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_ord
 
 **general** is not a separate tool list: `buildAgentTools('general')` merges the specialized builders. When you add a tool to sales/leadgen/booking, it appears in general automatically (enforced by unit test).
 
-**Cancel / reschedule:** `cancel_appointment` (full visit), `remove_appointment_service` (one line; last line → full cancel), `reschedule_appointment` (cancel old + book new). Do **not** use a second `book_appointment` as a move (SDK denies when an active visit exists on another date/time). **Refund / payment cancel** → still `request_handoff`. BeautyPro supports `PUT` cancel and `services[].action=delete`.
+**Cancel / reschedule:** `cancel_appointment` (full visit), `remove_appointment_service` (one line; last line → full cancel), `reschedule_appointment` (cancel old + book new). Do **not** use a second `book_appointment` as a move (SDK denies when an active visit exists on another date/time). **Refund / payment cancel** → still `request_handoff`. BeautyPro supports `PUT` cancel and `services[].action=delete`. Altegio cancel is v2 `DELETE /locations/{id}/appointments/{id}`; a move is the same cancel-then-book path. One Altegio visit is one master.
 
 `book_appointment` schema still needs name + phone + date + time + services, but the agent must **not** pass empty placeholders: show slots without contacts if needed; if a required field is missing from the chat and from the known-profile block, ask for it; if the profile already has phone/name, reuse them. Extra tenant fields (birthday, etc.) are not a platform booking gate.
 
@@ -138,6 +138,7 @@ All CRM I/O goes through `getCrmAdapter` + `resolveCrmProvider(action)`. Never c
 | KeyCRM | catalog, orders, leads, client upsert, shipment/TTN (`lookup_order_shipment`) |
 | CleverBOX | services, branches, booking |
 | BeautyPro | services, branches, booking, client upsert, visit history |
+| Altegio | services, branches, booking, client upsert, visit history (B2B v2 for catalog and cancel; slots and create on Online Booking v1; one record = one master) |
 
 Routing modes: `single` | `by_action` | `prompt`. Hybrid example: catalog/order → KeyCRM, services/booking → BeautyPro.
 

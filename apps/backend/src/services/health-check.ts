@@ -26,7 +26,7 @@ const log = pino({ name: 'health-check' });
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'beautypro' | 'crm_write' | 'agent_latency' | 'stt';
+  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'beautypro' | 'altegio' | 'crm_write' | 'agent_latency' | 'stt';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -372,6 +372,52 @@ async function checkCleverbox(): Promise<HealthCheckItem> {
   }
 }
 
+async function checkAltegio(): Promise<HealthCheckItem> {
+  const label = 'Altegio (запис)';
+  const { altegio } = await getIntegrationConfig();
+  const configured = Boolean(
+    (altegio.partnerToken || config.ALTEGIO_PARTNER_TOKEN)
+    && (altegio.userToken || config.ALTEGIO_USER_TOKEN)
+    && (altegio.locationId || config.ALTEGIO_LOCATION_ID),
+  );
+  if (!configured) {
+    return {
+      id: 'altegio',
+      label,
+      status: 'not_configured',
+      message: 'Partner token, user token або ID компанії Altegio не налаштовано',
+    };
+  }
+  try {
+    const adapter = getCrmAdapter('altegio');
+    if (!adapter.fetchBranches) {
+      return {
+        id: 'altegio',
+        label,
+        status: 'not_configured',
+        message: 'Altegio adapter без fetchBranches',
+      };
+    }
+    const branches = await adapter.fetchBranches();
+    const title = branches[0]?.name || 'компанію';
+    return {
+      id: 'altegio',
+      label,
+      status: 'ok',
+      message: `Підключено (${title})`,
+      details: { locationId: altegio.locationId, branchCount: branches.length },
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      id: 'altegio',
+      label,
+      status: 'error',
+      message: `Altegio не відповідає: ${message.slice(0, 240)}`,
+    };
+  }
+}
+
 async function checkBeautypro(): Promise<HealthCheckItem> {
   const label = 'BeautyPro (запис)';
   const { beautypro } = await getIntegrationConfig();
@@ -591,7 +637,7 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
 }
 
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, claudeUsage, crm, cleverbox, beautypro, crmWrite, stt] =
+  const [instagram, claude, claudeUsage, crm, cleverbox, beautypro, altegio, crmWrite, stt] =
     await Promise.all([
       checkInstagram(),
       checkClaude(),
@@ -599,6 +645,7 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
       checkCrm(),
       checkCleverbox(),
       checkBeautypro(),
+      checkAltegio(),
       checkCrmWrite(),
       checkStt(),
     ]);
@@ -613,6 +660,7 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
     crm,
     cleverbox,
     beautypro,
+    altegio,
     crmWrite,
     stt,
     agentLatency,

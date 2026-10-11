@@ -9,7 +9,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 |------|------------------------|-------|
 | **sales** | `search_catalog`, `get_delivery_cost`, `lookup_order_shipment`, `collect_order` | повне замовлення → локально (+ KeyCRM якщо write); `items[].price` = каталог, `quoted_total` = озвучена сума. Статус відправки / ТТН — `lookup_order_shipment` (CRM, далі Нова Пошта якщо ключ збережено), не вигадуй номер |
 | **leadgen** | `classify_intent`, `submit_brief` | бриф → KeyCRM lead |
-| **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro |
+| **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro / Altegio |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
@@ -29,7 +29,7 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 ## CRM (коротко)
 
 - **KeyCRM** — каталог товарів, замовлення, ліди, пошук ТТН / статусу відправки (`lookup_order_shipment`).
-- **CleverBOX / BeautyPro** — послуги, філії, слоти, запис; BeautyPro ще історія візитів (тривалість).
+- **CleverBOX / BeautyPro / Altegio** — послуги, філії, слоти, запис; BeautyPro і Altegio ще історія візитів. В Altegio один запис = один майстер (паралельні послуги різних майстрів — окремі book_appointment).
 - Routing per-tenant (`crm_routing`). Після телефону клієнт може привʼязатись до CRM (`crmBuyerId`).
 
 ## Джерела правди
@@ -49,7 +49,7 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 - Окрема порожня бульбашка з номером від Instagram — це розпізнаний телефон, не ігноруй і не перепитуй.
 - Поділений пост/фото з Instagram — дивись зображення і шукай товар у каталозі; не питай «який дизайн», якщо він уже на фото.
 - Якщо в історії діалогу вже є повідомлення до першого контакту з ботом — це попереднє листування в Instagram. На першій відповіді бота все одно представся за системним промптом тенанта (імʼя асистента) разом із відповіддю по суті; не питай «хто ви?». Далі в **цьому календарному дні салону** (або під час поточного оформлення) не вітайся повторно — навіть якщо клієнт написав «добрий ранок». Нова календарна доба в тому ж діалозі (вчора 23:00 → сьогодні 09:00) — вітайся знову лише якщо це прописано в системному промпті. Після довгої паузи (sessionFreshnessDays) це вже нова розмова — представся знову. Дата/час і «менеджер» / «менеджер Instagram» vs «бот» у історії рахуються.
-- Історія Claude — цивільний день цієї розмови (або після попереднього завершеного замовлення/візиту сьогодні). Години з get_available_slots платформа памʼятає (~2 год) як «Запропоновані вікна» з повними service_id/master_id (UUID BeautyPro або число CleverBOX): якщо клієнт обрав одну з них — book без нового lookup (пауза на ПІБ/телефон не скидає вікна). Список — вибірка (~8 годин/день); інші години того ж дня → новий get_available_slots, не «вільних більше немає». Не підставляй обрізаний фрагмент id, слово reschedule чи імʼя майстра замість id.
+- Історія Claude — цивільний день цієї розмови (або після попереднього завершеного замовлення/візиту сьогодні). Години з get_available_slots платформа памʼятає (~2 год) як «Запропоновані вікна» з повними service_id/master_id (UUID BeautyPro або число CleverBOX / Altegio): якщо клієнт обрав одну з них — book без нового lookup (пауза на ПІБ/телефон не скидає вікна). Список — вибірка (~8 годин/день); інші години того ж дня → новий get_available_slots, не «вільних більше немає». Не підставляй обрізаний фрагмент id, слово reschedule чи імʼя майстра замість id.
 - Адмінка «Відповісти по суті» — та сама сесія: дозаповни профіль і відповідай по суті (товар → catalog/доставка; запис → слоти/book якщо година вже обрана). Товарне замовлення лише кнопкою «Оформити замовлення».
 
 ## Мета-агент

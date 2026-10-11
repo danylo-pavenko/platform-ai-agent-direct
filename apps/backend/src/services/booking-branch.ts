@@ -1,6 +1,6 @@
 /**
  * Resolve CRM location/branch id for get_available_slots / booking.
- * Order: conversation branch → default branch → first active with CRM id → BeautyPro defaultLocationId.
+ * Order: conversation branch → default branch → first active with CRM id → BeautyPro defaultLocationId → Altegio location id.
  */
 import { prisma } from '../lib/prisma.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
@@ -20,7 +20,7 @@ export type ResolvedBookingBranch = {
   branchId: string | null;
   crmExternalId: string;
   displayName: string | null;
-  source: 'conversation' | 'default' | 'first_active' | 'beautypro_default';
+  source: 'conversation' | 'default' | 'first_active' | 'beautypro_default' | 'altegio_default';
 };
 
 /**
@@ -84,7 +84,7 @@ export async function resolveBookingBranchForAppointment(opts?: {
     };
   }
 
-  const { beautypro } = await getIntegrationConfig();
+  const { beautypro, altegio } = await getIntegrationConfig();
   const loc = beautypro.defaultLocationId?.trim();
   if (loc) {
     const byCrm = await prisma.branch.findFirst({
@@ -95,6 +95,19 @@ export async function resolveBookingBranchForAppointment(opts?: {
       crmExternalId: loc,
       displayName: byCrm?.displayName ?? null,
       source: 'beautypro_default',
+    };
+  }
+
+  const altegioLoc = altegio?.locationId?.trim();
+  if (altegioLoc) {
+    const byCrm = await prisma.branch.findFirst({
+      where: { crmExternalId: altegioLoc },
+    });
+    return {
+      branchId: byCrm?.id ?? null,
+      crmExternalId: altegioLoc,
+      displayName: byCrm?.displayName ?? null,
+      source: 'altegio_default',
     };
   }
 

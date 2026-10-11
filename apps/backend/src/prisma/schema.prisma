@@ -36,7 +36,7 @@ model Client {
   // Cross-reference to the matching buyer/client record in the CRM.
   // Populated on phone match, booking, or manual admin attach.
   crmBuyerId       String?        @unique @map("crm_buyer_id")
-  /** Which CRM provider owns crmBuyerId (keycrm | beautypro | cleverbox). */
+  /** Which CRM provider owns crmBuyerId (keycrm | beautypro | cleverbox | altegio). */
   crmProvider      String?        @map("crm_provider")
   crmLinkedAt      DateTime?      @map("crm_linked_at")
 

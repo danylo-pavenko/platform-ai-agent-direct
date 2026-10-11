@@ -159,6 +159,9 @@ async function listConfiguredCrmProviders(): Promise<CrmProviderName[]> {
   ) {
     out.push('beautypro');
   }
+  if (cfg.altegio.partnerToken && cfg.altegio.userToken && cfg.altegio.locationId) {
+    out.push('altegio');
+  }
   return out;
 }
 

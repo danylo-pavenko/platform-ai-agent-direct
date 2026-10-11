@@ -50,7 +50,7 @@ export interface CrmWriteReadyResult {
   provider?: CrmProviderName;
 }
 
-type IntegrationCreds = Pick<IntegrationConfig, 'keycrm' | 'cleverbox' | 'beautypro'>;
+type IntegrationCreds = Pick<IntegrationConfig, 'keycrm' | 'cleverbox' | 'beautypro' | 'altegio'>;
 
 /** Missing-credential reason, or null when the provider can accept writes. */
 export function providerWriteCredentialsReason(
@@ -76,6 +76,12 @@ export function providerWriteCredentialsReason(
     }
     if (cfg.beautypro.authStatus === 'refused') {
       return 'BeautyPro: доступ відхилено';
+    }
+    return null;
+  }
+  if (provider === 'altegio') {
+    if (!cfg.altegio.partnerToken || !cfg.altegio.userToken || !cfg.altegio.locationId) {
+      return 'Altegio: partner token, user token або location id не налаштовано';
     }
     return null;
   }
