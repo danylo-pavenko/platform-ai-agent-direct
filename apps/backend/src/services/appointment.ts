@@ -21,7 +21,11 @@ import {
 } from '../lib/appointment-services.js';
 import { bookingVisitsCanMerge } from '../lib/booking-visit-merge.js';
 import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
-import { effectiveChatDisplayName, effectiveClientPersonName } from '../lib/client-person-name.js';
+import {
+  effectiveChatDisplayName,
+  effectiveClientPersonName,
+  personNameCollidesWithMaster,
+} from '../lib/client-person-name.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -185,10 +189,10 @@ export async function handleBookAppointment(
     where: { id: clientId },
     select: { displayName: true, igFullName: true, igUsername: true },
   });
+  const profilePersonName =
+    effectiveClientPersonName(clientRow?.displayName, clientRow?.igFullName) ?? '';
   let resolvedCustomerName =
-    effectiveChatDisplayName(customerName, clientRow?.igFullName) ??
-    effectiveClientPersonName(clientRow?.displayName, clientRow?.igFullName) ??
-    '';
+    effectiveChatDisplayName(customerName, clientRow?.igFullName) ?? profilePersonName;
   if (!resolvedCustomerName) {
     const priorVisit = await prisma.appointment.findFirst({
       where: {
@@ -205,12 +209,67 @@ export async function handleBookAppointment(
     }
   }
 
+  // «Пт Анастасія» / master name as customer_name — never a client ПІБ.
+  const slotOffer = await loadFreshBookingSlotOffer(conversationId);
+  const bookedMasterIds = new Set(uniqueMasterIds(services));
+  if (fallbackMasterId) bookedMasterIds.add(fallbackMasterId);
+  const offeredMasterLabels = (slotOffer?.masters ?? [])
+    .filter((m) => bookedMasterIds.size === 0 || bookedMasterIds.has(m.id))
+    .map((m) => m.name)
+    .filter(Boolean);
+  if (
+    resolvedCustomerName &&
+    offeredMasterLabels.length > 0 &&
+    personNameCollidesWithMaster(resolvedCustomerName, offeredMasterLabels)
+  ) {
+    if (
+      profilePersonName &&
+      !personNameCollidesWithMaster(profilePersonName, offeredMasterLabels)
+    ) {
+      log.info(
+        {
+          conversationId,
+          fromAgent: resolvedCustomerName,
+          resolved: profilePersonName,
+          masters: offeredMasterLabels,
+        },
+        'book_appointment replaced master-colliding customer_name with profile name',
+      );
+      resolvedCustomerName = profilePersonName;
+    } else if (!profilePersonName) {
+      log.warn(
+        { conversationId, customerName: resolvedCustomerName, masters: offeredMasterLabels },
+        'book_appointment rejected customer_name — matches offered master',
+      );
+      if (
+        clientRow?.displayName &&
+        !effectiveChatDisplayName(clientRow.displayName, clientRow.igFullName)
+      ) {
+        await prisma.client
+          .update({
+            where: { id: clientId },
+            data: { displayName: null },
+          })
+          .catch((err) => {
+            log.warn({ err, clientId }, 'Failed to clear invalid client displayName');
+          });
+      }
+      return {
+        appointmentId: '',
+        crmSynced: false,
+        toolResult:
+          '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name збігається з імʼям майстра зі слотів («Пт Анастасія» / «Анастасія» = день+майстер, не ПІБ клієнта). Спитай як звертатись до клієнта, update_client_info(full_name), потім book знову з тим імʼям; master_id лиши з слотів.',
+      };
+    }
+    // profilePersonName equals master — rare coincidence; keep resolved name.
+  }
+
   if (!resolvedCustomerName) {
     log.warn(
       { conversationId, customerName },
       'book_appointment rejected customer_name — not a chat person name',
     );
-    // Drop polluted profile names so admin / next turn do not keep «Так Фарба».
+    // Drop polluted profile names so admin / next turn do not keep «Так Фарба» / «Пт Анастасія».
     if (clientRow?.displayName && !effectiveChatDisplayName(clientRow.displayName, clientRow.igFullName)) {
       await prisma.client
         .update({
@@ -225,7 +284,7 @@ export async function handleBookAppointment(
       appointmentId: '',
       crmSynced: false,
       toolResult:
-        '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name must be a person name (напр. «Діана»), not a service answer («Так Фарба», «хна») and not an Instagram profile headline. Ask how to address them, update_client_info(full_name), then book again.',
+        '[book_appointment] failed: INVALID_CUSTOMER_NAME. customer_name must be a person name (напр. «Діана»), not a service answer («Так Фарба», «хна»), not day+master («Пт Анастасія»), and not an Instagram profile headline. Ask how to address them, update_client_info(full_name), then book again.',
     };
   }
 

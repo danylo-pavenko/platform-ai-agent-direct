@@ -26,6 +26,12 @@ describe('extractPersonNameFromText', () => {
     expect(extractPersonNameFromText('Манікюр Комплекс')).toBeUndefined();
     expect(extractPersonNameFromText('Хочу записатись')).toBeUndefined();
   });
+
+  it('does not treat day+master slot replies as ПІБ', () => {
+    expect(extractPersonNameFromText('Пт Анастасія')).toBeUndefined();
+    expect(extractPersonNameFromText('Пт Анастесія')).toBeUndefined();
+    expect(extractContactPatchesFromText('Пт Анастасія').displayName).toBeUndefined();
+  });
 });
 
 describe('extractContactPatchesFromText', () => {

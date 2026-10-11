@@ -6,6 +6,7 @@ import {
   igProfilePersonName,
   isIgProfileTitleNotPersonName,
   isPlausiblePersonName,
+  personNameCollidesWithMaster,
 } from './client-person-name.js';
 
 describe('isIgProfileTitleNotPersonName', () => {
@@ -35,6 +36,26 @@ describe('isPlausiblePersonName', () => {
     expect(isPlausiblePersonName('Ні хна')).toBe(false);
     expect(isPlausiblePersonName('Фарба')).toBe(false);
     expect(isPlausiblePersonName('Так')).toBe(false);
+  });
+
+  it('rejects day abbreviations and day+master slot replies', () => {
+    expect(isPlausiblePersonName('Пт')).toBe(false);
+    expect(isPlausiblePersonName('Пт Анастасія')).toBe(false);
+    expect(isPlausiblePersonName('Пт Анастесія')).toBe(false);
+    expect(isPlausiblePersonName('ср Анна')).toBe(false);
+    expect(isPlausiblePersonName('пʼятниця Надія')).toBe(false);
+  });
+});
+
+describe('personNameCollidesWithMaster', () => {
+  it('detects when customer_name is the offered master', () => {
+    expect(
+      personNameCollidesWithMaster('Анастасія', ['Анастасія', 'Анна', 'Надія']),
+    ).toBe(true);
+    expect(
+      personNameCollidesWithMaster('Анастасія', ['Анастасія (Манікюр)']),
+    ).toBe(true);
+    expect(personNameCollidesWithMaster('Діана', ['Анастасія', 'Анна'])).toBe(false);
   });
 });
 

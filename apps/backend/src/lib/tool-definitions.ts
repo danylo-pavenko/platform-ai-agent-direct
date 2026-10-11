@@ -383,7 +383,8 @@ const BOOK_APPOINTMENT: ToolDefinition = {
     properties: {
       customer_name: {
         type: 'string',
-        description: 'ПІБ з цього чату або з відомих даних профілю; порожнє не передавай',
+        description:
+          'ПІБ клієнта з чату або з профілю («Імʼя:»). Не день+майстер («Пт Анастасія») і не імʼя майстра зі слотів',
       },
       phone: {
         type: 'string',

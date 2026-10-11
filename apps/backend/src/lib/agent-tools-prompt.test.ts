@@ -72,6 +72,12 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toContain('notify_client_running_late');
   });
 
+  it('forbids day+master replies as customer_name / full_name', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/Пт Анастасія/);
+    expect(prompt).toMatch(/день\+майстер|дня\+майстра/i);
+  });
+
   it('forbids deferred catalog promises without search_services in booking', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/Заборонено писати клієнту/);

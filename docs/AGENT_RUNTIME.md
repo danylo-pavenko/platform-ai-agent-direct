@@ -104,7 +104,7 @@ Order in `buildRuntimePrompt` / `askClaude`:
 
 ## Agent modes and tools
 
-Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`. Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`.
+Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`. Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`. Day+master slot replies (`Пт Анастасія`) and offered master names are not client ПІБ either — heuristics and `book_appointment` reject them.
 
 | Mode | Purpose | Mode-specific tools | Terminal outcome |
 |------|---------|---------------------|------------------|

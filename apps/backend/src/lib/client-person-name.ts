@@ -10,9 +10,13 @@ const SLOGAN_MARKERS =
 
 const IG_TITLE_SEPARATORS = /[|·•—–]|🙂|✨|💕|🌿|🧘/;
 
-/** Service / day / greeting words — never a person name token. */
+/**
+ * Service / day / greeting words — never a person name token.
+ * Includes UA calendar abbreviations (Пн…Нд) — clients often reply «Пт Анастасія»
+ * meaning Friday + master, not their own ПІБ.
+ */
 const NAME_STOP =
-  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|фарба|фарбою|хна|хною|гель|лак|покриття|корекція|укладка|ламінування|нарощування|комплекс|дизайн|френч|укріплення|чоловічий|жіночий|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя|йога|тренер|студія|салон|онлайн|доброго|привіт|вітаю|здрастуй|hello|hi)$/iu;
+  /^(манікюр|педикюр|брови|вії|стрижка|фарбування|фарба|фарбою|хна|хною|гель|лак|покриття|корекція|укладка|ламінування|нарощування|комплекс|дизайн|френч|укріплення|чоловічий|жіночий|завтра|сьогодні|понеділок|вівторок|середа|четвер|п['’]?ятниця|субота|неділя|пн\.?|вт\.?|ср\.?|чт\.?|пт\.?|сб\.?|нд\.?|вс\.?|йога|тренер|студія|салон|онлайн|доброго|привіт|вітаю|здрастуй|hello|hi)$/iu;
 
 /**
  * Affirmations / fillers that models glue onto the next service word
@@ -23,6 +27,39 @@ const DISCOURSE_PARTICLE =
 
 function normalizeNameKey(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA');
+}
+
+/** Strip grade / role suffixes: «Анастасія (Манікюр)» → «анастасія». */
+function corePersonLabel(value: string): string {
+  return normalizeNameKey(value)
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * True when a candidate client name is the same person-token as a master label
+ * from the offered slots («Анастасія» vs «Анастасія (Манікюр)»).
+ */
+export function personNameCollidesWithMaster(
+  personName: string,
+  masterLabels: Iterable<string>,
+): boolean {
+  const person = corePersonLabel(personName);
+  if (!person) return false;
+  const personTokens = person.split(' ');
+  const personFirst = personTokens[0]!;
+  for (const label of masterLabels) {
+    const master = corePersonLabel(label);
+    if (!master) continue;
+    if (person === master) return true;
+    const masterFirst = master.split(' ')[0]!;
+    // Single given name equal to master's first token (common booking mistake).
+    if (personTokens.length === 1 && personFirst.length >= 3 && personFirst === masterFirst) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function tokensOf(value: string): string[] {
