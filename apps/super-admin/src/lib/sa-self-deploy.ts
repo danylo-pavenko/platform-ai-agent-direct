@@ -99,6 +99,7 @@ function isPidAlive(pid: number | null | undefined): boolean {
 function lockHeld(): boolean {
   // Linux flock file is not a reliable "held" signal without flock(2);
   // mkdir lock dir is the portable indicator used by the wrapper fallback.
+  // startGate stays for the whole job (incl. daemonize parent→child hop).
   return existsSync(resolve(deployDir(), 'flock.lockdir')) || existsSync(startGatePath());
 }
 
@@ -137,11 +138,13 @@ function writeJobFile(job: SaSelfDeployJob): void {
   writeFileSync(jobJsonPath(), `${JSON.stringify(job, null, 2)}\n`, 'utf8');
 }
 
-/** If job.json says running but pid is dead, mark failed (stale). */
+/** If job.json says running but pid is dead and no lock/gate, mark failed (stale). */
 export function reconcileStaleSaSelfDeploy(): SaSelfDeployJob | null {
   const job = readJobFile();
   if (!job) return null;
-  if (job.status === 'running' && !isPidAlive(job.pid)) {
+  // Daemonize hop: Node's spawn pid exits in ms while the real worker (setsid)
+  // still holds startGate — do not mark stale while the gate/lock is present.
+  if (job.status === 'running' && !isPidAlive(job.pid) && !lockHeld()) {
     const stale: SaSelfDeployJob = {
       ...job,
       status: 'failed',
@@ -167,7 +170,11 @@ export function getSaSelfDeployStatus(): {
 } {
   const job = reconcileStaleSaSelfDeploy();
   return {
-    running: Boolean(job && job.status === 'running' && isPidAlive(job.pid)),
+    running: Boolean(
+      job &&
+        job.status === 'running' &&
+        (isPidAlive(job.pid) || lockHeld()),
+    ),
     job,
   };
 }

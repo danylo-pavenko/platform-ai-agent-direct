@@ -123,14 +123,24 @@ cd "${PROJECT_ROOT}"
 
 # ── 5. Restart PM2 (inject env vars from .env.super-admin) ──
 echo "[5/6] Restarting PM2..."
+# NOTE: pm2 stop/delete kill_tree includes children of SA-api. UI self-deploy
+# must run via run-sa-self-deploy-job.sh (setsid daemon) so this step cannot
+# murder the deploy script between delete and start.
 
-if pm2 list 2>/dev/null | grep -q "SA-api"; then
-  pm2 stop SA-api 2>/dev/null || true
+if pm2 describe SA-api >/dev/null 2>&1; then
   pm2 delete SA-api 2>/dev/null || true
 fi
 
 # Start PM2 — env already exported by `source` above
 pm2 start ecosystem.super-admin.config.cjs
+
+# If start raced or failed, retry once (avoid leaving SA-api stopped → nginx 502).
+sleep 1
+if ! pm2 describe SA-api 2>/dev/null | grep -q "online"; then
+  echo "  WARN: SA-api not online after start — retrying..."
+  pm2 delete SA-api 2>/dev/null || true
+  pm2 start ecosystem.super-admin.config.cjs
+fi
 
 pm2 save
 

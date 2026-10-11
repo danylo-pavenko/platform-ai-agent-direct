@@ -26,6 +26,21 @@ START_GATE="${DIR}/starting.lockdir"
 mkdir -p "${DIR}"
 touch "${LOG}"
 
+# PM2 kill_tree on SA-api also kills children of the Node process — including a
+# merely "detached" bash job. Re-exec into a new session (PPID→1) before any
+# deploy work so `pm2 stop/delete/restart` cannot murder this wrapper mid-flight.
+if [ "${SA_SELF_DEPLOY_DAEMONIZED:-}" != "1" ]; then
+  export SA_SELF_DEPLOY_DAEMONIZED=1
+  echo "[self-deploy] daemonizing (survive PM2 kill_tree)..." >>"${LOG}"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid bash "$0" "$@" </dev/null >>"${LOG}" 2>&1 &
+  else
+    nohup bash "$0" "$@" </dev/null >>"${LOG}" 2>&1 &
+  fi
+  # Parent exits; startGate stays until the daemon finishes.
+  exit 0
+fi
+
 release_lock() {
   if command -v flock >/dev/null 2>&1 && [ -n "${FLOCK_FD:-}" ]; then
     # flock releases on FD close / process exit
