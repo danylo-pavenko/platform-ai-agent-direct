@@ -22,16 +22,6 @@ export interface CrmRoutingConfig {
   routes: Partial<Record<CrmAction, CrmProviderName>>;
 }
 
-const DEFAULT_ROUTES: Record<CrmAction, CrmProviderName> = {
-  catalog: 'keycrm',
-  services: 'cleverbox',
-  branches: 'cleverbox',
-  order: 'keycrm',
-  lead: 'keycrm',
-  booking: 'cleverbox',
-  client_upsert: 'keycrm',
-};
-
 const ALL_ACTIONS: CrmAction[] = [
   'catalog',
   'services',
@@ -45,6 +35,14 @@ const ALL_ACTIONS: CrmAction[] = [
 let _cache: CrmRoutingConfig | null = null;
 let _cacheAt = 0;
 const CACHE_TTL_MS = 60_000;
+
+/** Unset routes follow the one default CRM, not a KeyCRM/CleverBOX split. */
+function routesForProvider(provider: CrmProviderName): Record<CrmAction, CrmProviderName> {
+  return Object.fromEntries(ALL_ACTIONS.map((action) => [action, provider])) as Record<
+    CrmAction,
+    CrmProviderName
+  >;
+}
 
 function envDefaultProvider(): CrmProviderName {
   const raw = (config.CRM_PROVIDER ?? 'keycrm').toLowerCase();
@@ -80,7 +78,7 @@ function parseRouting(raw: unknown): CrmRoutingConfig {
       ? (o.routes as Record<string, unknown>)
       : {};
 
-  const routes = { ...DEFAULT_ROUTES };
+  const routes = routesForProvider(defaultProvider);
   for (const [action, provider] of Object.entries(routesInput)) {
     if (isCrmProviderName(String(provider))) {
       routes[action as CrmAction] = provider as CrmProviderName;
@@ -226,7 +224,7 @@ export async function ensureCrmRoutingAfterIntegrations(): Promise<CrmRoutingEns
   const next: CrmRoutingConfig = {
     ...current,
     enabled_providers: enabled,
-    routes: { ...DEFAULT_ROUTES, ...current.routes },
+    routes: { ...routesForProvider(current.default), ...current.routes },
   };
   await persistCrmRouting(next);
   return { applied: 'enabled_only', config: next, configuredProviders };

@@ -10,6 +10,7 @@
       Тестова й бойова база — один API (`api.aihelps.com`), різниться лише database code.
     </v-card-subtitle>
     <v-card-text>
+      <CrmRoutingHint @open-routing="emit('open-routing')" />
       <v-alert
         v-if="beautypro.authStatus === 'pending'"
         type="warning"
@@ -382,6 +383,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import api from '@/api';
+import CrmRoutingHint from '@/components/settings/CrmRoutingHint.vue';
 
 export interface BeautyproIntegrationShape {
   applicationId: string;
@@ -489,6 +491,7 @@ const copiedHint = ref('');
 
 const emit = defineEmits<{
   tested: [result: BeautyproTestResponse];
+  'open-routing': [];
 }>();
 
 const busy = computed(() => testLoading.value || Boolean(probeLoading.value));

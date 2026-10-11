@@ -9,6 +9,7 @@
       (partner + user) і ID компанії. Послуги і записи — B2B v2; слоти — Online Booking.
     </v-card-subtitle>
     <v-card-text>
+      <CrmRoutingHint @open-routing="emit('open-routing')" />
       <v-text-field
         v-model="altegio.partnerToken"
         label="Partner token"
@@ -106,6 +107,9 @@
 import { computed, ref } from 'vue';
 import api from '@/api';
 import { altegioWebhookUrl } from '@/lib/tenant-api-url';
+import CrmRoutingHint from '@/components/settings/CrmRoutingHint.vue';
+
+const emit = defineEmits<{ 'open-routing': [] }>();
 
 export interface AltegioIntegrationShape {
   partnerToken: string;

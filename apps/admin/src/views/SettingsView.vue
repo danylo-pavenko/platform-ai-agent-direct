@@ -2021,6 +2021,7 @@
         </v-card-title>
         <v-card-subtitle class="pb-2">API ключ, джерело замовлень і синхронізація каталогу</v-card-subtitle>
         <v-card-text>
+          <CrmRoutingHint @open-routing="selectSection('settings-crm-routing')" />
           <!-- Instructions -->
           <v-btn
             variant="text"
@@ -2192,7 +2193,10 @@
       </div>
 
       <div v-if="activeSection === 'settings-cleverbox'" class="settings-section">
-      <CleverboxCard v-model="integrations.cleverbox" />
+      <CleverboxCard
+        v-model="integrations.cleverbox"
+        @open-routing="selectSection('settings-crm-routing')"
+      />
 
       <IntegrationsSaveBar
         :saving="savingIntegrations"
@@ -2204,7 +2208,10 @@
       </div>
 
       <div v-if="activeSection === 'settings-altegio'" class="settings-section">
-      <AltegioCard v-model="integrations.altegio" />
+      <AltegioCard
+        v-model="integrations.altegio"
+        @open-routing="selectSection('settings-crm-routing')"
+      />
 
       <IntegrationsSaveBar
         :saving="savingIntegrations"
@@ -2216,7 +2223,10 @@
       </div>
 
       <div v-if="activeSection === 'settings-beautypro'" class="settings-section">
-      <BeautyproCard v-model="integrations.beautypro" />
+      <BeautyproCard
+        v-model="integrations.beautypro"
+        @open-routing="selectSection('settings-crm-routing')"
+      />
 
       <IntegrationsSaveBar
         :saving="savingIntegrations"
@@ -2807,6 +2817,7 @@ import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmR
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import BeautyproCard from '@/components/settings/BeautyproCard.vue';
 import AltegioCard from '@/components/settings/AltegioCard.vue';
+import CrmRoutingHint from '@/components/settings/CrmRoutingHint.vue';
 import { resolveApiHostFromAdmin, tenantApiOrigin } from '@/lib/tenant-api-url';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
@@ -4556,14 +4567,14 @@ const followUpConfig = ref<FollowUpConfigShape>({
 });
 
 const defaultCrmRouting = (): CrmRoutingShape => ({
-  mode: 'by_action',
+  mode: 'single',
   default: 'keycrm',
-  enabled_providers: ['keycrm', 'cleverbox'],
+  enabled_providers: ['keycrm'],
   routes: {
     catalog: 'keycrm',
-    services: 'cleverbox',
-    branches: 'cleverbox',
-    booking: 'cleverbox',
+    services: 'keycrm',
+    branches: 'keycrm',
+    booking: 'keycrm',
     order: 'keycrm',
     lead: 'keycrm',
     client_upsert: 'keycrm',

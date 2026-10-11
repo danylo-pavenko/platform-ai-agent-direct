@@ -8,6 +8,7 @@
       Запис на послуги, філії та каталог послуг для салонів краси / SPA.
     </v-card-subtitle>
     <v-card-text>
+      <CrmRoutingHint @open-routing="emit('open-routing')" />
       <v-text-field
         v-model="cleverbox.apiToken"
         label="API token"
@@ -38,6 +39,9 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import CrmRoutingHint from '@/components/settings/CrmRoutingHint.vue';
+
+const emit = defineEmits<{ 'open-routing': [] }>();
 
 export interface CleverboxIntegrationShape {
   apiToken: string;

@@ -121,17 +121,10 @@ interface CrmCapabilities {
 | `by_action` | Кожен action → свій provider з `routes` |
 | `prompt` | Agent може передати `crm_provider` у tool args; fallback → `routes[action]` |
 
-### 3.4 Дефолтні маршрути (якщо tenant не налаштував)
+### 3.4 Дефолт (якщо tenant не налаштував)
 
-```typescript
-catalog: 'keycrm'
-services: 'cleverbox'
-branches: 'cleverbox'
-order: 'keycrm'
-lead: 'keycrm'
-booking: 'cleverbox'
-client_upsert: 'keycrm'
-```
+Режим `single`: усі дії йдуть в один CRM (`default`, з env `CRM_PROVIDER`, інакше KeyCRM).
+Гібрид `by_action` — лише якщо його явно зберегли в адмінці. Незаповнений маршрут теж бере `default`, а не розклад CleverBOX/KeyCRM.
 
 ---
 
@@ -245,7 +238,7 @@ Altegio (салон, B2B v2 + Online Booking) — окремо в §4.1. Для 
 
 ### Фаза C — Routing і consumers
 
-- [ ] **C.1** Оновити `DEFAULT_ROUTES` у `crm-routing.ts` **лише якщо** нова CRM має стати default для якогось action
+- [ ] **C.1** Дефолт лишається `single` (один CRM на всі дії). Гібрид `by_action` не вмикати автоматично для нового провайдера
 - [ ] **C.2** Перевірити всі `resolveCrmProvider` call sites — чи потрібна логіка credentials для нового провайдера
 - [ ] **C.3** `sync-worker.ts` — якщо CRM дає catalog або services, додати перевірку `isConfigured` + sync artifact
 - [ ] **C.4** `health-check.ts` — додати перевірку ping/read для нового провайдера
