@@ -268,6 +268,8 @@ export function createSaSelfDeploy(deps) {
       const r = await fetch(`${BASE}/platform/self-deploy`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        // Fastify rejects empty body when Content-Type is application/json.
+        body: JSON.stringify({}),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok && r.status !== 409) {
