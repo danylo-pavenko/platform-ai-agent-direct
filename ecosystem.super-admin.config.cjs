@@ -11,6 +11,10 @@ module.exports = {
       script: 'dist/server.js',
       node_args: '--enable-source-maps',
       instances: 1,
+      exec_mode: 'fork', // avoid cluster kill quirks; single process is enough for SA
+      autorestart: true,
+      max_restarts: 20,
+      min_uptime: '10s',
       env: { NODE_ENV: 'production' },
       max_memory_restart: '256M',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',

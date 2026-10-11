@@ -195,6 +195,13 @@ dig +short api-test.direct-ai-agents.com   # має повернути VPS IP
 
 **Оновлення самого Super Admin з UI:** sidebar → кнопка **Оновитись** біля версії. Це той самий `infra/scripts/deploy-super-admin.sh` (git pull + build + PM2), запущений як detached job (`run-sa-self-deploy-job.sh`); лог у модалці, SSH не потрібен. Після релізу спочатку оновіть SA (щоб `VERSION.code` у `/api/platform/version` зріс), потім тенанти підхоплять через Deploy / midnight auto-update.
 
+**Watchdog (автопідйом):** cron кожні 15 хв перевіряє `http://127.0.0.1:$SA_API_PORT/api/health`; якщо down — знову `deploy-super-admin.sh` (не чіпає, коли вже йде UI self-deploy). Один раз як `agentsadmin`:
+
+```bash
+bash infra/scripts/install-sa-watchdog-cron.sh
+# лог: ~/.pm2/logs/sa-watchdog.log
+```
+
 Super-admin при першому deploy:
 
 - викликає `provision-client.sh` (user, PostgreSQL, nginx, TLS, clone, повний `.env`)
