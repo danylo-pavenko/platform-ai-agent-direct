@@ -22,6 +22,7 @@ import { createChat } from './composables/chat.js';
 import { createTenantUsers } from './composables/tenant-users.js';
 import { createPm2Restart } from './composables/pm2-restart.js';
 import { createWorkers } from './composables/workers.js';
+import { createSaSelfDeploy } from './composables/sa-self-deploy.js';
 
 /** Vue setup() — wires shared state + domain composables. */
 export function setup() {
@@ -33,6 +34,19 @@ export function setup() {
   const workers = ref([]);
   const health = reactive({});
   const saVersionLabel = ref('');
+  const saSelfDeployBusy = ref(false);
+  const saDeployLog = reactive({
+    open: false,
+    html: '',
+    running: false,
+    jobId: null,
+    status: null,
+    startedAt: null,
+    finishedAt: null,
+    exitCode: null,
+    tick: 0,
+  });
+  const saDeployLogEl = ref(null);
   const deploying = ref(null);
   const deployJobs = reactive({});
   const deployLog = reactive({
@@ -240,6 +254,16 @@ export function setup() {
   bridge.refreshDestroyStatus = destroyApi.refreshDestroyStatus;
   bridge.loadTenants = tenantsApi.loadTenants;
 
+  const saSelfDeployApi = createSaSelfDeploy({
+    saDeployLog,
+    saDeployLogEl,
+    saSelfDeployBusy,
+    saVersionLabel,
+    auth,
+    nextTick,
+    loadSaVersion: () => tenantsApi.loadSaVersion(),
+  });
+
   const linksApi = createLinks({
     links,
     linkModal,
@@ -340,6 +364,7 @@ export function setup() {
       await workersApi.loadWorkers();
       await tenantsApi.loadTenants();
       await refreshCurrentPageData();
+      await saSelfDeployApi.resumeSaSelfDeployIfRunning();
     }
   });
 
@@ -349,6 +374,10 @@ export function setup() {
 
   return {
     auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
+    saVersionLabel, saSelfDeployBusy, saDeployLog, saDeployLogEl,
+    saDeployLogElapsed: saSelfDeployApi.saDeployLogElapsed,
+    triggerSaSelfDeploy: saSelfDeployApi.triggerSaSelfDeploy,
+    closeSaDeployLog: saSelfDeployApi.closeSaDeployLog,
     deployLogElapsed: deployApi.deployLogElapsed,
     destroying, destroyJobs, destroyModal, destroyLog, destroyLogEl,
     destroyLogElapsed: destroyApi.destroyLogElapsed,
@@ -443,6 +472,5 @@ export function setup() {
     tenantNeedsProvision: tenantsApi.tenantNeedsProvision,
     chatTenantName: chatApi.chatTenantName,
     chatTenantDomain: chatApi.chatTenantDomain,
-    saVersionLabel,
   };
 }

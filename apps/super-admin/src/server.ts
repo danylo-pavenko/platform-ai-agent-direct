@@ -15,6 +15,7 @@ import { leadsRoutes } from './routes/leads.js';
 import { metaOAuthHubRoutes } from './routes/meta-oauth-hub.js';
 import { workersRoutes } from './routes/workers.js';
 import { platformVersionRoutes } from './routes/platform-version.js';
+import { saSelfDeployRoutes } from './routes/sa-self-deploy.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +63,7 @@ await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
 await app.register(workersRoutes);
 await app.register(platformVersionRoutes);
+await app.register(saSelfDeployRoutes);
 
 // Health check
 app.get('/api/health', async () => {

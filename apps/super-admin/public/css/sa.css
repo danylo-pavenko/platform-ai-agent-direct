@@ -28,7 +28,16 @@ html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Sego
 .sidebar-bottom { padding: 12px 8px; border-top: 1px solid var(--border); }
 .logout-btn { width: 100%; background: none; border: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 8px 10px; border-radius: 7px; text-align: left; display: flex; align-items: center; gap: 9px; }
 .logout-btn:hover { background: var(--surface2); color: var(--danger); }
-.sa-version { font-size: 10px; color: var(--muted); padding: 6px 10px 0; font-variant-numeric: tabular-nums; }
+.sa-version { font-size: 10px; color: var(--muted); padding: 0; font-variant-numeric: tabular-nums; }
+.sa-version-row {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px 10px 0;
+}
+.sa-self-deploy-btn {
+  width: 100%; justify-content: center; font-size: 11px; padding: 6px 8px;
+  min-height: 32px;
+}
+.sa-self-deploy-btn:disabled { opacity: 0.7; cursor: wait; }
 .tenant-version { font-size: 10px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 
 /* ── Topbar ── */

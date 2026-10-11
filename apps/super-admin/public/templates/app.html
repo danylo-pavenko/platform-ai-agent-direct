@@ -51,7 +51,19 @@
         <button class="logout-btn" @click="logout">
           <span class="icon">→</span> Logout
         </button>
-        <div v-if="saVersionLabel" class="sa-version">{{ saVersionLabel }}</div>
+        <div class="sa-version-row">
+          <div v-if="saVersionLabel" class="sa-version" :title="'Super Admin platform version'">{{ saVersionLabel }}</div>
+          <button
+            type="button"
+            class="btn btn-ghost sa-self-deploy-btn"
+            :disabled="saSelfDeployBusy"
+            :title="saSelfDeployBusy ? 'Self-deploy running…' : 'git pull + build + PM2 restart Super Admin'"
+            @click="triggerSaSelfDeploy"
+          >
+            <span v-if="saSelfDeployBusy" class="deploy-running" style="margin-right:6px"></span>
+            {{ saSelfDeployBusy ? 'Оновлення…' : 'Оновитись' }}
+          </button>
+        </div>
       </div>
     </aside>
     <div class="sidebar-backdrop" :class="{'show': sidebarOpen}" @click="sidebarOpen=false"></div>
@@ -1219,6 +1231,34 @@
 
       <div class="modal-actions" style="margin-top:20px">
         <button class="btn btn-ghost" :disabled="accessModal.saving" @click="accessModal.open=false">Закрити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Admin self-deploy log -->
+  <div class="modal-overlay" v-if="saDeployLog.open" @click.self="closeSaDeployLog()">
+    <div class="modal" style="width:660px;max-width:96vw">
+      <h2>
+        <span v-if="saDeployLog.running" class="deploy-running"></span>
+        Super Admin — оновлення
+      </h2>
+      <p style="font-size:11px;color:var(--muted);margin:-8px 0 12px;line-height:1.45">
+        <template v-if="saDeployLog.running">
+          Deploy триває у фоні (git pull → build → PM2). Під час рестарту API лог може коротко обірватися — відновить сам.
+        </template>
+        <template v-else-if="saDeployLog.status">
+          Status: <strong>{{ saDeployLog.status }}</strong>
+          <span v-if="saDeployLog.exitCode != null"> (exit {{ saDeployLog.exitCode }})</span>
+        </template>
+        <span v-if="saDeployLogElapsed" style="margin-left:8px">· {{ saDeployLogElapsed }}</span>
+      </p>
+      <div class="deploy-log-wrap">
+        <div class="deploy-log" ref="saDeployLogEl" v-html="saDeployLog.html || '<span style=\'color:var(--muted)\'>Initializing...</span>'"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeSaDeployLog()">
+          {{ saDeployLog.running ? 'Hide (keeps running)' : 'Close' }}
+        </button>
       </div>
     </div>
   </div>
