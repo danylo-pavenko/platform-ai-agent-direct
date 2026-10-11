@@ -54,12 +54,23 @@
         class="mb-3"
       />
 
-      <v-alert type="info" variant="tonal" density="compact" class="mb-3 text-body-2">
-        Колбек у Altegio: <code>POST https://&lt;api-домен-тенанта&gt;/webhooks/altegio</code>.
-        Події запису: record create / update / delete. Без секрету в тілі має бути
-        ваш partner token. Якщо Altegio його не шле — задайте секрет і додайте
-        <code>?token=…</code> в URL колбека.
-      </v-alert>
+      <div class="altegio-callback mb-3">
+        <div class="text-caption text-medium-emphasis mb-1">URL колбека цього тенанта</div>
+        <div class="d-flex flex-wrap align-center ga-2">
+          <code class="altegio-callback__url">{{ callbackUrl }}</code>
+          <v-btn
+            variant="tonal"
+            color="teal-darken-2"
+            prepend-icon="mdi-content-copy"
+            class="flex-grow-1 flex-sm-grow-0"
+            style="min-height: 44px"
+            @click="copyCallback"
+          >
+            {{ copied ? 'Скопійовано' : 'Копіювати' }}
+          </v-btn>
+        </div>
+        <div class="text-caption text-medium-emphasis mt-1">{{ callbackHint }}</div>
+      </div>
 
       <div class="d-flex flex-wrap align-center ga-2 mb-2">
         <v-btn
@@ -92,8 +103,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import api from '@/api';
+import { altegioWebhookUrl } from '@/lib/tenant-api-url';
 
 export interface AltegioIntegrationShape {
   partnerToken: string;
@@ -112,6 +124,32 @@ const statusMessage = ref('');
 const statusOk = ref(false);
 
 const MASK = '••••••';
+const copied = ref(false);
+const callbackUrl = computed(() =>
+  altegioWebhookUrl(window.location.hostname, altegio.value.webhookSecret),
+);
+const callbackHint = computed(() => {
+  const secret = altegio.value.webhookSecret.trim();
+  if (secret && secret !== MASK && !secret.startsWith(MASK)) {
+    return 'У цьому URL уже є секрет. Вставте його в Altegio як адресу колбека. Події: record create / update / delete.';
+  }
+  if (secret.startsWith(MASK) || secret === MASK) {
+    return 'Це адреса API цього тенанта. Секрет уже збережено і в посиланні не показується — вставте його в поле ще раз, щоб скопіювати URL з ?token=. Інакше Altegio має слати partner token у тілі.';
+  }
+  return 'Скопіюйте адресу в колбек Altegio. Події: record create / update / delete. Без секрету в тілі має бути ваш partner token.';
+});
+
+async function copyCallback() {
+  try {
+    await navigator.clipboard.writeText(callbackUrl.value);
+    copied.value = true;
+    window.setTimeout(() => {
+      copied.value = false;
+    }, 2000);
+  } catch {
+    copied.value = false;
+  }
+}
 
 function credPayload() {
   const payload: Record<string, string> = {
@@ -145,3 +183,17 @@ async function runConnectionTest() {
   }
 }
 </script>
+
+<style scoped>
+.altegio-callback__url {
+  flex: 1 1 12rem;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+</style>

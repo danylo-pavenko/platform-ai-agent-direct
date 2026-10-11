@@ -2807,6 +2807,7 @@ import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmR
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import BeautyproCard from '@/components/settings/BeautyproCard.vue';
 import AltegioCard from '@/components/settings/AltegioCard.vue';
+import { resolveApiHostFromAdmin, tenantApiOrigin } from '@/lib/tenant-api-url';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';
 import IntegrationsSaveBar from '@/components/settings/IntegrationsSaveBar.vue';
 import MessageSourcesIntro from '@/components/settings/MessageSourcesIntro.vue';
@@ -3969,15 +3970,6 @@ const oauthSnackbar = ref(false);
 const oauthSnackbarText = ref('');
 const oauthSnackbarColor = ref('success');
 
-// Derived URLs to display in the setup instructions.
-function resolveApiHostFromAdmin(hostname: string): string {
-  if (hostname === 'localhost' || hostname === '127.0.0.1') return hostname;
-  if (hostname.startsWith('agent.')) return hostname.replace(/^agent\./, 'api.');
-  const platform = hostname.match(/^agent-([a-z0-9-]+)\.(.+)$/i);
-  if (platform) return `api-${platform[1]}.${platform[2]}`;
-  return hostname;
-}
-
 const redirectUrl = computed(() => {
   const host = window.location.hostname;
   if (host === 'localhost' || host === '127.0.0.1') {
@@ -3991,14 +3983,9 @@ const redirectUrl = computed(() => {
   }
   return `https://${apiHost}/settings/meta/oauth-callback`;
 });
-const webhookUrl = computed(() => {
-  const host = window.location.hostname;
-  if (host === 'localhost' || host === '127.0.0.1') {
-    return 'http://localhost:3000/webhooks/instagram';
-  }
-  const apiHost = resolveApiHostFromAdmin(host);
-  return `https://${apiHost}/webhooks/instagram`;
-});
+const webhookUrl = computed(
+  () => `${tenantApiOrigin(window.location.hostname)}/webhooks/instagram`,
+);
 
 function showOAuthSnackbar(text: string, color = 'success') {
   oauthSnackbarText.value = text;
