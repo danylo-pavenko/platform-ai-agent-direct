@@ -78,6 +78,12 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/день\+майстер|дня\+майстра/i);
   });
 
+  it('requires lookup_client_by_phone before book so CRM ПІБ wins over Latin IG', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/перед book_appointment/i);
+    expect(prompt).toMatch(/кирилиця|з CRM/i);
+  });
+
   it('forbids deferred catalog promises without search_services in booking', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/Заборонено писати клієнту/);

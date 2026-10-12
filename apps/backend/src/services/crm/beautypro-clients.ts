@@ -13,8 +13,9 @@
 
 import { normalizeUaPhone } from '../../lib/client-contact-heuristics.js';
 
+/** List fields for phone/email match + ranking when duplicates share a number. */
 export const BP_CLIENT_LIST_FIELDS =
-  'name,firstname,lastname,phone,email,archive';
+  'name,firstname,lastname,phone,email,archive,first_visit,last_visit,bonus,create_date';
 
 export const BP_IG_COMMENT_PREFIX = 'IG:@';
 
@@ -44,15 +45,32 @@ export function commentsContainIg(comments: string | null | undefined, username:
   );
 }
 
+/** Digits only — for comparing BeautyPro `phone[]` values to a lookup. */
+export function phoneDigits(raw: string | null | undefined): string {
+  return (raw ?? '').replace(/\D/g, '');
+}
+
+/**
+ * BeautyPro UI / docs style: `+380 (93) 710 23 26`.
+ * Live salons often store this exact spacing; plain +380… alone can miss.
+ */
+export function formatUaPhoneBeautyproDisplay(e164: string): string | null {
+  const ua = normalizeUaPhone(e164);
+  if (!ua) return null;
+  const n = ua.slice(4); // 9 national digits
+  if (n.length !== 9) return null;
+  return `+380 (${n.slice(0, 2)}) ${n.slice(2, 5)} ${n.slice(5, 7)} ${n.slice(7, 9)}`;
+}
+
 /**
  * Phone query variants for BeautyPro `phone` filter.
- * API examples use formatted numbers; salons store +380 / 380 / 0XX inconsistently.
+ * API examples use formatted numbers; salons store +380 / 380 / 0XX / spaced inconsistently.
  */
 export function buildClientPhoneSearchVariants(raw: string): string[] {
   const trimmed = raw.trim();
   if (!trimmed) return [];
 
-  const digits = trimmed.replace(/\D/g, '');
+  const digits = phoneDigits(trimmed);
   const ua = normalizeUaPhone(trimmed);
   const out: string[] = [];
   const push = (v: string | null | undefined) => {
@@ -64,7 +82,16 @@ export function buildClientPhoneSearchVariants(raw: string): string[] {
   if (ua) {
     push(ua);
     push(ua.replace(/^\+/, '')); // 380XXXXXXXXX
-    push(`0${ua.slice(4)}`); // 0XXXXXXXXX
+    const national0 = `0${ua.slice(4)}`; // 0XXXXXXXXX
+    push(national0);
+    const display = formatUaPhoneBeautyproDisplay(ua);
+    if (display) {
+      push(display);
+      push(display.replace(/^\+/, '')); // 380 (93) …
+      push(national0.replace(/(\d{3})(\d{3})(\d{2})(\d{2})/, '$1 $2 $3 $4')); // 093 710 23 26
+    }
+    // Last 9 national digits — UI search-by-fragment style when full format misses.
+    push(ua.slice(4));
   }
 
   push(trimmed);
@@ -76,6 +103,81 @@ export function buildClientPhoneSearchVariants(raw: string): string[] {
   }
 
   return out;
+}
+
+function rowPhoneList(row: Pick<RawClientLike, 'phone'>): string[] {
+  const raw = row.phone;
+  if (Array.isArray(raw)) return raw.map((p) => String(p ?? ''));
+  if (typeof raw === 'string' && raw.trim()) return [raw];
+  return [];
+}
+
+/** True when any stored phone equals the lookup (digit-normalized, UA-aware). */
+export function clientRowMatchesPhone(
+  row: Pick<RawClientLike, 'phone'>,
+  lookupPhone: string,
+): boolean {
+  const want = phoneDigits(normalizeUaPhone(lookupPhone) ?? lookupPhone);
+  if (want.length < 9) return false;
+  const wantTail = want.length >= 9 ? want.slice(-9) : want;
+  for (const p of rowPhoneList(row)) {
+    const got = phoneDigits(normalizeUaPhone(p) ?? p);
+    if (!got) continue;
+    if (got === want) return true;
+    if (got.slice(-9) === wantTail) return true;
+  }
+  return false;
+}
+
+function hasCyrillicName(row: Pick<RawClientLike, 'name' | 'firstname' | 'lastname'>): boolean {
+  const blob = [row.name, row.firstname, row.lastname].filter(Boolean).join(' ');
+  return /[А-ЯІЇЄҐа-яіїєґ]/.test(blob);
+}
+
+function hasVisitHistory(row: RawClientLike): boolean {
+  const first = typeof row.first_visit === 'string' ? row.first_visit.trim() : '';
+  const last = typeof row.last_visit === 'string' ? row.last_visit.trim() : '';
+  return Boolean(first || last);
+}
+
+/**
+ * When BeautyPro returns several cards for one phone (or a fragment search),
+ * keep the salon «real» client — history / Cyrillic ПІБ / bonuses — not a
+ * one-off Latin duplicate the agent may have created earlier.
+ */
+export function pickBestBeautyproClient(
+  rows: RawClientLike[] | null | undefined,
+  lookupPhone: string,
+): RawClientLike | null {
+  if (!rows?.length) return null;
+  const matched = rows.filter(
+    (r) => r?.id && (clientRowMatchesPhone(r, lookupPhone) || !lookupPhone.trim()),
+  );
+  const pool = (matched.length > 0 ? matched : rows.filter((r) => r?.id)).filter(
+    (r) => r.archive !== true,
+  );
+  const candidates = pool.length > 0 ? pool : rows.filter((r) => r?.id);
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0]!;
+
+  const scored = candidates.map((row, index) => {
+    let score = 0;
+    if (clientRowMatchesPhone(row, lookupPhone)) score += 100;
+    if (hasVisitHistory(row)) score += 40;
+    if (hasCyrillicName(row)) score += 20;
+    const bonus = typeof row.bonus === 'number' ? row.bonus : 0;
+    score += Math.min(bonus, 50);
+    // Prefer older cards (stable salon record) over fresh AI duplicates.
+    const created = typeof row.create_date === 'string' ? Date.parse(row.create_date) : NaN;
+    if (Number.isFinite(created)) score += Math.max(0, 10 - index);
+    return { row, score, created: Number.isFinite(created) ? created : Number.POSITIVE_INFINITY, index };
+  });
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (a.created !== b.created) return a.created - b.created;
+    return a.index - b.index;
+  });
+  return scored[0]!.row;
 }
 
 export function buildIgNameSearchVariants(username: string): string[] {
@@ -94,6 +196,11 @@ export type RawClientLike = {
   comment?: string | null;
   /** Legacy / mistaken key — prefer `comment`. */
   comments?: string | null;
+  archive?: boolean | null;
+  first_visit?: string | null;
+  last_visit?: string | null;
+  bonus?: number | null;
+  create_date?: string | null;
 };
 
 /** Human-readable name from BeautyPro client list row. */

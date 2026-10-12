@@ -39,7 +39,7 @@ All resource ids are GUID strings. Salon adapter contract uses **string** ids (`
 | Book | `POST /appointments` (`state: planned`) | `createBooking` — перед POST звірка `GET /employees/free_time` (день відкритий + час у слотах); `MASTER_DAY_CLOSED` / `SLOT_NOT_AVAILABLE` |
 | Cancel | `PUT /appointments/{id}` → `state: cancelled` | `cancelBooking` → agent `cancel_appointment` / reschedule |
 | Remove service | `PUT` `services[].action=delete` | `removeBookingService` → `remove_appointment_service` |
-| Client | `GET/POST/PUT /clients` | `findClient` / `upsertClient` |
+| Client | `GET/POST/PUT /clients` (phone: E.164 + `+380 (93) …` spaced; pick historical/Cyrillic if duplicates) | `findClient` / `upsertClient` |
 | History | `GET /clients/{id}/history` | `fetchClientHistory` |
 
 `step` must be `5m|10m|15m|…` — live API rejects `auto` (despite docs). We map duration → `15m`/`30m`/`60m`.

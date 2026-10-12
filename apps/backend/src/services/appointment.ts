@@ -1133,9 +1133,16 @@ export async function mirrorAppointmentToCrm(
       photoNote = `\nРеференс-фото: ${photos.map((p) => p.storageKey).join(', ')}`;
     }
 
+    const linkedCrmBuyerId =
+      appointment.client?.crmBuyerId?.trim() &&
+      (!appointment.client.crmProvider || appointment.client.crmProvider === provider)
+        ? appointment.client.crmBuyerId.trim()
+        : undefined;
+
     const result = await crm.createBooking({
       date: appointment.scheduledDate,
       branchId: branchCrmId,
+      clientId: linkedCrmBuyerId,
       clientName: appointment.customerName,
       phone: appointment.phone,
       comment: [appointment.comment, photoNote].filter(Boolean).join('\n') || undefined,

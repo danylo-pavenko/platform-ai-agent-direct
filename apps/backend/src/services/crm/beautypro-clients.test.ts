@@ -6,10 +6,13 @@ import {
   buildIgNameSearchVariants,
   commentsContainIg,
   clientNoteFromBeautyproRow,
+  clientRowMatchesPhone,
   formatBeautyproClientFullName,
   formatPhoneForBeautyproWrite,
+  formatUaPhoneBeautyproDisplay,
   igCommentMarker,
   normalizeIgUsername,
+  pickBestBeautyproClient,
   pickClientMatchingIg,
 } from './beautypro-clients.js';
 
@@ -19,7 +22,51 @@ describe('beautypro client helpers', () => {
     expect(variants[0]).toBe('+380958959421');
     expect(variants).toContain('380958959421');
     expect(variants).toContain('0958959421');
+    expect(variants).toContain('+380 (95) 895 94 21');
+    expect(variants).toContain('958959421');
     expect(new Set(variants).size).toBe(variants.length);
+  });
+
+  it('formats BeautyPro-style spaced UA phones', () => {
+    expect(formatUaPhoneBeautyproDisplay('+380937102326')).toBe('+380 (93) 710 23 26');
+  });
+
+  it('matches client rows by digit-normalized phone', () => {
+    expect(
+      clientRowMatchesPhone(
+        { phone: ['+380 (93) 710 23 26'] },
+        '+380937102326',
+      ),
+    ).toBe(true);
+    expect(
+      clientRowMatchesPhone({ phone: ['+380931111111'] }, '+380937102326'),
+    ).toBe(false);
+  });
+
+  it('prefers historical Cyrillic card over Latin one-off duplicate', () => {
+    const best = pickBestBeautyproClient(
+      [
+        {
+          id: 'latin-dup',
+          name: 'Vanina Yana',
+          phone: ['+380937102326'],
+          archive: false,
+          create_date: '2026-10-06T00:00:00',
+        },
+        {
+          id: 'salon-card',
+          name: 'Ваніна Яна',
+          phone: ['+380 (93) 710 23 26'],
+          archive: false,
+          first_visit: '2025-05-17',
+          last_visit: '2026-09-10',
+          bonus: 0,
+          create_date: '2025-05-17T00:00:00',
+        },
+      ],
+      '0937102326',
+    );
+    expect(best?.id).toBe('salon-card');
   });
 
   it('keeps international non-UA phones as trimmed + digits', () => {
@@ -53,7 +100,18 @@ describe('beautypro client helpers', () => {
     expect(names).not.toContain('comments');
     expect(names).not.toContain('id');
     expect(names).toEqual(
-      expect.arrayContaining(['name', 'firstname', 'lastname', 'phone', 'email', 'archive']),
+      expect.arrayContaining([
+        'name',
+        'firstname',
+        'lastname',
+        'phone',
+        'email',
+        'archive',
+        'first_visit',
+        'last_visit',
+        'bonus',
+        'create_date',
+      ]),
     );
     const created = buildBeautyproClientWriteBody({
       mode: 'create',

@@ -65,7 +65,7 @@
 
 | `cancelBooking` | `PUT /appointments/{id}` → `state: cancelled`. Agent tool: `cancel_appointment` / part of `reschedule_appointment`. |
 | `removeBookingService` | `GET` services on appointment → `PUT` `services: [{ id: lineId, action: 'delete' }]`. Agent: `remove_appointment_service`. Last line → full cancel. |
-| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. GET `fields`: **без** `comment`/`comments` (live 400). **POST** body — `firstname`, `lastname`, `phone`, `email` (новий клієнт). **PUT** існуючої картки — лише телефон/email, **без** `firstname`/`lastname` (імʼя салону не перезаписуємо; локальне імʼя лишається в нашій базі). |
+| `findClient` / `upsertClient` | `GET/POST/PUT /clients`. Phone lookup tries E.164 + BeautyPro spaced form (`+380 (93) 710 23 26`) + national; when several cards share a number, prefer history / Cyrillic ПІБ over a fresh Latin duplicate. GET `fields`: **без** `comment`/`comments` (live 400). **POST** body — `firstname`, `lastname`, `phone`, `email` (новий клієнт). **PUT** існуючої картки — лише телефон/email, **без** `firstname`/`lastname` (імʼя салону не перезаписуємо; локальне імʼя лишається в нашій базі). `createBooking` passes linked `crmBuyerId` but still re-checks phone before POST /clients. |
 
 ## Agent: cancel / move / pay
 

@@ -62,6 +62,7 @@ import {
   buildIgNameSearchVariants,
   formatBeautyproClientFullName,
   normalizeIgUsername,
+  pickBestBeautyproClient,
   pickClientMatchingIg,
   type RawClientLike,
 } from './beautypro-clients.js';
@@ -1031,22 +1032,28 @@ export const beautyproAdapter: CrmAdapter = {
     };
 
     const tryPhone = async (phone: string): Promise<Hit | null> => {
-      for (const variant of buildClientPhoneSearchVariants(phone)) {
-        try {
-          const rows = await bpFetch<RawClient[]>('GET', '/clients', {
-            query: {
-              fields: BP_CLIENT_LIST_FIELDS,
-              phone: variant,
-              archive: false,
-            },
-          });
-          const found = fromRow((rows ?? [])[0]);
-          if (found) return found;
-        } catch (err) {
-          log.warn({ err, variant }, 'BeautyPro client phone lookup failed');
+      const attempt = async (archive: boolean | undefined): Promise<Hit | null> => {
+        for (const variant of buildClientPhoneSearchVariants(phone)) {
+          try {
+            const rows = await bpFetch<RawClientLike[]>('GET', '/clients', {
+              query: {
+                fields: BP_CLIENT_LIST_FIELDS,
+                phone: variant,
+                ...(archive === undefined ? {} : { archive }),
+              },
+            });
+            const best = pickBestBeautyproClient(rows, phone);
+            const found = fromRow(best);
+            if (found) return found;
+          } catch (err) {
+            log.warn({ err, variant, archive }, 'BeautyPro client phone lookup failed');
+          }
         }
-      }
-      return null;
+        return null;
+      };
+
+      // Prefer active cards; if empty, retry without archive filter (some salons flag oddly).
+      return (await attempt(false)) ?? (await attempt(undefined));
     };
 
     const tryEmail = async (email: string): Promise<Hit | null> => {
@@ -1161,17 +1168,41 @@ export const beautyproAdapter: CrmAdapter = {
     }
     const isoDate = toIsoDate(parts);
 
-    let clientId = input.clientId;
+    // Prefer linked CRM id from our Client row, but always re-check by phone
+    // before POST /clients — duplicate cards break salon bonuses / history.
+    let clientId = input.clientId?.trim() || undefined;
     if (!clientId) {
       const found = await beautyproAdapter.findClient!({ phone: input.phone });
       if (found) {
         clientId = found.crmBuyerId;
+        log.info(
+          { crmBuyerId: clientId, phone: input.phone },
+          'BeautyPro booking reused client by phone',
+        );
       } else {
         const created = await beautyproAdapter.upsertClient!(null, {
           fullName: input.clientName,
           phone: input.phone,
         });
         clientId = created.crmBuyerId;
+        log.warn(
+          { crmBuyerId: clientId, phone: input.phone, clientName: input.clientName },
+          'BeautyPro booking created NEW client — phone lookup returned none',
+        );
+      }
+    } else {
+      // Linked id present: still verify phone has a better historical card.
+      const found = await beautyproAdapter.findClient!({ phone: input.phone });
+      if (found?.crmBuyerId && found.crmBuyerId !== clientId) {
+        log.info(
+          {
+            fromLinked: clientId,
+            toMatched: found.crmBuyerId,
+            fullName: found.fullName,
+          },
+          'BeautyPro booking preferred phone-matched client over linked id',
+        );
+        clientId = found.crmBuyerId;
       }
     }
 
