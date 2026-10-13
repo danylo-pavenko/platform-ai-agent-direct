@@ -42,6 +42,7 @@
         </div>
         <div class="nav-item" :class="{'active': page==='leads'}" @click="goPage('leads')">
           <span class="icon">📩</span> Заявки
+          <span v-if="notifications.unreadCount" class="nav-badge" :title="notifications.unreadCount + ' нових'">{{ notifications.unreadCount > 9 ? '9+' : notifications.unreadCount }}</span>
         </div>
         <div class="nav-item" :class="{'active': page==='webhooks'}" @click="goPage('webhooks')">
           <span class="icon">📡</span> Webhooks
@@ -1467,4 +1468,38 @@
         <button class="btn btn-primary" @click="dnsHintsModal.open=false">OK</button>
       </div>
     </div>
+  </div>
+
+  <!-- Sticky notification stack (any page while logged in) -->
+  <div
+    class="sa-toast-stack"
+    v-if="auth.token && notifications.items.length"
+    role="region"
+    aria-label="Сповіщення"
+  >
+    <div class="sa-toast-stack-bar" v-if="notifications.items.length > 1">
+      <span>{{ notifications.items.length }} сповіщення</span>
+      <button type="button" class="sa-toast-stack-clear" @click="dismissAllNotifications">Закрити всі</button>
+    </div>
+    <TransitionGroup name="sa-toast">
+      <div
+        v-for="n in stackedNotifications"
+        :key="n.id"
+        class="sa-toast"
+        :class="'sa-toast--' + (n.type || 'info')"
+        role="status"
+      >
+        <button type="button" class="sa-toast-body" @click="openNotification(n)">
+          <div class="sa-toast-eyebrow">{{ n.type === 'lead' ? 'Заявка' : 'Сповіщення' }}</div>
+          <div class="sa-toast-title">{{ n.title }}</div>
+          <div class="sa-toast-text">{{ n.body }}</div>
+        </button>
+        <button
+          type="button"
+          class="sa-toast-close"
+          :aria-label="'Закрити: ' + n.title"
+          @click.stop="dismissNotification(n.id)"
+        >×</button>
+      </div>
+    </TransitionGroup>
   </div>

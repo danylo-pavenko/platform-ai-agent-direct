@@ -139,12 +139,15 @@ model LandingLead {
   emailSent     Boolean      @default(false) @map("email_sent")
   emailError    String?      @map("email_error")
   status        String       @default("new")
+  /// When set, in-app toast for this lead will not show again.
+  toastDismissedAt DateTime? @map("toast_dismissed_at")
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
 
   @@index([createdAt])
   @@index([linkId])
   @@index([status])
+  @@index([status, toastDismissedAt])
   @@map("landing_leads")
 }
 

@@ -58,9 +58,13 @@ export async function leadsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     try {
+      const data =
+        parsed.data.status && parsed.data.status !== 'new'
+          ? { ...parsed.data, toastDismissedAt: new Date() }
+          : parsed.data;
       const lead = await prisma.landingLead.update({
         where: { id },
-        data: parsed.data,
+        data,
         include: { link: { select: { id: true, name: true, slug: true } } },
       });
       return lead;

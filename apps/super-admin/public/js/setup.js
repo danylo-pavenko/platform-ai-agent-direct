@@ -1,4 +1,4 @@
-import { ref, reactive, onMounted, nextTick, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.prod.js';
 import {
   BASE,
   SA_PAGE_KEY,
@@ -23,6 +23,7 @@ import { createTenantUsers } from './composables/tenant-users.js';
 import { createPm2Restart } from './composables/pm2-restart.js';
 import { createWorkers } from './composables/workers.js';
 import { createSaSelfDeploy } from './composables/sa-self-deploy.js';
+import { createNotifications } from './composables/notifications.js';
 
 /** Vue setup() — wires shared state + domain composables. */
 export function setup() {
@@ -148,6 +149,9 @@ export function setup() {
   const leads = ref([]);
   const leadsSummary = reactive({ total: 0, byStatus: {} });
   const leadsFilter = reactive({ status: '' });
+  const notifications = reactive({ items: [], unreadCount: 0 });
+  /** Oldest on top, newest near the bottom edge of the screen. */
+  const stackedNotifications = computed(() => [...notifications.items].reverse());
 
   const webhookInbox = reactive({
     loading: false,
@@ -192,9 +196,31 @@ export function setup() {
   }
 
   function logout() {
+    notifApi.stopNotificationPoll();
+    notifApi.unbindVisibility();
+    notifications.items = [];
+    notifications.unreadCount = 0;
     auth.token = '';
     localStorage.removeItem('sa_token');
   }
+
+  // Filled after goPage exists (circular: notifications → goPage → …).
+  const pageBridge = { goPage: (_p) => {} };
+
+  const notifApi = createNotifications({
+    notifications,
+    auth,
+    authHeaders,
+    logout: () => {
+      notifApi.stopNotificationPoll();
+      notifApi.unbindVisibility();
+      notifications.items = [];
+      notifications.unreadCount = 0;
+      auth.token = '';
+      localStorage.removeItem('sa_token');
+    },
+    goPage: (p) => pageBridge.goPage(p),
+  });
 
   // Break circular deps: tenants ↔ deploy (health poll ↔ loadTenants after stream)
   const bridge = {
@@ -283,6 +309,13 @@ export function setup() {
     headers,
     logout,
   });
+  {
+    const updateLeadStatusInner = leadsApi.updateLeadStatus;
+    leadsApi.updateLeadStatus = async (lead, status) => {
+      await updateLeadStatusInner(lead, status);
+      await notifApi.loadNotifications();
+    };
+  }
 
   const webhookInboxApi = createWebhookInbox({
     webhookInbox,
@@ -327,6 +360,7 @@ export function setup() {
       webhookInboxApi.startWebhookInboxPoll();
     }
   }
+  pageBridge.goPage = goPage;
 
   async function refreshCurrentPageData() {
     if (page.value === 'links') await linksApi.loadLinks();
@@ -354,6 +388,8 @@ export function setup() {
       await workersApi.loadWorkers();
       await tenantsApi.loadTenants();
       await refreshCurrentPageData();
+      notifApi.bindVisibility();
+      notifApi.startNotificationPoll();
     } catch { login.error = 'Network error'; }
     finally { login.loading = false; }
   }
@@ -365,6 +401,8 @@ export function setup() {
       await tenantsApi.loadTenants();
       await refreshCurrentPageData();
       await saSelfDeployApi.resumeSaSelfDeployIfRunning();
+      notifApi.bindVisibility();
+      notifApi.startNotificationPoll();
     }
   });
 
@@ -374,6 +412,11 @@ export function setup() {
 
   return {
     auth, login, page, sidebarOpen, tenants, workers, health, deploying, deployJobs, deployLog, deployLogEl,
+    notifications,
+    stackedNotifications,
+    dismissNotification: notifApi.dismissNotification,
+    dismissAllNotifications: notifApi.dismissAllNotifications,
+    openNotification: notifApi.openNotification,
     saVersionLabel, saSelfDeployBusy, saDeployLog, saDeployLogEl,
     saDeployLogElapsed: saSelfDeployApi.saDeployLogElapsed,
     triggerSaSelfDeploy: saSelfDeployApi.triggerSaSelfDeploy,
