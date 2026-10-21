@@ -1,8 +1,10 @@
 /**
- * sync-worker.ts - Standalone KeyCRM sync entrypoint.
+ * sync-worker.ts - CRM catalog / services / masters sync entrypoint.
  *
- * PM2 name: {INSTANCE_ID}-sync (e.g. SB-sync).
- * Runs once, fetches KeyCRM data, generates catalog.txt, exits.
+ * Daily schedule: API process (`crm-sync-schedule`, ~04:00 tenant TZ).
+ * Optional one-shot: `pm2 start {INSTANCE_ID}-sync` or admin POST /sync/trigger.
+ * Pulls configured CRM providers (KeyCRM / BeautyPro / CleverBOX / …), writes
+ * catalog artifacts, then rebuilds file↔CRM matches (CSV import stays separate).
  *
  * Invariants:
  *   1. Only one run in flight at a time. `runSync()` refuses to start if a

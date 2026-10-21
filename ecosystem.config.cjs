@@ -51,11 +51,13 @@ const apps = [
     max_memory_restart: '256M',
   },
   {
+    // Optional one-shot: `pm2 start ${prefix}-sync`. Daily schedule lives in the API
+    // process (crm-sync-schedule, tenant TZ ~04:00). Do not cron_restart here —
+    // deploy used to restart this app and fire sync off-schedule.
     name: `${prefix}-sync`,
     cwd: './apps/backend',
     script: 'dist/sync-worker.js',
     instances: 1,
-    cron_restart: '0 4 * * *', // daily ~04:00 — full CRM catalog/services/masters sync
     autorestart: false,
     env: { NODE_ENV: 'production', API_PORT: apiPort },
   },

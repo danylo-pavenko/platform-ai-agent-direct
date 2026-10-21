@@ -242,13 +242,21 @@ npm_ci_with_enotempty_retry() {
 }
 
 # Per-app restart avoids PM2 crashing when a ghost whisper entry (id without process) exists.
+# Daily CRM sync is scheduled inside {PREFIX}-api (tenant TZ). Do not restart {PREFIX}-sync
+# on deploy — it is a one-shot worker and would pull CRM mid-deploy.
 pm2_deploy_apps() {
-  local _apps=("${PM2_PREFIX}-api" "${PM2_PREFIX}-bot" "${PM2_PREFIX}-sync" "${PM2_PREFIX}-admin")
+  local _apps=("${PM2_PREFIX}-api" "${PM2_PREFIX}-bot" "${PM2_PREFIX}-admin")
   local _app _pid
   if [ "${STT_ENABLED:-true}" = "true" ]; then
     _apps+=("${PM2_PREFIX}-whisper")
   else
     pm2 delete "${PM2_PREFIX}-whisper" 2>/dev/null || true
+  fi
+
+  # Drop stale sync cron entries from older deploys (cron_restart removed).
+  if pm2 describe "${PM2_PREFIX}-sync" > /dev/null 2>&1; then
+    echo "  Removing ${PM2_PREFIX}-sync from PM2 (daily sync → API schedule; optional: pm2 start ${PM2_PREFIX}-sync)"
+    pm2 delete "${PM2_PREFIX}-sync" >>"${DEPLOY_LOG}" 2>&1 || true
   fi
 
   for _app in "${_apps[@]}"; do

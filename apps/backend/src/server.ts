@@ -105,10 +105,12 @@ const shutdown = async (signal: string) => {
   const { stopFollowUpMonitor } = await import('./services/follow-up.js');
   const { stopClaudeAuthMonitor } = await import('./services/claude-auth-monitor.js');
   const { stopLogRetentionMonitor } = await import('./services/log-retention.js');
+  const { stopCrmSyncSchedule } = await import('./services/crm-sync-schedule.js');
   stopConversationRetryMonitor();
   stopFollowUpMonitor();
   stopClaudeAuthMonitor();
   stopLogRetentionMonitor();
+  stopCrmSyncSchedule();
   await app.close();
   await prisma.$disconnect();
   process.exit(0);
@@ -131,6 +133,9 @@ try {
 
   const { startClaudeAuthMonitor } = await import('./services/claude-auth-monitor.js');
   startClaudeAuthMonitor(app.log);
+
+  const { startCrmSyncSchedule } = await import('./services/crm-sync-schedule.js');
+  startCrmSyncSchedule(app.log);
 
   const { startConversationRetryMonitor } = await import('./services/conversation-retry.js');
   startConversationRetryMonitor(app.log);

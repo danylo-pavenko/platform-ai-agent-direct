@@ -150,6 +150,14 @@ const envSchema = z.object({
   CLAUDE_AUTH_CHECK_HOUR: z.coerce.number().min(0).max(23).default(7),
   CLAUDE_AUTH_CHECK_TIMEZONE: z.string().default('Europe/Kyiv'),
 
+  // Daily CRM catalog/services/masters sync (API process; tenant agent_config.timezone).
+  // Replaces fragile PM2 cron_restart on {INSTANCE}-sync (deploy restarted it off-schedule).
+  CRM_SYNC_DAILY_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
+  CRM_SYNC_HOUR: z.coerce.number().min(0).max(23).default(4),
+
   // Retry bot replies when Claude timed out or the handler failed silently.
   CONVERSATION_RETRY_ENABLED: z
     .string()

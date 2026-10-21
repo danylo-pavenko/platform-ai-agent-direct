@@ -430,9 +430,9 @@ Processes are prefixed with `INSTANCE_ID` (uppercase):
 
 | Process | Description |
 |---------|------------|
-| `{ID}-api` | Fastify backend |
+| `{ID}-api` | Fastify backend (includes daily CRM sync ~04:00 tenant TZ) |
 | `{ID}-bot` | Telegram bot |
-| `{ID}-sync` | CRM sync worker |
+| `{ID}-sync` | Optional one-shot CRM sync (`pm2 start`); not cron / not restarted on deploy |
 | `{ID}-admin` | Vue SPA serving (via `vite preview`) |
 | `SA-api` | Super Admin (fixed name) |
 

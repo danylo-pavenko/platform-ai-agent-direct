@@ -53,7 +53,7 @@ describe('Sync · owner E2E flow (CRM | Файл)', () => {
     }
 
     // CRM vs file copy differs
-    expect(journey[0].subtitle).toMatch(/CRM|04:00/);
+    expect(journey[0].subtitle).toMatch(/CRM|04:00|поясом салону/);
     expect(journey[1].subtitle).toMatch(/послуг/i);
     expect(journey[2].subtitle).toMatch(/CSV|Shop-Express/i);
     expect(journey[3].subtitle).toMatch(/товар/i);

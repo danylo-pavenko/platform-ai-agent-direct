@@ -96,7 +96,7 @@ Order in `buildRuntimePrompt` / `askClaude`:
 |-------|----------------------|
 | DB system prompt | Yes |
 | Seed `prompts/{sales,leadgen,booking,general}-agent.txt` | First DB seed uses **general** (matches default `agent_config.mode`) |
-| Live catalog / services / masters files | Yes (mode-aware snippet; products from CRM sync **or** manual CSV import per `catalog_import.sourcePriority`) |
+| Live catalog / services / masters files | Yes (mode-aware snippet; products from CRM sync **or** manual CSV import per `catalog_import.sourcePriority`). Daily CRM pull: API `crm-sync-schedule` ~04:00 tenant TZ (CSV upload is separate / manual). |
 | Full CRM visit history | **No** on cold prompt — tool `get_client_crm_history` |
 | Legacy `knowledge/contacts|faq|…` | **No** |
 | Tenant disk `CLAUDE.md` | **No** (spawn cwd isolated) |

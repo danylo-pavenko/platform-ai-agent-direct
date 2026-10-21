@@ -37,7 +37,7 @@ export function syncHeaderSubtitle(state: SyncRouteState): string {
   if (state.crmPane === 'services') {
     return 'Знімок послуг і цін після останньої синхронізації CRM.';
   }
-  return 'Каталог і послуги з CRM. Автозапуск раз на добу (~04:00) + ручний тригер.';
+  return 'Каталог і послуги з CRM. Автозапуск раз на добу (~04:00 за часовим поясом салону) + ручний тригер. CSV — окрема вкладка.';
 }
 
 /** Apply L1 source change; keep existing L2 panes. */
