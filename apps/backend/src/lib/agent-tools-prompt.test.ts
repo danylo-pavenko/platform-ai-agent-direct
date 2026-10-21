@@ -84,6 +84,12 @@ describe('formatAgentToolsPrompt', () => {
     expect(prompt).toMatch(/кирилиця|з CRM/i);
   });
 
+  it('teaches Stories reply OCR before asking for service', () => {
+    const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
+    expect(prompt).toMatch(/Instagram Stories/i);
+    expect(prompt).toMatch(/OCR/);
+  });
+
   it('forbids deferred catalog promises without search_services in booking', () => {
     const prompt = formatAgentToolsPrompt(buildAgentTools('booking'));
     expect(prompt).toMatch(/Заборонено писати клієнту/);

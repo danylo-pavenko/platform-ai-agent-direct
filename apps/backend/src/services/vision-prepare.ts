@@ -86,3 +86,7 @@ export async function prepareVisionMediaForClaude(
 
 export const VISION_MEDIA_HINT =
   '[Вкладення доступне в vision (фото або PDF). Якщо це платіжка/квитанція — прочитай суму, дату, отримувача, призначення. Якщо товар — назву, колір, розмір, ціну. Не кажи, що не бачиш файл.]';
+
+/** Extra hint when the inbound is a reply to our Instagram Stories. */
+export const VISION_STORY_REPLY_HINT =
+  '[Кадр Instagram Stories у vision.] Прочитай увесь текст на зображенні (послуга, акція/моделі, дати, години, ціна). Не питай клієнта про те, що вже написано на Stories. Якщо клієнт обрав дату/час зі Stories — підтверджуй саме цей офер і уточнюй лише відсутні поля зі системного промпту.';

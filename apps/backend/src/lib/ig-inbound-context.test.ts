@@ -17,13 +17,15 @@ describe('reactionDisplay', () => {
 });
 
 describe('buildIgInboundContextHeader', () => {
-  it('labels story replies for warm engagement', () => {
+  it('labels story replies and requires OCR of the Stories frame', () => {
     const header = buildIgInboundContextHeader({
       kind: 'story_reply',
-      story: { id: 's1', url: 'https://cdn.example/story.jpg' },
+      story: { id: 's1', url: 'https://cdn.example/story.jpg', storageKey: '2026/10/s.jpg' },
     });
     expect(header).toContain('відповів на вашу Instagram Stories');
-    expect(header).toContain('тепло');
+    expect(header).toMatch(/OCR|прочитай текст/i);
+    expect(header).toMatch(/НЕ питай.*послугу/i);
+    expect(header).toContain('vision');
   });
 
   it('labels reactions with target snippet', () => {

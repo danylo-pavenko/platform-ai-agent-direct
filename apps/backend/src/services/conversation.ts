@@ -19,7 +19,11 @@ import {
   getPromptRuntimeGeneration,
 } from './prompt-runtime.js';
 import { resolveVisualMediaPathsForClaude } from './media.js';
-import { prepareVisionMediaForClaude, VISION_MEDIA_HINT } from './vision-prepare.js';
+import {
+  prepareVisionMediaForClaude,
+  VISION_MEDIA_HINT,
+  VISION_STORY_REPLY_HINT,
+} from './vision-prepare.js';
 import type { StoredMediaAttachment } from '../lib/media-attachments.js';
 import { visualStorageKeys } from '../lib/media-attachments.js';
 import {
@@ -1114,11 +1118,12 @@ async function handleIncomingMessageImpl(
     }
   }
 
-  if (
-    localPaths.some(isClaudeVisionMediaPath) &&
-    !enrichedMessageText.includes(VISION_MEDIA_HINT)
-  ) {
-    enrichedMessageText = `${enrichedMessageText.trim()}\n\n${VISION_MEDIA_HINT}`.trim();
+  if (localPaths.some(isClaudeVisionMediaPath)) {
+    const visionHint =
+      igContext?.kind === 'story_reply' ? VISION_STORY_REPLY_HINT : VISION_MEDIA_HINT;
+    if (!enrichedMessageText.includes(visionHint)) {
+      enrichedMessageText = `${enrichedMessageText.trim()}\n\n${visionHint}`.trim();
+    }
   }
 
   if (lastPriorAt) {

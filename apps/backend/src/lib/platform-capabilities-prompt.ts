@@ -96,7 +96,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 
 ## Instagram inbound nuances (webhook → Claude)
 
-- Відповідь на Stories (reply_to.story) — агент отримує маркер + кадр Stories у vision (якщо CDN ще живий).
+- Відповідь на Stories (reply_to.story) — маркер + кадр у vision (CDN). Відео-Stories → JPEG-кадр через ffmpeg, якщо є. Агент має OCR тексту кадру (послуга/акція/дати/ціна) і не перепитувати те, що вже на Stories.
 - Story mention — маркер без довготривалого кешу медіа (Meta policy).
 - Реакції (message_reactions) — синтетичний inbound + короткий теплий ack; unreact ігнорується.
 - Shared post / ig_post / reel у DM — парсимо вкладення (не лише застарілий type=share), качаємо превʼю, підставляємо в vision + search_catalog.

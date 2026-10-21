@@ -14,6 +14,10 @@ import {
   type StoredMediaAttachment,
 } from '../lib/media-attachments.js';
 import { isPdfMagic } from '../lib/claude-vision.js';
+import {
+  extractVideoFrameJpeg,
+  isVideoContentType,
+} from '../lib/media-video-frame.js';
 
 const log = pino({ name: 'media' });
 
@@ -178,14 +182,56 @@ export async function downloadMedia(
       }
     }
 
-    const fileStat = await stat(finalPath);
+    let resolvedKind: MediaKind = kind;
+    if (isVideoContentType(contentType) || ['.mp4', '.mov', '.webm', '.m4v'].includes(finalExt)) {
+      resolvedKind = 'video';
+    } else if (
+      contentType.startsWith('image/') ||
+      ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(finalExt)
+    ) {
+      resolvedKind = 'image';
+    }
+
+    // Stories reply CDN is often mp4 — Claude vision needs a still. Extract when possible.
+    const wantsStoryStill =
+      igType === 'story_reply_image' ||
+      igType === 'story_mention' ||
+      igType === 'video';
+    if (resolvedKind === 'video' && wantsStoryStill) {
+      const frameAbs = await extractVideoFrameJpeg(finalPath);
+      if (frameAbs) {
+        const frameKey = toStorageKey(frameAbs);
+        log.info(
+          { storageKey: frameKey, fromVideo: toStorageKey(finalPath), igType },
+          'Stories/video media reduced to JPEG still for vision',
+        );
+        return {
+          storageKey: frameKey,
+          contentType: 'image/jpeg',
+          kind: 'image',
+        };
+      }
+    }
+
     const storageKey = toStorageKey(finalPath);
+    const fileStat = await stat(finalPath);
     log.info(
-      { storageKey, size: fileStat.size, contentType, ext: finalExt, igType, kind },
+      {
+        storageKey,
+        size: fileStat.size,
+        contentType,
+        ext: finalExt,
+        igType,
+        kind: resolvedKind,
+      },
       `Media downloaded: ${fileStat.size} bytes`,
     );
 
-    return { storageKey, contentType: contentType || mimeForStorageKey(storageKey), kind };
+    return {
+      storageKey,
+      contentType: contentType || mimeForStorageKey(storageKey),
+      kind: resolvedKind,
+    };
   } catch (err) {
     log.error({ err, url, igType, kind }, 'Media download failed');
     return null;
