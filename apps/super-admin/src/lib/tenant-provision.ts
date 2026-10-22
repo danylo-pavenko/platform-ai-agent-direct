@@ -54,6 +54,16 @@ export async function resolveDeprovisionScriptPath(): Promise<string> {
   return resolve(root, 'infra/scripts/deprovision-client.sh');
 }
 
+export async function resolveBackupScriptPath(): Promise<string> {
+  const root = await resolvePlatformRepoRoot();
+  return resolve(root, 'infra/scripts/backup-tenant-db.sh');
+}
+
+export async function resolveRestoreScriptPath(): Promise<string> {
+  const root = await resolvePlatformRepoRoot();
+  return resolve(root, 'infra/scripts/restore-tenant-db.sh');
+}
+
 /** Linux users we must never deprovision via Destroy. */
 export const PROTECTED_LINUX_USERS = new Set([
   'root',

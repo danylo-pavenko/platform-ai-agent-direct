@@ -17,9 +17,21 @@ model Server {
   sharedSecret String?  @map("shared_secret")
   maxTenants   Int      @default(12) @map("max_tenants")
   status       String   @default("active") // active | draining | disabled
+  /// Per-worker S3 (MinIO) for tenant DB dumps — secrets edited in Super Admin UI.
+  s3Enabled         Boolean  @default(false) @map("s3_enabled")
+  s3Endpoint        String?  @map("s3_endpoint")
+  s3Bucket          String?  @map("s3_bucket")
+  s3Region          String   @default("us-east-1") @map("s3_region")
+  s3ForcePathStyle  Boolean  @default(true) @map("s3_force_path_style")
+  s3AccessKey       String?  @map("s3_access_key")
+  /// AES-GCM ciphertext (base64) of the secret access key.
+  s3SecretEnc       String?  @map("s3_secret_enc")
+  s3LastTestAt      DateTime? @map("s3_last_test_at")
+  s3LastTestOk      Boolean?  @map("s3_last_test_ok")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   tenants      Tenant[]
+  backups      TenantBackup[]
 
   @@map("servers")
 }
@@ -58,9 +70,32 @@ model Tenant {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
   deployJobs        DeployJob[]
+  backups           TenantBackup[]
 
   @@index([serverId])
   @@map("tenants")
+}
+
+/// Catalog of tenant Postgres dumps uploaded to a worker's S3 bucket.
+model TenantBackup {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serverId   String?  @map("server_id") @db.Uuid
+  server     Server?  @relation(fields: [serverId], references: [id], onDelete: SetNull)
+  storageKey String   @map("storage_key")
+  bytes      BigInt?  @map("bytes")
+  sha256     String?
+  /// scheduled | manual | pre_deploy | pre_restore
+  source     String   @default("manual")
+  /// uploaded | failed
+  status     String   @default("uploaded")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([serverId, createdAt])
+  @@index([status])
+  @@map("tenant_backups")
 }
 
 /// Background provision/deploy/destroy job started from super-admin (survives SSE disconnect).
@@ -68,8 +103,8 @@ model DeployJob {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId   String    @map("tenant_id") @db.Uuid
   tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  /// deploy = provision/update pipeline; destroy = full host deprovision + registry delete
-  kind       String    @default("deploy") // deploy | destroy
+  /// deploy | destroy | backup | restore
+  kind       String    @default("deploy")
   status     String    @default("running") // running | succeeded | failed
   logPath    String    @map("log_path")
   exitCode   Int?      @map("exit_code")

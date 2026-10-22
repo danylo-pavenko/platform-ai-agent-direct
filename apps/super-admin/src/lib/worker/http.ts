@@ -238,5 +238,102 @@ export function createHttpWorkerClient(server: Server): WorkerClient {
 
       return exitCode;
     },
+
+    async runBackupPipeline(tenant, s3Env, source, onLine, opts): Promise<number> {
+      return runRemoteBackupOrRestore(base, secret, 'backup', tenant, s3Env, source, undefined, onLine, opts?.signal);
+    },
+
+    async runRestorePipeline(tenant, s3Env, storageKey, onLine, opts): Promise<number> {
+      return runRemoteBackupOrRestore(base, secret, 'restore', tenant, s3Env, 'pre_restore', storageKey, onLine, opts?.signal);
+    },
   };
+}
+
+async function runRemoteBackupOrRestore(
+  base: string,
+  secret: string,
+  kind: 'backup' | 'restore',
+  tenant: TenantDeployInput,
+  s3Env: Record<string, string>,
+  source: string,
+  storageKey: string | undefined,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<number> {
+  const path = kind === 'backup' ? '/v1/jobs/backup' : '/v1/jobs/restore';
+  const body = {
+    tenant: {
+      id: tenant.id,
+      instanceId: tenant.instanceId,
+      name: tenant.name,
+      apiDomain: tenant.apiDomain,
+      adminDomain: tenant.adminDomain,
+      apiPort: tenant.apiPort,
+      adminPort: tenant.adminPort,
+      linuxUser: tenant.linuxUser,
+      appDir: tenant.appDir,
+      status: tenant.status,
+      gitRepo: tenant.gitRepo,
+      envExtra: tenant.envExtra,
+    },
+    s3: {
+      S3_ENDPOINT: s3Env.S3_ENDPOINT,
+      S3_BUCKET: s3Env.S3_BUCKET,
+      S3_REGION: s3Env.S3_REGION,
+      S3_FORCE_PATH_STYLE: s3Env.S3_FORCE_PATH_STYLE,
+      AWS_ACCESS_KEY_ID: s3Env.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: s3Env.AWS_SECRET_ACCESS_KEY,
+    },
+    source,
+    storageKey,
+  };
+
+  const startRes = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(secret),
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!startRes.ok) {
+    const err = (await startRes.json().catch(() => ({}))) as { error?: string };
+    onLine(`[error] worker ${kind} start: ${err.error || `HTTP ${startRes.status}`}`);
+    return 1;
+  }
+  const started = (await startRes.json()) as RemoteJobStart;
+  onLine(`[worker] remote ${kind} job ${started.jobId}`);
+
+  const streamRes = await fetch(`${base}/v1/jobs/${started.jobId}/stream`, {
+    headers: authHeaders(secret),
+    signal,
+  });
+  if (!streamRes.ok) {
+    onLine(`[error] worker stream HTTP ${streamRes.status}`);
+    return 1;
+  }
+
+  let exitCode = 1;
+  await readSseLines(streamRes, (line) => {
+    onLine(line);
+    if (line.startsWith('[job] finished: succeeded')) exitCode = 0;
+    const m = line.match(/\[job\] finished:.*\(exit (\d+)\)/);
+    if (m) exitCode = Number(m[1]);
+  }, signal);
+
+  try {
+    const st = await fetch(`${base}/v1/jobs/${started.jobId}`, {
+      headers: authHeaders(secret),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (st.ok) {
+      const j = (await st.json()) as { status?: string; exitCode?: number | null };
+      if (typeof j.exitCode === 'number') exitCode = j.exitCode;
+      else if (j.status === 'succeeded') exitCode = 0;
+    }
+  } catch {
+    // keep inferred
+  }
+  return exitCode;
 }

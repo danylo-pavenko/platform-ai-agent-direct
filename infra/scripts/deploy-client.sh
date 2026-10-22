@@ -73,6 +73,23 @@ if ! flock -n 9; then
 fi
 echo "  Deploy lock acquired: ${DEPLOY_LOCK}"
 
+# ── Optional pre-deploy DB backup (when SA/worker injects S3_* env) ──────────
+# Skip quietly if S3 not configured. Fail deploy if configured but backup fails.
+if [ -n "${S3_ENDPOINT:-}" ] && [ -n "${S3_BUCKET:-}" ] && [ -n "${AWS_ACCESS_KEY_ID:-}" ] && [ -n "${AWS_SECRET_ACCESS_KEY:-}" ]; then
+  _backup_script="${SCRIPT_DIR}/backup-tenant-db.sh"
+  if [ ! -f "${_backup_script}" ]; then
+    echo "ERROR: S3 configured but ${_backup_script} missing" >&2
+    exit 1
+  fi
+  echo "[backup] pre-deploy via ${_backup_script}"
+  BACKUP_SOURCE=pre_deploy \
+  INSTANCE_ID="${INSTANCE_ID}" \
+  APP_DIR="${PROJECT_ROOT}" \
+  bash "${_backup_script}"
+else
+  echo "[backup] skip pre-deploy (S3 not configured)"
+fi
+
 # ── Fail-safe: pin SHA before pull; restore on build/health failure ──────────
 # Prisma migrations are forward-only (not rolled back). Keep migrations
 # backward-compatible with the previous VERSION.code for one release.

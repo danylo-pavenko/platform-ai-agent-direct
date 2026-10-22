@@ -37,6 +37,9 @@
         <div class="nav-item" :class="{'active': page==='workers'}" @click="goPage('workers')">
           <span class="icon">▦</span> Workers
         </div>
+        <div class="nav-item" :class="{'active': page==='backups'}" @click="goPage('backups')">
+          <span class="icon">💾</span> Backups
+        </div>
         <div class="nav-item" :class="{'active': page==='links'}" @click="goPage('links')">
           <span class="icon">🔗</span> Посилання
         </div>
@@ -337,6 +340,82 @@
                       <button class="btn btn-ghost btn-sm" @click="testWorker(w)">Test</button>
                       <button class="btn btn-ghost btn-sm" @click="openEditWorkerModal(w)" :disabled="w.kind==='local' && false">Edit</button>
                       <button class="btn btn-danger btn-sm" @click="deleteWorker(w)" :disabled="w.kind==='local'">🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- DB Backups -->
+      <template v-if="page==='backups'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>DB Backups</h1>
+          <div class="topbar-actions">
+            <button class="btn btn-ghost" @click="loadBackups">Refresh</button>
+          </div>
+        </div>
+        <div class="content">
+          <p style="color:var(--muted);margin-bottom:14px;max-width:780px;line-height:1.45">
+            Дампи Postgres тенантів у MinIO/S3 на worker’і. Ключі задаються в
+            <strong>Workers → Edit → Backup storage</strong>. Перед Deploy і перед Restore
+            робиться safety dump. Nightly — cron на SA-хості.
+          </p>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;align-items:center">
+            <select v-model="backupsFilter.tenantId" @change="loadBackups" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px">
+              <option value="">Усі клієнти</option>
+              <option v-for="t in tenants" :key="t.id" :value="t.id">{{ t.name }} ({{ t.instanceId }})</option>
+            </select>
+            <select v-model="backupsFilter.serverId" @change="loadBackups" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px">
+              <option value="">Усі workers</option>
+              <option v-for="w in workers" :key="w.id" :value="w.id">{{ w.name }}</option>
+            </select>
+            <select id="backup-now-tenant" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px;min-width:180px">
+              <option value="">Backup now…</option>
+              <option v-for="t in tenants" :key="'b'+t.id" :value="t.id">{{ t.instanceId }}</option>
+            </select>
+            <button class="btn btn-primary btn-sm" @click="(() => { const el=document.getElementById('backup-now-tenant'); if(el?.value) backupTenantNow(el.value); })()">Run</button>
+          </div>
+          <div class="card table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tenant</th>
+                  <th>When</th>
+                  <th>Source</th>
+                  <th>Size</th>
+                  <th>Status</th>
+                  <th>Key</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="backups.length===0" class="empty-row">
+                  <td colspan="7">Ще немає бекапів. Налаштуйте S3 на Worker і натисніть Backup now.</td>
+                </tr>
+                <tr v-for="b in backups" :key="b.id">
+                  <td class="cell-primary">
+                    <div style="font-weight:600">{{ b.tenant?.name || '—' }}</div>
+                    <div class="lead-detail"><code>{{ b.tenant?.instanceId }}</code>
+                      <span v-if="b.server" style="color:var(--muted)"> · {{ b.server.name }}</span>
+                    </div>
+                  </td>
+                  <td data-label="When" style="font-size:12px;color:var(--muted)">{{ formatDate(b.createdAt) }}</td>
+                  <td data-label="Source"><span class="badge badge-provisioned">{{ b.source }}</span></td>
+                  <td data-label="Size" style="font-size:12px">{{ formatBackupBytes(b.bytes) }}</td>
+                  <td data-label="Status">
+                    <span class="badge" :class="b.status==='uploaded' ? 'badge-active' : 'badge-suspended'">{{ b.status }}</span>
+                  </td>
+                  <td data-label="Key" style="font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" :title="b.storageKey">
+                    <code>{{ b.storageKey }}</code>
+                  </td>
+                  <td>
+                    <div class="row-actions">
+                      <button class="btn btn-ghost btn-sm" @click="copyText(b.storageKey)">Copy key</button>
+                      <button class="btn btn-danger btn-sm" :disabled="b.status!=='uploaded'" @click="restoreBackup(b)">Restore</button>
                     </div>
                   </td>
                 </tr>
@@ -1437,6 +1516,49 @@
         <label>Rotate shared secret (optional)</label>
         <input v-model="workerModal.form.rotateSecret" type="password" placeholder="leave empty to keep" />
       </div>
+      <template v-if="workerModal.editing">
+        <hr style="border:none;border-top:1px solid var(--border);margin:16px 0" />
+        <h3 style="font-size:13px;margin-bottom:10px">Backup storage (S3 / MinIO)</h3>
+        <p style="font-size:11px;color:var(--muted);margin:-4px 0 12px;line-height:1.4">
+          Ключі лише для цього worker’а. Secret після збереження не показується.
+        </p>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:13px;cursor:pointer">
+          <input type="checkbox" v-model="workerModal.form.s3Enabled" /> Enable DB backups
+        </label>
+        <div class="field">
+          <label>Endpoint</label>
+          <input v-model="workerModal.form.s3Endpoint" placeholder="https://backup-s3.direct-ai-agents.com" />
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Bucket</label>
+            <input v-model="workerModal.form.s3Bucket" placeholder="platform-db-backups" />
+          </div>
+          <div class="field">
+            <label>Region</label>
+            <input v-model="workerModal.form.s3Region" placeholder="us-east-1" />
+          </div>
+        </div>
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;cursor:pointer">
+          <input type="checkbox" v-model="workerModal.form.s3ForcePathStyle" /> Force path-style (MinIO)
+        </label>
+        <div class="field">
+          <label>Access key</label>
+          <input v-model="workerModal.form.s3AccessKey" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>Secret key {{ workerModal.form.secretConfigured ? '(leave empty to keep)' : '' }}</label>
+          <input v-model="workerModal.form.s3SecretAccessKey" type="password" autocomplete="new-password" placeholder="••••••••" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <button type="button" class="btn btn-ghost btn-sm" @click="testWorkerS3" :disabled="workerModal.s3TestResult?.loading">
+            {{ workerModal.s3TestResult?.loading ? 'Testing…' : 'Test S3' }}
+          </button>
+          <span v-if="workerModal.s3TestResult && !workerModal.s3TestResult.loading" style="font-size:12px" :style="{color: workerModal.s3TestResult.ok ? 'var(--success)' : 'var(--danger)'}">
+            {{ workerModal.s3TestResult.ok ? 'OK' : (workerModal.s3TestResult.error || 'Failed') }}
+          </span>
+        </div>
+      </template>
       <div v-if="workerModal.error" class="login-err">{{ workerModal.error }}</div>
       <div v-if="workerModal.createdSecret" style="margin:12px 0;padding:12px;background:var(--surface2);border-radius:8px">
         <div style="font-size:12px;color:var(--warn);margin-bottom:6px">Збережіть secret зараз — більше не покажеться:</div>
@@ -1466,6 +1588,25 @@
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" @click="dnsHintsModal.open=false">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backup / restore job log -->
+  <div class="modal-overlay" v-if="backupLog.open" @click.self="closeBackupLog()">
+    <div class="modal" style="width:660px;max-width:96vw">
+      <h2>
+        <span v-if="backupLog.running" class="deploy-running"></span>
+        {{ backupLog.kind === 'restore' ? 'Restore' : 'Backup' }}
+        <span v-if="backupLog.status" style="font-size:12px;color:var(--muted);font-weight:500">· {{ backupLog.status }}</span>
+      </h2>
+      <div class="deploy-log-wrap">
+        <div class="deploy-log" ref="backupLogEl" v-html="backupLog.html || '<span style=\'color:var(--muted)\'>Waiting…</span>'"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="closeBackupLog()">
+          {{ backupLog.running ? 'Hide (keeps running)' : 'Close' }}
+        </button>
       </div>
     </div>
   </div>

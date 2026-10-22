@@ -2,7 +2,14 @@ import { hostname } from 'node:os';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { config } from './config.js';
-import { followJobLog, getJob, startDestroyJob, startPipelineJob } from './lib/jobs.js';
+import {
+  followJobLog,
+  getJob,
+  startBackupJob,
+  startDestroyJob,
+  startPipelineJob,
+  startRestoreJob,
+} from './lib/jobs.js';
 import { listLivePorts, type TenantPayload } from './lib/provision.js';
 import { spawn } from 'node:child_process';
 
@@ -104,6 +111,62 @@ app.post('/v1/jobs/destroy', async (req, reply) => {
 
   const tenant = body.data.tenant as TenantPayload;
   const job = startDestroyJob(tenant);
+  return { jobId: job.id };
+});
+
+const backupBody = pipelineBody.extend({
+  s3: z.object({
+    S3_ENDPOINT: z.string().min(1),
+    S3_BUCKET: z.string().min(1),
+    S3_REGION: z.string().optional(),
+    S3_FORCE_PATH_STYLE: z.string().optional(),
+    AWS_ACCESS_KEY_ID: z.string().min(1),
+    AWS_SECRET_ACCESS_KEY: z.string().min(1),
+  }),
+  source: z.string().default('manual'),
+  storageKey: z.string().optional(),
+});
+
+app.post('/v1/jobs/backup', async (req, reply) => {
+  if (!requireWorkerAuth(req as any, reply as any)) return;
+  const body = backupBody.safeParse(req.body);
+  if (!body.success) {
+    return reply.status(400).send({ error: body.error.message });
+  }
+  const tenant = body.data.tenant as TenantPayload;
+  const s3Env: Record<string, string> = {
+    S3_ENDPOINT: body.data.s3.S3_ENDPOINT,
+    S3_BUCKET: body.data.s3.S3_BUCKET,
+    S3_REGION: body.data.s3.S3_REGION || 'us-east-1',
+    S3_FORCE_PATH_STYLE: body.data.s3.S3_FORCE_PATH_STYLE || 'true',
+    AWS_ACCESS_KEY_ID: body.data.s3.AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY: body.data.s3.AWS_SECRET_ACCESS_KEY,
+    AWS_DEFAULT_REGION: body.data.s3.S3_REGION || 'us-east-1',
+  };
+  const job = startBackupJob(tenant, s3Env, body.data.source);
+  return { jobId: job.id };
+});
+
+app.post('/v1/jobs/restore', async (req, reply) => {
+  if (!requireWorkerAuth(req as any, reply as any)) return;
+  const body = backupBody.safeParse(req.body);
+  if (!body.success) {
+    return reply.status(400).send({ error: body.error.message });
+  }
+  if (!body.data.storageKey) {
+    return reply.status(400).send({ error: 'storageKey required' });
+  }
+  const tenant = body.data.tenant as TenantPayload;
+  const s3Env: Record<string, string> = {
+    S3_ENDPOINT: body.data.s3.S3_ENDPOINT,
+    S3_BUCKET: body.data.s3.S3_BUCKET,
+    S3_REGION: body.data.s3.S3_REGION || 'us-east-1',
+    S3_FORCE_PATH_STYLE: body.data.s3.S3_FORCE_PATH_STYLE || 'true',
+    AWS_ACCESS_KEY_ID: body.data.s3.AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY: body.data.s3.AWS_SECRET_ACCESS_KEY,
+    AWS_DEFAULT_REGION: body.data.s3.S3_REGION || 'us-east-1',
+  };
+  const job = startRestoreJob(tenant, s3Env, body.data.storageKey);
   return { jobId: job.id };
 });
 

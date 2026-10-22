@@ -18,7 +18,7 @@ const STALE_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 /** In-process set of tenant IDs with an active deploy OR destroy job. */
 const runningTenantIds = new Set<string>();
 
-export type DeployJobKind = 'deploy' | 'destroy';
+export type DeployJobKind = 'deploy' | 'destroy' | 'backup' | 'restore';
 
 export type DeployJobPublic = {
   id: string;
@@ -69,7 +69,10 @@ export function toDeployJobPublic(job: {
   finishedAt: Date | null;
   error: string | null;
 }): DeployJobPublic {
-  const kind: DeployJobKind = job.kind === 'destroy' ? 'destroy' : 'deploy';
+  const kind: DeployJobKind =
+    job.kind === 'destroy' || job.kind === 'backup' || job.kind === 'restore'
+      ? job.kind
+      : 'deploy';
   return {
     id: job.id,
     tenantId: job.tenantId,
@@ -259,6 +262,14 @@ export async function startDeployJob(
         const server = await getServerForTenant(tenant.serverId);
         const client = getWorkerClient(server);
         appendLine(logPath, `[worker] ${server.name} (${server.kind})`);
+
+        const { runPreDeployBackupInline } = await import('./backup-job.js');
+        const preCode = await runPreDeployBackupInline(tenant.id, logPath);
+        if (preCode !== 0) {
+          appendLine(logPath, '[✗ deploy aborted — pre-deploy backup failed]');
+          await finishJob(created.id, 'failed', preCode, 'pre-deploy backup failed');
+          return;
+        }
 
         const code = await client.runDeployPipeline(tenant, (line) => appendLine(logPath, line));
 

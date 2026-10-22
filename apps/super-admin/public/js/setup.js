@@ -24,6 +24,7 @@ import { createPm2Restart } from './composables/pm2-restart.js';
 import { createWorkers } from './composables/workers.js';
 import { createSaSelfDeploy } from './composables/sa-self-deploy.js';
 import { createNotifications } from './composables/notifications.js';
+import { createBackups } from './composables/backups.js';
 
 /** Vue setup() — wires shared state + domain composables. */
 export function setup() {
@@ -128,6 +129,7 @@ export function setup() {
     createdSecret: '',
     bootstrapHint: '',
     testResult: null,
+    s3TestResult: null,
     error: '',
   });
 
@@ -152,6 +154,17 @@ export function setup() {
   const notifications = reactive({ items: [], unreadCount: 0 });
   /** Oldest on top, newest near the bottom edge of the screen. */
   const stackedNotifications = computed(() => [...notifications.items].reverse());
+  const backups = ref([]);
+  const backupsFilter = reactive({ tenantId: '', serverId: '' });
+  const backupLog = reactive({
+    open: false,
+    html: '',
+    running: false,
+    jobId: null,
+    kind: null,
+    status: null,
+  });
+  const backupLogEl = ref(null);
 
   const webhookInbox = reactive({
     loading: false,
@@ -345,6 +358,19 @@ export function setup() {
     authHeaders,
   });
 
+  const backupsApi = createBackups({
+    backups,
+    backupsFilter,
+    backupLog,
+    backupLogEl,
+    tenants,
+    workers,
+    authHeaders,
+    headers,
+    logout,
+    nextTick,
+  });
+
   function goPage(p) {
     if (!VALID_PAGES.includes(p)) return;
     const prev = page.value;
@@ -355,6 +381,11 @@ export function setup() {
     if (p === 'links') linksApi.loadLinks();
     if (p === 'leads') leadsApi.loadLeads();
     if (p === 'workers') workersApi.loadWorkers();
+    if (p === 'backups') {
+      void workersApi.loadWorkers();
+      void tenantsApi.loadTenants();
+      void backupsApi.loadBackups();
+    }
     if (p === 'webhooks') {
       void webhookInboxApi.loadWebhookInbox();
       webhookInboxApi.startWebhookInboxPoll();
@@ -366,6 +397,11 @@ export function setup() {
     if (page.value === 'links') await linksApi.loadLinks();
     if (page.value === 'leads') await leadsApi.loadLeads();
     if (page.value === 'workers') await workersApi.loadWorkers();
+    if (page.value === 'backups') {
+      await workersApi.loadWorkers();
+      await tenantsApi.loadTenants();
+      await backupsApi.loadBackups();
+    }
     if (page.value === 'webhooks') {
       await webhookInboxApi.loadWebhookInbox();
       webhookInboxApi.startWebhookInboxPoll();
@@ -417,6 +453,12 @@ export function setup() {
     dismissNotification: notifApi.dismissNotification,
     dismissAllNotifications: notifApi.dismissAllNotifications,
     openNotification: notifApi.openNotification,
+    backups, backupsFilter, backupLog, backupLogEl,
+    loadBackups: backupsApi.loadBackups,
+    formatBackupBytes: backupsApi.formatBytes,
+    backupTenantNow: backupsApi.backupTenantNow,
+    restoreBackup: backupsApi.restoreBackup,
+    closeBackupLog: backupsApi.closeBackupLog,
     saVersionLabel, saSelfDeployBusy, saDeployLog, saDeployLogEl,
     saDeployLogElapsed: saSelfDeployApi.saDeployLogElapsed,
     triggerSaSelfDeploy: saSelfDeployApi.triggerSaSelfDeploy,
@@ -478,6 +520,7 @@ export function setup() {
     openEditWorkerModal: workersApi.openEditWorkerModal,
     saveWorker: workersApi.saveWorker,
     testWorker: workersApi.testWorker,
+    testWorkerS3: workersApi.testWorkerS3,
     deleteWorker: workersApi.deleteWorker,
     loadLinks: linksApi.loadLinks,
     openLinkModal: linksApi.openLinkModal,

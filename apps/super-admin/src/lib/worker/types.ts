@@ -47,4 +47,19 @@ export type WorkerClient = {
     onLine: (line: string) => void,
     opts?: { signal?: AbortSignal },
   ): Promise<number>;
+  /** pg_dump + S3 upload. s3Env must include S3_* / AWS_* (never log secrets). */
+  runBackupPipeline(
+    tenant: TenantDeployInput,
+    s3Env: Record<string, string>,
+    source: string,
+    onLine: (line: string) => void,
+    opts?: { signal?: AbortSignal },
+  ): Promise<number>;
+  runRestorePipeline(
+    tenant: TenantDeployInput,
+    s3Env: Record<string, string>,
+    storageKey: string,
+    onLine: (line: string) => void,
+    opts?: { signal?: AbortSignal },
+  ): Promise<number>;
 };

@@ -41,11 +41,41 @@ export function createWorkers(deps) {
       maxTenants: w.maxTenants || 12,
       status: w.status || 'active',
       rotateSecret: '',
+      s3Enabled: false,
+      s3Endpoint: '',
+      s3Bucket: '',
+      s3Region: 'us-east-1',
+      s3ForcePathStyle: true,
+      s3AccessKey: '',
+      s3SecretAccessKey: '',
+      secretConfigured: false,
+      s3LastTestOk: null,
     };
     workerModal.createdSecret = '';
     workerModal.bootstrapHint = '';
     workerModal.testResult = null;
+    workerModal.s3TestResult = null;
     workerModal.open = true;
+    void loadWorkerBackupStorage(w.id);
+  }
+
+  async function loadWorkerBackupStorage(workerId) {
+    try {
+      const r = await fetch(`${BASE}/workers/${workerId}/backup-storage`, { headers: authHeaders() });
+      if (!r.ok) return;
+      const d = await r.json();
+      workerModal.form.s3Enabled = !!d.s3Enabled;
+      workerModal.form.s3Endpoint = d.s3Endpoint || '';
+      workerModal.form.s3Bucket = d.s3Bucket || '';
+      workerModal.form.s3Region = d.s3Region || 'us-east-1';
+      workerModal.form.s3ForcePathStyle = d.s3ForcePathStyle !== false;
+      workerModal.form.s3AccessKey = d.s3AccessKey || '';
+      workerModal.form.s3SecretAccessKey = '';
+      workerModal.form.secretConfigured = !!d.secretConfigured;
+      workerModal.form.s3LastTestOk = d.s3LastTestOk;
+    } catch (e) {
+      console.error('loadWorkerBackupStorage', e);
+    }
   }
 
   async function saveWorker() {
@@ -70,6 +100,27 @@ export function createWorkers(deps) {
         if (!r.ok) {
           const err = await r.json().catch(() => ({}));
           workerModal.error = err.error || 'Save failed';
+          return;
+        }
+        const s3Payload = {
+          s3Enabled: !!workerModal.form.s3Enabled,
+          s3Endpoint: workerModal.form.s3Endpoint.trim() || null,
+          s3Bucket: workerModal.form.s3Bucket.trim() || null,
+          s3Region: workerModal.form.s3Region.trim() || 'us-east-1',
+          s3ForcePathStyle: !!workerModal.form.s3ForcePathStyle,
+          s3AccessKey: workerModal.form.s3AccessKey.trim() || null,
+        };
+        if (workerModal.form.s3SecretAccessKey?.trim()) {
+          s3Payload.s3SecretAccessKey = workerModal.form.s3SecretAccessKey.trim();
+        }
+        const s3r = await fetch(`${BASE}/workers/${workerModal.editing}/backup-storage`, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify(s3Payload),
+        });
+        if (!s3r.ok) {
+          const err = await s3r.json().catch(() => ({}));
+          workerModal.error = err.error || 'Worker saved, but S3 settings failed';
           return;
         }
         workerModal.open = false;
@@ -132,12 +183,46 @@ export function createWorkers(deps) {
     await loadWorkers();
   }
 
+  async function testWorkerS3() {
+    if (!workerModal.editing) return;
+    workerModal.s3TestResult = { loading: true };
+    try {
+      // Persist current form first so test uses latest values (except empty secret keeps old).
+      const s3Payload = {
+        s3Enabled: true,
+        s3Endpoint: workerModal.form.s3Endpoint.trim() || null,
+        s3Bucket: workerModal.form.s3Bucket.trim() || null,
+        s3Region: workerModal.form.s3Region.trim() || 'us-east-1',
+        s3ForcePathStyle: !!workerModal.form.s3ForcePathStyle,
+        s3AccessKey: workerModal.form.s3AccessKey.trim() || null,
+      };
+      if (workerModal.form.s3SecretAccessKey?.trim()) {
+        s3Payload.s3SecretAccessKey = workerModal.form.s3SecretAccessKey.trim();
+      }
+      await fetch(`${BASE}/workers/${workerModal.editing}/backup-storage`, {
+        method: 'PATCH',
+        headers: headers(),
+        body: JSON.stringify(s3Payload),
+      });
+      const r = await fetch(`${BASE}/workers/${workerModal.editing}/backup-storage/test`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      const d = await r.json().catch(() => ({}));
+      workerModal.s3TestResult = { loading: false, ok: !!d.ok, error: d.error };
+      workerModal.form.s3LastTestOk = !!d.ok;
+    } catch (e) {
+      workerModal.s3TestResult = { loading: false, ok: false, error: e.message };
+    }
+  }
+
   return {
     loadWorkers,
     openAddWorkerModal,
     openEditWorkerModal,
     saveWorker,
     testWorker,
+    testWorkerS3,
     deleteWorker,
   };
 }

@@ -17,6 +17,7 @@ import { workersRoutes } from './routes/workers.js';
 import { platformVersionRoutes } from './routes/platform-version.js';
 import { saSelfDeployRoutes } from './routes/sa-self-deploy.js';
 import { notificationsRoutes } from './routes/notifications.js';
+import { backupsRoutes } from './routes/backups.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -63,6 +64,7 @@ await app.register(trackedLinksRoutes);
 await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
 await app.register(notificationsRoutes);
+await app.register(backupsRoutes);
 await app.register(workersRoutes);
 await app.register(platformVersionRoutes);
 await app.register(saSelfDeployRoutes);

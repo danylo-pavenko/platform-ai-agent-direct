@@ -8,9 +8,11 @@ import {
   buildProvisionClientArgs,
   listLiveApiPorts,
   provisionClientEnv,
+  resolveBackupScriptPath,
   resolveDeprovisionScriptPath,
   resolveMergeEnvScriptPath,
   resolveProvisionScriptPath,
+  resolveRestoreScriptPath,
 } from '../tenant-provision.js';
 import type { TenantDeployInput, WorkerClient, WorkerHealthResult } from './types.js';
 
@@ -116,7 +118,71 @@ export function createInProcessWorkerClient(server: Server): WorkerClient {
     async runDestroyPipeline(tenant, onLine, opts): Promise<number> {
       return executeLocalDestroyPipeline(tenant, onLine, opts?.signal);
     },
+
+    async runBackupPipeline(tenant, s3Env, source, onLine, opts): Promise<number> {
+      return executeLocalBackupPipeline(tenant, s3Env, source, onLine, opts?.signal);
+    },
+
+    async runRestorePipeline(tenant, s3Env, storageKey, onLine, opts): Promise<number> {
+      return executeLocalRestorePipeline(tenant, s3Env, storageKey, onLine, opts?.signal);
+    },
   };
+}
+
+export async function executeLocalBackupPipeline(
+  tenant: TenantDeployInput,
+  s3Env: Record<string, string>,
+  source: string,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<number> {
+  onLine(`[backup started] ${tenant.name} (${tenant.instanceId}) source=${source}`);
+  let script: string;
+  try {
+    script = await resolveBackupScriptPath();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onLine(`[error] ${message}`);
+    return 1;
+  }
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...s3Env,
+    INSTANCE_ID: tenant.instanceId,
+    APP_DIR: tenant.appDir,
+    BACKUP_SOURCE: source,
+  };
+  // Never echo secrets
+  onLine(`[backup] script=${script} endpoint=${s3Env.S3_ENDPOINT || '?'} bucket=${s3Env.S3_BUCKET || '?'}`);
+  return runLogged(['bash', script], onLine, { env, signal });
+}
+
+export async function executeLocalRestorePipeline(
+  tenant: TenantDeployInput,
+  s3Env: Record<string, string>,
+  storageKey: string,
+  onLine: (line: string) => void,
+  signal?: AbortSignal,
+): Promise<number> {
+  onLine(`[restore started] ${tenant.name} (${tenant.instanceId}) key=${storageKey}`);
+  let script: string;
+  try {
+    script = await resolveRestoreScriptPath();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    onLine(`[error] ${message}`);
+    return 1;
+  }
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...s3Env,
+    INSTANCE_ID: tenant.instanceId,
+    APP_DIR: tenant.appDir,
+    STORAGE_KEY: storageKey,
+    CONFIRM_INSTANCE_ID: tenant.instanceId,
+  };
+  onLine(`[restore] script=${script}`);
+  return runLogged(['sudo', 'bash', script], onLine, { env, signal });
 }
 
 export async function executeLocalDeployPipeline(

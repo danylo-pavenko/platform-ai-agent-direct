@@ -202,6 +202,14 @@ bash infra/scripts/install-sa-watchdog-cron.sh
 # лог: ~/.pm2/logs/sa-watchdog.log
 ```
 
+**Tenant DB backups (MinIO/S3):** ключі **не** в `.env` — у Super Admin → **Workers → Edit → Backup storage** (окремо на кожен worker). Сторінка **Backups**: список дампів, Backup now, Restore (confirm instanceId). Перед Deploy і перед Restore — safety dump. Nightly з SA-хоста:
+
+```bash
+bash infra/scripts/install-sa-backup-cron.sh
+# лог: ~/.pm2/logs/sa-backups-cron.log
+# на worker потрібен awscli або mc + pg_dump
+```
+
 Super-admin при першому deploy:
 
 - викликає `provision-client.sh` (user, PostgreSQL, nginx, TLS, clone, повний `.env`)

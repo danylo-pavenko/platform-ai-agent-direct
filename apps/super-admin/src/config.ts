@@ -46,6 +46,9 @@ const schema = z.object({
   SA_PUBLIC_URL: z.string().url().optional().or(z.literal('')).transform((v) => v || ''),
   // Fallback public IP shown for the seeded local worker (DNS hints).
   SA_LOCAL_PUBLIC_IP: z.string().default('127.0.0.1'),
+  // Optional dedicated key for encrypting per-worker S3 secrets at rest.
+  // If empty, derived from JWT_SECRET (still OK; prefer setting explicitly in prod).
+  BACKUP_SECRETS_KEY: z.string().default(''),
 });
 
 const parsed = schema.safeParse(process.env);
