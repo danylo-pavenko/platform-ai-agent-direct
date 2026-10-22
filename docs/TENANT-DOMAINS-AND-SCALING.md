@@ -207,7 +207,7 @@ bash infra/scripts/install-sa-watchdog-cron.sh
 ```bash
 bash infra/scripts/install-sa-backup-cron.sh
 # лог: ~/.pm2/logs/sa-backups-cron.log
-# на worker потрібен awscli або mc + pg_dump
+# upload: awscli / mc, або node s3-transfer.mjs (@aws-sdk з SA deps) + pg_dump
 ```
 
 Super-admin при першому deploy:

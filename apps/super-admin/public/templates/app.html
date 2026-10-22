@@ -360,9 +360,11 @@
         </div>
         <div class="content">
           <p style="color:var(--muted);margin-bottom:14px;max-width:780px;line-height:1.45">
-            Дампи Postgres тенантів у MinIO/S3 на worker’і. Ключі задаються в
-            <strong>Workers → Edit → Backup storage</strong>. Перед Deploy і перед Restore
-            робиться safety dump. Nightly — cron на SA-хості.
+            Дампи Postgres тенантів у MinIO/S3. Ключі — у
+            <strong>Workers → Edit → Backup storage</strong>.
+            Скрипт крутиться на worker/SA-хості (не під Linux-юзером клієнта):
+            достатньо Node + SA deps (<code>s3-transfer.mjs</code>), awscli/mc не обов’язкові.
+            Перед Deploy і Restore — safety dump; nightly — cron на SA.
           </p>
           <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;align-items:center">
             <select v-model="backupsFilter.tenantId" @change="loadBackups" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px">

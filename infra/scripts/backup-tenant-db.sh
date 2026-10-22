@@ -44,6 +44,9 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+S3_TRANSFER="${SCRIPT_DIR}/s3-transfer.mjs"
+
 TS="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
 STORAGE_KEY="tenants/${INSTANCE_ID}/${TS}.dump"
 TMP_DIR="$(mktemp -d /tmp/sa-backup-XXXXXX)"
@@ -74,24 +77,41 @@ upload_mc() {
   mc alias remove "${alias}" >/dev/null 2>&1 || true
 }
 
+upload_node() {
+  node "${S3_TRANSFER}" put "${DUMP_FILE}" "${STORAGE_KEY}"
+}
+
 echo "[backup] uploading s3://${S3_BUCKET}/${STORAGE_KEY}"
+UPLOADER=""
 if command -v aws >/dev/null 2>&1; then
+  UPLOADER=aws
   upload_aws
 elif command -v mc >/dev/null 2>&1; then
+  UPLOADER=mc
   upload_mc
+elif [ -f "${S3_TRANSFER}" ] && command -v node >/dev/null 2>&1; then
+  UPLOADER=node
+  echo "[backup] using node s3-transfer (aws/mc not on PATH)"
+  upload_node
 else
-  echo "ERROR: neither aws nor mc found on PATH — install awscli or minio client" >&2
+  echo "ERROR: neither aws, mc, nor node s3-transfer available — install awscli/mc or keep SA node_modules" >&2
   exit 1
 fi
 
 # Optional latest pointer (best-effort JSON)
 LATEST_JSON="${TMP_DIR}/latest.json"
+LATEST_KEY="tenants/${INSTANCE_ID}/latest.json"
 printf '{"storageKey":"%s","sha256":"%s","bytes":%s,"createdAt":"%s","source":"%s"}\n' \
   "${STORAGE_KEY}" "${SHA256}" "${BYTES}" "${TS}" "${BACKUP_SOURCE}" >"${LATEST_JSON}"
-if command -v aws >/dev/null 2>&1; then
-  aws s3 cp "${LATEST_JSON}" "s3://${S3_BUCKET}/tenants/${INSTANCE_ID}/latest.json" --endpoint-url "${S3_ENDPOINT}" >/dev/null 2>&1 || true
-elif command -v mc >/dev/null 2>&1; then
-  mc cp "${LATEST_JSON}" "sabackup$$/${S3_BUCKET}/tenants/${INSTANCE_ID}/latest.json" >/dev/null 2>&1 || true
+if [ "${UPLOADER}" = "aws" ]; then
+  aws s3 cp "${LATEST_JSON}" "s3://${S3_BUCKET}/${LATEST_KEY}" --endpoint-url "${S3_ENDPOINT}" >/dev/null 2>&1 || true
+elif [ "${UPLOADER}" = "mc" ]; then
+  alias="sabackup$$"
+  mc alias set "${alias}" "${S3_ENDPOINT}" "${AWS_ACCESS_KEY_ID}" "${AWS_SECRET_ACCESS_KEY}" >/dev/null 2>&1 || true
+  mc cp "${LATEST_JSON}" "${alias}/${S3_BUCKET}/${LATEST_KEY}" >/dev/null 2>&1 || true
+  mc alias remove "${alias}" >/dev/null 2>&1 || true
+elif [ "${UPLOADER}" = "node" ]; then
+  node "${S3_TRANSFER}" put "${LATEST_JSON}" "${LATEST_KEY}" >/dev/null 2>&1 || true
 fi
 
 echo "[backup] ✓ uploaded"

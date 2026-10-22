@@ -64,6 +64,7 @@ DUMP_FILE="${TMP_DIR}/restore.dump"
 cleanup() { rm -rf "${TMP_DIR}"; }
 trap cleanup EXIT
 
+S3_TRANSFER="${SCRIPT_DIR}/s3-transfer.mjs"
 echo "[restore] downloading s3://${S3_BUCKET}/${STORAGE_KEY}"
 if command -v aws >/dev/null 2>&1; then
   export AWS_S3_ADDRESSING_STYLE=path
@@ -73,8 +74,11 @@ elif command -v mc >/dev/null 2>&1; then
   mc alias set "${alias_name}" "${S3_ENDPOINT}" "${AWS_ACCESS_KEY_ID}" "${AWS_SECRET_ACCESS_KEY}" >/dev/null
   mc cp "${alias_name}/${S3_BUCKET}/${STORAGE_KEY}" "${DUMP_FILE}"
   mc alias remove "${alias_name}" >/dev/null 2>&1 || true
+elif [ -f "${S3_TRANSFER}" ] && command -v node >/dev/null 2>&1; then
+  echo "[restore] using node s3-transfer (aws/mc not on PATH)"
+  node "${S3_TRANSFER}" get "${STORAGE_KEY}" "${DUMP_FILE}"
 else
-  echo "ERROR: neither aws nor mc found" >&2
+  echo "ERROR: neither aws, mc, nor node s3-transfer available" >&2
   exit 1
 fi
 
