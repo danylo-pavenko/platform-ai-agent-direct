@@ -29,6 +29,14 @@
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319",
   "dependencies": {
-    "sharp": "^0.35.4"
+    "proxy-addr": "^2.0.8",
+    "sharp": "^0.35.5"
+  },
+  "allowScripts": {
+    "sharp@0.35.5": true,
+    "@prisma/engines@7.9.1": true,
+    "prisma@7.9.1": true,
+    "esbuild@0.27.7": true,
+    "@parcel/watcher@2.5.6": true
   }
 }

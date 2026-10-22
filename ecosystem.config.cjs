@@ -28,10 +28,13 @@ const apps = [
     name: `${prefix}-api`,
     cwd: './apps/backend',
     script: 'dist/server.js',
+    // Pin system Node — shell PATH may prefer cursor-agent's older binary.
+    interpreter: '/usr/bin/node',
     node_args: '--enable-source-maps',
     instances: 1,
     env: {
       NODE_ENV: 'production',
+      PATH: '/usr/bin:/bin:/usr/local/bin',
       API_PORT: apiPort,
       UPLOADS_DIR: process.env.UPLOADS_DIR || path.join(projectRoot, 'uploads'),
     },
@@ -42,12 +45,17 @@ const apps = [
     name: `${prefix}-bot`,
     cwd: './apps/backend',
     script: 'dist/telegram-bot.js',
+    interpreter: '/usr/bin/node',
     instances: 1,
     autorestart: true,
     min_uptime: '30s',
     max_restarts: 10,
     exp_backoff_restart_delay: 5000,
-    env: { NODE_ENV: 'production', API_PORT: apiPort },
+    env: {
+      NODE_ENV: 'production',
+      PATH: '/usr/bin:/bin:/usr/local/bin',
+      API_PORT: apiPort,
+    },
     max_memory_restart: '256M',
   },
   {
@@ -57,17 +65,27 @@ const apps = [
     name: `${prefix}-sync`,
     cwd: './apps/backend',
     script: 'dist/sync-worker.js',
+    interpreter: '/usr/bin/node',
     instances: 1,
     autorestart: false,
-    env: { NODE_ENV: 'production', API_PORT: apiPort },
+    env: {
+      NODE_ENV: 'production',
+      PATH: '/usr/bin:/bin:/usr/local/bin',
+      API_PORT: apiPort,
+    },
   },
   {
     name: `${prefix}-admin`,
     cwd: './apps/admin',
     script: 'node_modules/.bin/serve',
+    interpreter: '/usr/bin/node',
     args: `-s dist -l ${adminPort}`,
     instances: 1,
-    env: { NODE_ENV: 'production', ADMIN_PORT: adminPort },
+    env: {
+      NODE_ENV: 'production',
+      PATH: '/usr/bin:/bin:/usr/local/bin',
+      ADMIN_PORT: adminPort,
+    },
   },
 ];
 

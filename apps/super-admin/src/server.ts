@@ -67,8 +67,9 @@ await app.register(workersRoutes);
 await app.register(platformVersionRoutes);
 await app.register(saSelfDeployRoutes);
 
-// Health check
-app.get('/api/health', async () => {
+// Health check (also at /health — probes often hit that path and would otherwise
+// fall through to the SPA notFound handler).
+async function healthPayload() {
   const { getPlatformVersion } = await import('./lib/platform-version.js');
   const version = getPlatformVersion();
   return {
@@ -80,7 +81,9 @@ app.get('/api/health', async () => {
       label: version.label,
     },
   };
-});
+}
+app.get('/api/health', healthPayload);
+app.get('/health', healthPayload);
 
 // SPA fallback — all non-API routes → index.html (except /go/ redirects)
 app.setNotFoundHandler(async (req, reply) => {
@@ -88,7 +91,14 @@ app.setNotFoundHandler(async (req, reply) => {
     return reply.status(404).send('Not found');
   }
   if (!req.url.startsWith('/api')) {
-    return reply.sendFile('index.html');
+    if (typeof reply.sendFile === 'function') {
+      return reply.sendFile('index.html');
+    }
+    // Fallback if @fastify/static did not decorate reply (version skew).
+    const { createReadStream } = await import('node:fs');
+    const { join } = await import('node:path');
+    reply.type('text/html');
+    return reply.send(createReadStream(join(import.meta.dirname, '../public/index.html')));
   }
   reply.status(404).send({ error: 'Not found' });
 });
