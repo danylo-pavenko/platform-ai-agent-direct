@@ -6,7 +6,9 @@ import {
   DEFAULT_GIT_REPO,
   PLATFORM_BASE_DOMAIN,
   fieldHints,
-  readSavedPage,
+  readInitialPage,
+  pathForPage,
+  pageFromPath,
   emptyForm,
   emptyLinkForm,
 } from './constants.js';
@@ -30,7 +32,7 @@ import { createBackups } from './composables/backups.js';
 export function setup() {
   const auth = reactive({ token: localStorage.getItem('sa_token') || '' });
   const login = reactive({ username: '', password: '', loading: false, error: '' });
-  const page = ref(readSavedPage());
+  const page = ref(readInitialPage());
   const sidebarOpen = ref(false);
   const tenants = ref([]);
   const workers = ref([]);
@@ -155,7 +157,7 @@ export function setup() {
   /** Oldest on top, newest near the bottom edge of the screen. */
   const stackedNotifications = computed(() => [...notifications.items].reverse());
   const backups = ref([]);
-  const backupsFilter = reactive({ tenantId: '', serverId: '' });
+  const backupsFilter = reactive({ tenantId: '', serverId: '', backupNowTenantId: '' });
   const backupLog = reactive({
     open: false,
     html: '',
@@ -371,12 +373,24 @@ export function setup() {
     nextTick,
   });
 
-  function goPage(p) {
+  function syncPageUrl(p, { replace = false } = {}) {
+    const target = pathForPage(p);
+    const cur = location.pathname.replace(/\/+$/, '') || '/';
+    const next = target.replace(/\/+$/, '') || '/';
+    if (cur === next) return;
+    if (replace) history.replaceState({ page: p }, '', target);
+    else history.pushState({ page: p }, '', target);
+  }
+
+  function goPage(p, opts = {}) {
     if (!VALID_PAGES.includes(p)) return;
     const prev = page.value;
+    const same = prev === p;
     page.value = p;
     localStorage.setItem(SA_PAGE_KEY, p);
     sidebarOpen.value = false;
+    if (!opts.fromHistory) syncPageUrl(p, { replace: opts.replace || same });
+    if (same && !opts.forceLoad) return;
     if (prev === 'webhooks' && p !== 'webhooks') webhookInboxApi.stopWebhookInboxPoll();
     if (p === 'links') linksApi.loadLinks();
     if (p === 'leads') leadsApi.loadLeads();
@@ -392,6 +406,11 @@ export function setup() {
     }
   }
   pageBridge.goPage = goPage;
+
+  function onPopState() {
+    const fromUrl = pageFromPath() || 'dashboard';
+    goPage(fromUrl, { fromHistory: true, forceLoad: true });
+  }
 
   async function refreshCurrentPageData() {
     if (page.value === 'links') await linksApi.loadLinks();
@@ -431,6 +450,9 @@ export function setup() {
   }
 
   onMounted(async () => {
+    // Normalize invalid paths (e.g. /foo) to the resolved page URL.
+    syncPageUrl(page.value, { replace: true });
+    window.addEventListener('popstate', onPopState);
     await tenantsApi.loadSaVersion();
     if (auth.token) {
       await workersApi.loadWorkers();
@@ -457,6 +479,7 @@ export function setup() {
     loadBackups: backupsApi.loadBackups,
     formatBackupBytes: backupsApi.formatBytes,
     backupTenantNow: backupsApi.backupTenantNow,
+    runBackupNow: backupsApi.runBackupNow,
     restoreBackup: backupsApi.restoreBackup,
     closeBackupLog: backupsApi.closeBackupLog,
     saVersionLabel, saSelfDeployBusy, saDeployLog, saDeployLogEl,

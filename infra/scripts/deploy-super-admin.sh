@@ -44,8 +44,13 @@ echo "[1b/6] Ensuring npm ${TARGET_NPM:-11.21.0}..."
 bash "${SCRIPT_DIR}/ensure-npm.sh" || true
 
 # ── 2. Install deps (include dev — потрібен tsc для build) ──
+# Use workspace install from repo root so we do NOT create apps/super-admin/package-lock.json
+# (root package-lock.json is the single lockfile for workspaces).
 echo "[2/6] Installing dependencies..."
-NODE_ENV=development npm install --prefix "${APP_DIR}"
+cd "${PROJECT_ROOT}"
+# Drop a stray nested lock if a previous --prefix install left one (keeps git status clean).
+rm -f "${APP_DIR}/package-lock.json"
+NODE_ENV=development npm install -w apps/super-admin
 
 # ── 3. Generate Prisma client ──
 echo "[3/6] Generating Prisma client..."

@@ -116,7 +116,12 @@ export function createBackups(deps) {
   }
 
   async function backupTenantNow(tenantId) {
-    const r = await fetch(`${BASE}/tenants/${tenantId}/backup`, {
+    const id = (tenantId || backupsFilter.backupNowTenantId || '').trim();
+    if (!id) {
+      alert('Оберіть клієнта для Backup now');
+      return;
+    }
+    const r = await fetch(`${BASE}/tenants/${id}/backup`, {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify({}),
@@ -127,6 +132,10 @@ export function createBackups(deps) {
       return;
     }
     if (d.job) await openBackupLog(d.job);
+  }
+
+  function runBackupNow() {
+    return backupTenantNow(backupsFilter.backupNowTenantId);
   }
 
   async function restoreBackup(row) {
@@ -153,6 +162,7 @@ export function createBackups(deps) {
     loadBackups,
     formatBytes,
     backupTenantNow,
+    runBackupNow,
     restoreBackup,
     openBackupLog,
     closeBackupLog,

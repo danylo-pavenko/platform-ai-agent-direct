@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Nested lockfiles from `npm install --prefix apps/...` — monorepo uses root package-lock.json only
+apps/super-admin/package-lock.json
+
 # Build output
 dist/
 

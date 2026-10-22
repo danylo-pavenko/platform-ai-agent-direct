@@ -28,28 +28,28 @@
         <small>Super Admin</small>
       </div>
       <nav class="nav">
-        <div class="nav-item" :class="{'active': page==='dashboard'}" @click="goPage('dashboard')">
+        <a class="nav-item" href="/" :class="{'active': page==='dashboard'}" @click.prevent="goPage('dashboard')">
           <span class="icon">⬡</span> Dashboard
-        </div>
-        <div class="nav-item" :class="{'active': page==='tenants'}" @click="goPage('tenants')">
+        </a>
+        <a class="nav-item" href="/tenants" :class="{'active': page==='tenants'}" @click.prevent="goPage('tenants')">
           <span class="icon">◈</span> Clients
-        </div>
-        <div class="nav-item" :class="{'active': page==='workers'}" @click="goPage('workers')">
+        </a>
+        <a class="nav-item" href="/workers" :class="{'active': page==='workers'}" @click.prevent="goPage('workers')">
           <span class="icon">▦</span> Workers
-        </div>
-        <div class="nav-item" :class="{'active': page==='backups'}" @click="goPage('backups')">
+        </a>
+        <a class="nav-item" href="/backups" :class="{'active': page==='backups'}" @click.prevent="goPage('backups')">
           <span class="icon">💾</span> Backups
-        </div>
-        <div class="nav-item" :class="{'active': page==='links'}" @click="goPage('links')">
+        </a>
+        <a class="nav-item" href="/links" :class="{'active': page==='links'}" @click.prevent="goPage('links')">
           <span class="icon">🔗</span> Посилання
-        </div>
-        <div class="nav-item" :class="{'active': page==='leads'}" @click="goPage('leads')">
+        </a>
+        <a class="nav-item" href="/leads" :class="{'active': page==='leads'}" @click.prevent="goPage('leads')">
           <span class="icon">📩</span> Заявки
           <span v-if="notifications.unreadCount" class="nav-badge" :title="notifications.unreadCount + ' нових'">{{ notifications.unreadCount > 9 ? '9+' : notifications.unreadCount }}</span>
-        </div>
-        <div class="nav-item" :class="{'active': page==='webhooks'}" @click="goPage('webhooks')">
+        </a>
+        <a class="nav-item" href="/webhooks" :class="{'active': page==='webhooks'}" @click.prevent="goPage('webhooks')">
           <span class="icon">📡</span> Webhooks
-        </div>
+        </a>
       </nav>
       <div class="sidebar-bottom">
         <button class="logout-btn" @click="logout">
@@ -373,11 +373,11 @@
               <option value="">Усі workers</option>
               <option v-for="w in workers" :key="w.id" :value="w.id">{{ w.name }}</option>
             </select>
-            <select id="backup-now-tenant" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px;min-width:180px">
+            <select v-model="backupsFilter.backupNowTenantId" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px;min-width:180px">
               <option value="">Backup now…</option>
               <option v-for="t in tenants" :key="'b'+t.id" :value="t.id">{{ t.instanceId }}</option>
             </select>
-            <button class="btn btn-primary btn-sm" @click="(() => { const el=document.getElementById('backup-now-tenant'); if(el?.value) backupTenantNow(el.value); })()">Run</button>
+            <button class="btn btn-primary btn-sm" @click="runBackupNow">Run</button>
           </div>
           <div class="card table-wrap">
             <table>

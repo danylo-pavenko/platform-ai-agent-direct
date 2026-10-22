@@ -31,6 +31,27 @@ export function readSavedPage() {
   return VALID_PAGES.includes(saved) ? saved : 'dashboard';
 }
 
+/** Path for a page: dashboard → `/`, others → `/tenants` etc. */
+export function pathForPage(page) {
+  return page === 'dashboard' ? '/' : `/${page}`;
+}
+
+/** Parse first path segment; `/` and `/dashboard` → dashboard. Invalid → null. */
+export function pageFromPath(pathname = typeof location !== 'undefined' ? location.pathname : '/') {
+  const seg = String(pathname || '/')
+    .replace(/^\/+|\/+$/g, '')
+    .split('/')[0] || '';
+  if (!seg || seg === 'index.html') return 'dashboard';
+  return VALID_PAGES.includes(seg) ? seg : null;
+}
+
+/** Prefer URL path, then localStorage, then dashboard. */
+export function readInitialPage() {
+  const fromUrl = pageFromPath();
+  if (fromUrl) return fromUrl;
+  return readSavedPage();
+}
+
 export function emptyForm() {
   return {
     instanceId: '', name: '', domainMode: 'platform', apiDomain: '', adminDomain: '',
