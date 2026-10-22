@@ -6,7 +6,7 @@
 #   bash provision-platform.sh
 #
 # What this does:
-#   1. Installs system packages (Node 20, PM2, Nginx, Certbot, PostgreSQL, UFW)
+#   1. Installs system packages (Node 22 LTS, PM2, Nginx, Certbot, PostgreSQL, UFW)
 #   2. Creates Linux user 'agentsadmin' (if not exists)
 #   3. Clones platform repo to /home/agentsadmin/platform-ai-agent-direct
 #   4. Creates PostgreSQL DB 'platform_admin' (super-admin tenant registry)
@@ -37,7 +37,8 @@ LANDING_DOMAIN="direct-ai-agents.com"
 ADMIN_DOMAIN="admin.direct-ai-agents.com"
 SA_API_PORT=4000
 SA_APP_PORT=4001
-NODE_VERSION="20"
+# Node 20 EOL — Oct 2026 security fixes only on 22.23.4+ / 24.22.1+ / 26.12.1+.
+NODE_VERSION="${NODE_VERSION:-22}"
 # ───────────────────────────────────────────────────────────────────
 
 echo ""
@@ -61,12 +62,13 @@ fi
 echo "[1/9] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
-  curl git build-essential nginx certbot python3-certbot-nginx \
+  ca-certificates curl git build-essential nginx certbot python3-certbot-nginx \
   ffmpeg python3-venv \
-  postgresql postgresql-contrib ufw jq
+  postgresql postgresql-contrib ufw jq unattended-upgrades
+update-ca-certificates >/dev/null 2>&1 || true
 echo "  Done."
 
-# ── 2. Node.js 20 ─────────────────────────────────────────────────
+# ── 2. Node.js 22 LTS ─────────────────────────────────────────────
 echo "[2/9] Installing Node.js ${NODE_VERSION}..."
 if ! command -v node &>/dev/null || [[ "$(node -v)" != v${NODE_VERSION}* ]]; then
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash - >/dev/null 2>&1

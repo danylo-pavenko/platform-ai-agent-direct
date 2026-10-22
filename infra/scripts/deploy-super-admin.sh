@@ -27,6 +27,14 @@ fi
 # Load env (values with spaces or < > must be quoted in .env.super-admin)
 set -a; source "${ENV_FILE}"; set +a
 
+_node_raw="$(node -v 2>/dev/null || true)"
+_node_maj="$(echo "${_node_raw}" | sed -E 's/^v([0-9]+).*/\1/')"
+if [[ -z "${_node_maj}" ]] || [[ "${_node_maj}" -lt 22 ]]; then
+  echo "ERROR: Node ${_node_raw:-not found} is unsupported (need >=22.23.4)."
+  echo "       As root: curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs"
+  exit 1
+fi
+
 # ── 1. Pull latest ──
 echo "[1/6] Pulling latest..."
 git pull --ff-only

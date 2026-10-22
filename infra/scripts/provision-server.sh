@@ -6,18 +6,21 @@
 #   CERTBOT_EMAIL=you@example.com bash provision-server.sh
 #
 # What this does:
-#   - Installs Node.js 20, PM2, Nginx, Certbot, PostgreSQL, UFW
+#   - Installs Node.js 22 LTS (NodeSource), PM2, Nginx, Certbot, PostgreSQL, UFW
+#   - Refreshes CA trust store + enables unattended security updates (nginx/openssl/ca)
 #   - Configures firewall (SSH + HTTP/HTTPS)
 #   - Sets up certbot auto-renew timer
 #   - Creates /opt/agents/ directory for client instances
 #   - Does NOT create any client users or databases
 #
+# Node 20 is EOL (no Oct 2026 security fixes). Override: NODE_VERSION=24 bash …
 # After this script: run provision-super-admin.sh, then provision-client.sh per client.
 #
 set -euo pipefail
 
 CERTBOT_EMAIL="${CERTBOT_EMAIL:-}"
-NODE_VERSION="20"
+# Maintenance LTS with Oct 2026 security patches (min patch: 22.23.4).
+NODE_VERSION="${NODE_VERSION:-22}"
 
 echo "══════════════════════════════════════════════"
 echo "  Platform AI Agent — Server Base Provision"
@@ -33,9 +36,15 @@ fi
 echo "[1/6] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
-  curl git build-essential nginx certbot python3-certbot-nginx \
+  ca-certificates curl git build-essential nginx certbot python3-certbot-nginx \
   ffmpeg python3-venv \
-  postgresql postgresql-contrib ufw jq
+  postgresql postgresql-contrib ufw jq unattended-upgrades
+update-ca-certificates >/dev/null 2>&1 || true
+# Distro security stream (nginx / OpenSSL / ca-certificates) — does not pin upstream nginx.org.
+if [[ -f /usr/sbin/dpkg-reconfigure ]]; then
+  echo 'Unattended-Upgrade::Automatic-Reboot "false";' >/etc/apt/apt.conf.d/52platform-no-reboot
+  DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades >/dev/null 2>&1 || true
+fi
 
 # ── 2. Node.js via NodeSource ──
 echo "[2/6] Installing Node.js ${NODE_VERSION}..."
@@ -44,6 +53,12 @@ if ! command -v node &>/dev/null || [[ "$(node -v)" != v${NODE_VERSION}* ]]; the
   apt-get install -y -qq nodejs
 fi
 echo "  Node: $(node -v), npm: $(npm -v)"
+# Soft floor for Oct 2026 Node security release (22.23.4 / 24.22.1 / 26.12.1).
+_node_patch="$(node -v | sed -E 's/^v([0-9]+)\.([0-9]+)\.([0-9]+).*/\1 \2 \3/')"
+read -r _maj _min _pat <<<"${_node_patch}"
+if [[ "${_maj}" -eq 22 && ( "${_min}" -lt 23 || ( "${_min}" -eq 23 && "${_pat}" -lt 4 ) ) ]]; then
+  echo "  WARN: Node $(node -v) is below 22.23.4 — run: apt-get update && apt-get install -y nodejs"
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "[2b/6] Ensuring npm ${TARGET_NPM:-11.21.0}..."

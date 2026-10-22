@@ -64,7 +64,7 @@ server
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Node.js 20+, TypeScript, Fastify, Prisma 7 (PostgreSQL) |
+| Backend | Node.js 22.23.4+ (LTS), TypeScript, Fastify, Prisma 7 (PostgreSQL) |
 | Frontend (admin) | Vue 3, Vuetify 3, Vite, Pinia, Vue Router 4 |
 | Super Admin | Fastify + TypeScript (tenant DB, webhook hub, deploy APIs, workers) |
 | Telegram | grammY framework, long polling (multi-bot roles) |
@@ -303,7 +303,7 @@ platform-ai-agent-direct/
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 22.23.4+ (Node 20 is EOL; Oct 2026 security fixes require 22/24/26)
 - PostgreSQL 15+
 - Claude CLI installed and authenticated (`claude auth login`)
 

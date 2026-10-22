@@ -52,6 +52,17 @@ fi
 
 INSTANCE_ID_UPPER="${INSTANCE_ID^^}"
 
+# Node 20 is EOL — Oct 2026 security releases only ship on 22.23.4+ / 24.22.1+ / 26.12.1+.
+# See https://nodejs.org/en/blog/vulnerability/october-2026-security-releases
+_node_raw="$(node -v 2>/dev/null || true)"
+_node_maj="$(echo "${_node_raw}" | sed -E 's/^v([0-9]+).*/\1/')"
+if [[ -z "${_node_maj}" ]] || [[ "${_node_maj}" -lt 22 ]]; then
+  echo "ERROR: Node ${_node_raw:-not found} is unsupported (need >=22.23.4)."
+  echo "       As root: curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y nodejs"
+  echo "       Then: pm2 restart all && pm2 save"
+  exit 1
+fi
+
 # Serialize deploys for this tenant (super-admin + manual SSH).
 DEPLOY_LOCK="/tmp/deploy-${INSTANCE_ID}.lock"
 exec 9>"${DEPLOY_LOCK}"

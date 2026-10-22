@@ -15,7 +15,7 @@ set -euo pipefail
 # ── Config ──
 APP_USER="sbagent"
 APP_DIR="/opt/sb-agent"
-NODE_VERSION="20"
+NODE_VERSION="${NODE_VERSION:-22}"
 PG_DB="sb_agent"
 PG_USER="sb_agent"
 DOMAINS=("agent.status-blessed.com" "api.status-blessed.com")
@@ -29,9 +29,10 @@ echo "════════════════════════�
 echo "[1/8] Installing system packages..."
 apt-get update -qq
 apt-get install -y -qq \
-  curl git build-essential nginx certbot python3-certbot-nginx \
+  ca-certificates curl git build-essential nginx certbot python3-certbot-nginx \
   ffmpeg python3-venv \
-  postgresql postgresql-contrib ufw
+  postgresql postgresql-contrib ufw unattended-upgrades
+update-ca-certificates >/dev/null 2>&1 || true
 
 # ── 2. Node.js via NodeSource ──
 echo "[2/8] Installing Node.js ${NODE_VERSION}..."

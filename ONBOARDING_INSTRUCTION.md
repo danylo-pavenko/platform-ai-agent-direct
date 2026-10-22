@@ -42,7 +42,7 @@ bash /tmp/platform/infra/scripts/provision-platform.sh
 ```
 
 **Що зробить скрипт автоматично:**
-- Встановить Node.js 20, PM2, Nginx, Certbot, PostgreSQL, UFW
+- Встановить Node.js 22 LTS, PM2, Nginx, Certbot, PostgreSQL, UFW
 - Створить Linux user `agentsadmin`
 - Склонує репо в `/home/agentsadmin/platform-ai-agent-direct`
 - Створить PostgreSQL БД `platform_admin` + таблицю `tenants`
