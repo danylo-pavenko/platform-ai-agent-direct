@@ -53,12 +53,7 @@ import {
   persistOpenAgenda,
 } from './open-agenda-store.js';
 import { ensureOpenAgendaForConversation } from './open-agenda-infer.js';
-import {
-  formatUpcomingVisitsForPrompt,
-  selectUpcomingVisits,
-  UPCOMING_VISIT_HORIZON_DAYS,
-  UPCOMING_VISIT_LIMIT,
-} from '../lib/upcoming-visit.js';
+import { formatUpcomingVisitsForPrompt } from '../lib/upcoming-visit.js';
 import { formatPriorSessionDigestForPrompt } from '../lib/prior-session-digest.js';
 import { isSessionGapPastFreshness } from '../lib/session-freshness.js';
 import {
@@ -94,6 +89,7 @@ import {
   handleCancelAppointment,
   handleRemoveAppointmentService,
   handleRescheduleAppointment,
+  loadMergedUpcomingVisitsForClient,
 } from './appointment.js';
 import { saveClientReferencePhoto } from './reference-photos.js';
 import {
@@ -143,6 +139,10 @@ import {
   sanitizeFalseBookingConfirmReply,
   shouldRecoverFalseBookingConfirm,
 } from '../lib/false-booking-confirm.js';
+import {
+  sanitizeFalseCancelConfirmReply,
+  shouldSanitizeFalseCancelConfirm,
+} from '../lib/false-cancel-confirm.js';
 import {
   formatExistingVisitConfirmHint,
   isExistingVisitConfirmTurn,
@@ -850,23 +850,10 @@ async function handleIncomingMessageImpl(
       );
     }
     try {
-      const upcomingRows = await prisma.appointment.findMany({
-        where: {
-          clientId: client.id,
-          status: { in: ['confirmed', 'synced'] },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 25,
-        select: {
-          scheduledDate: true,
-          scheduledTime: true,
-          customerName: true,
-          services: true,
-        },
-      });
-      const upcoming = selectUpcomingVisits(upcomingRows, now, agentCfg.timezone, {
-        horizonDays: UPCOMING_VISIT_HORIZON_DAYS,
-        limit: UPCOMING_VISIT_LIMIT,
+      // Local Appointment + CRM open bookings (after phone→crmBuyerId link).
+      const upcoming = await loadMergedUpcomingVisitsForClient(client.id, {
+        now,
+        timeZone: agentCfg.timezone,
       });
       const hint = formatUpcomingVisitsForPrompt(upcoming);
       if (hint) clientProfile.upcomingVisitsHint = hint;
@@ -2667,6 +2654,28 @@ async function handleIncomingMessageImpl(
       log.warn(
         { conversationId, sanitizedPreview: responseText.slice(0, 200) },
         'False booking confirmation still present after recovery — sanitized outbound',
+      );
+    }
+  }
+
+  // Never tell the client the visit is cancelled when cancel_appointment failed.
+  {
+    const cancelCalled = debug.tools.some((t) => t.name === 'cancel_appointment');
+    const cancelOk = debug.tools.some(
+      (t) =>
+        t.name === 'cancel_appointment' && /\[cancel_appointment\]\s*ok\b/i.test(t.resultPreview),
+    );
+    if (
+      shouldSanitizeFalseCancelConfirm({
+        responseText,
+        cancelToolCalled: cancelCalled,
+        cancelToolOk: cancelOk,
+      })
+    ) {
+      responseText = sanitizeFalseCancelConfirmReply(responseText);
+      log.warn(
+        { conversationId, sanitizedPreview: responseText.slice(0, 200) },
+        'False cancel confirmation after failed cancel_appointment — sanitized outbound',
       );
     }
   }

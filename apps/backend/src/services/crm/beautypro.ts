@@ -24,6 +24,7 @@ import type {
   CrmProduct,
   CrmServiceItem,
   CrmSlotQuery,
+  CrmUpcomingBooking,
   CrmVisitHistoryItem,
   OfferSearchParams,
   ProductSearchParams,
@@ -1485,6 +1486,98 @@ export const beautyproAdapter: CrmAdapter = {
     const sliced = items.slice(0, limit);
     await enrichHistoryWithSaleDurations(sliced);
     return sliced;
+  },
+
+  async listClientUpcomingBookings(
+    crmBuyerId: string,
+    opts?: { fromIsoDate: string; toIsoDate: string },
+  ): Promise<CrmUpcomingBooking[]> {
+    const fromIsoDate = opts?.fromIsoDate;
+    const toIsoDate = opts?.toIsoDate;
+    if (!fromIsoDate || !toIsoDate) {
+      throw new Error('BeautyPro listClientUpcomingBookings requires fromIsoDate and toIsoDate');
+    }
+
+    type RawRow = {
+      id?: string;
+      date?: string | null;
+      location?: string | null;
+      client?: string | null;
+      time?: string | null;
+      services?: Array<{
+        serviceName?: string | null;
+        start?: string | null;
+      }> | null;
+    };
+
+    let rows: RawRow[] = [];
+    try {
+      rows =
+        (await bpFetch<RawRow[]>('GET', '/appointments', {
+          query: {
+            fields: 'date,location,client,time,services(serviceName,start)',
+            client: crmBuyerId,
+            from: `${fromIsoDate}T00:00:00.000Z`,
+            to: `${toIsoDate}T23:59:59.999Z`,
+            state: 'planned,confirmed',
+          },
+        })) ?? [];
+    } catch (err) {
+      log.warn(
+        { err, crmBuyerId, fromIsoDate, toIsoDate },
+        'BeautyPro upcoming appointments with services fields failed — retrying minimal fields',
+      );
+      rows =
+        (await bpFetch<RawRow[]>('GET', '/appointments', {
+          query: {
+            fields: 'date,location,client',
+            client: crmBuyerId,
+            from: `${fromIsoDate}T00:00:00.000Z`,
+            to: `${toIsoDate}T23:59:59.999Z`,
+            state: 'planned,confirmed',
+          },
+        })) ?? [];
+    }
+
+    const out: CrmUpcomingBooking[] = [];
+    for (const row of rows) {
+      const id = typeof row.id === 'string' ? row.id.trim() : '';
+      if (!id) continue;
+      const dateIso = String(row.date ?? '').slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) continue;
+
+      let time = '';
+      if (typeof row.time === 'string' && row.time.trim()) {
+        time = row.time.trim();
+      } else if (Array.isArray(row.services)) {
+        for (const svc of row.services) {
+          if (typeof svc?.start === 'string' && svc.start.trim()) {
+            time = svc.start.trim();
+            break;
+          }
+        }
+      }
+      // Date-only rows: still cancelable; clock may be filled via fetchAppointmentServices later.
+      if (!time && typeof row.date === 'string' && row.date.includes('T')) {
+        const clock = row.date.slice(11, 16);
+        if (/^\d{2}:\d{2}$/.test(clock) && clock !== '00:00') time = clock;
+      }
+
+      const serviceNames = (row.services ?? [])
+        .map((s) => (typeof s?.serviceName === 'string' ? s.serviceName.trim() : ''))
+        .filter(Boolean);
+
+      out.push({
+        id,
+        date: dateIso,
+        time: time || '00:00',
+        locationId: typeof row.location === 'string' ? row.location : undefined,
+        serviceNames: serviceNames.length > 0 ? serviceNames : undefined,
+      });
+    }
+
+    out.sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`));
+    return out;
   },
 };
 

@@ -20,8 +20,9 @@ import {
   type ServiceMasterAssignment,
 } from '../lib/appointment-services.js';
 import { bookingVisitsCanMerge } from '../lib/booking-visit-merge.js';
-import { persistCrmBuyerIdFromBooking } from './client-crm-link.js';
+import { linkClientToCrm, persistCrmBuyerIdFromBooking } from './client-crm-link.js';
 import {
+  crmPersonFullName,
   effectiveChatDisplayName,
   effectiveClientPersonName,
   personNameCollidesWithMaster,
@@ -32,7 +33,7 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
 import { normalizeOrderItems } from '../lib/order-normalize.js';
-import { providerDisplayName } from '../lib/crm-providers.js';
+import { providerDisplayName, type CrmProviderName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { lookupAvailableSlotsForContext } from './service-search.js';
@@ -71,6 +72,20 @@ import {
   checkBookingMastersSchedule,
   scheduleMismatchToToolResult,
 } from '../lib/booking-schedule-check.js';
+import {
+  crmBookingToUaRow,
+  formatAmbiguousBookingToolResult,
+  isoRangeForUpcomingHorizon,
+  resolveBookingTargetPreference,
+  type LocalBookingCandidate,
+} from '../lib/active-booking-resolve.js';
+import {
+  UPCOMING_VISIT_HORIZON_DAYS,
+  UPCOMING_VISIT_LIMIT,
+  selectUpcomingVisits,
+  type UpcomingVisitRow,
+} from '../lib/upcoming-visit.js';
+import type { CrmUpcomingBooking } from './crm/types.js';
 
 const log = pino({ name: 'appointment' });
 
@@ -1243,12 +1258,327 @@ export async function updateAppointmentServiceMasters(params: {
   return { services: next };
 }
 
-async function findActiveBookingAppointment(conversationId: string) {
-  return prisma.appointment.findFirst({
+type AppointmentWithClient = NonNullable<
+  Awaited<ReturnType<typeof loadAppointmentWithClient>>
+>;
+
+async function loadAppointmentWithClient(appointmentId: string) {
+  return prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { client: true, branch: true },
+  });
+}
+
+/** BeautyPro (etc.) open bookings for a linked CRM client; optional clock enrich. */
+export async function fetchCrmUpcomingBookingsForClient(
+  clientId: string,
+  opts?: { now?: Date; timeZone?: string; provider?: CrmProviderName },
+): Promise<CrmUpcomingBooking[]> {
+  const now = opts?.now ?? new Date();
+  const timeZone = opts?.timeZone ?? (await getAgentConfig()).timezone;
+  const provider: CrmProviderName = opts?.provider ?? (await resolveCrmProvider('booking'));
+
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { crmBuyerId: true },
+  });
+  const crmBuyerId = client?.crmBuyerId?.trim();
+  if (!crmBuyerId) return [];
+
+  const crm = getCrmAdapter(provider);
+  if (!crm.listClientUpcomingBookings) return [];
+
+  const range = isoRangeForUpcomingHorizon(now, timeZone, UPCOMING_VISIT_HORIZON_DAYS);
+  const crmBookings = await crm.listClientUpcomingBookings(crmBuyerId, range);
+
+  if (crm.fetchAppointmentServices) {
+    for (const b of crmBookings) {
+      if (b.time && b.time !== '00:00') continue;
+      try {
+        const lines = await crm.fetchAppointmentServices(b.id);
+        const start = lines.find((l) => l.start?.trim())?.start?.trim();
+        if (start) b.time = start.slice(0, 5);
+        if (!b.serviceNames?.length) {
+          const names = lines
+            .map((l) => l.serviceName?.trim())
+            .filter((n): n is string => Boolean(n));
+          if (names.length) b.serviceNames = names;
+        }
+      } catch (err) {
+        log.warn({ err, crmRecordId: b.id }, 'Failed to enrich CRM booking clock');
+      }
+    }
+  }
+  return crmBookings;
+}
+
+/**
+ * Local + CRM upcoming visits for prompt injection («Найближчі записи»).
+ * Read-links CRM by phone first so manager Instagram bookings appear.
+ */
+export async function loadMergedUpcomingVisitsForClient(
+  clientId: string,
+  opts?: { now?: Date; timeZone?: string },
+): Promise<UpcomingVisitRow[]> {
+  const now = opts?.now ?? new Date();
+  const timeZone = opts?.timeZone ?? (await getAgentConfig()).timezone;
+
+  try {
+    await linkClientToCrm(clientId, { upsert: false });
+  } catch (err) {
+    log.warn({ err, clientId }, 'linkClientToCrm before upcoming visits failed');
+  }
+
+  const localRows = await prisma.appointment.findMany({
     where: {
-      conversationId,
+      clientId,
       status: { in: ['confirmed', 'synced'] },
     },
+    orderBy: { createdAt: 'desc' },
+    take: 25,
+    select: {
+      scheduledDate: true,
+      scheduledTime: true,
+      customerName: true,
+      services: true,
+      crmRecordId: true,
+    },
+  });
+
+  const localCrmIds = new Set(
+    localRows.map((r) => r.crmRecordId?.trim()).filter((id): id is string => Boolean(id)),
+  );
+
+  let crmRows: UpcomingVisitRow[] = [];
+  try {
+    const crmBookings = await fetchCrmUpcomingBookingsForClient(clientId, { now, timeZone });
+    crmRows = crmBookings
+      .filter((b) => !localCrmIds.has(b.id))
+      .map((b) => crmBookingToUaRow(b))
+      .filter((r): r is UpcomingVisitRow => r != null);
+  } catch (err) {
+    log.warn({ err, clientId }, 'CRM upcoming for prompt failed');
+  }
+
+  const merged: UpcomingVisitRow[] = [
+    ...localRows.map((r) => ({
+      scheduledDate: r.scheduledDate,
+      scheduledTime: r.scheduledTime,
+      customerName: r.customerName,
+      services: r.services,
+    })),
+    ...crmRows,
+  ];
+
+  return selectUpcomingVisits(merged, now, timeZone, {
+    horizonDays: UPCOMING_VISIT_HORIZON_DAYS,
+    limit: UPCOMING_VISIT_LIMIT,
+  });
+}
+
+/**
+ * Resolve the visit cancel/reschedule should touch:
+ * 1) active Appointment on this conversation
+ * 2) sole upcoming Appointment for this client (any UUID)
+ * 3) sole upcoming CRM booking (manager Instagram / admin CRM without local row)
+ * Multiple → ambiguous (agent must clarify or handoff).
+ */
+async function resolveActiveBookingAppointment(params: {
+  conversationId: string;
+  clientId: string;
+}): Promise<
+  | { kind: 'local'; appointment: AppointmentWithClient }
+  | {
+      kind: 'crm_only';
+      crmRecordId: string;
+      scheduledDate: string;
+      scheduledTime: string;
+      serviceNames?: string[];
+      locationId?: string;
+      provider: string;
+    }
+  | { kind: 'ambiguous'; toolHint: string }
+  | { kind: 'none' }
+> {
+  const { conversationId, clientId } = params;
+  const agentCfg = await getAgentConfig();
+  const now = new Date();
+
+  const conversationRow = await prisma.appointment.findFirst({
+    where: {
+      conversationId,
+      clientId,
+      status: { in: ['confirmed', 'synced'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      id: true,
+      conversationId: true,
+      scheduledDate: true,
+      scheduledTime: true,
+      crmRecordId: true,
+    },
+  });
+
+  const clientRows = await prisma.appointment.findMany({
+    where: {
+      clientId,
+      status: { in: ['confirmed', 'synced'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 25,
+    select: {
+      id: true,
+      conversationId: true,
+      scheduledDate: true,
+      scheduledTime: true,
+      crmRecordId: true,
+    },
+  });
+
+  const conversationLocal: LocalBookingCandidate | null = conversationRow
+    ? {
+        id: conversationRow.id,
+        conversationId: conversationRow.conversationId,
+        scheduledDate: conversationRow.scheduledDate,
+        scheduledTime: conversationRow.scheduledTime,
+        crmRecordId: conversationRow.crmRecordId,
+      }
+    : null;
+
+  const clientLocals: LocalBookingCandidate[] = clientRows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversationId,
+    scheduledDate: r.scheduledDate,
+    scheduledTime: r.scheduledTime,
+    crmRecordId: r.crmRecordId,
+  }));
+
+  // Phone/email may already be on Client from chat — link without creating a new CRM card.
+  try {
+    await linkClientToCrm(clientId, { upsert: false });
+  } catch (err) {
+    log.warn({ err, clientId }, 'linkClientToCrm before booking resolve failed');
+  }
+
+  let crmBookings: CrmUpcomingBooking[] = [];
+  let bookingProvider: CrmProviderName = 'beautypro';
+  try {
+    bookingProvider = await resolveCrmProvider('booking');
+    crmBookings = await fetchCrmUpcomingBookingsForClient(clientId, {
+      now,
+      timeZone: agentCfg.timezone,
+      provider: bookingProvider,
+    });
+  } catch (err) {
+    log.warn({ err, conversationId, clientId }, 'CRM upcoming booking lookup failed');
+  }
+
+  const preference = resolveBookingTargetPreference({
+    conversationLocal,
+    clientLocals,
+    crmBookings,
+    now,
+    timeZone: agentCfg.timezone,
+  });
+
+  if (preference.kind === 'local') {
+    const appointment = await loadAppointmentWithClient(preference.appointmentId);
+    if (!appointment || appointment.clientId !== clientId) return { kind: 'none' };
+    return { kind: 'local', appointment };
+  }
+  if (preference.kind === 'crm_only') {
+    return {
+      kind: 'crm_only',
+      crmRecordId: preference.crmRecordId,
+      scheduledDate: preference.scheduledDate,
+      scheduledTime: preference.scheduledTime,
+      serviceNames: preference.serviceNames,
+      locationId: preference.locationId,
+      provider: bookingProvider,
+    };
+  }
+  if (preference.kind === 'ambiguous') {
+    return {
+      kind: 'ambiguous',
+      toolHint: formatAmbiguousBookingToolResult('cancel_appointment', preference.candidates),
+    };
+  }
+  return { kind: 'none' };
+}
+
+/** Attach a CRM-only visit onto this conversation so lifecycle + future tools work. */
+async function mirrorCrmBookingToLocalAppointment(params: {
+  conversationId: string;
+  clientId: string;
+  crmRecordId: string;
+  provider: string;
+  scheduledDate: string;
+  scheduledTime: string;
+  serviceNames?: string[];
+}): Promise<AppointmentWithClient> {
+  const existing = await prisma.appointment.findFirst({
+    where: { crmRecordId: params.crmRecordId },
+    include: { client: true, branch: true },
+  });
+  if (existing) {
+    if (existing.conversationId !== params.conversationId) {
+      return prisma.appointment.update({
+        where: { id: existing.id },
+        data: { conversationId: params.conversationId },
+        include: { client: true, branch: true },
+      });
+    }
+    return existing;
+  }
+
+  const client = await prisma.client.findUniqueOrThrow({
+    where: { id: params.clientId },
+    select: {
+      id: true,
+      phone: true,
+      displayName: true,
+      igUsername: true,
+      igFullName: true,
+    },
+  });
+  const name =
+    crmPersonFullName(client)?.trim() ||
+    client.displayName?.trim() ||
+    'Клієнт';
+  const phone = (client.phone ?? '').trim() || 'unknown';
+  const services: AppointmentServiceLine[] = (params.serviceNames ?? []).map((n, i) => ({
+    id: `crm-mirror-${i}`,
+    name: n,
+    durationMin: 60,
+  }));
+
+  return prisma.appointment.create({
+    data: {
+      conversationId: params.conversationId,
+      clientId: params.clientId,
+      services: toInputJsonValue(servicesToJson(services))!,
+      scheduledDate: params.scheduledDate,
+      scheduledTime: params.scheduledTime,
+      customerName: name,
+      phone,
+      comment: 'Mirrored from CRM (manager/admin booking)',
+      status: 'synced',
+      crmProvider: params.provider,
+      crmRecordId: params.crmRecordId,
+      crmSyncStatus: 'synced',
+      crmSyncedAt: new Date(),
+    },
+    include: { client: true, branch: true },
+  });
+}
+
+async function findActiveBookingAppointment(conversationId: string, clientId?: string) {
+  const where = clientId
+    ? { conversationId, clientId, status: { in: ['confirmed' as const, 'synced' as const] } }
+    : { conversationId, status: { in: ['confirmed' as const, 'synced' as const] } };
+  return prisma.appointment.findFirst({
+    where,
     orderBy: { createdAt: 'desc' },
     include: { client: true, branch: true },
   });
@@ -1379,13 +1709,55 @@ export async function handleCancelAppointment(
   args: Record<string, unknown>,
   options?: BookAppointmentOptions,
 ): Promise<BookAppointmentResult | null> {
-  const appointment = await findActiveBookingAppointment(conversationId);
-  if (!appointment || appointment.clientId !== clientId) {
+  const resolved = await resolveActiveBookingAppointment({ conversationId, clientId });
+
+  if (resolved.kind === 'ambiguous') {
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult: resolved.toolHint.replace('cancel_appointment', 'cancel_appointment'),
+    };
+  }
+  if (resolved.kind === 'none') {
     return {
       appointmentId: '',
       crmSynced: false,
       toolResult:
-        '[cancel_appointment] failed: немає активного запису в цій розмові. Уточни деталі або request_handoff.',
+        '[cancel_appointment] failed: немає активного запису (ні локально, ні в CRM на найближчі дні). Уточни або request_handoff.',
+    };
+  }
+
+  let appointment: AppointmentWithClient;
+  if (resolved.kind === 'crm_only') {
+    try {
+      appointment = await mirrorCrmBookingToLocalAppointment({
+        conversationId,
+        clientId,
+        crmRecordId: resolved.crmRecordId,
+        provider: resolved.provider,
+        scheduledDate: resolved.scheduledDate,
+        scheduledTime: resolved.scheduledTime,
+        serviceNames: resolved.serviceNames,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error({ err, conversationId, clientId }, 'mirror CRM booking for cancel failed');
+      return {
+        appointmentId: '',
+        crmSynced: false,
+        toolResult: `[cancel_appointment] failed: не вдалося привʼязати CRM-візит локально (${msg.slice(0, 200)}). request_handoff.`,
+      };
+    }
+  } else {
+    appointment = resolved.appointment;
+  }
+
+  if (appointment.clientId !== clientId) {
+    return {
+      appointmentId: '',
+      crmSynced: false,
+      toolResult:
+        '[cancel_appointment] failed: запис належить іншому клієнту. request_handoff.',
     };
   }
 
@@ -1445,21 +1817,85 @@ export async function handleCancelAppointment(
   };
 }
 
+async function resolveLocalAppointmentForMutation(
+  conversationId: string,
+  clientId: string,
+  tool: string,
+): Promise<
+  | { ok: true; appointment: AppointmentWithClient }
+  | { ok: false; result: BookAppointmentResult }
+> {
+  const resolved = await resolveActiveBookingAppointment({ conversationId, clientId });
+  if (resolved.kind === 'ambiguous') {
+    return {
+      ok: false,
+      result: {
+        appointmentId: '',
+        crmSynced: false,
+        toolResult: resolved.toolHint.replace(/^\[cancel_appointment\]/, `[${tool}]`),
+      },
+    };
+  }
+  if (resolved.kind === 'none') {
+    return {
+      ok: false,
+      result: {
+        appointmentId: '',
+        crmSynced: false,
+        toolResult: `[${tool}] failed: немає активного запису (ні локально, ні в CRM). Уточни або request_handoff.`,
+      },
+    };
+  }
+  if (resolved.kind === 'crm_only') {
+    try {
+      const appointment = await mirrorCrmBookingToLocalAppointment({
+        conversationId,
+        clientId,
+        crmRecordId: resolved.crmRecordId,
+        provider: resolved.provider,
+        scheduledDate: resolved.scheduledDate,
+        scheduledTime: resolved.scheduledTime,
+        serviceNames: resolved.serviceNames,
+      });
+      return { ok: true, appointment };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        result: {
+          appointmentId: '',
+          crmSynced: false,
+          toolResult: `[${tool}] failed: не вдалося привʼязати CRM-візит (${msg.slice(0, 200)}). request_handoff.`,
+        },
+      };
+    }
+  }
+  if (resolved.appointment.clientId !== clientId) {
+    return {
+      ok: false,
+      result: {
+        appointmentId: '',
+        crmSynced: false,
+        toolResult: `[${tool}] failed: запис належить іншому клієнту. request_handoff.`,
+      },
+    };
+  }
+  return { ok: true, appointment: resolved.appointment };
+}
+
 export async function handleRemoveAppointmentService(
   conversationId: string,
   clientId: string,
   args: Record<string, unknown>,
   options?: BookAppointmentOptions,
 ): Promise<BookAppointmentResult | null> {
-  const appointment = await findActiveBookingAppointment(conversationId);
-  if (!appointment || appointment.clientId !== clientId) {
-    return {
-      appointmentId: '',
-      crmSynced: false,
-      toolResult:
-        '[remove_appointment_service] failed: немає активного запису. Уточни або request_handoff.',
-    };
-  }
+  const resolved = await resolveLocalAppointmentForMutation(
+    conversationId,
+    clientId,
+    'remove_appointment_service',
+  );
+  if (!resolved.ok) return resolved.result;
+  const appointment = resolved.appointment;
 
   const serviceId = asCrmId(args.service_id);
   const serviceName =
@@ -1647,15 +2083,13 @@ export async function handleRescheduleAppointment(
   args: Record<string, unknown>,
   options?: BookAppointmentOptions,
 ): Promise<BookAppointmentResult | null> {
-  const appointment = await findActiveBookingAppointment(conversationId);
-  if (!appointment || appointment.clientId !== clientId) {
-    return {
-      appointmentId: '',
-      crmSynced: false,
-      toolResult:
-        '[reschedule_appointment] failed: немає активного запису для перенесення. Уточни або request_handoff.',
-    };
-  }
+  const resolved = await resolveLocalAppointmentForMutation(
+    conversationId,
+    clientId,
+    'reschedule_appointment',
+  );
+  if (!resolved.ok) return resolved.result;
+  const appointment = resolved.appointment;
 
   const rawDate = typeof args.date === 'string' ? args.date.trim() : '';
   const time = typeof args.time === 'string' ? args.time.trim() : '';

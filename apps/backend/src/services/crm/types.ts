@@ -286,6 +286,20 @@ export interface CrmAppointmentServiceLine {
   professionalId?: string;
 }
 
+/**
+ * Future / open booking for cancel-reschedule when the visit was created
+ * outside the agent (manager Instagram, admin CRM) and has no local Appointment.
+ */
+export interface CrmUpcomingBooking {
+  id: string;
+  /** Calendar day YYYY-MM-DD */
+  date: string;
+  /** Clock HH:MM (best-effort from CRM). */
+  time: string;
+  locationId?: string;
+  serviceNames?: string[];
+}
+
 /** Past visit / sale from CRM client history (BeautyPro last ~2 months). */
 export interface CrmVisitHistoryItem {
   id: string;
@@ -421,6 +435,15 @@ export interface CrmAdapter {
     crmBuyerId: string,
     opts?: { limit?: number },
   ): Promise<CrmVisitHistoryItem[]>;
+
+  /**
+   * Open planned/confirmed bookings for a CRM client (not past history).
+   * Used when cancel/reschedule has no local Appointment for this conversation.
+   */
+  listClientUpcomingBookings?(
+    crmBuyerId: string,
+    opts?: { fromIsoDate: string; toIsoDate: string },
+  ): Promise<CrmUpcomingBooking[]>;
 
   listCustomFields?(
     scope: 'buyer' | 'order' | 'lead',

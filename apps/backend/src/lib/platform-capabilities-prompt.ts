@@ -29,7 +29,7 @@ sales: search_catalog, get_delivery_cost, lookup_order_shipment, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, lookup_client_by_phone, get_client_crm_history, attach_reference_photo, notify_client_running_late, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
 general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
-Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment).
+Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment). Cancel/reschedule знаходять і візити менеджера в CRM (після phone→crmBuyerId), не лише Appointment у цій UUID.
 
 Telegram-сповіщення менеджерам — з collect_order / create_local_order / brief / booking / handoff; плюс notify_client_running_late при запізненні клієнта. Картка замовлення без кнопок Підтвердити/Відхилити: агент уже підтвердив клієнту.
 
@@ -87,7 +87,7 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 - search_services: діапазон + розбивка грейдів (назви з CRM positions). Без майстра — цитуй range / «від».
 - get_available_slots + master_id: блок «Ціни для обраного майстра» = точна цитата; «недоступно» = цей рівень не робить послугу → інший майстер.
 - book_appointment: можна передати services[].price з цитати слотів; CRM BeautyPro рахує ціну сам — поле для локального запису/клієнта. services[].name — людська назва; платформа підставляє з каталогу, якщо агент передав лише id (клієнту ніколи UUID).
-- У промпт клієнта інжектяться «Найближчі записи» (локальні confirmed/synced на сьогодні + ~14 днів, до 8 візитів). Повідомлення «запізнююсь / я тут / через N хв» — про той візит, не новий book_appointment. Якщо менеджер нагадав підтвердити існуючий візит і клієнт пише «Підтверджую» — платформа інжектить блок підтвердження існуючого візиту; агент не викликає slots/book (слот уже зайнятий цим клієнтом).
+- У промпт клієнта інжектяться «Найближчі записи» (локальні confirmed/synced + відкриті CRM-візити, у т.ч. менеджерські; сьогодні + ~14 днів, до 8). Повідомлення «запізнююсь / я тут / через N хв» — про той візит, не новий book_appointment. Якщо менеджер нагадав підтвердити існуючий візит і клієнт пише «Підтверджую» — платформа інжектить блок підтвердження існуючого візиту; агент не викликає slots/book (слот уже зайнятий цим клієнтом).
 - Не хардкодь UUID позицій і не вигадуй назви грейдів поза tool/catalog.
 
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.

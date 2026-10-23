@@ -94,7 +94,7 @@ export function formatAgentToolsPrompt(
   }
   if (names.has('cancel_appointment')) {
     rules.push(
-      'Клієнт просить скасувати весь запис — після явної згоди виклич cancel_appointment. Не кажи «скасовано» без ok. Refund/оплата — request_handoff.',
+      'Клієнт просить скасувати весь запис — після явної згоди виклич cancel_appointment. Працює і для візитів, які створив менеджер у Instagram/CRM (якщо клієнт привʼязаний телефоном). Не кажи «скасовано» / «передала на скасування» без ok у result. Refund/оплата — request_handoff.',
     );
   }
   if (names.has('remove_appointment_service')) {
