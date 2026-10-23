@@ -38,8 +38,8 @@ describe('buildBeautyproAppointmentCreateBody', () => {
     });
   });
 
-  it('puts visit notes on appointment comments, not client comment', () => {
-    expect(body.comments).toBe('Брови паралельно');
+  it('omits visit notes from POST body (live API rejects comment/comments)', () => {
+    expect(body).not.toHaveProperty('comments');
     expect(body).not.toHaveProperty('comment');
   });
 

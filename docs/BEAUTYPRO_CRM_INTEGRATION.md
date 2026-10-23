@@ -84,7 +84,7 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 
 | Виклик | Правило |
 |--------|---------|
-| `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг; нотатка = **`comments`**. У body clients **не** слати `comment`/`comments` — лише імʼя + телефон/email. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |
+| `POST /appointments`, `POST /clients` | **Не** слати `fields` (у т.ч. `fields=id`). 201 і так `{ id }`. У body appointments **не** слати `id` рядків послуг; **не** слати `comment`/`comments` (live 23.10.2026: 400 Unknown parameter 'comments') — нотатка лишається локально на Appointment. У body clients **не** слати `comment`/`comments` — лише імʼя + телефон/email. Кілька послуг одного майстра — ланцюжок `start`, не той самий час. |
 | `GET /appointments` (lookup після 409) | `fields=date,location,client` + `client`/`location`/`from`/`to`/`state`. Без `fields=id`. |
 | `GET /clients` | `name,firstname,lastname,phone,email,archive` — **без** `comment`/`comments` (live 07.09.2026: 400 Unknown parameter 'comment'). |
 | `POST/PUT /clients` | POST (новий клієнт): `firstname`, `lastname`, `phone`, `email`. PUT існуючого: лише `phone` (масив) / `email`, без імені — інакше чат перезаписує картку салону. Live 400 на `comment` у body. |

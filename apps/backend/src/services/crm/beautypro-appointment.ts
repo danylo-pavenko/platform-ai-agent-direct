@@ -94,17 +94,16 @@ export function buildBeautyproAppointmentCreateBody(input: {
     return { service: s.id, professional, start, duration };
   });
 
-  const body: Record<string, unknown> = {
+  // Live BeautyPro POST /appointments rejects both `comment` and `comments`
+  // (2026-10-23: Unknown parameter 'comments'). Keep notes on local Appointment only.
+  void input.comment;
+  return {
     date: input.isoDate,
     location: input.locationId,
     client: input.clientId,
     state: 'planned',
     services,
   };
-  if (input.comment?.trim()) {
-    body.comments = input.comment.trim();
-  }
-  return body;
 }
 
 /** PUT /appointments/{id} — append new service rows without rewriting existing CRM lines. */

@@ -163,7 +163,7 @@ const TAG_CLIENT: ToolDefinition = {
 const REQUEST_HANDOFF: ToolDefinition = {
   name: 'request_handoff',
   description:
-    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. Якщо в цьому режимі є lookup_order_shipment — статус відправки / ТТН спочатку через нього, не handoff. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
+    'Передати розмову менеджеру-людині. Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця, доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. НЕ для фото-референсу дизайну манікюру/фарби — тоді attach_reference_photo + book_appointment. Якщо в цьому режимі є lookup_order_shipment — статус відправки / ТТН спочатку через нього, не handoff. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
   parameters: {
     type: 'object',
     properties: {
@@ -452,7 +452,7 @@ const BOOK_APPOINTMENT: ToolDefinition = {
 const ATTACH_REFERENCE_PHOTO: ToolDefinition = {
   name: 'attach_reference_photo',
   description:
-    'Зберегти референс-фото від клієнта (колір волосся, приклад стрижки тощо). Викликай коли клієнт надіслав фото в цій розмові.',
+    'Зберегти референс-фото від клієнта (дизайн манікюру, колір волосся, стрижка тощо). Викликай коли клієнт надіслав фото в цій розмові. Не замінює book_appointment і не є причиною request_handoff — після збереження продовжуй запис.',
   parameters: {
     type: 'object',
     properties: {
