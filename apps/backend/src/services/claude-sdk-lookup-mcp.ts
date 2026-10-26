@@ -238,6 +238,20 @@ export function createLookupMcpServer(
       ),
     );
   }
+  if (allowed.has('lookup_tenant_events')) {
+    tools.push(
+      tool(
+        'lookup_tenant_events',
+        'Календар подій студії (кастинг/акції/вакансії/співпраця). lifecycle open|scheduled|expired. Expired → вже неактуально.',
+        {
+          query: z.string().optional().describe('Ключові слова з повідомлення клієнта'),
+          event_id: z.string().optional().describe('UUID події з календаря'),
+        },
+        lookupHandler('lookup_tenant_events', ctx),
+        { annotations: LOOKUP_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
 
   if (allowed.has('update_client_info')) {
     tools.push(

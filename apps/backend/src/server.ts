@@ -22,6 +22,7 @@ import { crmFieldsRoutes } from './routes/crm-fields.js';
 import { analyticsRoutes } from './routes/analytics.js';
 import { referencePhotoRoutes } from './routes/reference-photos.js';
 import { branchRoutes } from './routes/branches.js';
+import { eventRoutes } from './routes/events.js';
 import { mediaRoutes } from './routes/media.js';
 import { insightsRoutes } from './routes/insights.js';
 
@@ -73,6 +74,7 @@ await app.register(crmFieldsRoutes, { prefix: '/crm-fields' });
 await app.register(analyticsRoutes, { prefix: '/analytics' });
 await app.register(mediaRoutes, { prefix: '/media' });
 await app.register(branchRoutes, { prefix: '/branches' });
+await app.register(eventRoutes, { prefix: '/events' });
 await app.register(referencePhotoRoutes, { prefix: '/reference-photos' });
 await app.register(insightsRoutes, { prefix: '/insights' });
 

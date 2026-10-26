@@ -92,6 +92,12 @@ const router = createRouter({
       meta: { title: 'Тестування агента', hideBottomNav: true },
     },
     {
+      path: '/events',
+      name: 'events',
+      component: () => import('@/views/EventsView.vue'),
+      meta: { title: 'Події' },
+    },
+    {
       path: '/crm-fields',
       name: 'crm-fields',
       component: () => import('@/views/CrmFieldsView.vue'),

@@ -104,12 +104,15 @@ model Conversation {
   bookingFunnel   Json?               @map("booking_funnel") @db.JsonB
   // Soft unfinished thread (import / live) — logical next step; ~7d TTL.
   openAgenda      Json?               @map("open_agenda") @db.JsonB
+  // Soft pin to a TenantEvent when agent/tool matched casting/promo/hiring.
+  matchedEventId  String?             @map("matched_event_id") @db.Uuid
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid
 
   client          Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
   branch          Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  matchedEvent    TenantEvent?        @relation(fields: [matchedEventId], references: [id], onDelete: SetNull)
   messages        Message[]
   orders          Order[]
   briefs          PresaleBrief[]
@@ -118,7 +121,69 @@ model Conversation {
   followUpJobs    FollowUpJob[]
 
   @@index([state, followUpSentAt, lastMessageAt])
+  @@index([matchedEventId])
   @@map("conversations")
+}
+
+// ── Tenant events (casting / promo / hiring / collab) ──
+
+enum TenantEventKind {
+  casting
+  promo
+  hiring
+  collab
+  other
+
+  @@map("tenant_event_kind")
+}
+
+enum TenantEventStatus {
+  draft
+  active
+  paused
+  archived
+
+  @@map("tenant_event_status")
+}
+
+enum TenantEventOnMatch {
+  inform
+  handoff
+  continue_funnel
+
+  @@map("tenant_event_on_match")
+}
+
+/// Studio calendar: casting, promos, hiring, collabs. Agent sees open + recently ended.
+model TenantEvent {
+  id                 String              @id @default(uuid()) @db.Uuid
+  title              String
+  kind               TenantEventKind
+  status             TenantEventStatus   @default(draft)
+  /// When the event itself happens (casting day, promo day). Null = no fixed date.
+  eventStartsAt      DateTime?           @map("event_starts_at")
+  eventEndsAt        DateTime?           @map("event_ends_at")
+  /// Response window — until when the offer is “live” for the agent.
+  openFrom           DateTime?           @map("open_from")
+  /// Null openUntil = open-ended (безстроково).
+  openUntil          DateTime?           @map("open_until")
+  summary            String
+  details            String
+  keywords           String[]            @default([])
+  agentInstructions  String              @map("agent_instructions")
+  onMatch            TenantEventOnMatch  @default(inform) @map("on_match")
+  handoffReason      String?             @map("handoff_reason")
+  /// Optional copy when lifecycle is expired.
+  closedReplyHint    String?             @map("closed_reply_hint")
+  priority           Int                 @default(0)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @default(now()) @updatedAt @map("updated_at")
+
+  conversations      Conversation[]
+
+  @@index([status, openUntil])
+  @@index([status, openFrom])
+  @@map("tenant_events")
 }
 
 // ── Smart-trigger / remarketing queue ──

@@ -15,6 +15,7 @@ import {
 import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 import { lookupOrderShipment } from './shipment-lookup.js';
+import { executeLookupTenantEvents } from './tenant-events.js';
 
 const log = pino({ name: 'agent-lookup-tools' });
 
@@ -213,6 +214,12 @@ export async function executeLookupTool(
         return runCrmHistory(args, ctx);
       case 'lookup_client_by_phone':
         return runLookupClientByPhone(args, ctx);
+      case 'lookup_tenant_events':
+        return executeLookupTenantEvents({
+          query: asString(args.query) || undefined,
+          event_id: asString(args.event_id) || undefined,
+          timeZone: ctx.timeZone,
+        });
       default:
         if (!isLookupToolName(name)) {
           return `[${name}] ПОМИЛКА: не lookup tool`;

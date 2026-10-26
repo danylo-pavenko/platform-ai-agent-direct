@@ -73,6 +73,10 @@ export interface ClientProfile {
   existingVisitConfirmHint?: string;
   /** Compact digest of messages before the civil-day Claude window. */
   priorSessionDigest?: string;
+  /** Active + recently ended tenant calendar events (casting / promo / hiring). */
+  tenantEventsHint?: string;
+  /** Soft keyword match hint for this turn (incl. Stories → event). */
+  matchedEventHint?: string;
 }
 
 /**
@@ -711,6 +715,12 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   }
   if (profile.priorSessionDigest) {
     parts.push('\n' + profile.priorSessionDigest);
+  }
+  if (profile.tenantEventsHint) {
+    parts.push('\n' + profile.tenantEventsHint);
+  }
+  if (profile.matchedEventHint) {
+    parts.push('\n' + profile.matchedEventHint);
   }
   if (profile.bookingSlotOffer) {
     parts.push('\n' + formatBookingSlotOfferForPrompt(profile.bookingSlotOffer));

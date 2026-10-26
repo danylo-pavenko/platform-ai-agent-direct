@@ -38,6 +38,7 @@ export const LOOKUP_TOOL_NAMES = [
   'lookup_order_shipment',
   'get_client_crm_history',
   'lookup_client_by_phone',
+  'lookup_tenant_events',
 ] as const;
 
 export type LookupToolName = (typeof LOOKUP_TOOL_NAMES)[number];
@@ -160,10 +161,29 @@ const TAG_CLIENT: ToolDefinition = {
   },
 };
 
+const LOOKUP_TENANT_EVENTS: ToolDefinition = {
+  name: 'lookup_tenant_events',
+  description:
+    'Календар подій студії: кастинг/моделі, акції, вакансії (SMM), співпраця/UGC. Викликай коли клієнт пише про вакансію, кастинг, акцію, Stories-офер або співпрацю — або щоб підтвердити ймовірну подію з промпту. Повертає lifecycle open|scheduled|expired + інструкції. Якщо expired — скажи що вже неактуально (не book/handoff як на живу вакансію). Якщо open+onMatch=handoff — клієнтський текст + request_handoff(show_to_client=true).',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Ключові слова з повідомлення клієнта (SMM, UGC, моделі, назва акції…)',
+      },
+      event_id: {
+        type: 'string',
+        description: 'UUID події з календаря / попереднього result (якщо вже відомий)',
+      },
+    },
+  },
+};
+
 const REQUEST_HANDOFF: ToolDefinition = {
   name: 'request_handoff',
   description:
-    'Передати розмову менеджеру-людині. reason — тільки для менеджера в Telegram (не клієнту). За замовчуванням клієнт отримує «зʼєдную з менеджером». Якщо треба надіслати клієнту свій текст (вакансія/SMM/UGC, імʼя асистента) — напиши його у відповіді І постав show_to_client=true; без цього прапорця будь-який текст відповіді клієнту НЕ йде (може бути нотаткою для менеджера). Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця/вакансії/UGC/SMM (за тимчасовими правилами промпту), доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. НЕ для фото-референсу дизайну манікюру/фарби — тоді attach_reference_photo + book_appointment. Якщо в цьому режимі є lookup_order_shipment — статус відправки / ТТН спочатку через нього, не handoff. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
+    'Передати розмову менеджеру-людині. reason — тільки для менеджера в Telegram (не клієнту). За замовчуванням клієнт отримує «зʼєдную з менеджером». Якщо треба надіслати клієнту свій текст (вакансія/SMM/UGC, імʼя асистента) — напиши його у відповіді І постав show_to_client=true; без цього прапорця будь-який текст відповіді клієнту НЕ йде (може бути нотаткою для менеджера). Викликай коли: скарга/брак, повернення/скасування оплати (refund), cancel/reschedule tools не спрацювали, клієнт прямо просить людину, ти двічі не зміг відповісти впевнено, опт/співпраця/вакансії/UGC/SMM (див. lookup_tenant_events і календар подій), доставка за кордон, офіційні документи, юридичні питання, тиск по ціні. НЕ для фото-референсу дизайну манікюру/фарби — тоді attach_reference_photo + book_appointment. Якщо в цьому режимі є lookup_order_shipment — статус відправки / ТТН спочатку через нього, не handoff. Скасування/перенесення візиту — спочатку cancel_appointment / remove_appointment_service / reschedule_appointment (не handoff за замовчуванням).',
   parameters: {
     type: 'object',
     properties: {
@@ -903,7 +923,7 @@ function buildSharedBaseTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
 
   const sharedBase: ToolDefinition[] = [updateClientInfo];
   if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
-  sharedBase.push(TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
+  sharedBase.push(LOOKUP_TENANT_EVENTS, TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
   return sharedBase;
 }
 

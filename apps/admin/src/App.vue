@@ -86,6 +86,12 @@
             subtitle="Симуляція чату з клієнтом"
             :to="{ name: 'sandbox' }"
           />
+          <v-list-item
+            prepend-icon="mdi-calendar-star"
+            title="Події"
+            subtitle="Кастинг, акції, вакансії"
+            :to="{ name: 'events' }"
+          />
         </v-list>
 
         <div class="nav-section-label">Система</div>
@@ -146,6 +152,13 @@
             title="Тестування агента"
             subtitle="Симуляція чату"
             :to="{ name: 'sandbox' }"
+            @click="onNavClick"
+          />
+          <v-list-item
+            prepend-icon="mdi-calendar-star"
+            title="Події"
+            subtitle="Кастинг, акції, вакансії"
+            :to="{ name: 'events' }"
             @click="onNavClick"
           />
           <v-list-item

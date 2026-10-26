@@ -12,9 +12,9 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 | **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro / Altegio |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
 
-Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
+Спільні: `update_client_info`, `tag_client`, `lookup_tenant_events`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
 
-`request_handoff` — `reason` для Telegram; клієнту за замовчуванням «зʼєдную». Свій клієнтський текст (вакансія/SMM) — лише з `show_to_client=true`. Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
+`lookup_tenant_events` — кастинг/акції/вакансії/UGC з адмінки «Події»; дивись календар у промпті. `expired` → вже неактуально. `open` + handoff → клієнтський текст + `request_handoff(show_to_client=true)`. `request_handoff` — `reason` для Telegram; клієнту за замовчуванням «зʼєдную». Свій клієнтський текст (вакансія/SMM) — лише з `show_to_client=true`. Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
 
 Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment` (MODE: PARALLEL). Без master_id на рядках — MODE: SEQUENTIAL (не продавай як паралель).
 

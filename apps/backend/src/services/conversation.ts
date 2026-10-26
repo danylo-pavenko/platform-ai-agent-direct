@@ -66,6 +66,12 @@ import {
   parseHandoffShowToClient,
   resolveHandoffClientMessage,
 } from '../lib/handoff-client-message.js';
+import { formatMatchedEventHint } from '../lib/tenant-events.js';
+import {
+  buildTenantEventsPromptBlock,
+  getTenantEventById,
+  softMatchTenantEvents,
+} from './tenant-events.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
 import { notifyAgentFailure, notifyAgentTurnDebug, notifyClaudeAuthRequired, notifyClientRunningLate, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
 import { clearClaudeAuthLiveCache } from './claude-auth.js';
@@ -923,6 +929,50 @@ async function handleIncomingMessageImpl(
     if (digest) clientProfile.priorSessionDigest = digest;
   } catch (err) {
     log.warn({ err, conversationId }, 'Failed to load prior-session digest for prompt');
+  }
+
+  // Tenant calendar events (casting / promo / hiring) + soft keyword / Stories match.
+  try {
+    const eventsBlock = await buildTenantEventsPromptBlock(now, agentCfg.timezone);
+    if (eventsBlock) clientProfile.tenantEventsHint = eventsBlock;
+
+    const matchQuery = messageText.trim();
+    const soft =
+      matchQuery.length >= 2
+        ? await softMatchTenantEvents(matchQuery, now)
+        : { events: [] as Awaited<ReturnType<typeof softMatchTenantEvents>>['events'], hint: null as string | null };
+
+    if (soft.hint) {
+      clientProfile.matchedEventHint = soft.hint;
+    } else if (igContext?.kind === 'story_reply' && eventsBlock) {
+      clientProfile.matchedEventHint =
+        'Клієнт відповів на Stories — звір кадр/OCR з календарем подій вище; при сумніві виклич lookup_tenant_events.';
+    }
+
+    const top = soft.events[0];
+    if (top && top.matchScore >= 24) {
+      prisma.conversation
+        .update({
+          where: { id: conversationId },
+          data: { matchedEventId: top.id },
+        })
+        .catch((err) =>
+          log.warn({ err, conversationId }, 'Failed to pin matchedEventId'),
+        );
+    } else if (conversation.matchedEventId && !soft.hint) {
+      const pinned = await getTenantEventById(conversation.matchedEventId);
+      if (pinned && pinned.lifecycle !== 'hidden') {
+        clientProfile.matchedEventHint =
+          (clientProfile.matchedEventHint ? `${clientProfile.matchedEventHint}\n` : '') +
+          formatMatchedEventHint(pinned, pinned.lifecycle);
+      } else if (pinned?.lifecycle === 'hidden') {
+        prisma.conversation
+          .update({ where: { id: conversationId }, data: { matchedEventId: null } })
+          .catch(() => undefined);
+      }
+    }
+  } catch (err) {
+    log.warn({ err, conversationId }, 'Failed to load tenant events for prompt');
   }
 
   const branchesList = await formatBranchesForPrompt();

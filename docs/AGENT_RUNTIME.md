@@ -106,7 +106,9 @@ Order in `buildRuntimePrompt` / `askClaude`:
 
 ## Agent modes and tools
 
-Shared: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`. Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`. Day+master slot replies (`Пт Анастасія`) and offered master names are not client ПІБ either — heuristics and `book_appointment` reject them.
+Shared: `update_client_info`, `tag_client`, `lookup_tenant_events`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`. Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`. Day+master slot replies (`Пт Анастасія`) and offered master names are not client ПІБ either — heuristics and `book_appointment` reject them.
+
+**Tenant events (Події):** Admin `/events` CRUD. Each event has occurrence dates (`eventStartsAt`/`eventEndsAt`) and a **response window** (`openFrom`/`openUntil`; null `openUntil` = open-ended). Active open + scheduled events inject as a compact calendar; recently ended (~14d after `openUntil`) inject so the agent can say the casting/vacancy is no longer relevant. Soft keyword match (and Stories OCR + calendar) may pin `Conversation.matchedEventId`. Tool `lookup_tenant_events` returns `lifecycle` `open|scheduled|expired` + `onMatch` (`inform` / `handoff` / `continue_funnel`). Expired → do not treat as a live vacancy; open+handoff → custom client text + `request_handoff`.
 
 | Mode | Purpose | Mode-specific tools | Terminal outcome |
 |------|---------|---------------------|------------------|

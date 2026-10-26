@@ -13,6 +13,7 @@ import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 import { lookupOrderShipment } from './shipment-lookup.js';
 import { getAgentConfig } from '../lib/agent-config.js';
+import { executeLookupTenantEvents } from './tenant-events.js';
 
 const log = pino({ name: 'sandbox-tools' });
 
@@ -173,6 +174,21 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
       };
     }
 
+    case 'lookup_tenant_events': {
+      try {
+        const agentCfg = await getAgentConfig();
+        const content = await executeLookupTenantEvents({
+          query: asString(tc.args.query) || undefined,
+          event_id: asString(tc.args.event_id) || undefined,
+          timeZone: agentCfg.timezone,
+        });
+        return { content };
+      } catch (err) {
+        log.error({ err }, 'sandbox lookup_tenant_events failed');
+        return { content: '[lookup_tenant_events] ПОМИЛКА: події тимчасово недоступні.' };
+      }
+    }
+
     case 'notify_client_running_late':
       return {
         dryRun: true,
@@ -245,6 +261,7 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
   const priority = [
     'search_catalog',
     'search_services',
+    'lookup_tenant_events',
     'get_delivery_cost',
     'lookup_order_shipment',
     'get_available_slots',

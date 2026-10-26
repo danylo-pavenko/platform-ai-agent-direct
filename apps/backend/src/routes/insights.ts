@@ -105,6 +105,7 @@ export function buildInsightsSystemPrompt(snapshot: InsightsSnapshot): string {
     '- [Налаштування](/settings) — інтеграції, режим агента, робочі години, Telegram.',
     '- [Навчання агента](/teach) — зміна поведінки та промпту.',
     '- [Промпти](/prompts) — активний системний промпт і версії.',
+    '- [Події](/events) — кастинг, акції, вакансії (календар агента).',
     '- [Тестування агента](/sandbox) — симуляція чату з клієнтом.',
     '',
     `Період аналізу: ${snapshot.periodLabel} (${periodRange}).`,

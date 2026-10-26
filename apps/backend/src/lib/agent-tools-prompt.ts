@@ -205,6 +205,11 @@ export function formatAgentToolsPrompt(
       'ПІБ і телефон часто приходять окремими бульбашками Instagram одразу після вибору часу — це та сама відповідь. Якщо в історії або в поточному блоці вже є імʼя/телефон — виклич update_client_info і не проси повторити.',
     );
   }
+  if (names.has('lookup_tenant_events')) {
+    rules.push(
+      'lookup_tenant_events — кастинг/акції/вакансії/UGC/Stories-офер. Перевір календар у промпті; для деталей виклич tool. lifecycle=expired → скажи що вже неактуально (не book/handoff як на живу). open+handoff → клієнтський текст + request_handoff(show_to_client=true).',
+    );
+  }
   if (names.has('request_handoff')) {
     rules.push(
       names.has('lookup_order_shipment')
