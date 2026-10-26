@@ -61,6 +61,10 @@ import {
   resolveGreetingScopeWindow,
 } from '../lib/claude-history-window.js';
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
+import {
+  DEFAULT_HANDOFF_CLIENT_MESSAGE,
+  resolveHandoffClientMessage,
+} from '../lib/handoff-client-message.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
 import { notifyAgentFailure, notifyAgentTurnDebug, notifyClaudeAuthRequired, notifyClientRunningLate, notifyHandoff, notifyHandoffFollowUp } from './telegram-notify.js';
 import { clearClaudeAuthLiveCache } from './claude-auth.js';
@@ -240,9 +244,11 @@ async function performManagerHandoff(params: {
     igUsername?: string | null;
   };
   reason: string;
+  /** Claude reply from this turn — preferred over the canned connect line. */
+  clientFacingText?: string | null;
   turnStartedAt?: Date;
 }): Promise<void> {
-  const { conversationId, client, reason, turnStartedAt } = params;
+  const { conversationId, client, reason, clientFacingText, turnStartedAt } = params;
 
   if (turnStartedAt && !(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Handoff skipped — manager took over during turn');
@@ -259,7 +265,7 @@ async function performManagerHandoff(params: {
   });
   cancelPendingFollowUpsSafe(conversationId, 'handoff');
 
-  const handoffMessage = 'Зачекайте, будь ласка, зʼєдную Вас з менеджером.';
+  const handoffMessage = resolveHandoffClientMessage(clientFacingText);
 
   let igMessageIds: string[] = [];
   if (client.igUserId) {
@@ -280,7 +286,14 @@ async function performManagerHandoff(params: {
     log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
   );
 
-  log.info({ conversationId, reason }, 'Conversation handed off to manager');
+  log.info(
+    {
+      conversationId,
+      reason,
+      usedAgentText: handoffMessage !== DEFAULT_HANDOFF_CLIENT_MESSAGE,
+    },
+    'Conversation handed off to manager',
+  );
 
   if (client.igUserId) {
     const recentMsgs = await prisma.message.findMany({
@@ -3462,6 +3475,7 @@ async function tryTerminalToolCalls(
         conversationId,
         client,
         reason,
+        clientFacingText: ctx.clientMessage,
         turnStartedAt,
       });
       return true;

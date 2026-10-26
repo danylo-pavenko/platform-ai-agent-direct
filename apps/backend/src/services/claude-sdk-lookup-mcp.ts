@@ -322,7 +322,7 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'request_handoff',
-        'Передати розмову менеджеру. Refund / скарга / tool cancel-reschedule failed. Скасування візиту — cancel_appointment; перенесення — reschedule_appointment.',
+        'Передати розмову менеджеру. У тій самій відповіді — повне клієнтське повідомлення (його надішлють клієнту). Refund / скарга / tool cancel-reschedule failed / вакансії·співпраця за промптом. Скасування візиту — cancel_appointment; перенесення — reschedule_appointment.',
         { reason: z.string(), priority: z.enum(['normal', 'urgent']).optional() },
         hostQueuedHandler('request_handoff'),
         { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
