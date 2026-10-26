@@ -63,6 +63,7 @@ import {
 import { formatHandoffMessageLine } from '../lib/handoff-format.js';
 import {
   DEFAULT_HANDOFF_CLIENT_MESSAGE,
+  parseHandoffShowToClient,
   resolveHandoffClientMessage,
 } from '../lib/handoff-client-message.js';
 import { shouldNotifyHandoffFollowUp } from '../lib/handoff-telegram.js';
@@ -244,11 +245,17 @@ async function performManagerHandoff(params: {
     igUsername?: string | null;
   };
   reason: string;
-  /** Claude reply from this turn — preferred over the canned connect line. */
+  /**
+   * Claude reply from this turn. Sent to IG only when `showToClient` is true
+   * (otherwise canned connect line — reply may be manager notes).
+   */
   clientFacingText?: string | null;
+  /** From `request_handoff.show_to_client` — must be true to use clientFacingText. */
+  showToClient?: boolean;
   turnStartedAt?: Date;
 }): Promise<void> {
-  const { conversationId, client, reason, clientFacingText, turnStartedAt } = params;
+  const { conversationId, client, reason, clientFacingText, showToClient, turnStartedAt } =
+    params;
 
   if (turnStartedAt && !(await isBotTurnStillValid(conversationId, turnStartedAt))) {
     log.info({ conversationId }, 'Handoff skipped — manager took over during turn');
@@ -265,7 +272,10 @@ async function performManagerHandoff(params: {
   });
   cancelPendingFollowUpsSafe(conversationId, 'handoff');
 
-  const handoffMessage = resolveHandoffClientMessage(clientFacingText);
+  const handoffMessage = resolveHandoffClientMessage({
+    agentText: clientFacingText,
+    showToClient,
+  });
 
   let igMessageIds: string[] = [];
   if (client.igUserId) {
@@ -290,6 +300,7 @@ async function performManagerHandoff(params: {
     {
       conversationId,
       reason,
+      showToClient: showToClient === true,
       usedAgentText: handoffMessage !== DEFAULT_HANDOFF_CLIENT_MESSAGE,
     },
     'Conversation handed off to manager',
@@ -3470,12 +3481,14 @@ async function tryTerminalToolCalls(
         typeof handoff.args.reason === 'string'
           ? handoff.args.reason
           : 'Клієнт потребує менеджера';
+      const showToClient = parseHandoffShowToClient(handoff.args.show_to_client);
 
       await performManagerHandoff({
         conversationId,
         client,
         reason,
         clientFacingText: ctx.clientMessage,
+        showToClient,
         turnStartedAt,
       });
       return true;

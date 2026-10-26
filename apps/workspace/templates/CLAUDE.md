@@ -14,7 +14,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 Спільні: `update_client_info`, `tag_client`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії.
 
-`request_handoff` — у тій самій відповіді напиши повне клієнтське повідомлення (хто ти, що передаєш); платформа надішле саме його. Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
+`request_handoff` — `reason` для Telegram; клієнту за замовчуванням «зʼєдную». Свій клієнтський текст (вакансія/SMM) — лише з `show_to_client=true`. Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
 
 Кілька послуг в один час до різних майстрів — `services[].master_id` на кожному рядку `get_available_slots` / `book_appointment` (MODE: PARALLEL). Без master_id на рядках — MODE: SEQUENTIAL (не продавай як паралель).
 
