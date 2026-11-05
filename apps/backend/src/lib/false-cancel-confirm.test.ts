@@ -41,12 +41,16 @@ describe('false-cancel-confirm', () => {
     ).toBe(false);
   });
 
-  it('rewrites false cancel into handoff-safe copy', () => {
+  it('strips false claims without injecting a canned apology', () => {
     const out = sanitizeFalseCancelConfirmReply(
       'Добре, передала запит на скасування Вашого візиту. Гарного дня!',
     );
-    expect(out).toMatch(/ще не скасовано/i);
-    expect(out).toMatch(/адміністратору/i);
+    expect(out).toMatch(/Гарного дня/i);
     expect(out).not.toMatch(/передала запит на скасування/i);
+    expect(out).not.toMatch(/адміністратору/i);
+  });
+
+  it('becomes empty (silence) when the whole draft was a false claim', () => {
+    expect(sanitizeFalseCancelConfirmReply('Ваш запис скасовано 🩷')).toBe('');
   });
 });

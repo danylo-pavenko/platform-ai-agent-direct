@@ -13,6 +13,7 @@ import { resolveBookingBranchForAppointment } from './booking-branch.js';
 import { notifyCrmFallback, notifyOrder, notifyBookingLifecycle } from './telegram-notify.js';
 import {
   applyServiceMasterAssignments,
+  appointmentServicesNeedCrmHydration,
   normalizeAppointmentServices,
   servicesToJson,
   uniqueMasterIds,
@@ -1277,6 +1278,92 @@ async function loadAppointmentWithClient(appointmentId: string) {
   });
 }
 
+/**
+ * One-shot: replace local crm-mirror-* / junk service ids with catalog ids from CRM
+ * GET appointment (BeautyPro/Altegio). Persists on the Appointment row when successful.
+ */
+async function hydrateAppointmentServicesFromCrm(
+  appointment: AppointmentWithClient,
+): Promise<{
+  appointment: AppointmentWithClient;
+  hydrated: boolean;
+  error?: string;
+}> {
+  const current = normalizeAppointmentServices(appointment.services);
+  if (!appointmentServicesNeedCrmHydration(current)) {
+    return { appointment, hydrated: false };
+  }
+  const crmRecordId = appointment.crmRecordId?.trim();
+  if (!crmRecordId) {
+    return { appointment, hydrated: false, error: 'немає crmRecordId' };
+  }
+
+  const provider = await resolveCrmProvider('booking');
+  const crm = getCrmAdapter(provider);
+  if (!crm.fetchAppointmentServices) {
+    return {
+      appointment,
+      hydrated: false,
+      error: `CRM ${provider} не вміє читати послуги візиту`,
+    };
+  }
+
+  try {
+    const lines = await crm.fetchAppointmentServices(crmRecordId);
+    const mapped: AppointmentServiceLine[] = [];
+    for (const line of lines) {
+      const id = asCrmId(line.serviceId);
+      if (!id || !isPlausibleToolCrmId(id)) continue;
+      mapped.push({
+        id,
+        name: line.serviceName?.trim() || undefined,
+        durationMin:
+          typeof line.durationMin === 'number' && line.durationMin > 0
+            ? line.durationMin
+            : 60,
+        masterId: asCrmId(line.professionalId) ?? undefined,
+        startTime:
+          typeof line.start === 'string' && line.start.trim()
+            ? line.start.trim().slice(0, 5)
+            : undefined,
+      });
+    }
+    if (mapped.length === 0) {
+      return {
+        appointment,
+        hydrated: false,
+        error: 'CRM не повернув жодного валідного service_id',
+      };
+    }
+
+    await prisma.appointment.update({
+      where: { id: appointment.id },
+      data: { services: toInputJsonValue(servicesToJson(mapped))! },
+    });
+    const reloaded = await loadAppointmentWithClient(appointment.id);
+    log.info(
+      {
+        appointmentId: appointment.id,
+        crmRecordId,
+        from: current.map((s) => s.id),
+        to: mapped.map((s) => s.id),
+      },
+      'Hydrated appointment service ids from CRM (replaced mirror placeholders)',
+    );
+    return {
+      appointment: reloaded ?? { ...appointment, services: servicesToJson(mapped) },
+      hydrated: true,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err, appointmentId: appointment.id, crmRecordId },
+      'hydrateAppointmentServicesFromCrm failed',
+    );
+    return { appointment, hydrated: false, error: msg.slice(0, 200) };
+  }
+}
+
 function bookingResolveHintFromArgs(args: Record<string, unknown>): BookingResolveHint | null {
   const rawDate =
     typeof args.current_date === 'string'
@@ -1679,14 +1766,21 @@ async function mirrorCrmBookingToLocalAppointment(params: {
     include: { client: true, branch: true },
   });
   if (existing) {
+    let row = existing;
     if (existing.conversationId !== params.conversationId) {
-      return prisma.appointment.update({
+      row = await prisma.appointment.update({
         where: { id: existing.id },
         data: { conversationId: params.conversationId },
         include: { client: true, branch: true },
       });
     }
-    return existing;
+    if (
+      appointmentServicesNeedCrmHydration(normalizeAppointmentServices(row.services))
+    ) {
+      const hydrated = await hydrateAppointmentServicesFromCrm(row);
+      return hydrated.appointment;
+    }
+    return row;
   }
 
   const client = await prisma.client.findUniqueOrThrow({
@@ -1704,13 +1798,47 @@ async function mirrorCrmBookingToLocalAppointment(params: {
     client.displayName?.trim() ||
     'Клієнт';
   const phone = (client.phone ?? '').trim() || 'unknown';
-  const services: AppointmentServiceLine[] = (params.serviceNames ?? []).map((n, i) => ({
+
+  // Prefer real catalog ids from CRM; fall back to placeholders then hydrate.
+  let services: AppointmentServiceLine[] = (params.serviceNames ?? []).map((n, i) => ({
     id: `crm-mirror-${i}`,
     name: n,
     durationMin: 60,
   }));
+  const crm = getCrmAdapter(
+    (await resolveCrmProvider('booking')) as CrmProviderName,
+  );
+  if (crm.fetchAppointmentServices) {
+    try {
+      const lines = await crm.fetchAppointmentServices(params.crmRecordId);
+      const mapped: AppointmentServiceLine[] = [];
+      for (const line of lines) {
+        const id = asCrmId(line.serviceId);
+        if (!id || !isPlausibleToolCrmId(id)) continue;
+        mapped.push({
+          id,
+          name: line.serviceName?.trim() || undefined,
+          durationMin:
+            typeof line.durationMin === 'number' && line.durationMin > 0
+              ? line.durationMin
+              : 60,
+          masterId: asCrmId(line.professionalId) ?? undefined,
+          startTime:
+            typeof line.start === 'string' && line.start.trim()
+              ? line.start.trim().slice(0, 5)
+              : undefined,
+        });
+      }
+      if (mapped.length > 0) services = mapped;
+    } catch (err) {
+      log.warn(
+        { err, crmRecordId: params.crmRecordId },
+        'mirror CRM booking: fetchAppointmentServices failed — using placeholders',
+      );
+    }
+  }
 
-  return prisma.appointment.create({
+  const created = await prisma.appointment.create({
     data: {
       conversationId: params.conversationId,
       clientId: params.clientId,
@@ -1728,6 +1856,12 @@ async function mirrorCrmBookingToLocalAppointment(params: {
     },
     include: { client: true, branch: true },
   });
+
+  if (appointmentServicesNeedCrmHydration(normalizeAppointmentServices(created.services))) {
+    const hydrated = await hydrateAppointmentServicesFromCrm(created);
+    return hydrated.appointment;
+  }
+  return created;
 }
 
 async function findActiveBookingAppointment(conversationId: string, clientId?: string) {
@@ -2252,7 +2386,7 @@ export async function handleRescheduleAppointment(
     bookingResolveHintFromArgs(args),
   );
   if (!resolved.ok) return resolved.result;
-  const appointment = resolved.appointment;
+  let appointment = resolved.appointment;
 
   const rawDate = typeof args.date === 'string' ? args.date.trim() : '';
   const time = typeof args.time === 'string' ? args.time.trim() : '';
@@ -2274,6 +2408,31 @@ export async function handleRescheduleAppointment(
         '[reschedule_appointment] failed INVALID_CRM_ID — services[].id має бути повний id CRM (UUID або число), не слово reschedule. Старий візит не скасовано.',
     };
   }
+
+  // Mirrored CRM visits used placeholder service ids (crm-mirror-0) — resolve once from CRM
+  // BEFORE canceling the old visit, then persist real ids on the local Appointment.
+  if (providedQuality !== 'ok') {
+    const localServices = normalizeAppointmentServices(appointment.services);
+    if (appointmentServicesNeedCrmHydration(localServices)) {
+      const hydrated = await hydrateAppointmentServicesFromCrm(appointment);
+      appointment = hydrated.appointment;
+      if (
+        appointmentServicesNeedCrmHydration(
+          normalizeAppointmentServices(appointment.services),
+        )
+      ) {
+        return {
+          appointmentId: appointment.id,
+          crmSynced: false,
+          toolResult:
+            `[reschedule_appointment] failed: локальні service_id некоректні (дзеркало CRM)` +
+            (hydrated.error ? ` — ${hydrated.error}` : '') +
+            '. Спробувала один раз підтягнути з CRM — не вдалося. Уточни або request_handoff. Старий візит НЕ скасовано.',
+        };
+      }
+    }
+  }
+
   const masterRaw = asCrmId(args.master_id);
   const safeMasterId = masterRaw && isPlausibleToolCrmId(masterRaw) ? masterRaw : undefined;
 

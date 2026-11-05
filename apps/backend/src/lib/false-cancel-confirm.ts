@@ -20,6 +20,10 @@ export function shouldSanitizeFalseCancelConfirm(opts: {
   return looksLikeCancelConfirmation(opts.responseText);
 }
 
+/**
+ * Strip false «скасовано» claims only — no canned handoff suffix.
+ * Empty string = prefer silence until/unless the model rewrites consciously.
+ */
 export function sanitizeFalseCancelConfirmReply(originalText: string): string {
   const parts = originalText
     .split(/(?<=[.!?…🩷🌸🙏💕])\s+/)
@@ -27,12 +31,5 @@ export function sanitizeFalseCancelConfirmReply(originalText: string): string {
     .filter(Boolean);
 
   const kept = parts.filter((s) => !CANCEL_CONFIRM_RE.test(s));
-  const facts = kept.join(' ').trim();
-  const suffix =
-    'Запис ще не скасовано в системі — передаю адміністратору, щоб точно зняли візит у CRM. Дякуємо, що попередили 🙏';
-
-  if (facts && !CANCEL_CONFIRM_RE.test(facts)) {
-    return `${facts}\n\n${suffix}`;
-  }
-  return suffix;
+  return kept.join(' ').trim();
 }

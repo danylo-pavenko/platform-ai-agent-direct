@@ -155,6 +155,13 @@ import {
   shouldSanitizeFalseCancelConfirm,
 } from '../lib/false-cancel-confirm.js';
 import {
+  buildBookingMutationFailureAwareNudge,
+  findFailedBookingMutation,
+  isAgentChosenSilence,
+  sanitizeFalseRescheduleConfirmReply,
+  shouldSanitizeFalseRescheduleConfirm,
+} from '../lib/false-reschedule-confirm.js';
+import {
   formatExistingVisitConfirmHint,
   isExistingVisitConfirmTurn,
   looksLikeVisitReminderText,
@@ -2732,6 +2739,84 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  // Failed cancel/reschedule/remove: one aware rewrite — honest reply or SILENCE.
+  // Never send a canned platform apology; prefer silence when the model says so.
+  if (
+    !agentFallback &&
+    modeHasBookingTools(agentCfg.mode) &&
+    !debug.bookingMutationFailureRecovery
+  ) {
+    const failedMutation = findFailedBookingMutation(debug.tools);
+    if (failedMutation) {
+      const nudge = buildBookingMutationFailureAwareNudge({
+        tool: failedMutation.tool,
+        toolResult: failedMutation.toolResult,
+        managerForced: opts?.managerAction === 'analyze_reply',
+      });
+      log.warn(
+        {
+          conversationId,
+          tool: failedMutation.tool,
+          resultPreview: failedMutation.toolResult.slice(0, 200),
+          stallPreview: responseText.slice(0, 200),
+        },
+        'Booking mutation failed — forcing aware recovery (reply or SILENCE)',
+      );
+      debug.bookingMutationFailureRecovery = true;
+
+      const recovery = await askTurnClaudeFollowUp(
+        {
+          conversationHistory: [
+            ...history,
+            { role: 'user' as const, content: enrichedMessageText },
+            { role: 'assistant' as const, content: responseText },
+          ],
+          userMessage: nudge,
+          tools,
+        },
+        {
+          channel: conversation.channel,
+          conversationId,
+          clientId: client.id,
+          model: agentCfg.claudeModel,
+        },
+      );
+
+      responseText = recovery.text;
+      agentFallback = recovery.fallback ?? agentFallback;
+      if (recovery.errorDetail) agentErrorDetail = recovery.errorDetail;
+      recordTurnRound(debug, {
+        label: 'booking_mutation_failure_recovery',
+        toolCalls: (recovery.toolCalls ?? []).map((tc) => tc.name),
+        textPreview: recovery.text,
+        fallback: recovery.fallback ?? null,
+      });
+
+      if (recovery.toolCalls?.length) {
+        await runSideEffectToolCalls(
+          recovery.toolCalls,
+          client.id,
+          conversationId,
+          mediaAttachments,
+          debug,
+        );
+        if (
+          await tryTerminalToolCalls(recovery.toolCalls, {
+            conversationId,
+            client,
+            agentMode: agentCfg.mode,
+            clientMessage: stripMarkdownForInstagram(recovery.text),
+            turnStartedAt,
+            turnDebug: debug,
+            managerAction: opts?.managerAction,
+          })
+        ) {
+          return 'completed';
+        }
+      }
+    }
+  }
+
   // Never tell the client the visit is cancelled when cancel_appointment failed.
   {
     const cancelCalled = debug.tools.some((t) => t.name === 'cancel_appointment');
@@ -2754,12 +2839,50 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  // Never tell the client the visit was moved when reschedule_appointment failed.
+  {
+    const rescheduleCalled = debug.tools.some((t) => t.name === 'reschedule_appointment');
+    const rescheduleOk = debug.tools.some(
+      (t) =>
+        t.name === 'reschedule_appointment' &&
+        /\[reschedule_appointment\]\s*ok\b/i.test(t.resultPreview),
+    );
+    if (
+      shouldSanitizeFalseRescheduleConfirm({
+        responseText,
+        rescheduleToolCalled: rescheduleCalled,
+        rescheduleToolOk: rescheduleOk,
+      })
+    ) {
+      responseText = sanitizeFalseRescheduleConfirmReply(responseText);
+      log.warn(
+        { conversationId, sanitizedPreview: responseText.slice(0, 200) },
+        'False reschedule confirmation after failed reschedule_appointment — sanitized outbound',
+      );
+    }
+  }
+
   // ── 10. Validate output (customer-facing gate) ─────────────────────
 
   let outputValidationFailure = false;
-  // Single contract: scrub meta/JSON/IDs; replace only when nothing client-facing remains.
-  const gated = gateCustomerFacingReply(responseText);
-  let clientFacingText = stripMarkdownForInstagram(gated.text);
+  // Conscious silence after failed mutation (or empty after strip) — do not
+  // replace with CUSTOMER_SAFE_META_FALLBACK via the empty gate.
+  const agentChoseSilence = isAgentChosenSilence(responseText);
+  let clientFacingText: string;
+  let gated: ReturnType<typeof gateCustomerFacingReply>;
+  if (agentChoseSilence) {
+    gated = {
+      text: '',
+      rejected: false,
+      reason: 'agent_silence',
+      redactedInternals: false,
+    };
+    clientFacingText = '';
+  } else {
+    // Single contract: scrub meta/JSON/IDs; replace only when nothing client-facing remains.
+    gated = gateCustomerFacingReply(responseText);
+    clientFacingText = stripMarkdownForInstagram(gated.text);
+  }
 
   // Localize canned busy/timeout for the customer's preferred language.
   // OAuth expiry is NOT a customer-facing fallback — silence IG, alert Telegram.
@@ -2933,7 +3056,20 @@ async function handleIncomingMessageImpl(
   let botFailureDetail: string | null = null;
   let suppressCustomerSend = false;
 
-  if (claudeAuthExpired && CUSTOMER_CHANNELS.has(conversation.channel)) {
+  if (agentChoseSilence && CUSTOMER_CHANNELS.has(conversation.channel)) {
+    suppressCustomerSend = true;
+    await igTyping.end();
+    log.info(
+      {
+        event: 'bot_agent_silence',
+        conversationId,
+        clientId: client.id,
+        mutationRecovery: debug.bookingMutationFailureRecovery,
+        responsePreview: responseText.slice(0, 80),
+      },
+      'Agent chose silence — no customer Instagram reply',
+    );
+  } else if (claudeAuthExpired && CUSTOMER_CHANNELS.has(conversation.channel)) {
     botFailureCode = 'auth';
     botFailureDetail = formatBotFailureDetail({
       code: 'auth',
@@ -3113,9 +3249,11 @@ async function handleIncomingMessageImpl(
     suppressCustomerSend && botFailureCode === 'auth';
   const persistAdminRetryNote =
     suppressCustomerSend && isSuppressedFallbackRetryNote(clientFacingText);
+  const persistAgentSilenceNote = suppressCustomerSend && agentChoseSilence;
   const skipCustomerBotPersist =
     persistAuthExpiredNote ||
     persistAdminRetryNote ||
+    persistAgentSilenceNote ||
     Boolean(opts?.managerAction && suppressCustomerSend);
 
   if (!skipCustomerBotPersist) {
@@ -3130,6 +3268,19 @@ async function handleIncomingMessageImpl(
     markFirstOutboundAt(conversationId).catch((err) =>
       log.warn({ err, conversationId }, 'markFirstOutboundAt failed (non-fatal)'),
     );
+  } else if (persistAgentSilenceNote) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text:
+          'Агент обрав мовчання (SILENCE) — клієнту в Instagram нічого не надсилали' +
+          (debug.bookingMutationFailureRecovery
+            ? ' після невдалого cancel/reschedule.'
+            : '.'),
+      },
+    });
   } else if (persistAuthExpiredNote) {
     await prisma.message.create({
       data: {
@@ -3632,7 +3783,11 @@ async function tryTerminalToolCalls(
           last.resultPreview = result?.toolResult ?? '[cancel_appointment] failed';
         }
       }
-      if (result) return true;
+      // Success already messaged the client inside the handler.
+      // Failure: do not end the turn / do not send a canned apology — main path
+      // gives the model one aware rewrite (reply or SILENCE).
+      if (result?.crmSynced) return true;
+      if (result && !result.crmSynced) return false;
     }
 
     const removeSvc = toolCalls.find((tc) => tc.name === 'remove_appointment_service');
@@ -3660,7 +3815,8 @@ async function tryTerminalToolCalls(
           last.resultPreview = result?.toolResult ?? '[remove_appointment_service] failed';
         }
       }
-      if (result) return true;
+      if (result?.crmSynced) return true;
+      if (result && !result.crmSynced) return false;
     }
 
     const reschedule = toolCalls.find((tc) => tc.name === 'reschedule_appointment');
@@ -3688,7 +3844,8 @@ async function tryTerminalToolCalls(
           last.resultPreview = result?.toolResult ?? '[reschedule_appointment] failed';
         }
       }
-      if (result) return true;
+      if (result?.crmSynced) return true;
+      if (result && !result.crmSynced) return false;
     }
   }
 

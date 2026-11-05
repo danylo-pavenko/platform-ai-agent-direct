@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyServiceMasterAssignments,
+  appointmentServicesNeedCrmHydration,
   backfillServiceMasterIds,
+  isMirroredPlaceholderServiceId,
   normalizeAppointmentServices,
   parseMasterIdsFromOrderNote,
   uniqueMasterIds,
@@ -51,5 +53,18 @@ describe('appointment service masters', () => {
       { id: '2', durationMin: 30, masterId: 'pro-2' },
     ]);
     expect(rows.map((r) => r.masterId)).toEqual(['pro-1', 'pro-2']);
+  });
+
+  it('detects crm-mirror placeholders that need CRM hydration', () => {
+    expect(isMirroredPlaceholderServiceId('crm-mirror-0')).toBe(true);
+    expect(isMirroredPlaceholderServiceId('88dd0fc4-da3d-e992-2008-7f0a230feb51')).toBe(false);
+    expect(
+      appointmentServicesNeedCrmHydration([{ id: 'crm-mirror-0' }, { id: 'crm-mirror-1' }]),
+    ).toBe(true);
+    expect(
+      appointmentServicesNeedCrmHydration([
+        { id: '88dd0fc4-da3d-e992-2008-7f0a230feb51' },
+      ]),
+    ).toBe(false);
   });
 });

@@ -37,7 +37,9 @@ export const CUSTOMER_SAFE_META_FALLBACK =
 export type CustomerFacingGateReason =
   | 'ok'
   | 'empty_after_sanitize'
-  | 'meta_only';
+  | 'meta_only'
+  /** Model intentionally opted out of a customer bubble (SILENCE / empty after strip). */
+  | 'agent_silence';
 
 export interface CustomerFacingGateResult {
   /** Text safe to send to the customer (never empty when ok/replaced). */

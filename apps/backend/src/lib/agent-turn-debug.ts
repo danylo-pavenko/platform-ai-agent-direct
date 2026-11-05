@@ -35,6 +35,8 @@ export type AgentTurnDebugCollector = {
   stallRecovery: boolean;
   /** True when we recovered a false "you're booked" claim without book_appointment. */
   falseBookingRecovery: boolean;
+  /** True after one aware rewrite when cancel/reschedule/remove failed. */
+  bookingMutationFailureRecovery: boolean;
   gateReason?: string;
   redactedInternals?: boolean;
   agentFallback?: string | null;
@@ -59,6 +61,7 @@ export function createAgentTurnDebugCollector(): AgentTurnDebugCollector {
     spawns: [],
     stallRecovery: false,
     falseBookingRecovery: false,
+    bookingMutationFailureRecovery: false,
   };
 }
 
@@ -119,6 +122,7 @@ export function shouldPersistAgentTurnDebug(collector: AgentTurnDebugCollector):
     collector.spawns.length > 0 ||
     collector.stallRecovery ||
     collector.falseBookingRecovery ||
+    collector.bookingMutationFailureRecovery ||
     Boolean(collector.agentFallback) ||
     Boolean(collector.redactedInternals) ||
     Boolean(collector.promptRefreshedMidTurn) ||
@@ -173,6 +177,11 @@ export function formatAgentTurnDebugNote(
   }
   if (collector.falseBookingRecovery) {
     lines.push('• False booking recovery: так (підтвердження без book_appointment)');
+  }
+  if (collector.bookingMutationFailureRecovery) {
+    lines.push(
+      '• Mutation failure recovery: так (cancel/reschedule failed → агент обирає відповідь або SILENCE)',
+    );
   }
   if (collector.agentFallback) {
     lines.push(`• Claude fallback: ${collector.agentFallback}`);

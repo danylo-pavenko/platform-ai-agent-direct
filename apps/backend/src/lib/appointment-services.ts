@@ -2,7 +2,28 @@
  * Canonical Appointment.services[] JSON lines + master id helpers.
  */
 
-import { asCrmId } from './crm-ids.js';
+import { asCrmId, isCrmGuid, isCrmGuidPrefix, isCrmNumericId } from './crm-ids.js';
+
+/** Placeholder ids from CRM→local mirror before real catalog ids are fetched. */
+export function isMirroredPlaceholderServiceId(id: string | null | undefined): boolean {
+  const s = (id ?? '').trim();
+  return /^crm-mirror-\d+$/i.test(s);
+}
+
+function isPlausibleCatalogCrmId(id: string): boolean {
+  return isCrmGuid(id) || isCrmNumericId(id) || isCrmGuidPrefix(id);
+}
+
+/** True when local lines lack usable CRM catalog ids (need one hydrate from appointment). */
+export function appointmentServicesNeedCrmHydration(
+  services: Array<{ id?: string | null }>,
+): boolean {
+  if (services.length === 0) return true;
+  return services.some((s) => {
+    const id = (s.id ?? '').trim();
+    return !id || isMirroredPlaceholderServiceId(id) || !isPlausibleCatalogCrmId(id);
+  });
+}
 
 const MASTER_ID_IN_NOTE_RE =
   /master_id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\d+)/gi;
