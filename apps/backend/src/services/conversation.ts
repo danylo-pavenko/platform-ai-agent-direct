@@ -3377,14 +3377,18 @@ async function runSideEffectToolCalls(
 
     const hasPhone =
       typeof updateInfo.args.phone === 'string' && updateInfo.args.phone.trim().length > 0;
+    const hasPersonName =
+      (typeof updateInfo.args.full_name === 'string' &&
+        updateInfo.args.full_name.trim().length > 0) ||
+      (typeof updateInfo.args.name === 'string' && updateInfo.args.name.trim().length > 0);
 
     try {
       await handleUpdateClientInfo(clientId, updateInfo.args);
-      if (hasPhone) {
-        // Await link so get_available_slots / get_client_crm_history in this turn
-        // can resolve personal duration from CRM history.
+      if (hasPhone || hasPersonName) {
+        // Await link so get_available_slots / get_client_crm_history / cancel-reschedule
+        // in this turn can resolve CRM card (phone or ПІБ) and hydrate local phone.
         await linkClientToCrm(clientId, { upsert: false }).catch((err) => {
-          log.warn({ err, clientId }, 'linkClientToCrm after phone failed (non-fatal)');
+          log.warn({ err, clientId }, 'linkClientToCrm after profile update failed (non-fatal)');
         });
       }
       // Full CRM mirror stays async (may need write-enabled upsert).

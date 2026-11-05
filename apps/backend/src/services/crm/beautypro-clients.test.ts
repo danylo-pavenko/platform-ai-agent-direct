@@ -4,6 +4,7 @@ import {
   buildBeautyproClientWriteBody,
   buildClientPhoneSearchVariants,
   buildIgNameSearchVariants,
+  buildPersonNameSearchVariants,
   commentsContainIg,
   clientNoteFromBeautyproRow,
   clientRowMatchesPhone,
@@ -13,7 +14,10 @@ import {
   igCommentMarker,
   normalizeIgUsername,
   pickBestBeautyproClient,
+  pickBestBeautyproClientByName,
   pickClientMatchingIg,
+  primaryPhoneFromBeautyproRow,
+  scoreBeautyproClientNameMatch,
 } from './beautypro-clients.js';
 
 describe('beautypro client helpers', () => {
@@ -162,5 +166,38 @@ describe('beautypro client helpers', () => {
     ).toBe('Марта Коваль');
     expect(formatBeautyproClientFullName({ firstname: 'Марта', lastname: '' })).toBe('Марта');
     expect(formatBeautyproClientFullName({ name: '  ', firstname: '  ' })).toBeUndefined();
+  });
+
+  it('builds person name search variants: full, swap, tokens', () => {
+    const variants = buildPersonNameSearchVariants('Еліяшевська Анна');
+    expect(variants[0]).toBe('Еліяшевська Анна');
+    expect(variants).toContain('Анна Еліяшевська');
+    expect(variants).toContain('Еліяшевська');
+    expect(variants).toContain('Анна');
+  });
+
+  it('picks CRM card by ПІБ score and extracts phone', () => {
+    const best = pickBestBeautyproClientByName(
+      [
+        {
+          id: 'other',
+          name: 'Анна Інша',
+          phone: ['+380501111111'],
+          archive: false,
+        },
+        {
+          id: 'target',
+          firstname: 'Анна',
+          lastname: 'Еліяшевська',
+          phone: ['+380 (98) 338 05 20'],
+          archive: false,
+          first_visit: '2025-01-01',
+        },
+      ],
+      'Еліяшевська Анна',
+    );
+    expect(best?.id).toBe('target');
+    expect(scoreBeautyproClientNameMatch(best!, 'Еліяшевська')).toBeGreaterThan(20);
+    expect(primaryPhoneFromBeautyproRow(best!)).toBe('+380983380520');
   });
 });

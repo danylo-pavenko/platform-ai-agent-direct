@@ -72,8 +72,18 @@ export interface CrmClientMatch {
   crmBuyerId?: string;
   phone?: string;
   email?: string;
+  /** Person name / ПІБ (full or one word) — BeautyPro `name` filter. */
+  name?: string;
   /** Instagram handle without @, used for custom-field match or note search. */
   instagramUsername?: string;
+}
+
+/** Result of CRM client lookup (link + hydrate local phone/name). */
+export interface CrmClientLookupHit {
+  crmBuyerId: string;
+  fullName?: string;
+  /** Best phone from CRM card (E.164 when UA). */
+  phone?: string;
 }
 
 export interface CrmClientInput {
@@ -387,7 +397,9 @@ export interface CrmAdapter {
   searchOffers(params: OfferSearchParams): Promise<CrmOffer[]>;
 
   // Writes (optional)
-  findClient?(match: CrmClientMatch): Promise<{ crmBuyerId: string; fullName?: string } | null>;
+  findClient?(match: CrmClientMatch): Promise<CrmClientLookupHit | null>;
+  /** Fetch one CRM client card by id (phone/name hydrate). */
+  fetchClient?(crmBuyerId: string): Promise<CrmClientLookupHit | null>;
   upsertClient?(
     crmBuyerId: string | null,
     input: CrmClientInput,

@@ -91,10 +91,29 @@ export function pickSingleUpcomingLocal(
   );
 }
 
+export type BookingResolveHint = {
+  /** Existing visit date DD.MM.YYYY (what client wants to move/cancel). */
+  dateUa?: string | null;
+  /** Existing visit clock HH:MM. */
+  time?: string | null;
+};
+
+function matchesHint(
+  scheduledDate: string,
+  scheduledTime: string,
+  hint?: BookingResolveHint | null,
+): boolean {
+  if (!hint?.dateUa?.trim()) return false;
+  if (scheduledDate !== hint.dateUa.trim()) return false;
+  if (!hint.time?.trim()) return true;
+  return normalizeTime(scheduledTime) === normalizeTime(hint.time);
+}
+
 export function pickSingleUpcomingCrm(
   rows: CrmUpcomingBooking[],
   now: Date,
   timeZone: string,
+  hint?: BookingResolveHint | null,
 ): CrmUpcomingBooking | 'ambiguous' | null {
   const withUa = rows
     .map((b) => {
@@ -102,6 +121,14 @@ export function pickSingleUpcomingCrm(
       return ua ? { booking: b, ua } : null;
     })
     .filter((x): x is { booking: CrmUpcomingBooking; ua: UpcomingVisitRow } => x != null);
+
+  if (hint?.dateUa?.trim()) {
+    const hinted = withUa.filter((x) =>
+      matchesHint(x.ua.scheduledDate, x.ua.scheduledTime, hint),
+    );
+    if (hinted.length === 1) return hinted[0]!.booking;
+    if (hinted.length > 1) return 'ambiguous';
+  }
 
   const picked = selectUpcomingVisits(
     withUa.map((x) => x.ua),
@@ -125,9 +152,28 @@ export function resolveBookingTargetPreference(opts: {
   crmBookings: CrmUpcomingBooking[];
   now: Date;
   timeZone: string;
+  hint?: BookingResolveHint | null;
 }): ResolvedBookingTarget {
   if (opts.conversationLocal) {
     return { kind: 'local', appointmentId: opts.conversationLocal.id };
+  }
+
+  if (opts.hint?.dateUa?.trim()) {
+    const localHinted = opts.clientLocals.filter((r) =>
+      matchesHint(r.scheduledDate, r.scheduledTime, opts.hint),
+    );
+    if (localHinted.length === 1) {
+      return { kind: 'local', appointmentId: localHinted[0]!.id };
+    }
+    if (localHinted.length > 1) {
+      return {
+        kind: 'ambiguous',
+        candidates: localHinted.map((r) => ({
+          source: 'local' as const,
+          label: `${r.scheduledDate} ${r.scheduledTime}`,
+        })),
+      };
+    }
   }
 
   const localPick = pickSingleUpcomingLocal(opts.clientLocals, opts.now, opts.timeZone);
@@ -144,7 +190,12 @@ export function resolveBookingTargetPreference(opts: {
     return { kind: 'local', appointmentId: localPick.id };
   }
 
-  const crmPick = pickSingleUpcomingCrm(opts.crmBookings, opts.now, opts.timeZone);
+  const crmPick = pickSingleUpcomingCrm(
+    opts.crmBookings,
+    opts.now,
+    opts.timeZone,
+    opts.hint,
+  );
   if (crmPick === 'ambiguous') {
     return {
       kind: 'ambiguous',

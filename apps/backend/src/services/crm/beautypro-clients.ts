@@ -186,6 +186,113 @@ export function buildIgNameSearchVariants(username: string): string[] {
   return [u, `@${u}`];
 }
 
+/**
+ * BeautyPro `name` filter variants: full ПІБ, swapped order, then tokens ≥3 chars
+ * (surname alone, given name alone) — longest first to prefer precise hits.
+ */
+export function buildPersonNameSearchVariants(raw: string | undefined | null): string[] {
+  const cleaned = (raw ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[«»""]/g, '');
+  if (!cleaned || cleaned.length < 2) return [];
+
+  const out: string[] = [];
+  const push = (v: string) => {
+    const s = v.trim();
+    if (s.length >= 2 && !out.includes(s)) out.push(s);
+  };
+
+  push(cleaned);
+  const parts = cleaned.split(' ').filter(Boolean);
+  if (parts.length >= 2) {
+    push(`${parts[parts.length - 1]} ${parts.slice(0, -1).join(' ')}`);
+    push([...parts].reverse().join(' '));
+  }
+  const tokens = parts
+    .map((p) => p.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter((p) => p.length >= 3);
+  tokens.sort((a, b) => b.length - a.length);
+  for (const t of tokens) push(t);
+
+  return out;
+}
+
+function normalizeNameBlob(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[''`ʼ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Score how well a CRM row matches a person-name query (higher = better). */
+export function scoreBeautyproClientNameMatch(
+  row: Pick<RawClientLike, 'name' | 'firstname' | 'lastname'>,
+  query: string,
+): number {
+  const q = normalizeNameBlob(query);
+  if (!q) return 0;
+  const full = normalizeNameBlob(
+    formatBeautyproClientFullName(row) ?? [row.firstname, row.lastname, row.name].filter(Boolean).join(' '),
+  );
+  if (!full) return 0;
+
+  let score = 0;
+  if (full === q) score += 100;
+  else if (full.includes(q) || q.includes(full)) score += 70;
+
+  const qTokens = q.split(' ').filter((t) => t.length >= 2);
+  const fTokens = full.split(' ').filter(Boolean);
+  let tokenHits = 0;
+  for (const qt of qTokens) {
+    if (fTokens.some((ft) => ft === qt || ft.startsWith(qt) || qt.startsWith(ft))) {
+      tokenHits += 1;
+    }
+  }
+  if (qTokens.length > 0 && tokenHits === qTokens.length) score += 40;
+  else score += tokenHits * 12;
+
+  if (hasCyrillicName(row)) score += 8;
+  if (hasVisitHistory(row as RawClientLike)) score += 10;
+  return score;
+}
+
+export function pickBestBeautyproClientByName(
+  rows: RawClientLike[] | null | undefined,
+  query: string,
+): RawClientLike | null {
+  if (!rows?.length || !query.trim()) return null;
+  const active = rows.filter((r) => r?.id && r.archive !== true);
+  const pool = active.length > 0 ? active : rows.filter((r) => r?.id);
+  if (pool.length === 0) return null;
+
+  const scored = pool.map((row, index) => ({
+    row,
+    score: scoreBeautyproClientNameMatch(row, query),
+    index,
+  }));
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  const best = scored[0]!;
+  // Require a real name signal — avoid random first-page hits on weak tokens.
+  if (best.score < 24) return null;
+  return best.row;
+}
+
+/** Prefer UA E.164; else first non-empty phone on the CRM card. */
+export function primaryPhoneFromBeautyproRow(
+  row: Pick<RawClientLike, 'phone'>,
+): string | undefined {
+  const phones = rowPhoneList(row);
+  for (const p of phones) {
+    const ua = normalizeUaPhone(p);
+    if (ua) return ua;
+  }
+  const first = phones.map((p) => p.trim()).find(Boolean);
+  return first;
+}
+
 export type RawClientLike = {
   id: string;
   name?: string;

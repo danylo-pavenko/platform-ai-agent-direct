@@ -29,7 +29,7 @@ sales: search_catalog, get_delivery_cost, lookup_order_shipment, collect_order
 leadgen: classify_intent, submit_brief
 booking: classify_intent, search_services, get_available_slots, lookup_client_by_phone, get_client_crm_history, attach_reference_photo, notify_client_running_late, book_appointment, cancel_appointment, remove_appointment_service, reschedule_appointment
 general: усі з sales + leadgen + booking (dedupe). Новий tool у будь-якому спеціалізованому режимі → автоматично в general.
-Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment). Cancel/reschedule знаходять і візити менеджера в CRM (після phone→crmBuyerId), не лише Appointment у цій UUID.
+Refund / скасування оплати → request_handoff. Скасувати візит → cancel_appointment; одну послугу → remove_appointment_service; перенести → reschedule_appointment (не другий book_appointment). Cancel/reschedule знаходять і візити менеджера в CRM (після phone/ПІБ→crmBuyerId + hydrate телефону з картки), не лише Appointment у цій UUID. Порожня past-history ≠ немає майбутнього візиту — get_client_crm_history також показує planned/confirmed. Якщо tool не знаходить запис, а клієнт наполягає — handoff.
 
 Telegram-сповіщення менеджерам — з collect_order / create_local_order / brief / booking / handoff; плюс notify_client_running_late при запізненні клієнта. Картка замовлення без кнопок Підтвердити/Відхилити: агент уже підтвердив клієнту.
 

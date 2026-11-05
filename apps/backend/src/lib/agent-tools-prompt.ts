@@ -105,7 +105,8 @@ export function formatAgentToolsPrompt(
   }
   if (names.has('reschedule_appointment')) {
     rules.push(
-      'Клієнт просить перенести на інший день/час — спочатку get_available_slots на нову дату з тими ж послугами/майстрами, після згоди — reschedule_appointment (date+time). Заборонено «переносити» через book_appointment.',
+      'Клієнт просить перенести на інший день/час — спочатку get_available_slots на нову дату з тими ж послугами/майстрами, після згоди — reschedule_appointment (date+time). Якщо клієнт назвав СТАРИЙ слот («завтра о 15:00») — обовʼязково current_date + current_time. Заборонено «переносити» через book_appointment.',
+      'Якщо reschedule_appointment failed «немає активного запису», а клієнт упевнений що візит є (назвав ПІБ/час) — не кажи «вже перенесла / підтвердження надійде». Один раз уточни телефон; якщо телефону немає або клієнт наполягає — request_handoff з reason для адміна і show_to_client=true (коротко: передаю адміністратору, бо не бачу запис у системі).',
     );
   }
   if (
@@ -114,7 +115,7 @@ export function formatAgentToolsPrompt(
     names.has('remove_appointment_service')
   ) {
     rules.push(
-      'Скасування оплати / повернення коштів — немає tool → request_handoff. Якщо cancel/reschedule/remove повернули failed — теж request_handoff, не вигадуй успіх.',
+      'Скасування оплати / повернення коштів — немає tool → request_handoff. Якщо cancel/reschedule/remove повернули failed — теж request_handoff, не вигадуй успіх і не обіцяй «зараз система підтвердить».',
     );
   }
   if (names.has('search_services')) {
@@ -172,7 +173,8 @@ export function formatAgentToolsPrompt(
   }
   if (names.has('get_client_crm_history')) {
     rules.push(
-      'Після телефону (update_client_info) для повторного клієнта — виклич get_client_crm_history (краще з service_id/service_query з search_services). Дивись РЕКОМЕНДОВАНА_ТРИВАЛІСТЬ і озвуч орієнтир клієнту.',
+      'Після телефону або ПІБ (update_client_info) для повторного клієнта — виклич get_client_crm_history (краще з service_id/service_query з search_services). Дивись РЕКОМЕНДОВАНА_ТРИВАЛІСТЬ і блок «Найближчі відкриті записи CRM» для cancel/reschedule.',
+      'Порожня історія за ~2 місяці ≠ немає майбутнього візиту: дивись відкриті planned/confirmed у тому ж результаті. Якщо і їх немає, а клієнт наполягає — телефон або request_handoff.',
       'Для слотів/запису довіряй тривалості з tool result (історія actual/booked); не вигадуй і не став сліпо лише каталожну duration_min, якщо історія каже інакше.',
     );
   }

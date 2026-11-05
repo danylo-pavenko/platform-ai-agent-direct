@@ -326,13 +326,21 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
 const CANCEL_APPOINTMENT: ToolDefinition = {
   name: 'cancel_appointment',
   description:
-    'Скасувати весь поточний запис клієнта в CRM (повний візит). Викликай після явної згоди скасувати. Не для refund/оплати — тоді request_handoff. Не кажи «скасовано» без успішного result.',
+    'Скасувати весь поточний запис клієнта в CRM (повний візит). Викликай після явної згоди скасувати. Не для refund/оплати — тоді request_handoff. Не кажи «скасовано» без успішного result. Якщо клієнт назвав дату/час існуючого візиту — передай current_date / current_time.',
   parameters: {
     type: 'object',
     properties: {
       reason: {
         type: 'string',
         description: 'Коротка причина для CRM/менеджера (опційно)',
+      },
+      current_date: {
+        type: 'string',
+        description: 'Дата існуючого візиту ДД.ММ.РРРР (якщо клієнт її назвав)',
+      },
+      current_time: {
+        type: 'string',
+        description: 'Час існуючого візиту ГГ:ХХ (якщо клієнт його назвав)',
       },
     },
     required: [],
@@ -362,7 +370,7 @@ const REMOVE_APPOINTMENT_SERVICE: ToolDefinition = {
 const RESCHEDULE_APPOINTMENT: ToolDefinition = {
   name: 'reschedule_appointment',
   description:
-    'Перенести поточний запис на іншу дату/час: платформа скасує старий візит у CRM і створить новий. НЕ використовуй повторний book_appointment для перенесення. Спочатку get_available_slots на нову дату (з тими ж послугами/майстрами), потім після згоди клієнта — цей tool. services[] можна опустити — візьмуться з поточного візиту. Не кажи «перенесла» без успішного result.',
+    'Перенести поточний запис на іншу дату/час: платформа скасує старий візит у CRM і створить новий. НЕ використовуй повторний book_appointment для перенесення. Спочатку get_available_slots на нову дату (з тими ж послугами/майстрами), потім після згоди клієнта — цей tool. services[] можна опустити — візьмуться з поточного візиту. Якщо клієнт назвав дату/час СТАРОГО візиту («завтра о 15:00») — обовʼязково current_date / current_time. Не кажи «перенесла» без успішного result.',
   parameters: {
     type: 'object',
     properties: {
@@ -373,6 +381,14 @@ const RESCHEDULE_APPOINTMENT: ToolDefinition = {
       time: {
         type: 'string',
         description: 'Новий час ГГ:ХХ',
+      },
+      current_date: {
+        type: 'string',
+        description: 'Дата ІСНУЮЧОГО візиту ДД.ММ.РРРР (що переносимо), якщо клієнт її назвав',
+      },
+      current_time: {
+        type: 'string',
+        description: 'Час ІСНУЮЧОГО візиту ГГ:ХХ (напр. 15:00), якщо клієнт його назвав',
       },
       customer_name: { type: 'string', description: 'Якщо треба оновити ПІБ; інакше з поточного візиту' },
       phone: { type: 'string', description: 'Якщо треба оновити телефон; інакше з поточного візиту' },

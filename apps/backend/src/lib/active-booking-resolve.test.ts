@@ -80,4 +80,17 @@ describe('active-booking-resolve', () => {
       ),
     ).toBeNull();
   });
+
+  it('picks CRM booking by current_date/time hint among several', () => {
+    const hit = pickSingleUpcomingCrm(
+      [
+        { id: 'a', date: '2026-10-23', time: '13:15' },
+        { id: 'b', date: '2026-10-24', time: '15:00' },
+      ],
+      now,
+      tz,
+      { dateUa: '24.10.2026', time: '15:00' },
+    );
+    expect(hit).toEqual({ id: 'b', date: '2026-10-24', time: '15:00' });
+  });
 });

@@ -380,8 +380,12 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'cancel_appointment',
-        'Скасувати весь поточний запис у CRM. Не для refund. Не кажи «скасовано» без ok.',
-        { reason: z.string().optional() },
+        'Скасувати весь поточний запис у CRM. Не для refund. Не кажи «скасовано» без ok. Якщо клієнт назвав дату/час візиту — current_date / current_time.',
+        {
+          reason: z.string().optional(),
+          current_date: z.string().optional(),
+          current_time: z.string().optional(),
+        },
         hostQueuedHandler('cancel_appointment'),
         { annotations: HOST_ANNOTATIONS, alwaysLoad: true },
       ),
@@ -405,10 +409,12 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'reschedule_appointment',
-        'Перенести запис: скасує старий візит і створить новий на date/time. Не через book_appointment.',
+        'Перенести запис: скасує старий візит і створить новий на date/time. Старий слот («завтра о 15:00») — current_date + current_time. Не через book_appointment.',
         {
           date: z.string(),
           time: z.string(),
+          current_date: z.string().optional(),
+          current_time: z.string().optional(),
           customer_name: z.string().optional(),
           phone: z.string().optional(),
           services: z

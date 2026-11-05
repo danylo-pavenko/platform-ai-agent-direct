@@ -20,13 +20,19 @@ import {
   type ServiceMasterAssignment,
 } from '../lib/appointment-services.js';
 import { bookingVisitsCanMerge } from '../lib/booking-visit-merge.js';
-import { linkClientToCrm, persistCrmBuyerIdFromBooking } from './client-crm-link.js';
+import {
+  hydrateLocalClientFromCrm,
+  linkClientToCrm,
+  persistCrmBuyerIdFromBooking,
+} from './client-crm-link.js';
 import {
   crmPersonFullName,
   effectiveChatDisplayName,
   effectiveClientPersonName,
+  isPlausiblePersonName,
   personNameCollidesWithMaster,
 } from '../lib/client-person-name.js';
+import { normalizeUaPhone } from '../lib/client-contact-heuristics.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -77,6 +83,8 @@ import {
   formatAmbiguousBookingToolResult,
   isoRangeForUpcomingHorizon,
   resolveBookingTargetPreference,
+  uaDateToIso,
+  type BookingResolveHint,
   type LocalBookingCandidate,
 } from '../lib/active-booking-resolve.js';
 import {
@@ -1269,10 +1277,34 @@ async function loadAppointmentWithClient(appointmentId: string) {
   });
 }
 
+function bookingResolveHintFromArgs(args: Record<string, unknown>): BookingResolveHint | null {
+  const rawDate =
+    typeof args.current_date === 'string'
+      ? args.current_date.trim()
+      : typeof args.from_date === 'string'
+        ? args.from_date.trim()
+        : '';
+  const dateUa = rawDate ? normalizeToUaDate(rawDate) : '';
+  const time =
+    typeof args.current_time === 'string'
+      ? args.current_time.trim()
+      : typeof args.from_time === 'string'
+        ? args.from_time.trim()
+        : '';
+  if (!dateUa || !parseAgentDate(dateUa)) return time ? { time } : null;
+  return { dateUa, time: time || null };
+}
+
 /** BeautyPro (etc.) open bookings for a linked CRM client; optional clock enrich. */
 export async function fetchCrmUpcomingBookingsForClient(
   clientId: string,
-  opts?: { now?: Date; timeZone?: string; provider?: CrmProviderName },
+  opts?: {
+    now?: Date;
+    timeZone?: string;
+    provider?: CrmProviderName;
+    /** Expand from/to so a named visit date is included even outside default horizon. */
+    hintDateUa?: string | null;
+  },
 ): Promise<CrmUpcomingBooking[]> {
   const now = opts?.now ?? new Date();
   const timeZone = opts?.timeZone ?? (await getAgentConfig()).timezone;
@@ -1289,6 +1321,11 @@ export async function fetchCrmUpcomingBookingsForClient(
   if (!crm.listClientUpcomingBookings) return [];
 
   const range = isoRangeForUpcomingHorizon(now, timeZone, UPCOMING_VISIT_HORIZON_DAYS);
+  const hintIso = opts?.hintDateUa ? uaDateToIso(opts.hintDateUa) : null;
+  if (hintIso) {
+    if (hintIso < range.fromIsoDate) range.fromIsoDate = hintIso;
+    if (hintIso > range.toIsoDate) range.toIsoDate = hintIso;
+  }
   const crmBookings = await crm.listClientUpcomingBookings(crmBuyerId, range);
 
   if (crm.fetchAppointmentServices) {
@@ -1377,6 +1414,108 @@ export async function loadMergedUpcomingVisitsForClient(
 }
 
 /**
+ * When the linked CRM UUID has no open visits, search another card by ПІБ
+ * (full name or one word) and, if that card has upcoming bookings, re-link + hydrate phone.
+ */
+async function rediscoverUpcomingByClientName(params: {
+  clientId: string;
+  provider: CrmProviderName;
+  now: Date;
+  timeZone: string;
+  hintDateUa?: string | null;
+}): Promise<CrmUpcomingBooking[]> {
+  const client = await prisma.client.findUnique({
+    where: { id: params.clientId },
+    select: {
+      crmBuyerId: true,
+      displayName: true,
+      igFullName: true,
+      phone: true,
+    },
+  });
+  if (!client) return [];
+
+  const personName = effectiveClientPersonName(client.displayName, client.igFullName);
+  if (!personName) return [];
+
+  const crm = getCrmAdapter(params.provider);
+  if (!crm.findClient || !crm.listClientUpcomingBookings) return [];
+
+  let match;
+  try {
+    // Name-only: phone would re-hit the same (possibly wrong) linked card.
+    match = await crm.findClient({ name: personName });
+  } catch (err) {
+    log.warn({ err, clientId: params.clientId }, 'name rediscover findClient failed');
+    return [];
+  }
+  if (!match?.crmBuyerId) return [];
+  if (client.crmBuyerId && match.crmBuyerId === client.crmBuyerId) return [];
+
+  const range = isoRangeForUpcomingHorizon(
+    params.now,
+    params.timeZone,
+    UPCOMING_VISIT_HORIZON_DAYS,
+  );
+  let bookings: CrmUpcomingBooking[] = [];
+  try {
+    bookings = await crm.listClientUpcomingBookings(match.crmBuyerId, range);
+  } catch (err) {
+    log.warn(
+      { err, crmBuyerId: match.crmBuyerId },
+      'name rediscover listClientUpcomingBookings failed',
+    );
+    return [];
+  }
+  if (bookings.length === 0) return [];
+
+  const adoptPhone = match.phone?.trim()
+    ? normalizeUaPhone(match.phone) ?? match.phone.trim()
+    : undefined;
+  const adoptName =
+    match.fullName && isPlausiblePersonName(match.fullName) ? match.fullName.trim() : undefined;
+
+  // Re-link overwrites phone from the correct CRM card (may have hydrated a wrong card earlier).
+  await prisma.client.update({
+    where: { id: params.clientId },
+    data: {
+      crmBuyerId: match.crmBuyerId,
+      crmProvider: params.provider,
+      crmLinkedAt: new Date(),
+      ...(adoptPhone ? { phone: adoptPhone } : {}),
+      ...(adoptName ? { displayName: adoptName } : {}),
+    },
+  });
+  if (!adoptPhone) {
+    await hydrateLocalClientFromCrm(params.clientId, {
+      crmBuyerId: match.crmBuyerId,
+      provider: params.provider,
+      fullName: match.fullName,
+      phone: match.phone,
+    });
+  }
+  log.info(
+    {
+      clientId: params.clientId,
+      from: client.crmBuyerId,
+      to: match.crmBuyerId,
+      personName,
+      bookings: bookings.length,
+      phoneSynced: Boolean(adoptPhone),
+    },
+    'Re-linked CRM client after name rediscover (had upcoming bookings)',
+  );
+
+  // Enrich clocks via the standard helper (now points at the new crmBuyerId).
+  return fetchCrmUpcomingBookingsForClient(params.clientId, {
+    now: params.now,
+    timeZone: params.timeZone,
+    provider: params.provider,
+    hintDateUa: params.hintDateUa,
+  });
+}
+
+/**
  * Resolve the visit cancel/reschedule should touch:
  * 1) active Appointment on this conversation
  * 2) sole upcoming Appointment for this client (any UUID)
@@ -1386,6 +1525,7 @@ export async function loadMergedUpcomingVisitsForClient(
 async function resolveActiveBookingAppointment(params: {
   conversationId: string;
   clientId: string;
+  hint?: BookingResolveHint | null;
 }): Promise<
   | { kind: 'local'; appointment: AppointmentWithClient }
   | {
@@ -1400,7 +1540,7 @@ async function resolveActiveBookingAppointment(params: {
   | { kind: 'ambiguous'; toolHint: string }
   | { kind: 'none' }
 > {
-  const { conversationId, clientId } = params;
+  const { conversationId, clientId, hint } = params;
   const agentCfg = await getAgentConfig();
   const now = new Date();
 
@@ -1454,7 +1594,8 @@ async function resolveActiveBookingAppointment(params: {
     crmRecordId: r.crmRecordId,
   }));
 
-  // Phone/email may already be on Client from chat — link without creating a new CRM card.
+  // Phone/email/name may already be on Client from chat — link without creating a new CRM card.
+  // Also hydrates local phone from CRM when the card is already linked.
   try {
     await linkClientToCrm(clientId, { upsert: false });
   } catch (err) {
@@ -1469,7 +1610,22 @@ async function resolveActiveBookingAppointment(params: {
       now,
       timeZone: agentCfg.timezone,
       provider: bookingProvider,
+      hintDateUa: hint?.dateUa,
     });
+
+    // Wrong/stale CRM card: linked UUID has no open visits — re-find by ПІБ (full or token).
+    if (crmBookings.length === 0) {
+      const rediscovered = await rediscoverUpcomingByClientName({
+        clientId,
+        provider: bookingProvider,
+        now,
+        timeZone: agentCfg.timezone,
+        hintDateUa: hint?.dateUa,
+      });
+      if (rediscovered.length > 0) {
+        crmBookings = rediscovered;
+      }
+    }
   } catch (err) {
     log.warn({ err, conversationId, clientId }, 'CRM upcoming booking lookup failed');
   }
@@ -1480,6 +1636,7 @@ async function resolveActiveBookingAppointment(params: {
     crmBookings,
     now,
     timeZone: agentCfg.timezone,
+    hint,
   });
 
   if (preference.kind === 'local') {
@@ -1709,7 +1866,11 @@ export async function handleCancelAppointment(
   args: Record<string, unknown>,
   options?: BookAppointmentOptions,
 ): Promise<BookAppointmentResult | null> {
-  const resolved = await resolveActiveBookingAppointment({ conversationId, clientId });
+  const resolved = await resolveActiveBookingAppointment({
+    conversationId,
+    clientId,
+    hint: bookingResolveHintFromArgs(args),
+  });
 
   if (resolved.kind === 'ambiguous') {
     return {
@@ -1723,7 +1884,7 @@ export async function handleCancelAppointment(
       appointmentId: '',
       crmSynced: false,
       toolResult:
-        '[cancel_appointment] failed: немає активного запису (ні локально, ні в CRM на найближчі дні). Уточни або request_handoff.',
+        '[cancel_appointment] failed: немає активного запису (ні локально, ні в CRM на найближчі дні). Уточни телефон/ПІБ або request_handoff (якщо клієнт наполягає, що запис є — handoff з show_to_client=true).',
     };
   }
 
@@ -1821,11 +1982,12 @@ async function resolveLocalAppointmentForMutation(
   conversationId: string,
   clientId: string,
   tool: string,
+  hint?: BookingResolveHint | null,
 ): Promise<
   | { ok: true; appointment: AppointmentWithClient }
   | { ok: false; result: BookAppointmentResult }
 > {
-  const resolved = await resolveActiveBookingAppointment({ conversationId, clientId });
+  const resolved = await resolveActiveBookingAppointment({ conversationId, clientId, hint });
   if (resolved.kind === 'ambiguous') {
     return {
       ok: false,
@@ -1842,7 +2004,7 @@ async function resolveLocalAppointmentForMutation(
       result: {
         appointmentId: '',
         crmSynced: false,
-        toolResult: `[${tool}] failed: немає активного запису (ні локально, ні в CRM). Уточни або request_handoff.`,
+        toolResult: `[${tool}] failed: немає активного запису (ні локально, ні в CRM). Уточни телефон/ПІБ або request_handoff (якщо клієнт наполягає, що запис є — handoff з show_to_client=true, не обіцяй «вже перенесла»).`,
       },
     };
   }
@@ -2087,6 +2249,7 @@ export async function handleRescheduleAppointment(
     conversationId,
     clientId,
     'reschedule_appointment',
+    bookingResolveHintFromArgs(args),
   );
   if (!resolved.ok) return resolved.result;
   const appointment = resolved.appointment;
