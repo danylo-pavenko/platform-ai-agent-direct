@@ -56,6 +56,21 @@ describe('buildRuntimePrompt platform vs system prompt', () => {
     );
   });
 
+  it('injects upcoming weekday calendar so «понеділок» is not invented', () => {
+    // Wed 4 Nov 2026 19:44 Kyiv — next Monday is 09.11, not Tue 10.11
+    const prompt = buildRuntimePrompt(
+      baseParams({
+        currentTime: new Date('2026-11-04T17:44:00.000Z'),
+        timeZone: 'Europe/Kyiv',
+      }),
+    );
+    expect(prompt).toContain('Календар найближчих днів');
+    expect(prompt).toContain('04.11.2026 середа ← сьогодні');
+    expect(prompt).toContain('09.11.2026 понеділок');
+    expect(prompt).toContain('10.11.2026 вівторок');
+    expect(prompt).toMatch(/Дні тижня.*ТІЛЬКИ з блоку «Календар найближчих днів»/);
+  });
+
   it('keeps anti-injection preamble with source hierarchy', () => {
     const prompt = buildRuntimePrompt(baseParams());
     expect(prompt).toMatch(/prompt injection/i);

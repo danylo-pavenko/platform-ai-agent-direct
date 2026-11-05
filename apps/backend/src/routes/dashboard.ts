@@ -181,6 +181,159 @@ async function loadDailySeries(seriesFrom: Date): Promise<DayRow[]> {
   `;
 }
 
+type FunnelRow = {
+  client_wrote: bigint;
+  bot_accepted: bigint;
+  bot_closed: bigint;
+  handed_to_manager: bigint;
+  handoff_then_closed: bigint;
+  converted_from_bot: bigint;
+};
+
+/**
+ * Conversation conversion funnel for the selected window.
+ *
+ * Cohort = conversations with ≥1 client inbound in the period.
+ * Bot accepted = cohort with ≥1 bot outbound (ever).
+ * Closed = distinct conversation with submitted/confirmed order
+ *   or confirmed/synced appointment (booking mirrored as both counts once).
+ * Bot closed = first close before handoff (or never handed off).
+ * Handoff then closed = first close at/after handed_off_at.
+ */
+async function loadConversationFunnel(from: Date | null): Promise<FunnelRow> {
+  const rows = from
+    ? await prisma.$queryRaw<FunnelRow[]>`
+        WITH cohort AS (
+          SELECT DISTINCT c.id, c.handed_off_at
+          FROM conversations c
+          INNER JOIN messages m ON m.conversation_id = c.id
+          WHERE m.sender = 'client'
+            AND m.direction = 'in'
+            AND m.created_at >= ${from}
+        ),
+        bot_touched AS (
+          SELECT DISTINCT c.id
+          FROM cohort c
+          INNER JOIN messages m ON m.conversation_id = c.id
+          WHERE m.sender = 'bot' AND m.direction = 'out'
+        ),
+        outcomes AS (
+          SELECT conversation_id, MIN(created_at) AS first_closed_at
+          FROM (
+            SELECT conversation_id, created_at
+            FROM orders
+            WHERE status IN ('submitted', 'confirmed')
+              AND is_archived = false
+            UNION ALL
+            SELECT conversation_id, created_at
+            FROM appointments
+            WHERE status IN ('confirmed', 'synced')
+          ) u
+          GROUP BY conversation_id
+        )
+        SELECT
+          (SELECT COUNT(*)::bigint FROM cohort) AS client_wrote,
+          (SELECT COUNT(*)::bigint FROM bot_touched) AS bot_accepted,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            INNER JOIN bot_touched b ON b.id = c.id
+            INNER JOIN outcomes o ON o.conversation_id = c.id
+            WHERE c.handed_off_at IS NULL
+               OR o.first_closed_at < c.handed_off_at
+          ) AS bot_closed,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            WHERE c.handed_off_at IS NOT NULL
+          ) AS handed_to_manager,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            INNER JOIN outcomes o ON o.conversation_id = c.id
+            WHERE c.handed_off_at IS NOT NULL
+              AND o.first_closed_at >= c.handed_off_at
+          ) AS handoff_then_closed,
+          (
+            SELECT COUNT(*)::bigint
+            FROM bot_touched b
+            INNER JOIN outcomes o ON o.conversation_id = b.id
+          ) AS converted_from_bot
+      `
+    : await prisma.$queryRaw<FunnelRow[]>`
+        WITH cohort AS (
+          SELECT DISTINCT c.id, c.handed_off_at
+          FROM conversations c
+          INNER JOIN messages m ON m.conversation_id = c.id
+          WHERE m.sender = 'client' AND m.direction = 'in'
+        ),
+        bot_touched AS (
+          SELECT DISTINCT c.id
+          FROM cohort c
+          INNER JOIN messages m ON m.conversation_id = c.id
+          WHERE m.sender = 'bot' AND m.direction = 'out'
+        ),
+        outcomes AS (
+          SELECT conversation_id, MIN(created_at) AS first_closed_at
+          FROM (
+            SELECT conversation_id, created_at
+            FROM orders
+            WHERE status IN ('submitted', 'confirmed')
+              AND is_archived = false
+            UNION ALL
+            SELECT conversation_id, created_at
+            FROM appointments
+            WHERE status IN ('confirmed', 'synced')
+          ) u
+          GROUP BY conversation_id
+        )
+        SELECT
+          (SELECT COUNT(*)::bigint FROM cohort) AS client_wrote,
+          (SELECT COUNT(*)::bigint FROM bot_touched) AS bot_accepted,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            INNER JOIN bot_touched b ON b.id = c.id
+            INNER JOIN outcomes o ON o.conversation_id = c.id
+            WHERE c.handed_off_at IS NULL
+               OR o.first_closed_at < c.handed_off_at
+          ) AS bot_closed,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            WHERE c.handed_off_at IS NOT NULL
+          ) AS handed_to_manager,
+          (
+            SELECT COUNT(*)::bigint
+            FROM cohort c
+            INNER JOIN outcomes o ON o.conversation_id = c.id
+            WHERE c.handed_off_at IS NOT NULL
+              AND o.first_closed_at >= c.handed_off_at
+          ) AS handoff_then_closed,
+          (
+            SELECT COUNT(*)::bigint
+            FROM bot_touched b
+            INNER JOIN outcomes o ON o.conversation_id = b.id
+          ) AS converted_from_bot
+      `;
+
+  return (
+    rows[0] ?? {
+      client_wrote: 0n,
+      bot_accepted: 0n,
+      bot_closed: 0n,
+      handed_to_manager: 0n,
+      handoff_then_closed: 0n,
+      converted_from_bot: 0n,
+    }
+  );
+}
+
+function rate(part: number, whole: number): number | null {
+  if (whole <= 0) return null;
+  return part / whole;
+}
+
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
     Querystring: { period?: string };
@@ -209,6 +362,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       briefStats,
       qualityStats,
       claudeUsageSnapshot,
+      funnelRow,
     ] = await Promise.all([
       countClientsContacted(from),
       countBotOutbound(from),
@@ -234,6 +388,7 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       loadBriefStats(from),
       loadQualityStats(from),
       loadClaudeUsageSnapshot(),
+      loadConversationFunnel(from),
     ]);
 
     const ordersInPipeline = ordersSubmitted + ordersConfirmed;
@@ -248,6 +403,13 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
     const briefsTotal = Number(briefStats.total);
     const briefsHighCompleteness = Number(briefStats.high_completeness);
+
+    const clientWrote = Number(funnelRow.client_wrote);
+    const botAccepted = Number(funnelRow.bot_accepted);
+    const botClosed = Number(funnelRow.bot_closed);
+    const handedToManager = Number(funnelRow.handed_to_manager);
+    const handoffThenClosed = Number(funnelRow.handoff_then_closed);
+    const convertedFromBot = Number(funnelRow.converted_from_bot);
 
     return {
       period,
@@ -265,6 +427,19 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
         ordersCancelled,
         ordersSentToManager,
         totalConversations,
+      },
+      funnel: {
+        clientWrote,
+        botAccepted,
+        botClosed,
+        handedToManager,
+        handoffThenClosed,
+        convertedFromBot,
+        botAcceptRate: rate(botAccepted, clientWrote),
+        botCloseRate: rate(botClosed, botAccepted),
+        handoffRate: rate(handedToManager, botAccepted),
+        handoffCloseRate: rate(handoffThenClosed, handedToManager),
+        conversionFromBotRate: rate(convertedFromBot, botAccepted),
       },
       briefs: {
         total: briefsTotal,

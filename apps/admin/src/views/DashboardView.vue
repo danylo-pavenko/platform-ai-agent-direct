@@ -104,60 +104,119 @@
         </v-col>
       </v-row>
 
-      <!-- Funnel -->
+      <!-- Conversation funnel -->
       <section class="section-card">
         <div class="section-head">
-          <h2 class="section-title">Воронка та менеджери</h2>
-          <p class="section-desc">Замовлення та передачі на людину</p>
+          <h2 class="section-title">Воронка діалогів</h2>
+          <p class="section-desc">
+            Клієнт пише → бот відповідає → оформлення самим ботом або після передачі менеджеру
+          </p>
         </div>
+
+        <div class="conv-funnel" aria-label="Воронка конверсії діалогів">
+          <div
+            v-for="(step, i) in funnelSteps"
+            :key="step.key"
+            class="conv-funnel-step"
+            :class="`conv-funnel-step--${step.tone}`"
+          >
+            <div class="conv-funnel-bar-wrap">
+              <div
+                class="conv-funnel-bar"
+                :style="{ width: loading ? '0%' : `${step.widthPct}%` }"
+              />
+            </div>
+            <div class="conv-funnel-meta">
+              <span class="conv-funnel-idx">{{ String(i + 1).padStart(2, '0') }}</span>
+              <div class="conv-funnel-copy">
+                <span class="conv-funnel-label">{{ step.label }}</span>
+                <span class="conv-funnel-hint">{{ step.hint }}</span>
+              </div>
+              <div class="conv-funnel-nums">
+                <span class="conv-funnel-value">{{ loading ? '-' : fmt(step.value) }}</span>
+                <span v-if="step.rate != null && !loading" class="conv-funnel-rate">
+                  {{ formatPct(step.rate) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <v-row dense class="conv-outcome-row">
+          <v-col cols="12" sm="4">
+            <div class="funnel-item funnel-item--success">
+              <span class="funnel-n">{{ loading ? '-' : fmt(f?.botClosed) }}</span>
+              <span class="funnel-l">Бот закрив до оформлення</span>
+              <span class="funnel-hint-inline">
+                {{ loading ? '' : formatPct(f?.botCloseRate) }} від відповідей бота
+              </span>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="4">
+            <div class="funnel-item funnel-item--handoff">
+              <span class="funnel-n">{{ loading ? '-' : fmt(f?.handedToManager) }}</span>
+              <span class="funnel-l">Перехопив менеджер</span>
+              <span class="funnel-hint-inline">
+                {{ loading ? '' : formatPct(f?.handoffRate) }} від відповідей бота
+              </span>
+            </div>
+          </v-col>
+          <v-col cols="12" sm="4">
+            <div class="funnel-item funnel-item--manager-close">
+              <span class="funnel-n">{{ loading ? '-' : fmt(f?.handoffThenClosed) }}</span>
+              <span class="funnel-l">Менеджер закрив після handoff</span>
+              <span class="funnel-hint-inline">
+                {{ loading ? '' : formatPct(f?.handoffCloseRate) }} від переданих
+              </span>
+            </div>
+          </v-col>
+        </v-row>
+
+        <div class="conv-funnel-summary">
+          <div class="conv-funnel-summary-main">
+            <span class="conv-funnel-summary-n">
+              {{ loading ? '-' : fmt(f?.convertedFromBot) }}
+            </span>
+            <div>
+              <div class="conv-funnel-summary-l">Оформлень зі старту з ботом</div>
+              <div class="conv-funnel-summary-s">
+                Розмови, де бот уже відповідав і з’явилось замовлення або запис
+                <template v-if="!loading && f?.conversionFromBotRate != null">
+                  · {{ formatPct(f.conversionFromBotRate) }} від відповідей бота
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="orders-detail-head">Статуси замовлень у періоді</div>
         <v-row dense>
-          <v-col cols="12" sm="6" md="4">
-            <div class="funnel-item">
+          <v-col cols="6" sm="3">
+            <div class="funnel-item funnel-item--compact">
               <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersInPipeline) }}</span>
               <span class="funnel-l">До продажу</span>
-              <span class="funnel-s">Submitted + підтверджені</span>
             </div>
           </v-col>
-          <v-col cols="12" sm="6" md="4">
-            <div class="funnel-item funnel-item--success">
+          <v-col cols="6" sm="3">
+            <div class="funnel-item funnel-item--compact funnel-item--success">
               <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersConfirmed) }}</span>
-              <span class="funnel-l">Оплата / підтверджені</span>
-              <span class="funnel-s">Статус <code>confirmed</code></span>
+              <span class="funnel-l">Підтверджені</span>
             </div>
           </v-col>
-          <v-col cols="12" sm="6" md="4">
-            <div class="funnel-item funnel-item--handoff">
-              <span class="funnel-n">{{ loading ? '-' : fmt(t?.handoffConversations) }}</span>
-              <span class="funnel-l">На менеджера (розмови)</span>
-              <span class="funnel-s">Статус handoff у періоді</span>
-            </div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersSubmitted) }}</span>
-              <span class="funnel-l">Замовлення submitted</span>
-            </div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="funnel-item">
-              <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersDraft) }}</span>
-              <span class="funnel-l">Чернетки</span>
-            </div>
-          </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="funnel-item">
+          <v-col cols="6" sm="3">
+            <div class="funnel-item funnel-item--compact">
               <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersSentToManager) }}</span>
-              <span class="funnel-l">Відправлено менеджеру</span>
-              <span class="funnel-s">За датою <code>submitted_to_manager</code></span>
+              <span class="funnel-l">Надіслано менеджеру</span>
             </div>
           </v-col>
-          <v-col cols="12" sm="6" md="3">
-            <div class="funnel-item funnel-item--muted">
+          <v-col cols="6" sm="3">
+            <div class="funnel-item funnel-item--compact funnel-item--muted">
               <span class="funnel-n">{{ loading ? '-' : fmt(t?.ordersCancelled) }}</span>
               <span class="funnel-l">Скасовано</span>
             </div>
           </v-col>
         </v-row>
+
         <div class="section-actions">
           <v-btn color="primary" variant="flat" size="small" rounded="lg" :to="{ name: 'orders' }">
             Усі замовлення
@@ -378,11 +437,26 @@ interface Totals {
   totalConversations: number;
 }
 
+interface ConversationFunnel {
+  clientWrote: number;
+  botAccepted: number;
+  botClosed: number;
+  handedToManager: number;
+  handoffThenClosed: number;
+  convertedFromBot: number;
+  botAcceptRate: number | null;
+  botCloseRate: number | null;
+  handoffRate: number | null;
+  handoffCloseRate: number | null;
+  conversionFromBotRate: number | null;
+}
+
 interface Summary {
   period: string;
   from: string | null;
   to: string;
   totals: Totals;
+  funnel?: ConversationFunnel;
   briefs: {
     total: number;
     highCompleteness: number;
@@ -469,6 +543,46 @@ const agentLoading = ref(true);
 const agentError = ref('');
 
 const t = computed(() => summary.value?.totals);
+const f = computed(() => summary.value?.funnel);
+
+const funnelSteps = computed(() => {
+  const funnel = f.value;
+  const clientWrote = funnel?.clientWrote ?? 0;
+  const botAccepted = funnel?.botAccepted ?? 0;
+  const converted = funnel?.convertedFromBot ?? 0;
+  const base = Math.max(clientWrote, 1);
+  const width = (n: number) => Math.max(8, Math.round((n / base) * 100));
+
+  return [
+    {
+      key: 'client',
+      label: 'Клієнт написав',
+      hint: 'Розмови з вхідним повідомленням',
+      value: clientWrote,
+      rate: null as number | null,
+      widthPct: 100,
+      tone: 'client',
+    },
+    {
+      key: 'bot',
+      label: 'Бот прийняв',
+      hint: 'Є хоча б одна відповідь агента',
+      value: botAccepted,
+      rate: funnel?.botAcceptRate ?? null,
+      widthPct: width(botAccepted),
+      tone: 'bot',
+    },
+    {
+      key: 'converted',
+      label: 'Оформлено',
+      hint: 'Замовлення або запис у розмові з ботом',
+      value: converted,
+      rate: funnel?.conversionFromBotRate ?? null,
+      widthPct: width(converted),
+      tone: 'converted',
+    },
+  ];
+});
 
 const showLeadgenSection = computed(() => {
   const s = summary.value;
@@ -862,6 +976,152 @@ onMounted(() => {
   margin: 4px 0 0;
 }
 
+.conv-funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.conv-funnel-step {
+  border: 1px solid #e6ebf1;
+  border-radius: 12px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.conv-funnel-bar-wrap {
+  height: 6px;
+  background: #e8eef5;
+}
+
+.conv-funnel-bar {
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  transition: width 0.35s ease;
+  background: #94a3b8;
+}
+
+.conv-funnel-step--client .conv-funnel-bar {
+  background: #64748b;
+}
+
+.conv-funnel-step--bot .conv-funnel-bar {
+  background: #635bff;
+}
+
+.conv-funnel-step--converted .conv-funnel-bar {
+  background: #059669;
+}
+
+.conv-funnel-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  min-height: var(--tap-min, 44px);
+}
+
+.conv-funnel-idx {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.conv-funnel-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.conv-funnel-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a2540;
+}
+
+.conv-funnel-hint {
+  font-size: 11px;
+  color: #8898a7;
+  line-height: 1.35;
+}
+
+.conv-funnel-nums {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.conv-funnel-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0a2540;
+  line-height: 1.1;
+}
+
+.conv-funnel-rate {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.conv-outcome-row {
+  margin-bottom: 4px;
+}
+
+.conv-funnel-summary {
+  margin: 12px 0 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 91, 255, 0.28);
+  background: linear-gradient(135deg, #f7f6ff 0%, #fff 70%);
+}
+
+.conv-funnel-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.conv-funnel-summary-n {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #4338ca;
+  line-height: 1;
+  min-width: 2ch;
+}
+
+.conv-funnel-summary-l {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a2540;
+}
+
+.conv-funnel-summary-s {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6c7688;
+  line-height: 1.4;
+}
+
+.orders-detail-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6c7688;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 4px 0 8px;
+}
+
 .funnel-item {
   padding: 12px 14px;
   border-radius: 10px;
@@ -872,6 +1132,14 @@ onMounted(() => {
   flex-direction: column;
 }
 
+.funnel-item--compact {
+  padding: 10px 12px;
+}
+
+.funnel-item--compact .funnel-n {
+  font-size: 18px;
+}
+
 .funnel-item--success {
   background: #ecfdf5;
   border-color: #bbf7d0;
@@ -880,6 +1148,11 @@ onMounted(() => {
 .funnel-item--handoff {
   background: #fff7ed;
   border-color: #fed7aa;
+}
+
+.funnel-item--manager-close {
+  background: #eff6ff;
+  border-color: #bfdbfe;
 }
 
 .funnel-item--muted {
@@ -902,12 +1175,22 @@ onMounted(() => {
   color: #3d4d5d;
 }
 
-.funnel-s {
-  display: none;
+.funnel-hint-inline {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8898a7;
+  line-height: 1.35;
 }
 
-.funnel-s code {
-  font-size: 10px;
+@media (max-width: 600px) {
+  .conv-funnel-summary-main {
+    align-items: flex-start;
+  }
+
+  .conv-funnel-meta {
+    gap: 8px;
+  }
 }
 
 .section-actions {

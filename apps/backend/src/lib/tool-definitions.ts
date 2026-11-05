@@ -290,7 +290,8 @@ const GET_AVAILABLE_SLOTS: ToolDefinition = {
     properties: {
       date: {
         type: 'string',
-        description: 'Дата обовʼязково ДД.ММ.РРРР (напр. 08.08.2026), не YYYY-MM-DD',
+        description:
+          'Дата обовʼязково ДД.ММ.РРРР (напр. 09.11.2026), не YYYY-MM-DD. Якщо клієнт сказав день тижня («понеділок») — візьми число з блоку «Календар найближчих днів» у промпті; не вигадуй',
       },
       services: {
         type: 'array',

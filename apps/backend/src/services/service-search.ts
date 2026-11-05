@@ -24,6 +24,7 @@ import {
 } from '../lib/service-price-resolve.js';
 import { getCrmAdapter } from './crm/index.js';
 import { isSlotStartStillBookable, normalizeTenantTimezone } from '../lib/tenant-timezone.js';
+import { weekdayUkForDateKey } from '../lib/booking-weekday-calendar.js';
 import type { CrmEmployee, CrmServiceItem } from './crm/types.js';
 import { intersectSlotLookupResults } from '../lib/slot-intersect.js';
 import { normalizeSlotTimeKey, formatParallelServiceMasterLines } from '../lib/booking-time-conflict.js';
@@ -387,7 +388,10 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
         masterIds: slotMasterIds ?? [...s.masterIds],
       })),
     });
-    lines.push(`## ${day}`);
+    {
+      const wd = weekdayUkForDateKey(day, timeZone);
+      lines.push(wd ? `## ${day} (${wd})` : `## ${day}`);
+    }
     for (const slot of daySlots) {
       if (parallelMasters && assigned.every((s) => s.masterId)) {
         const byService = assigned

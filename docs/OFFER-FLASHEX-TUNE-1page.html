@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<title>Flashex Tune · Direct AI Agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @page { size: A4; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 210mm;
+    height: 297mm;
+    background: #050705;
+    color: #eef2ec;
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm;
+    height: 297mm;
+    padding: 14mm 16mm 12mm;
+    background:
+      radial-gradient(780px 420px at 92% -8%, rgba(184,201,163,.11), transparent 58%),
+      #050705;
+    display: flex;
+    flex-direction: column;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .up { text-transform: uppercase; letter-spacing: .14em; }
+
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #26332c;
+    margin-bottom: 22px;
+  }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: .01em; }
+  .brand .sl { color: #7e9168; font-weight: 500; }
+  .tag {
+    font-size: 9px;
+    color: #9aa49b;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #b8c9a3;
+    box-shadow: 0 0 10px #b8c9a3;
+  }
+
+  h1 {
+    font-size: 38px;
+    line-height: 1.08;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    margin-bottom: 14px;
+    max-width: 15ch;
+  }
+  .for {
+    font-size: 12px;
+    color: #9aa49b;
+    margin-bottom: 16px;
+  }
+  .for strong { color: #eef2ec; font-weight: 600; }
+
+  .lead {
+    font-size: 15.5px;
+    line-height: 1.55;
+    color: #c9d1c6;
+    max-width: 62ch;
+    margin-bottom: 26px;
+  }
+  .lead strong { color: #fff; font-weight: 600; }
+
+  .feats {
+    display: grid;
+    gap: 14px;
+    margin-bottom: 26px;
+  }
+  .feat {
+    display: grid;
+    grid-template-columns: 36px 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: #b8c9a3;
+    padding-top: 2px;
+  }
+  .feat h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+  .feat p {
+    font-size: 13px;
+    line-height: 1.45;
+    color: #9aa49b;
+  }
+
+  .price {
+    border: 1px solid #2a3a31;
+    border-radius: 14px;
+    padding: 18px 20px;
+    display: grid;
+    grid-template-columns: 1fr 1.15fr;
+    gap: 18px;
+    background: rgba(16, 23, 20, .65);
+    margin-bottom: 22px;
+  }
+  .price-left {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    justify-content: center;
+  }
+  .row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .amt {
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -.02em;
+  }
+  .amt-label {
+    font-size: 13px;
+    color: #9aa49b;
+  }
+  .price-right {
+    border-left: 1px solid #2a3a31;
+    padding-left: 18px;
+  }
+  .price-right .badge {
+    font-size: 15px;
+    font-weight: 600;
+    color: #b8c9a3;
+    margin-bottom: 8px;
+    line-height: 1.35;
+  }
+  .price-right p {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: #9aa49b;
+  }
+
+  .ours {
+    margin-bottom: 20px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #9aa49b;
+  }
+  .ours strong { color: #dce2d8; font-weight: 600; }
+
+  .cta {
+    margin-top: auto;
+    border-top: 1px solid #26332c;
+    padding-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .cta .t {
+    font-size: 13.5px;
+    color: #c9d1c6;
+    max-width: 42ch;
+    line-height: 1.45;
+  }
+  .btn {
+    background: #b8c9a3;
+    color: #10160f;
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 12px 16px;
+    border-radius: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="head">
+      <div class="brand">Direct AI <span class="sl">/ Agents</span></div>
+      <div class="tag mono up"><span class="dot"></span>AI-агент для Instagram Direct · 24/7</div>
+    </div>
+
+    <h1>Ваш Instagram відповідає сам.</h1>
+    <p class="for">для <strong>Flashex Tune</strong> · CHIP TUNE BMW · Stage 1 / Stage 2 · Custom firmware</p>
+
+    <p class="lead">
+      Підключаємо до Direct розумного агента: відповідає за секунди, <strong>24/7</strong>, у стилі Flashex.
+      Знає Stage 1 і Stage 2, збирає модель / рік / мотор, веде до консультації і кидає готову заявку в Telegram.
+      Запуск за 1-3 дні. Технічна частина на нас.
+    </p>
+
+    <div class="feats">
+      <div class="feat">
+        <div class="num">01</div>
+        <div>
+          <h3>Відповідає швидко, цілодобово</h3>
+          <p>Ентузіаст пише після Stories о 22:40. Агент уже в діалозі, а не «відповімо зранку».</p>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="num">02</div>
+        <div>
+          <h3>Знає CHIP TUNE BMW</h3>
+          <p>Stage 1 / Stage 2, remap, підготовка авто. Пояснює простою мовою, без технічної каші.</p>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="num">03</div>
+        <div>
+          <h3>Збирає лід повністю</h3>
+          <p>Модель, рік, мотор, телефон, зручний час. Картка заявки вам у Telegram.</p>
+        </div>
+      </div>
+      <div class="feat">
+        <div class="num">04</div>
+        <div>
+          <h3>Кличе вас, коли треба</h3>
+          <p>Кастомна прошивка, діагностика, гарантії: одразу handoff живій людині, без вигадування.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="price">
+      <div class="price-left">
+        <div class="row">
+          <div class="amt">$440</div>
+          <div class="amt-label">підключення (одноразово)</div>
+        </div>
+        <div class="row">
+          <div class="amt">$126</div>
+          <div class="amt-label">за місяць далі</div>
+        </div>
+      </div>
+      <div class="price-right">
+        <div class="badge">Спеціально для вас: 4 місяці підписки безкоштовно</div>
+        <p>Замість стандартного 1 місяця. Далі $126/міс. Розгортання ($440) оплачується при старті. Скасування будь-коли, дані експортуються.</p>
+      </div>
+    </div>
+
+    <p class="ours">
+      <strong>Від нас:</strong> перший робочий промпт, налаштування тону й FAQ, підключення Instagram через Meta API, ізольований інстанс, тести до запуску.
+      Коротко, по суті, без води.
+    </p>
+
+    <div class="cta">
+      <div class="t">Напишіть «старт». Узгодимо бриф і за кілька днів @flashex_tune почне відповідати сам.</div>
+      <a class="btn" href="mailto:help@depsoftware.com">help@depsoftware.com ↗</a>
+    </div>
+  </div>
+</body>
+</html>
