@@ -59,6 +59,11 @@
             :to="{ name: 'conversations' }"
           />
           <v-list-item
+            prepend-icon="mdi-account-multiple-outline"
+            title="Клієнти"
+            :to="{ name: 'clients' }"
+          />
+          <v-list-item
             prepend-icon="mdi-package-variant-closed"
             title="Замовлення"
             :to="{ name: 'orders' }"
@@ -125,6 +130,12 @@
       <template v-else>
         <div class="nav-section-label">Ще</div>
         <v-list density="comfortable" nav class="px-2">
+          <v-list-item
+            prepend-icon="mdi-view-dashboard-outline"
+            title="Дашборд"
+            :to="{ name: 'dashboard' }"
+            @click="onNavClick"
+          />
           <v-list-item
             v-if="authStore.isOwner"
             prepend-icon="mdi-chart-timeline-variant-shimmer"
@@ -237,13 +248,13 @@
         <v-icon>mdi-message-text-outline</v-icon>
         <span>Розмови</span>
       </v-btn>
+      <v-btn value="clients" :to="{ name: 'clients' }">
+        <v-icon>mdi-account-multiple-outline</v-icon>
+        <span>Клієнти</span>
+      </v-btn>
       <v-btn value="orders" :to="{ name: 'orders' }">
         <v-icon>mdi-package-variant-closed</v-icon>
         <span>Замовлення</span>
-      </v-btn>
-      <v-btn value="dashboard" :to="{ name: 'dashboard' }">
-        <v-icon>mdi-view-dashboard-outline</v-icon>
-        <span>Дашборд</span>
       </v-btn>
       <v-btn value="more" @click.prevent="openMore">
         <v-icon>mdi-menu</v-icon>
@@ -269,7 +280,7 @@ const drawer = ref(!mobile.value);
 const brandName = import.meta.env.VITE_BRAND_NAME || 'AI Agent';
 const versionLabel = formatPlatformVersion();
 
-const primaryBottomRoutes = new Set(['conversations', 'orders', 'dashboard']);
+const primaryBottomRoutes = new Set(['conversations', 'clients', 'orders']);
 
 const showAppBar = computed(
   () =>

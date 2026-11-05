@@ -10,7 +10,7 @@ Any UI change in `apps/admin` is **mobile-first**. Desktop (≥960 / `mdAndUp`) 
 
 ## Shell
 
-- Mobile: **bottom nav** (Розмови · Замовлення · Дашборд · Ще) + temporary drawer for the rest.
+- Mobile: **bottom nav** (Розмови · Клієнти · Замовлення · Ще) + temporary drawer for the rest. Дашборд lives in «Ще».
 - Desktop: permanent sidebar (unchanged).
 - Do **not** add a nav item only to the long drawer without deciding bottom-nav vs «Ще».
 - Chat-like routes set `meta.hideBottomNav: true`: `conversation-detail`, `teach`, `sandbox`, `insights` (and login).

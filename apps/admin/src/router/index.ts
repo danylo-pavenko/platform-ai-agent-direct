@@ -68,6 +68,19 @@ const router = createRouter({
       meta: { roles: ['owner'], title: 'Користувачі' },
     },
     {
+      path: '/clients',
+      name: 'clients',
+      component: () => import('@/views/ClientsView.vue'),
+      meta: { title: 'Клієнти' },
+    },
+    {
+      path: '/clients/:id',
+      name: 'client-detail',
+      component: () => import('@/views/ClientDetailView.vue'),
+      props: true,
+      meta: { title: 'Клієнт', hideBottomNav: true },
+    },
+    {
       path: '/orders',
       name: 'orders',
       component: () => import('@/views/OrdersView.vue'),
