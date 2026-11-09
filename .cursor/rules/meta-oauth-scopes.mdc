@@ -14,7 +14,12 @@ business_management
 pages_show_list
 pages_read_engagement
 instagram_manage_messages
+instagram_manage_comments
 ```
+
+`instagram_manage_comments` is for Meta App Review + comment probes
+(`GET /{ig-media-id}/comments` on «Перевірити підключення» / «Діагностика API»).
+Not required for Instagram DM send/receive.
 
 ## Do NOT suggest adding these scopes
 
@@ -22,7 +27,7 @@ instagram_manage_messages
 |-------|---------|
 | `instagram_business_basic` | For newer Instagram API / reading IG Graph nodes (`connected_facebook_page`). **Not** required for Page-linked IG DM via Messenger Platform. Adding it does not fix our OAuth flow. |
 | `pages_messaging` | Facebook **Page** Messenger API — **not** Instagram Direct. Our IG send/receive uses Page token + `instagram_manage_messages` → `POST /me/messages`. |
-| `instagram_basic` | Deprecated Instagram Basic Display API (personal accounts) — wrong product. |
+| `instagram_basic` | Deprecated Instagram Basic Display API (personal accounts) — wrong product for DM. Do not add it to “fix messaging”. |
 
 If `README.md` permission tables disagree with `FB_SCOPES` in code, **trust the code**.
 

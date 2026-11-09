@@ -1,5 +1,19 @@
 import axios from 'axios';
 import router from './router';
+import { safeReturnPath } from './lib/return-path';
+
+function isLoginAttempt(url: string | undefined): boolean {
+  return typeof url === 'string' && url.includes('/auth/login');
+}
+
+function replaceWithLogin() {
+  const current = router.currentRoute.value;
+  if (current.name === 'login') return;
+  const redirect = safeReturnPath(current.fullPath);
+  void router.replace(
+    redirect ? { name: 'login', query: { redirect } } : { name: 'login' },
+  );
+}
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -33,16 +47,17 @@ api.interceptors.response.use(
         useAuthStore().logout();
       }).catch(() => {
         localStorage.removeItem('token');
-        router.push({ name: 'login' });
+        replaceWithLogin();
       });
     }
-    if (error.response?.status === 401) {
-      // Lazy import to avoid circular dependency auth store → api → auth store
+    if (error.response?.status === 401 && !isLoginAttempt(error.config?.url)) {
+      // Lazy import to avoid circular dependency auth store → api → auth store.
+      // A wrong password is also 401 and must not wipe the saved return path.
       import('@/stores/auth').then(({ useAuthStore }) => {
         useAuthStore().logout();
       }).catch(() => {
         localStorage.removeItem('token');
-        router.push({ name: 'login' });
+        replaceWithLogin();
       });
     }
     return Promise.reject(error);

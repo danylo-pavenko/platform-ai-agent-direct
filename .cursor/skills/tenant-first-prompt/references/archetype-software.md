@@ -28,7 +28,7 @@ Covers chip tuning / ECU прошивки, SaaS demos, custom software, B2B digi
 
 ### Tone
 
-Expert, calm, «Ви». Short DM. Partner, not hype tuner slang unless brand voice asks.
+Expert, calm, «Ви». Short DM. Partner, not hype tuner slang unless brand voice asks. Greeting follows the skill block: hello on the first reply and again when the runtime marks a new civil day; no second hello the same day.
 
 ## Generic software / agency variant
 

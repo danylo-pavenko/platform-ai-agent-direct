@@ -16,6 +16,8 @@ export const TELEGRAM_NOTIFY_CHANNELS = [
   'crm_fallback',
   'auth',
   'ops',
+  /** Opt-in: «Хід агента» dumps to private /login chats (never auto-fallback). */
+  'agent_turn',
 ] as const;
 
 export type TelegramNotifyChannel = (typeof TELEGRAM_NOTIFY_CHANNELS)[number];
@@ -28,7 +30,16 @@ export const TELEGRAM_CHANNEL_LABELS: Record<TelegramNotifyChannel, string> = {
   crm_fallback: 'CRM недоступна',
   auth: 'Auth / ліміти Claude / IG token',
   ops: 'Системні / тести / ops',
+  agent_turn: 'Хід агента (debug)',
 };
+
+/**
+ * Channels that must be explicitly enabled — never fall back to the primary bot
+ * when nobody opted in (verbose dumps / noise).
+ */
+export const TELEGRAM_OPT_IN_ONLY_CHANNELS: ReadonlySet<TelegramNotifyChannel> = new Set([
+  'agent_turn',
+]);
 
 export interface TelegramBotConfig {
   id: string;
@@ -50,16 +61,19 @@ export interface IntegrationTelegramMulti {
   bots: TelegramBotConfig[];
 }
 
-const ALL_CHANNELS: TelegramNotifyChannel[] = [...TELEGRAM_NOTIFY_CHANNELS];
+/** Default enabled channels for a new/legacy primary bot (excludes noisy agent_turn). */
+const DEFAULT_BOT_CHANNELS: TelegramNotifyChannel[] = TELEGRAM_NOTIFY_CHANNELS.filter(
+  (c) => c !== 'agent_turn',
+);
 
 export function isTelegramNotifyChannel(value: unknown): value is TelegramNotifyChannel {
   return typeof value === 'string' && (TELEGRAM_NOTIFY_CHANNELS as readonly string[]).includes(value);
 }
 
 function parseChannels(raw: unknown): TelegramNotifyChannel[] {
-  if (!Array.isArray(raw)) return [...ALL_CHANNELS];
+  if (!Array.isArray(raw)) return [...DEFAULT_BOT_CHANNELS];
   const parsed = raw.filter(isTelegramNotifyChannel);
-  return parsed.length > 0 ? [...new Set(parsed)] : [...ALL_CHANNELS];
+  return parsed.length > 0 ? [...new Set(parsed)] : [...DEFAULT_BOT_CHANNELS];
 }
 
 function parseBot(raw: unknown, index: number): TelegramBotConfig | null {
@@ -113,7 +127,7 @@ export function normalizeTelegramConfig(raw: Partial<IntegrationTelegramMulti> |
         managerGroupId: flatGroup,
         enabled: true,
         isPrimary: true,
-        channels: [...ALL_CHANNELS],
+        channels: [...DEFAULT_BOT_CHANNELS],
       },
     ];
   }
@@ -171,6 +185,9 @@ export function resolveTelegramBotsForChannel(
 
   const matched = enabled.filter((b) => b.channels.includes(channel));
   if (matched.length > 0) return matched;
+
+  // Verbose dumps stay silent unless the owner opted in.
+  if (TELEGRAM_OPT_IN_ONLY_CHANNELS.has(channel)) return [];
 
   const primary = getPrimaryTelegramBot(normalized);
   if (primary?.botToken.trim()) return [primary];

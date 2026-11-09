@@ -27,6 +27,18 @@ import {
 
 export type { TelegramBotConfig, TelegramNotifyChannel } from './telegram-bots.js';
 
+/** Pages granted in the last Facebook OAuth — used to switch active Page without re-login. */
+export interface MetaAvailablePage {
+  pageId: string;
+  pageName: string;
+  /** Page access token; never returned to the admin UI (masked / stripped on GET). */
+  pageAccessToken: string;
+  igUserId: string;
+  igUsername: string;
+  hasInstagram: boolean;
+  updatedAt: string;
+}
+
 export interface IntegrationMeta {
   facebookAppId: string;
   facebookAppSecret: string;
@@ -36,6 +48,8 @@ export interface IntegrationMeta {
   igUserId: string;
   igUsername: string;
   verifyToken: string;
+  /** Catalog of Pages from OAuth; active Page is still pageId + pageAccessToken. */
+  availablePages: MetaAvailablePage[];
 }
 
 export interface IntegrationTelegram {
@@ -156,6 +170,7 @@ export async function getIntegrationConfig(opts?: { fresh?: boolean }): Promise<
       igUserId:          m.igUserId          || '',
       igUsername:        m.igUsername        || '',
       verifyToken:       config.IG_WEBHOOK_VERIFY_TOKEN, // env-only
+      availablePages:    Array.isArray(m.availablePages) ? m.availablePages : [],
     },
     telegram: normalizeTelegramConfig({
       botToken: sanitizeIntegrationSecret(t.botToken) || config.TELEGRAM_BOT_TOKEN,

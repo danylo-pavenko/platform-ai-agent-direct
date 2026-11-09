@@ -26,6 +26,18 @@ Shared: `update_client_info`, `tag_client`, `lookup_tenant_events`, `request_han
 9. Name for CRM: chat / «Імʼя:» / CRM lookup — not IG slogan `igFullName`, not @username.
 10. Claude is not a coding agent for the customer — stay in business consultant role.
 
+## Greeting
+
+The runtime injects one of three lines. The tenant prompt must quote them and say what to do. If it only says «привітайся один раз», the model skips a new day because yesterday's chat is still in the history.
+
+| Marker the model sees | Tenant prompt must say |
+|---|---|
+| «Це ПЕРША відповідь бота в цій розмові» or «нова сесія» | Same reply: short hello, name and role, then the answer |
+| «Почався новий календарний день» or history line «Новий календарний день салону» | First reply of that day starts with a short hello in the client's language, then the answer. Do not repeat the full intro unless the brand asks. Do not re-ask facts already known |
+| «Бот уже відповідав у цьому календарному дні» | No hello, no name again, even if the client wrote «добрий ранок» |
+
+Day boundary is the tenant timezone (`agent_config.timezone`), not the server clock. A hello never replaces the answer.
+
 ## CRM notes (mention only if tenant uses them)
 
 - BeautyPro / CleverBOX / Altegio: booking via adapter tools; ids from slots offer.

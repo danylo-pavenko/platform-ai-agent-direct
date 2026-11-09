@@ -211,7 +211,7 @@
             color="secondary"
             prepend-icon="mdi-logout"
             class="tap-target"
-            @click="authStore.logout()"
+            @click="authStore.logout({ remember: false })"
           >
             Вийти
           </v-btn>

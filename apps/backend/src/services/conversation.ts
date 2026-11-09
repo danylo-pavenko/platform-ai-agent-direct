@@ -3391,6 +3391,8 @@ async function handleIncomingMessageImpl(
           await notifyAgentTurnDebug({
             conversationId,
             note,
+            collector: debugSnapshot,
+            durationMs: Date.now() - turnStartedMs,
             clientDisplayName: client.displayName,
             clientIgUsername: client.igUsername,
           }).catch((err) =>

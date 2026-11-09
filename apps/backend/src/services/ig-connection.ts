@@ -22,6 +22,10 @@ import {
   effectiveChatDisplayName,
   igProfilePersonName,
 } from '../lib/client-person-name.js';
+import {
+  probeInstagramManageComments,
+  type IgCommentsProbeResult,
+} from './ig-comments-probe.js';
 
 const log = pino({ name: 'ig-connection' });
 
@@ -53,6 +57,8 @@ export interface IgConnectionStatus {
     name: string;
   };
   conversationsCount?: number;
+  /** Meta App Review probe for `instagram_manage_comments`. */
+  commentsProbe?: IgCommentsProbeResult;
   warnings?: string[];
   error?: string;
 }
@@ -339,6 +345,16 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       );
     }
 
+    // App Review: exercise instagram_manage_comments (GET /{media}/comments).
+    // Non-fatal for DM connectivity — surface result in UI / warnings.
+    const commentsProbe = await probeInstagramManageComments(
+      resolved.ig.id,
+      meta.pageAccessToken,
+    );
+    if (!commentsProbe.ok) {
+      warnings.push(commentsProbe.noteUk);
+    }
+
     return {
       connected: true,
       page: pageId ? { id: pageId, name: resolved.pageName } : undefined,
@@ -352,6 +368,7 @@ export async function checkIgConnectionStatus(): Promise<IgConnectionStatus> {
       webhook,
       ...(business && { business }),
       ...(conversationsCount !== undefined && { conversationsCount }),
+      commentsProbe,
       ...(warnings.length > 0 && { warnings }),
     };
   } catch (err) {

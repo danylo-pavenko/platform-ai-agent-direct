@@ -114,6 +114,37 @@ describe('resolveTelegramBotsForChannel', () => {
     expect(resolveTelegramBotsForChannel(cfg, 'brief').map((b) => b.id)).toEqual(['primary']);
   });
 
+  it('does not fall back for opt-in agent_turn channel', () => {
+    const cfg = normalizeTelegramConfig({
+      bots: [
+        {
+          id: 'primary',
+          label: 'P',
+          rolePrompt: '',
+          botToken: '1:p',
+          adminPassword: '',
+          managerGroupId: '',
+          enabled: true,
+          isPrimary: true,
+          channels: ['handoff', 'ops'],
+        },
+      ],
+    });
+    expect(resolveTelegramBotsForChannel(cfg, 'agent_turn')).toEqual([]);
+
+    const withTurn = normalizeTelegramConfig({
+      bots: [
+        {
+          ...cfg.bots[0]!,
+          channels: ['handoff', 'agent_turn'],
+        },
+      ],
+    });
+    expect(resolveTelegramBotsForChannel(withTurn, 'agent_turn').map((b) => b.id)).toEqual([
+      'primary',
+    ]);
+  });
+
   it('accepts legacy config without bots[]', () => {
     const bots = resolveTelegramBotsForChannel(
       { botToken: '1:legacy', managerGroupId: '', adminPassword: '' },

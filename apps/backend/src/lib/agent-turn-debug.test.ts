@@ -3,6 +3,7 @@ import {
   AGENT_TURN_DEBUG_PREFIX,
   createAgentTurnDebugCollector,
   formatAgentTurnDebugNote,
+  formatAgentTurnDebugTelegramHtml,
   isAgentTurnDebugNote,
   recordTurnRound,
   recordTurnSpawn,
@@ -62,5 +63,24 @@ describe('agent-turn-debug', () => {
     const note = formatAgentTurnDebugNote(c, { durationMs: 100 });
     expect(note).toMatch(/cold 1, resume 2/);
     expect(note).toMatch(/~4350 input chars/);
+  });
+
+  it('formats compact HTML for Telegram without open-dialog link', () => {
+    const c = createAgentTurnDebugCollector();
+    c.agentMode = 'general';
+    c.clientMessage = 'Скільки коштує Stage 1?';
+    c.finalReplyPreview = 'Для Вашого авто Stage 1 — від 449€.';
+    c.gateReason = 'ok';
+    recordTurnTool(c, 'search_services', { query: 'stage 1' }, '[search_services] ok');
+    const html = formatAgentTurnDebugTelegramHtml(c, {
+      durationMs: 5200,
+      clientLabel: '@driver',
+    });
+    expect(html).toContain('🛠 <b>Хід агента</b>');
+    expect(html).toContain('<b>Режим:</b> general');
+    expect(html).toContain('<code>search_services</code>');
+    expect(html).toContain('@driver');
+    expect(html).not.toMatch(/Відкрити діалог/);
+    expect(html).not.toMatch(/href=/);
   });
 });

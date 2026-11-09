@@ -229,3 +229,108 @@ export function formatAgentTurnDebugNote(
 
   return lines.join('\n');
 }
+
+function escapeTelegramHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/**
+ * Compact HTML body for Telegram private «Хід агента» (no open-dialog link —
+ * that goes on an inline button).
+ */
+export function formatAgentTurnDebugTelegramHtml(
+  collector: AgentTurnDebugCollector,
+  opts?: {
+    durationMs?: number;
+    clientLabel?: string;
+  },
+): string {
+  const meta: string[] = [];
+  if (collector.agentMode) meta.push(`<b>Режим:</b> ${escapeTelegramHtml(collector.agentMode)}`);
+  if (collector.promptVersion != null || collector.runtimeGeneration != null) {
+    const ver =
+      collector.promptVersion != null ? `v${collector.promptVersion}` : 'fallback';
+    const gen =
+      collector.runtimeGeneration != null ? `, gen ${collector.runtimeGeneration}` : '';
+    const mid = collector.promptRefreshedMidTurn ? ' · mid-turn' : '';
+    meta.push(`<b>Промпт:</b> ${escapeTelegramHtml(`${ver}${gen}${mid}`)}`);
+  }
+  if (opts?.durationMs != null && Number.isFinite(opts.durationMs)) {
+    meta.push(`<b>Тривалість:</b> ${(opts.durationMs / 1000).toFixed(1)}с`);
+  }
+  if (collector.spawns.length > 0) {
+    const cold = collector.spawns.filter((s) => !s.resumed).length;
+    const resumed = collector.spawns.filter((s) => s.resumed).length;
+    meta.push(
+      `<b>Claude:</b> ${collector.spawns.length} spawn (cold ${cold}, resume ${resumed})`,
+    );
+  }
+  if (collector.agentFallback) {
+    meta.push(`<b>Fallback:</b> ${escapeTelegramHtml(collector.agentFallback)}`);
+  }
+  if (collector.gateReason) {
+    meta.push(`<b>Gate:</b> ${escapeTelegramHtml(collector.gateReason)}`);
+  } else if (collector.redactedInternals) {
+    meta.push(`<b>Gate:</b> ok (redacted ids)`);
+  }
+  if (collector.stallRecovery) meta.push(`<b>Stall recovery:</b> так`);
+  if (collector.falseBookingRecovery) meta.push(`<b>False booking recovery:</b> так`);
+  if (collector.bookingMutationFailureRecovery) {
+    meta.push(`<b>Mutation failure recovery:</b> так`);
+  }
+
+  const lines: string[] = [`🛠 <b>Хід агента</b>`, ''];
+  if (meta.length) {
+    lines.push(...meta.map((m) => `• ${m}`));
+  }
+
+  const client = collector.clientMessage?.trim();
+  if (client) {
+    lines.push('', `<b>Запит:</b>`, `<i>«${escapeTelegramHtml(previewDebugText(client, 180))}»</i>`);
+  }
+
+  if (collector.tools.length > 0) {
+    lines.push('', `<b>Tools (${collector.tools.length}):</b>`);
+    for (const t of collector.tools.slice(0, 8)) {
+      const preview = previewDebugText(t.resultPreview || '—', 120);
+      lines.push(`• <code>${escapeTelegramHtml(t.name)}</code> → ${escapeTelegramHtml(preview)}`);
+    }
+    if (collector.tools.length > 8) {
+      lines.push(`• …ще ${collector.tools.length - 8}`);
+    }
+  } else {
+    lines.push('', `<b>Tools:</b> не викликались`);
+  }
+
+  if (collector.rounds.length > 1) {
+    lines.push('', `<b>Rounds:</b> ${collector.rounds.length}`);
+    for (const r of collector.rounds.slice(0, 4)) {
+      const tools =
+        r.toolCalls && r.toolCalls.length > 0
+          ? r.toolCalls.join(', ')
+          : r.toolCall || '—';
+      const label = r.label ? `[${r.label}] ` : '';
+      const textBit = r.textPreview
+        ? ` — «${escapeTelegramHtml(previewDebugText(r.textPreview, 80))}»`
+        : '';
+      lines.push(`${r.round}. ${label}${escapeTelegramHtml(tools)}${textBit}`);
+    }
+  }
+
+  if (collector.finalReplyPreview?.trim()) {
+    lines.push(
+      '',
+      `<b>Відповідь клієнту:</b>`,
+      escapeTelegramHtml(previewDebugText(collector.finalReplyPreview, 320)),
+    );
+  }
+
+  if (opts?.clientLabel?.trim()) {
+    lines.push('', `<b>Клієнт:</b> ${escapeTelegramHtml(opts.clientLabel.trim())}`);
+  }
+
+  return lines.join('\n');
+}

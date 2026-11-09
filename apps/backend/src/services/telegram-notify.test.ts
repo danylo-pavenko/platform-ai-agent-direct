@@ -30,8 +30,17 @@ vi.mock('../config.js', () => ({
 
 import { getBotWithToken } from '../lib/telegram.js';
 import { getNotificationChatIdsForBot } from '../lib/telegram-groups.js';
-import { notifyHandoff, notifyHandoffFollowUp, notifyOrder } from './telegram-notify.js';
-import { AGENT_TURN_DEBUG_PREFIX } from '../lib/agent-turn-debug.js';
+import {
+  notifyAgentTurnDebug,
+  notifyHandoff,
+  notifyHandoffFollowUp,
+  notifyOrder,
+} from './telegram-notify.js';
+import {
+  AGENT_TURN_DEBUG_PREFIX,
+  createAgentTurnDebugCollector,
+} from '../lib/agent-turn-debug.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
 
 describe('notifyOrder', () => {
   beforeEach(() => {
@@ -182,8 +191,97 @@ describe('notifyHandoff', () => {
     expect(byChat['-100123']).not.toContain(AGENT_TURN_DEBUG_PREFIX);
     expect(byChat['-100123']).not.toContain('3380613918779953');
     expect(byChat['-100123']).not.toContain('Розмова:');
+    expect(byChat['-100123']).not.toContain('Відкрити діалог');
 
-    expect(byChat['987654321']).toContain(AGENT_TURN_DEBUG_PREFIX);
-    expect(byChat['987654321']).toContain('Claude spawns');
+    // Agent-turn dumps are opt-in via notifyAgentTurnDebug, not embedded in handoff.
+    expect(byChat['987654321']).not.toContain(AGENT_TURN_DEBUG_PREFIX);
+    expect(byChat['987654321']).toContain('Ескалація до менеджера');
+    const handoffOpts = sendMessage.mock.calls.find(([id]) => id === '-100123')?.[2] as
+      | { reply_markup?: unknown }
+      | undefined;
+    expect(handoffOpts?.reply_markup).toBeTruthy();
+  });
+});
+
+describe('notifyAgentTurnDebug', () => {
+  beforeEach(() => {
+    sendMessage.mockClear();
+    vi.mocked(getBotWithToken).mockReturnValue({
+      api: { sendMessage },
+    } as never);
+    vi.mocked(getNotificationChatIdsForBot).mockResolvedValue(['987654321', '-100123']);
+  });
+
+  it('skips when agent_turn is not opted in (no primary fallback)', async () => {
+    vi.mocked(getIntegrationConfig).mockResolvedValueOnce({
+      telegram: {
+        botToken: 'test-token',
+        managerGroupId: '',
+        adminPassword: '',
+        bots: [
+          {
+            id: 'primary',
+            label: 'P',
+            rolePrompt: '',
+            botToken: 'test-token',
+            adminPassword: '',
+            managerGroupId: '',
+            enabled: true,
+            isPrimary: true,
+            channels: ['handoff', 'ops'],
+          },
+        ],
+      },
+    } as never);
+
+    await notifyAgentTurnDebug({
+      conversationId: 'ffffffff-1111-2222-3333-444444444444',
+      note: `${AGENT_TURN_DEBUG_PREFIX}\n• Режим: general`,
+      clientIgUsername: 'kosminin13',
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('sends HTML + url button only to private chats when agent_turn enabled', async () => {
+    vi.mocked(getIntegrationConfig).mockResolvedValueOnce({
+      telegram: {
+        botToken: 'test-token',
+        managerGroupId: '',
+        adminPassword: '',
+        bots: [
+          {
+            id: 'primary',
+            label: 'P',
+            rolePrompt: '',
+            botToken: 'test-token',
+            adminPassword: '',
+            managerGroupId: '',
+            enabled: true,
+            isPrimary: true,
+            channels: ['agent_turn'],
+          },
+        ],
+      },
+    } as never);
+
+    const collector = createAgentTurnDebugCollector();
+    collector.agentMode = 'general';
+    collector.finalReplyPreview = 'Коротко по суті.';
+    collector.clientMessage = 'Питання';
+
+    await notifyAgentTurnDebug({
+      conversationId: 'ffffffff-1111-2222-3333-444444444444',
+      collector,
+      durationMs: 1500,
+      clientIgUsername: 'kosminin13',
+    });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    const [chatId, text, options] = sendMessage.mock.calls[0]!;
+    expect(chatId).toBe('987654321');
+    expect(text).toContain('Хід агента');
+    expect(text).toContain('general');
+    expect(text).not.toContain('Відкрити діалог');
+    expect(options?.reply_markup).toBeTruthy();
   });
 });

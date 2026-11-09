@@ -188,6 +188,23 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         if (masked[field]) masked[field] = '••••••';
       }
 
+      // Page catalog: never leak Page tokens to the admin UI.
+      if (row.key === 'integration_meta' && Array.isArray(masked.availablePages)) {
+        const activePageId = String(masked.pageId ?? '');
+        masked.availablePages = (masked.availablePages as Array<Record<string, unknown>>).map(
+          (p) => ({
+            pageId: p.pageId,
+            pageName: p.pageName,
+            igUserId: p.igUserId ?? '',
+            igUsername: p.igUsername ?? '',
+            hasInstagram: Boolean(p.hasInstagram || p.igUserId),
+            hasToken: Boolean(p.pageAccessToken),
+            isActive: String(p.pageId ?? '') === activePageId,
+            updatedAt: p.updatedAt ?? '',
+          }),
+        );
+      }
+
       result[row.key] = masked;
     }
 
@@ -242,6 +259,8 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       for (const [field, value] of Object.entries(incoming)) {
         // Never store env-only fields in DB
         if (envOnly.includes(field)) continue;
+        // Page catalog + tokens are managed only by Meta OAuth / activate-page.
+        if (key === 'integration_meta' && field === 'availablePages') continue;
         // Skip masked placeholder — keep existing value (•••••• or •••••• (збережено…))
         if (sensitive.includes(field) && isMaskedIntegrationSecret(value)) continue;
         merged[field] = value;

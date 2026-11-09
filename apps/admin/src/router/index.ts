@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { safeReturnPath } from '@/lib/return-path';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -122,10 +123,15 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const token = localStorage.getItem('token');
   if (!to.meta.guest && !token) {
-    return { name: 'login' };
+    const redirect = to.matched.length ? safeReturnPath(to.fullPath) : null;
+    return redirect ? { name: 'login', query: { redirect } } : { name: 'login' };
   }
   if (to.meta.guest && token) {
-    return { name: 'dashboard' };
+    const redirect = safeReturnPath(to.query.redirect);
+    if (!redirect) return { name: 'dashboard' };
+    const resolved = router.resolve(redirect);
+    if (!resolved.matched.length || resolved.meta.guest) return { name: 'dashboard' };
+    return redirect;
   }
 
   const roles = to.meta.roles as string[] | undefined;

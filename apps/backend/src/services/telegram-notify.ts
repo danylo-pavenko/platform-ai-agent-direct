@@ -14,6 +14,10 @@ import {
   type TelegramNotifyChannel,
 } from '../lib/telegram-bots.js';
 import {
+  formatAgentTurnDebugTelegramHtml,
+  type AgentTurnDebugCollector,
+} from '../lib/agent-turn-debug.js';
+import {
   formatTelegramClientLabel,
   isHandoffServiceNote,
   selectHandoffServiceNotes,
@@ -21,6 +25,7 @@ import {
   unwrapCoalescePreamble,
   type TelegramClientRef,
 } from '../lib/handoff-format.js';
+import { isAgentTurnDebugNote } from '../lib/agent-turn-debug.js';
 import { isSyntheticReactionText } from '../lib/ig-reaction-policy.js';
 
 const log = pino({ name: 'telegram-notify' });
@@ -74,8 +79,10 @@ function buildHandoffCard(params: {
   reason: string;
   clientLabel: string;
   lastMessages: Array<{ sender: string; text: string; isVoice?: boolean }>;
+  /** Kept for callers; open-dialog is an inline button, not a body link. */
   adminUrl: string;
 }): string {
+  void params.adminUrl;
   return [
     `🔔 <b>Ескалація до менеджера</b>`,
     ``,
@@ -84,8 +91,6 @@ function buildHandoffCard(params: {
     ``,
     `<b>Останні повідомлення:</b>`,
     lastMessagesBlock(params.lastMessages),
-    ``,
-    `<a href="${escapeHtml(params.adminUrl)}">Відкрити діалог в адмінці</a>`,
   ].join('\n');
 }
 
@@ -326,11 +331,17 @@ export async function notifyHandoff(params: {
     isVoice: Boolean(m.isVoice),
   }));
   const managerLines = selectManagerFacingHandoffLines(lines);
-  const serviceNotes = selectHandoffServiceNotes(lines);
+  // «Хід агента» goes only via notifyAgentTurnDebug + opt-in `agent_turn`.
+  // Keep other service notes (e.g. vision) on private handoff cards.
+  const serviceNotes = selectHandoffServiceNotes(lines).filter(
+    (line) => !isAgentTurnDebugNote(line.text),
+  );
 
   const keyboard = new InlineKeyboard()
     .text('👤 Взяти', `takeover:${conversationId}`)
-    .text('🤖 Повернути боту', `return:${conversationId}`);
+    .text('🤖 Повернути боту', `return:${conversationId}`)
+    .row()
+    .url('Відкрити діалог', adminUrl);
 
   const groupText = truncateTelegramText(
     buildHandoffCard({
@@ -360,33 +371,47 @@ export async function notifyHandoff(params: {
 }
 
 /**
- * Admin-only agent/vision dump. Private chat with the bot (`/login`), never
- * groups the bot was added to.
+ * Admin-only «Хід агента» dump. Private chat with the bot (`/login`), never
+ * groups. Opt-in channel `agent_turn` — not sent when the toggle is off
+ * (unlike handoff/ops fallback).
  */
 export async function notifyAgentTurnDebug(params: {
   conversationId: string;
-  note: string;
+  /** Plain admin note (legacy / tests). Prefer `collector` for HTML. */
+  note?: string;
+  collector?: AgentTurnDebugCollector;
+  durationMs?: number;
   clientDisplayName?: string | null;
   clientIgUsername?: string | null;
 }): Promise<void> {
-  const note = params.note.trim();
-  if (!note) return;
-
   const clientLabel = clientLabelFrom({
     displayName: params.clientDisplayName,
     igUsername: params.clientIgUsername,
   });
   const adminUrl = adminConversationUrl(params.conversationId);
-  const text = truncateTelegramText(
-    [
-      escapeHtml(note),
-      ``,
-      `Клієнт: ${escapeHtml(clientLabel)}`,
-      `<a href="${escapeHtml(adminUrl)}">Відкрити діалог в адмінці</a>`,
-    ].join('\n'),
-  );
 
-  await sendToManagerGroup(text, undefined, 'handoff', 'private');
+  let text: string;
+  if (params.collector) {
+    text = truncateTelegramText(
+      formatAgentTurnDebugTelegramHtml(params.collector, {
+        durationMs: params.durationMs,
+        clientLabel,
+      }),
+    );
+  } else {
+    const note = (params.note ?? '').trim();
+    if (!note) return;
+    text = truncateTelegramText(
+      [`🛠 <b>Хід агента</b>`, '', escapeHtml(note), '', `Клієнт: ${escapeHtml(clientLabel)}`].join(
+        '\n',
+      ),
+    );
+  }
+
+  if (!text.trim()) return;
+
+  const keyboard = new InlineKeyboard().url('Відкрити діалог', adminUrl);
+  await sendToManagerGroup(text, keyboard, 'agent_turn', 'private');
 }
 
 /**

@@ -1399,10 +1399,7 @@
       </div>
 
       <div v-if="activeSection === 'settings-instagram'" class="settings-section">
-      <MessageSourcesIntro
-        :active-section-id="activeSection"
-        @select="selectSection"
-      />
+      <MessageSourcesIntro />
       <!-- Instagram -->
       <v-card id="settings-instagram" class="mb-4">
         <v-card-title class="d-flex align-center">
@@ -1476,7 +1473,7 @@
                 Відвʼязати
               </v-btn>
               <span class="text-caption text-medium-emphasis ml-3">
-                Надасть доступ до сторінки та Instagram — Page ID і токен заповняться самі
+                Надасть доступ до сторінки та Instagram (DM + comments для App Review) — Page ID і токен заповняться самі. Після додавання scope повторіть авторизацію.
               </span>
             </v-col>
 
@@ -1495,6 +1492,24 @@
                   Facebook Page ID: <code>{{ integrations.meta.pageId }}</code>
                 </div>
               </v-alert>
+            </v-col>
+
+            <v-col v-if="metaAvailablePages.length > 1" cols="12">
+              <v-select
+                :model-value="integrations.meta.pageId"
+                :items="metaAvailablePageItems"
+                item-title="title"
+                item-value="value"
+                label="Активна Facebook Page"
+                variant="outlined"
+                density="comfortable"
+                hide-details="auto"
+                :loading="metaActivateLoading"
+                :disabled="metaActivateLoading || oauthLoading"
+                hint="Сторінки з останньої авторизації Facebook. Перемикання не потребує нового логіну."
+                persistent-hint
+                @update:model-value="onActivateMetaPage"
+              />
             </v-col>
 
             <v-col v-if="metaNeedsManualIg" cols="12">
@@ -1760,6 +1775,19 @@
             <div v-if="igStatus.conversationsCount !== undefined">
               <strong>Діалоги (вибірка API):</strong> {{ igStatus.conversationsCount }}
             </div>
+            <div v-if="igStatus.commentsProbe">
+              <strong>instagram_manage_comments:</strong>
+              <v-chip
+                :color="igStatus.commentsProbe.ok ? 'success' : 'warning'"
+                size="x-small"
+                class="ml-1"
+              >
+                {{ igStatus.commentsProbe.ok ? 'тест OK' : 'тест не пройшов' }}
+              </v-chip>
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ igStatus.commentsProbe.noteUk }}
+              </div>
+            </div>
           </v-alert>
 
           <v-alert
@@ -1889,10 +1917,6 @@
         v-if="activeComingSoonSource"
         class="settings-section"
       >
-        <MessageSourcesIntro
-          :active-section-id="activeSection"
-          @select="selectSection"
-        />
         <v-card class="mb-4">
           <v-card-title class="d-flex align-center flex-wrap ga-2">
             <v-icon start>{{ activeComingSoonSource.icon }}</v-icon>
@@ -2619,7 +2643,7 @@
                         · Instagram @{{ c.igUsername || '—' }} ({{ c.igUserId }})
                       </template>
                       <template v-else-if="metaOAuthSelectNeedsManualIg">
-                        · Instagram ID потрібно вказати вручну після вибору
+                        · Instagram підставимо після вибору, якщо Meta віддасть звʼязок
                       </template>
                     </div>
                   </div>
@@ -2984,12 +3008,24 @@ async function submitPasswordChange() {
 
 // ── Integrations state ──────────────────────────────────────────────────────
 
+interface MetaAvailablePagePublic {
+  pageId: string;
+  pageName: string;
+  igUserId: string;
+  igUsername: string;
+  hasInstagram: boolean;
+  hasToken: boolean;
+  isActive: boolean;
+  updatedAt: string;
+}
+
 const integrations = ref({
   meta: {
     pageId: '',
     pageAccessToken: '',
     igUserId: '',
     igUsername: '',
+    availablePages: [] as MetaAvailablePagePublic[],
   },
   telegram: {
     botToken: '',
@@ -3834,6 +3870,12 @@ interface IgStatus {
     error?: string;
   };
   conversationsCount?: number;
+  commentsProbe?: {
+    ok: boolean;
+    noteUk: string;
+    mediaId?: string;
+    commentsReturned?: number;
+  };
   warnings?: string[];
   error?: string;
 }
@@ -4220,6 +4262,50 @@ const metaNeedsManualIg = computed(
     !integrations.value.meta.igUserId,
 );
 
+const metaAvailablePages = computed(() =>
+  (integrations.value.meta.availablePages ?? []).filter((p) => p.pageId && p.hasToken),
+);
+
+const metaAvailablePageItems = computed(() =>
+  metaAvailablePages.value.map((p) => ({
+    value: p.pageId,
+    title: p.igUsername
+      ? `${p.pageName} · @${p.igUsername}`
+      : p.hasInstagram && p.igUserId
+        ? `${p.pageName} · IG ${p.igUserId}`
+        : `${p.pageName} · без IG`,
+  })),
+);
+
+const metaActivateLoading = ref(false);
+
+async function onActivateMetaPage(pageId: string | null) {
+  if (!pageId || pageId === integrations.value.meta.pageId) return;
+  metaActivateLoading.value = true;
+  try {
+    const { data } = await api.post<{
+      account: OAuthAccount;
+      partial: boolean;
+      message?: string;
+    }>('/settings/meta/activate-page', { pageId });
+    await applyOAuthAccount(data.account);
+    if (data.partial) {
+      showMetaManualHelp.value = true;
+      showOAuthSnackbar(data.message ?? 'Page активовано. Доповніть Instagram ID.', 'warning');
+    } else {
+      showOAuthSnackbar(data.message ?? 'Активну Page змінено', 'success');
+    }
+  } catch (e: any) {
+    showOAuthSnackbar(
+      e.response?.data?.error ?? 'Не вдалося перемкнути Page',
+      'error',
+    );
+    await fetchIntegrations();
+  } finally {
+    metaActivateLoading.value = false;
+  }
+}
+
 const metaDisconnectDialog = ref(false);
 const metaDisconnectLoading = ref(false);
 
@@ -4320,6 +4406,7 @@ async function disconnectMeta() {
       pageAccessToken: '',
       igUserId: '',
       igUsername: '',
+      availablePages: [],
     };
     metaPageTokenMasked.value = false;
     metaPageTokenReplacing.value = false;
@@ -4920,11 +5007,24 @@ async function fetchIntegrations() {
 
     metaPageTokenMasked.value = m.pageAccessToken === '••••••';
     metaPageTokenReplacing.value = false;
+    const availablePages = Array.isArray(m.availablePages)
+      ? (m.availablePages as MetaAvailablePagePublic[]).map((p) => ({
+          pageId: String(p.pageId ?? ''),
+          pageName: String(p.pageName ?? p.pageId ?? ''),
+          igUserId: String(p.igUserId ?? ''),
+          igUsername: String(p.igUsername ?? ''),
+          hasInstagram: Boolean(p.hasInstagram || p.igUserId),
+          hasToken: Boolean(p.hasToken),
+          isActive: Boolean(p.isActive),
+          updatedAt: String(p.updatedAt ?? ''),
+        }))
+      : [];
     integrations.value.meta = {
       pageId:          m.pageId          ?? '',
       pageAccessToken: metaPageTokenMasked.value ? META_TOKEN_MASK : (m.pageAccessToken ?? ''),
       igUserId:        m.igUserId        ?? '',
       igUsername:      m.igUsername      ?? '',
+      availablePages,
     };
     integrations.value.telegram = normalizeTelegramFromApi(t);
     integrations.value.keycrm = {
@@ -5184,7 +5284,15 @@ function normalizeTelegramFromApi(t: Record<string, unknown>): typeof integratio
       isPrimary: b.isPrimary === true,
       channels: Array.isArray(b.channels)
         ? (b.channels.filter((c) => typeof c === 'string') as TelegramBotForm['channels'])
-        : (['handoff', 'order', 'brief', 'agent_failure', 'crm_fallback', 'auth', 'ops'] as TelegramBotForm['channels']),
+        : ([
+            'handoff',
+            'order',
+            'brief',
+            'agent_failure',
+            'crm_fallback',
+            'auth',
+            'ops',
+          ] as TelegramBotForm['channels']),
     };
   });
 
@@ -5200,7 +5308,15 @@ function normalizeTelegramFromApi(t: Record<string, unknown>): typeof integratio
         managerGroupId: typeof t.managerGroupId === 'string' ? t.managerGroupId : '',
         enabled: true,
         isPrimary: true,
-        channels: ['handoff', 'order', 'brief', 'agent_failure', 'crm_fallback', 'auth', 'ops'],
+        channels: [
+          'handoff',
+          'order',
+          'brief',
+          'agent_failure',
+          'crm_fallback',
+          'auth',
+          'ops',
+        ],
       },
     ];
   }

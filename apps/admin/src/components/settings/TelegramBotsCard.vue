@@ -147,6 +147,10 @@
             {{ ch.label }}
           </v-chip>
         </v-chip-group>
+        <div class="text-caption text-medium-emphasis mt-1">
+          «Хід агента» — окремий opt-in (не входить у «Системні»). Йде лише в особистий чат після
+          <code>/login</code>, навіть якщо Group ID порожній.
+        </div>
       </div>
 
       <div class="d-flex flex-wrap align-center ga-2 mt-2">
@@ -185,7 +189,8 @@ export type TelegramNotifyChannel =
   | 'agent_failure'
   | 'crm_fallback'
   | 'auth'
-  | 'ops';
+  | 'ops'
+  | 'agent_turn';
 
 export interface TelegramBotForm {
   id: string;
@@ -199,6 +204,7 @@ export interface TelegramBotForm {
   channels: TelegramNotifyChannel[];
 }
 
+/** Defaults for a new primary bot — без «Хід агента» (шум, окремий opt-in). */
 const ALL_CHANNELS: TelegramNotifyChannel[] = [
   'handoff',
   'order',
@@ -217,6 +223,7 @@ const channelOptions = [
   { value: 'crm_fallback' as const, label: 'CRM down' },
   { value: 'auth' as const, label: 'Auth / ліміти' },
   { value: 'ops' as const, label: 'Системні / тести' },
+  { value: 'agent_turn' as const, label: 'Хід агента' },
 ];
 
 const props = defineProps<{

@@ -10,6 +10,7 @@ import {
   checkIgConnectionStatus,
   importRecentIgConversations,
 } from '../services/ig-connection.js';
+import { probeInstagramManageComments } from '../services/ig-comments-probe.js';
 import {
   runPageWebhookSubscribe,
   subscribePageToMetaWebhooks,
@@ -40,6 +41,9 @@ const FB_SCOPES = [
   'pages_show_list',
   'pages_read_engagement',
   'instagram_manage_messages',
+  // App Review / comment moderation test calls (GET /{ig-media-id}/comments).
+  // Not used for DM routing — see probeInstagramManageComments.
+  'instagram_manage_comments',
 ].join(',');
 
 // ── State store (in-memory, expires in 10 min) ───────────────────────────────
@@ -96,8 +100,9 @@ function summarizePagesList(pages: MetaPageRow[]) {
 }
 
 const PAGE_LIST_FIELDS =
-  'id,name,access_token,instagram_business_account{id,username,name}';
-const PAGE_IG_FIELDS = 'instagram_business_account{id,username,name}';
+  'id,name,access_token,instagram_business_account{id,username,name},connected_instagram_account{id,username,name}';
+const PAGE_IG_FIELDS =
+  'instagram_business_account{id,username,name},connected_instagram_account{id,username,name}';
 
 /** Graph debug_token — scopes / validity (no secret values). */
 async function debugFacebookToken(
@@ -148,6 +153,14 @@ async function graphGetJson<T>(
   }
 }
 
+function pickIgAccount(data?: {
+  instagram_business_account?: IgBusinessAccount;
+  connected_instagram_account?: IgBusinessAccount;
+}): IgBusinessAccount | undefined {
+  const ig = data?.instagram_business_account ?? data?.connected_instagram_account;
+  return ig?.id ? ig : undefined;
+}
+
 async function probePageInstagram(
   pageId: string,
   accessToken: string,
@@ -156,9 +169,9 @@ async function probePageInstagram(
   url.searchParams.set('fields', PAGE_IG_FIELDS);
   const res = await graphGetJson<{
     instagram_business_account?: IgBusinessAccount;
+    connected_instagram_account?: IgBusinessAccount;
   }>(url.toString(), accessToken);
-  const ig = res.data?.instagram_business_account;
-  return ig?.id ? ig : undefined;
+  return pickIgAccount(res.data);
 }
 
 /** Page token /me often exposes instagram_business_account when /{page-id} does not. */
@@ -167,9 +180,9 @@ async function probeMeInstagram(accessToken: string): Promise<IgBusinessAccount 
   url.searchParams.set('fields', PAGE_IG_FIELDS);
   const res = await graphGetJson<{
     instagram_business_account?: IgBusinessAccount;
+    connected_instagram_account?: IgBusinessAccount;
   }>(url.toString(), accessToken);
-  const ig = res.data?.instagram_business_account;
-  return ig?.id ? ig : undefined;
+  return pickIgAccount(res.data);
 }
 
 async function probeIgUsername(
@@ -247,6 +260,7 @@ async function resolvePagesWithInstagram(
 const IG_RELATED_SCOPES = new Set([
   'instagram_manage_messages',
   'instagram_business_manage_messages',
+  'instagram_manage_comments',
 ]);
 
 const PAGE_RELATED_SCOPES = new Set(['pages_show_list', 'pages_read_engagement']);
@@ -290,7 +304,8 @@ function extractPageTargetIdsFromTokenDebug(tokenDebug: Record<string, unknown>)
 
 /**
  * Granular OAuth returns Page and IG target_ids separately; /me/accounts often omits
- * instagram_business_account. Pair IDs from debug_token — no IG node API call needed.
+ * instagram_business_account. Auto-pair only when exactly one Page was granted —
+ * several Pages must go through the picker (otherwise we may attach IG to the wrong Page).
  */
 function resolvePageFromGranularTargetIds(
   pages: MetaPageRow[],
@@ -298,21 +313,18 @@ function resolvePageFromGranularTargetIds(
 ): MetaPageRow | null {
   const igIds = extractIgTargetIdsFromTokenDebug(tokenDebug);
   const pageIds = extractPageTargetIdsFromTokenDebug(tokenDebug);
-  if (igIds.length === 0 || pageIds.length === 0) return null;
+  if (igIds.length === 0 || pageIds.length !== 1) return null;
 
-  const igUserId = igIds[0];
-  for (const pageId of pageIds) {
-    const pageRow = pages.find((p) => p.id === pageId && p.access_token);
-    if (!pageRow) continue;
-    return {
-      ...pageRow,
-      instagram_business_account: {
-        id: igUserId,
-        username: pageRow.instagram_business_account?.username,
-      },
-    };
-  }
-  return null;
+  const pageId = pageIds[0];
+  const pageRow = pages.find((p) => p.id === pageId && p.access_token);
+  if (!pageRow) return null;
+  return {
+    ...pageRow,
+    instagram_business_account: {
+      id: igIds[0],
+      username: pageRow.instagram_business_account?.username,
+    },
+  };
 }
 
 async function listInstagramAccountIdsFromBusinesses(userAccessToken: string): Promise<string[]> {
@@ -542,18 +554,26 @@ async function enrichOAuthCandidateInstagram(
       igIds = await listInstagramAccountIdsFromBusinesses(userAccessToken);
     }
 
+    // Explicit Page↔IG link from Graph (when available).
     for (const igUserId of igIds) {
       const linked = await fetchIgUserConnectedPage(igUserId, userAccessToken);
-      if (linked?.pageId !== candidate.pageId) continue;
-      ig = { id: igUserId, username: linked.igUsername };
-      break;
+      if (linked?.pageId && linked.pageId === candidate.pageId) {
+        ig = { id: igUserId, username: linked.igUsername };
+        break;
+      }
     }
 
-    if (!ig?.id) {
-      const pageIds = extractPageTargetIdsFromTokenDebug(tokenDebug);
-      if (pageIds.includes(candidate.pageId) && igIds.length === 1) {
-        const igUserId = igIds[0];
+    // Granular OAuth often grants exactly one IG + several Pages while omitting
+    // connected_facebook_page. If Graph does not say this IG belongs to another
+    // Page, attach it to the Page the tenant just selected.
+    if (!ig?.id && igIds.length === 1) {
+      const igUserId = igIds[0];
+      const linked = await fetchIgUserConnectedPage(igUserId, userAccessToken);
+      const linkedToOtherPage =
+        Boolean(linked?.pageId) && linked!.pageId !== candidate.pageId;
+      if (!linkedToOtherPage) {
         const username =
+          linked?.igUsername ??
           (await probeIgUsername(igUserId, candidate.pageAccessToken)) ??
           (await probeIgUsername(igUserId, userAccessToken));
         ig = { id: igUserId, username };
@@ -569,6 +589,28 @@ async function enrichOAuthCandidateInstagram(
     igUsername: ig.username ?? candidate.igUsername,
     hasInstagram: true,
   };
+}
+
+/** Re-probe partial candidates so the picker can show resolved IG when Meta allows it. */
+async function enrichPartialCandidates(
+  partial: OAuthSelectionCandidate[],
+  userAccessToken: string,
+  facebookAppId: string,
+  facebookAppSecret: string,
+): Promise<{ full: OAuthSelectionCandidate[]; partial: OAuthSelectionCandidate[] }> {
+  const full: OAuthSelectionCandidate[] = [];
+  const stillPartial: OAuthSelectionCandidate[] = [];
+  for (const c of partial) {
+    const enriched = await enrichOAuthCandidateInstagram(
+      c,
+      userAccessToken,
+      facebookAppId,
+      facebookAppSecret,
+    );
+    if (enriched.hasInstagram && enriched.igUserId) full.push(enriched);
+    else stillPartial.push(enriched);
+  }
+  return { full, partial: stillPartial };
 }
 
 function collectPageCandidates(pages: MetaPageRow[]): {
@@ -607,6 +649,62 @@ function publicOAuthCandidates(candidates: OAuthSelectionCandidate[]) {
   }));
 }
 
+function candidateToAvailablePage(c: OAuthSelectionCandidate): {
+  pageId: string;
+  pageName: string;
+  pageAccessToken: string;
+  igUserId: string;
+  igUsername: string;
+  hasInstagram: boolean;
+  updatedAt: string;
+} {
+  return {
+    pageId: c.pageId,
+    pageName: c.pageName,
+    pageAccessToken: c.pageAccessToken,
+    igUserId: c.igUserId || '',
+    igUsername: c.igUsername || '',
+    hasInstagram: Boolean(c.hasInstagram && c.igUserId),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function mergeAvailablePages(
+  existing: unknown,
+  incoming: Array<ReturnType<typeof candidateToAvailablePage>>,
+): Array<ReturnType<typeof candidateToAvailablePage>> {
+  const byId = new Map<string, ReturnType<typeof candidateToAvailablePage>>();
+  if (Array.isArray(existing)) {
+    for (const raw of existing) {
+      if (!raw || typeof raw !== 'object') continue;
+      const p = raw as Record<string, unknown>;
+      const pageId = String(p.pageId ?? '');
+      const token = String(p.pageAccessToken ?? '');
+      if (!pageId || !token) continue;
+      byId.set(pageId, {
+        pageId,
+        pageName: String(p.pageName ?? pageId),
+        pageAccessToken: token,
+        igUserId: String(p.igUserId ?? ''),
+        igUsername: String(p.igUsername ?? ''),
+        hasInstagram: Boolean(p.hasInstagram || p.igUserId),
+        updatedAt: String(p.updatedAt ?? ''),
+      });
+    }
+  }
+  for (const page of incoming) {
+    if (!page.pageId || !page.pageAccessToken) continue;
+    const prev = byId.get(page.pageId);
+    byId.set(page.pageId, {
+      ...page,
+      igUserId: page.igUserId || prev?.igUserId || '',
+      igUsername: page.igUsername || prev?.igUsername || '',
+      hasInstagram: Boolean(page.igUserId || prev?.igUserId),
+    });
+  }
+  return [...byId.values()].sort((a, b) => a.pageName.localeCompare(b.pageName, 'uk'));
+}
+
 async function persistMetaOAuthConnection(
   app: FastifyInstance,
   input: {
@@ -616,6 +714,8 @@ async function persistMetaOAuthConnection(
     userAccessToken: string;
     igUserId: string;
     igUsername: string;
+    /** All Pages from this OAuth run (tokens stay server-side for later switching). */
+    availablePages?: OAuthSelectionCandidate[];
   },
 ): Promise<void> {
   const { meta } = await getIntegrationConfig();
@@ -636,38 +736,71 @@ async function persistMetaOAuthConnection(
 
   const existing = await prisma.setting.findUnique({ where: { key: 'integration_meta' } });
   const existingData = (existing?.value ?? {}) as Record<string, unknown>;
+  const previousPageId = String(existingData.pageId ?? '');
+  const pageChanged = Boolean(previousPageId) && previousPageId !== input.pageId;
 
-  const merged = {
+  const catalogIncoming = [
+    ...(input.availablePages ?? []),
+    {
+      pageId: input.pageId,
+      pageName: input.pageName,
+      pageAccessToken: input.pageAccessToken,
+      igUserId: input.igUserId,
+      igUsername: input.igUsername,
+      hasInstagram: Boolean(input.igUserId),
+    } satisfies OAuthSelectionCandidate,
+  ];
+
+  const merged: Record<string, unknown> = {
     ...existingData,
     pageId: input.pageId,
     pageAccessToken: input.pageAccessToken,
     userAccessToken: input.userAccessToken,
-    igUserId: input.igUserId,
-    igUsername: input.igUsername,
+    availablePages: mergeAvailablePages(
+      existingData.availablePages,
+      catalogIncoming.map(candidateToAvailablePage),
+    ),
   };
+
+  // Never blank out a known IG on same-page re-auth. Switching Page without a
+  // resolved IG clears stale ids so routing does not point at the previous asset.
+  if (input.igUserId) {
+    merged.igUserId = input.igUserId;
+    merged.igUsername = input.igUsername || '';
+  } else if (pageChanged) {
+    merged.igUserId = '';
+    merged.igUsername = '';
+  }
 
   await prisma.setting.upsert({
     where: { key: 'integration_meta' },
-    create: { key: 'integration_meta', value: merged },
-    update: { value: merged },
+    create: { key: 'integration_meta', value: merged as never },
+    update: { value: merged as never },
   });
 
   invalidateIntegrationConfigCache();
+
+  const savedIgUserId = String(merged.igUserId ?? '');
+  const savedIgUsername = String(merged.igUsername ?? '');
 
   app.log.info(
     {
       pageId: input.pageId,
       pageName: input.pageName,
-      igUserId: input.igUserId || null,
-      igUsername: input.igUsername || null,
+      igUserId: savedIgUserId || null,
+      igUsername: savedIgUsername || null,
+      preservedExistingIg: !input.igUserId && !pageChanged && Boolean(savedIgUserId),
+      availablePages: Array.isArray(merged.availablePages)
+        ? (merged.availablePages as unknown[]).length
+        : 0,
     },
     'Facebook OAuth credentials saved',
   );
 
-  if (input.igUserId && meta.facebookAppSecret) {
+  if (savedIgUserId && meta.facebookAppSecret) {
     await clearWebhookRoutingOnHub(app.log);
     syncWebhookRoutingToHub(
-      input.igUserId,
+      savedIgUserId,
       meta.facebookAppSecret,
       app.log,
       input.pageAccessToken,
@@ -940,8 +1073,31 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const pagesForSelection = mergeGranularPageIntoList(resolvedPages, pageWithIg);
-      const { full: fullCandidates, partial: partialCandidates } =
+      let { full: fullCandidates, partial: partialCandidates } =
         collectPageCandidates(pagesForSelection);
+
+      // Partial Pages often still resolve once we re-probe / pair granular IG ids.
+      // Do this before the picker so the UI can show @username when available.
+      if (partialCandidates.length > 0) {
+        const enrichedPartials = await enrichPartialCandidates(
+          partialCandidates,
+          userAccessToken,
+          meta.facebookAppId,
+          meta.facebookAppSecret,
+        );
+        if (enrichedPartials.full.length > 0) {
+          app.log.info(
+            {
+              resolvedCount: enrichedPartials.full.length,
+              stillPartial: enrichedPartials.partial.length,
+              pages: publicOAuthCandidates(enrichedPartials.full),
+            },
+            'Facebook OAuth: Instagram resolved for previously partial Pages',
+          );
+        }
+        fullCandidates = [...fullCandidates, ...enrichedPartials.full];
+        partialCandidates = enrichedPartials.partial;
+      }
 
       app.log.info(
         {
@@ -952,6 +1108,8 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         'Facebook OAuth: page candidates collected',
       );
 
+      const oauthCatalog = () => [...fullCandidates, ...partialCandidates];
+
       const finalizeCandidate = async (c: OAuthSelectionCandidate) => {
         const enriched = await enrichOAuthCandidateInstagram(
           c,
@@ -959,6 +1117,12 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
           meta.facebookAppId,
           meta.facebookAppSecret,
         );
+        const availablePages = oauthCatalog().map((row) =>
+          row.pageId === enriched.pageId ? enriched : row,
+        );
+        if (!availablePages.some((row) => row.pageId === enriched.pageId)) {
+          availablePages.push(enriched);
+        }
         await persistMetaOAuthConnection(app, {
           pageId: enriched.pageId,
           pageName: enriched.pageName,
@@ -966,6 +1130,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
           userAccessToken,
           igUserId: enriched.igUserId,
           igUsername: enriched.igUsername,
+          availablePages,
         });
         return {
           pageId: enriched.pageId,
@@ -1028,7 +1193,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
             candidates: publicOAuthCandidates(partialCandidates),
             needsManualIg: true,
             message:
-              'Знайдено кілька Facebook Page без Instagram ID у відповіді API. Оберіть Page — потім вкажіть Instagram User ID вручну.',
+              'Знайдено кілька Facebook Page. Оберіть потрібну — після вибору підставимо Instagram автоматично, якщо Meta віддасть звʼязок. Лише якщо ні, доповните ID вручну.',
           }),
         );
       }
@@ -1076,6 +1241,10 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       meta.facebookAppSecret,
     );
 
+    const availablePages = session.candidates.map((row) =>
+      row.pageId === enriched.pageId ? enriched : row,
+    );
+
     await persistMetaOAuthConnection(app, {
       pageId: enriched.pageId,
       pageName: enriched.pageName,
@@ -1083,14 +1252,8 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       userAccessToken: session.userAccessToken,
       igUserId: enriched.igUserId,
       igUsername: enriched.igUsername,
+      availablePages,
     });
-
-    const account = {
-      pageId: enriched.pageId,
-      pageName: enriched.pageName,
-      igUserId: enriched.igUserId,
-      igUsername: enriched.igUsername,
-    };
 
     app.log.info(
       {
@@ -1098,16 +1261,131 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         igUserId: enriched.igUserId || null,
         igUsername: enriched.igUsername || null,
         resolvedInstagram: Boolean(enriched.igUserId),
+        catalogSize: availablePages.length,
       },
       'Facebook OAuth: page selection finalized',
     );
 
+    // Re-read after persist — may have preserved IG on same-page re-auth.
+    const { meta: savedMeta } = await getIntegrationConfig();
+    const resolvedIgUserId = enriched.igUserId || savedMeta.igUserId || '';
+    const resolvedIgUsername = enriched.igUsername || savedMeta.igUsername || '';
+    const accountResolved = {
+      pageId: enriched.pageId,
+      pageName: enriched.pageName,
+      igUserId: resolvedIgUserId,
+      igUsername: resolvedIgUsername,
+    };
+
     return {
-      account,
-      partial: !enriched.igUserId,
-      message: enriched.igUserId
-        ? `Підключено @${enriched.igUsername || enriched.igUserId} (Page: ${enriched.pageName})`
-        : 'Page збережено. Вкажіть Instagram User ID та username вручну.',
+      account: accountResolved,
+      partial: !resolvedIgUserId,
+      message: resolvedIgUserId
+        ? `Підключено @${resolvedIgUsername || resolvedIgUserId} (Page: ${enriched.pageName})`
+        : 'Page і токен збережено. Instagram ID Meta не віддала для цієї Page — вкажіть його вручну нижче і натисніть «Зберегти Instagram».',
+    };
+  });
+
+  /**
+   * POST /settings/meta/activate-page
+   * Switch the active Facebook Page among those saved from the last OAuth catalog.
+   * Does not require a new Facebook login when the Page token is still stored.
+   */
+  app.post<{
+    Body: { pageId?: string };
+  }>('/meta/activate-page', { onRequest: [app.authenticate, app.requireOwner] }, async (request, reply) => {
+    const pageId = String(request.body?.pageId ?? '').trim();
+    if (!pageId) {
+      return reply.code(400).send({ error: 'pageId обовʼязковий' });
+    }
+
+    const existing = await prisma.setting.findUnique({ where: { key: 'integration_meta' } });
+    const existingData = (existing?.value ?? {}) as Record<string, unknown>;
+    const catalog = Array.isArray(existingData.availablePages)
+      ? (existingData.availablePages as Array<Record<string, unknown>>)
+      : [];
+    const page = catalog.find((p) => String(p.pageId ?? '') === pageId);
+    if (!page) {
+      return reply.code(404).send({
+        error:
+          'Цю Page не знайдено в збереженому списку. Повторіть «Авторизуватись через Facebook», щоб оновити каталог.',
+      });
+    }
+
+    const pageAccessToken = String(page.pageAccessToken ?? '');
+    if (!pageAccessToken) {
+      return reply.code(400).send({
+        error: 'Для цієї Page немає збереженого токена — повторіть авторизацію Facebook',
+      });
+    }
+
+    let igUserId = String(page.igUserId ?? '');
+    let igUsername = String(page.igUsername ?? '');
+    const pageName = String(page.pageName ?? pageId);
+    const { meta } = await getIntegrationConfig();
+    const userAccessToken = String(existingData.userAccessToken ?? '');
+
+    if (!igUserId && userAccessToken && meta.facebookAppId && meta.facebookAppSecret) {
+      const enriched = await enrichOAuthCandidateInstagram(
+        {
+          pageId,
+          pageName,
+          pageAccessToken,
+          igUserId: '',
+          igUsername: '',
+          hasInstagram: false,
+        },
+        userAccessToken,
+        meta.facebookAppId,
+        meta.facebookAppSecret,
+      );
+      igUserId = enriched.igUserId;
+      igUsername = enriched.igUsername;
+    }
+
+    await persistMetaOAuthConnection(app, {
+      pageId,
+      pageName,
+      pageAccessToken,
+      userAccessToken,
+      igUserId,
+      igUsername,
+      availablePages: catalog.map((raw) => {
+        const id = String(raw.pageId ?? '');
+        if (id === pageId) {
+          return {
+            pageId,
+            pageName,
+            pageAccessToken,
+            igUserId,
+            igUsername,
+            hasInstagram: Boolean(igUserId),
+          };
+        }
+        return {
+          pageId: id,
+          pageName: String(raw.pageName ?? id),
+          pageAccessToken: String(raw.pageAccessToken ?? ''),
+          igUserId: String(raw.igUserId ?? ''),
+          igUsername: String(raw.igUsername ?? ''),
+          hasInstagram: Boolean(raw.hasInstagram || raw.igUserId),
+        };
+      }),
+    });
+
+    const { meta: saved } = await getIntegrationConfig();
+
+    return {
+      account: {
+        pageId: saved.pageId,
+        pageName,
+        igUserId: saved.igUserId,
+        igUsername: saved.igUsername,
+      },
+      partial: !saved.igUserId,
+      message: saved.igUserId
+        ? `Активна Page: ${pageName} (@${saved.igUsername || saved.igUserId})`
+        : `Активна Page: ${pageName}. Instagram ID не відомий — доповніть вручну.`,
     };
   });
 
@@ -1212,6 +1490,17 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       }
     };
 
+    const commentsProbePromise = igUserId
+      ? probeInstagramManageComments(igUserId, token).then((r) => ({
+          label: 'instagram_manage_comments (GET /{media}/comments)',
+          status: r.commentsStatus ?? r.mediaListStatus ?? (r.ok ? 200 : 0),
+          body: r,
+        }))
+      : Promise.resolve({
+          label: 'instagram_manage_comments',
+          error: 'igUserId not set',
+        });
+
     const probes = await Promise.all([
       // Page token /me — often returns Page node without nested IG (granular OAuth).
       probe(
@@ -1232,6 +1521,8 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
             `${FB_GRAPH_BASE}/${pageId}/conversations?platform=instagram&limit=3&fields=id,updated_time,participants`,
           )
         : Promise.resolve({ label: 'conversations', error: 'pageId not set' }),
+      // App Review: instagram_manage_comments — GET /{ig-media-id}/comments.
+      commentsProbePromise,
       // Read webhook subscription — often 403 without pages_manage_metadata (expected).
       pageId
         ? probe(
@@ -1308,6 +1599,16 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
         'Прямий GET /{ig-user-id} 400 з Page token — не критично; орієнтуйтесь на conversations і Page node.',
       );
     }
+    const commentsRow = rows.find((p) => p.label?.includes('instagram_manage_comments'));
+    const commentsBody = commentsRow?.body as { ok?: boolean; noteUk?: string } | undefined;
+    if (commentsBody?.ok) {
+      notes.push(
+        commentsBody.noteUk ??
+          'instagram_manage_comments: GET /{media}/comments → 200 (для Meta App Review).',
+      );
+    } else if (commentsBody?.noteUk) {
+      notes.push(commentsBody.noteUk);
+    }
 
     return {
       pageId,
@@ -1368,6 +1669,7 @@ export async function metaOAuthRoutes(app: FastifyInstance): Promise<void> {
       userAccessToken: '',
       igUserId: '',
       igUsername: '',
+      availablePages: [],
     };
 
     await prisma.setting.upsert({

@@ -9,7 +9,7 @@
 ## Prompt must encode
 
 1. **Business context** — address, map, phone, hours, IG, site.
-2. **Greeting** — first bot reply only: persona + how to call a human; no re-greet same day.
+2. **Greeting** — copy the three platform markers from the skill (first reply, new civil day, same day). A new salon day greets again. The same day does not.
 3. **Service clarification** — short checklists per category (manicure, brows, hair, physio, …) **tenant-specific**; skip questions when client already gave a ready package.
 4. **Slots UX** — max ~3 time options per message; no date×hour walls; empty slots ≠ «masters don’t work that day» unless verified.
 5. **Multi-service** — all agreed lines in `get_available_slots` / `book_appointment`; PARALLEL needs `master_id` per line; never book half a package.

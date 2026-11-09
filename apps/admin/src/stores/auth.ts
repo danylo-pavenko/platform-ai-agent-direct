@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import type { RouteLocationRaw } from 'vue-router';
 import api from '@/api';
 import router from '@/router';
+import { safeReturnPath } from '@/lib/return-path';
+
+/** Explicit «Вийти» must not send the next login back to the previous page. */
+let suppressReturn = false;
 
 export interface AuthUser {
   id: string;
@@ -21,10 +26,20 @@ export const useAuthStore = defineStore('auth', () => {
   const isOwner = computed(() => user.value?.role === 'owner');
   const isManager = computed(() => user.value?.role === 'manager');
 
+  function returnTarget(raw: unknown): RouteLocationRaw {
+    const path = safeReturnPath(raw);
+    if (!path) return { name: 'dashboard' };
+    const resolved = router.resolve(path);
+    if (!resolved.matched.length || resolved.meta.guest) return { name: 'dashboard' };
+    return path;
+  }
+
   async function login(username: string, password: string) {
     const { data } = await api.post('/auth/login', { username, password });
     setSession(data.token, data.user);
-    router.push({ name: 'dashboard' });
+    suppressReturn = false;
+    const redirect = router.currentRoute.value.query.redirect;
+    await router.replace(returnTarget(redirect));
   }
 
   function setSession(newToken: string, newUser: AuthUser) {
@@ -63,11 +78,22 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function logout() {
+  function logout(options?: { remember?: boolean }) {
+    if (options?.remember === false) suppressReturn = true;
+    const current = router.currentRoute.value;
+    const returnTo =
+      options?.remember !== false && !suppressReturn
+        ? safeReturnPath(current.fullPath)
+        : null;
     token.value = null;
     user.value = null;
     localStorage.removeItem('token');
-    router.push({ name: 'login' });
+    if (current.name === 'login') return;
+    if (returnTo) {
+      void router.replace({ name: 'login', query: { redirect: returnTo } });
+      return;
+    }
+    void router.replace({ name: 'login' });
   }
 
   return {
