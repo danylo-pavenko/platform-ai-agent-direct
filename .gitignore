@@ -60,5 +60,7 @@ docs/marketing/
 # Commercial offers / estimates / SOW (local only — not for tenant deploys)
 docs/offers/
 
-# Tenant-specific system prompts (local only — not for tenant deploys)
-docs/prompts/
+# Tenant-specific system prompts (local drafts — not for tenant deploys / git)
+# Keep README tracked; ignore all generated/edited .txt prompts.
+docs/prompts/*
+!docs/prompts/README.md

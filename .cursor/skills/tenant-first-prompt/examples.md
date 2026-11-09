@@ -7,7 +7,7 @@ User: «Зроби перший промпт для нового салону б
 1. Archetype `service`, mode `booking`.
 2. Read `references/archetype-service.md` + Moxito scratch for structure.
 3. Ask missing: address, hours, agent name, CRM, top services.
-4. Write `scratch/<slug>-system-prompt-v1.0.txt` with clarification for brows + book flow + handoff.
+4. Write `docs/prompts/<slug>-system-prompt-v1.0.txt` with clarification for brows + book flow + handoff.
 
 ## Product shop
 
@@ -24,3 +24,12 @@ User: «Тенант робить прошивки ECU, Instagram DM.»
 1. Archetype `software`, mode `leadgen` or `general` if they book box visits.
 2. Brief: auto / year / engine / goal / city / phone → `submit_brief` + handoff.
 3. Forbid invented Stage gains; optional `book_appointment` only for real «запис на прошивку» SKU.
+4. Save under `docs/prompts/<slug>-system-prompt-v1.0.txt` (not committed).
+
+## Improve existing
+
+User: «Покращ промпт Moxito — курси зі Stories.»
+
+1. Read latest `docs/prompts/moxito-system-prompt-v*.txt` (or path user gave).
+2. Bump to next minor, changelog bullet, write new file beside the old one.
+3. Do not `git add` the txt.

@@ -12,7 +12,7 @@ Multi-tenant **Instagram DM AI agent** (sales / leadgen / booking / general). К
 
 | Область | Де |
 |---------|-----|
-| **Перший промпт тенанта (скіл)** | `.cursor/skills/tenant-first-prompt/` — service / product / software |
+| **Перший / оновлений промпт тенанта (скіл)** | `.cursor/skills/tenant-first-prompt/` → пише в `docs/prompts/` (gitignored txt) |
 | **Agent runtime (повна карта)** | `docs/AGENT_RUNTIME.md`, `.cursor/rules/agent-runtime.mdc` |
 | Agent modes + tools | `apps/backend/src/lib/tool-definitions.ts`, `agent-tools-prompt.ts` |
 | Multi-CRM | `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, `services/crm/{keycrm,cleverbox,beautypro}.ts` |
