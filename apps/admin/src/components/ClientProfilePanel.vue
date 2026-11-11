@@ -151,6 +151,10 @@
             <span class="cpp-kv-k">Імʼя</span>
             <span class="cpp-kv-v">{{ chatName || '—' }}</span>
           </div>
+          <div class="cpp-kv">
+            <span class="cpp-kv-k">Мова</span>
+            <span class="cpp-kv-v">{{ languageLabel }}</span>
+          </div>
           <div v-if="igTitle" class="cpp-kv">
             <span class="cpp-kv-k">Профіль IG</span>
             <span class="cpp-kv-v cpp-muted">{{ igTitle }}</span>
@@ -192,6 +196,19 @@
             variant="outlined"
             density="comfortable"
             hide-details="auto"
+            class="mb-2"
+          />
+          <v-select
+            v-model="form.preferredLanguage"
+            :items="languageItems"
+            item-title="title"
+            item-value="value"
+            label="Мова"
+            placeholder="Ще не визначена"
+            variant="outlined"
+            density="comfortable"
+            hide-details="auto"
+            clearable
             class="mb-2"
           />
           <v-text-field
@@ -427,6 +444,7 @@ export interface ProfileClient {
   deliveryNpType?: string;
   notes?: string;
   tags?: string[];
+  preferredLanguage?: 'uk' | 'ru' | 'en' | null;
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;
@@ -485,6 +503,11 @@ const crmHistoryText = ref('');
 const crmLinkMessage = ref('');
 
 const form = ref<Partial<ProfileClient>>({});
+const languageItems = [
+  { title: 'Українська', value: 'uk' },
+  { title: 'Російська', value: 'ru' },
+  { title: 'Англійська', value: 'en' },
+];
 
 watch(editing, (v) => emit('profileEditing', v));
 
@@ -508,6 +531,11 @@ const npDisplay = computed(() => {
   if (!branch) return '—';
   const kind = props.client?.deliveryNpType === 'postamat' ? 'Поштомат' : 'Відділення';
   return `${kind} ${branch}`;
+});
+
+const languageLabel = computed(() => {
+  const code = props.client?.preferredLanguage;
+  return languageItems.find((item) => item.value === code)?.title ?? 'Ще не визначена';
 });
 
 const orderKindLabel = computed(() => {
@@ -593,6 +621,7 @@ function startEdit() {
     deliveryNpType: props.client?.deliveryNpType ?? '',
     notes: props.client?.notes ?? '',
     tags: [...(props.client?.tags ?? [])],
+    preferredLanguage: props.client?.preferredLanguage ?? null,
     crmBuyerId: props.client?.crmBuyerId ?? '',
   };
   editing.value = true;

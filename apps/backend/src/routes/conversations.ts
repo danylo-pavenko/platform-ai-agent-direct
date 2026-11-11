@@ -479,6 +479,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       deliveryNpType?: string;
       notes?: string;
       tags?: string[];
+      preferredLanguage?: 'uk' | 'ru' | 'en' | null;
       crmBuyerId?: string | null;
     };
   }>('/clients/:clientId', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -503,6 +504,15 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
         if (val !== undefined) {
           update[field] = val === '' ? null : val;
         }
+      }
+    }
+
+    if ('preferredLanguage' in body) {
+      const raw = body.preferredLanguage;
+      if (raw === null || raw === '') {
+        update.preferredLanguage = null;
+      } else if (raw === 'uk' || raw === 'ru' || raw === 'en') {
+        update.preferredLanguage = raw;
       }
     }
 

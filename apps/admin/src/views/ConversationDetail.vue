@@ -858,6 +858,7 @@ interface ClientData {
   deliveryNpType?: string;
   notes?: string;
   tags?: string[];
+  preferredLanguage?: 'uk' | 'ru' | 'en' | null;
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;

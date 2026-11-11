@@ -51,7 +51,7 @@
             <v-card-subtitle class="text-wrap">{{ card.slug }}</v-card-subtitle>
           </v-card-item>
           <v-card-text>
-            <div class="mb-2">{{ card.description }}</div>
+            <div class="library-card-desc mb-2">{{ card.description }}</div>
             <v-chip
               size="small"
               :color="card.status === 'active' ? 'success' : 'default'"
@@ -67,78 +67,146 @@
       </v-col>
     </v-row>
 
-    <v-dialog v-model="editor" :fullscreen="mobile" max-width="840">
-      <v-card>
-        <v-card-title>{{ draft.id ? 'Картка' : 'Нова картка' }}</v-card-title>
-        <v-card-text>
-          <v-text-field v-model="draft.title" label="Назва" class="mb-2" />
-          <v-text-field
-            v-model="draft.slug"
-            label="Slug"
-            hint="Латиниця, цифри, дефіс. Агент кличе картку цим ім’ям."
-            persistent-hint
-            class="mb-2"
-          />
-          <v-textarea
-            v-model="draft.description"
-            label="Коли брати"
-            rows="2"
-            hint="Одне речення: у якому питанні клієнта ця картка потрібна."
-            persistent-hint
-            class="mb-2"
-          />
-          <v-textarea
-            v-model="aliasesText"
-            label="Аліаси"
-            rows="2"
-            hint="По одному в рядку. Наприклад N55 або 2.5 tdi."
-            persistent-hint
-            class="mb-2"
-          />
-          <v-textarea v-model="draft.body" label="Текст картки" rows="12" />
-          <v-switch
-            v-model="isActive"
-            color="primary"
-            label="Увімкнути. Чернетка в діалог не йде."
-            hide-details
-          />
+    <v-dialog v-model="editor" :fullscreen="mobile" max-width="840" scrollable>
+      <v-card class="library-dialog">
+        <v-card-title class="library-dialog-title">
+          {{ draft.id ? 'Картка' : 'Нова картка' }}
+        </v-card-title>
+        <v-card-text class="library-dialog-body">
+          <div class="library-field">
+            <label class="library-label" for="library-title">Назва</label>
+            <v-text-field
+              id="library-title"
+              v-model="draft.title"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              placeholder="Як людина знайде цю картку"
+              class="library-input"
+            />
+          </div>
+          <div class="library-field">
+            <label class="library-label" for="library-slug">Slug</label>
+            <v-text-field
+              id="library-slug"
+              v-model="draft.slug"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              placeholder="diesel"
+              class="library-input"
+            />
+            <p class="library-hint">Латиниця, цифри, дефіс. Агент кличе картку цим ім’ям.</p>
+          </div>
+          <div class="library-field">
+            <label class="library-label" for="library-when">Коли брати</label>
+            <v-textarea
+              id="library-when"
+              v-model="draft.description"
+              variant="outlined"
+              density="comfortable"
+              rows="2"
+              auto-grow
+              hide-details
+              placeholder="Одне речення: у якому питанні клієнта ця картка потрібна"
+              class="library-input"
+            />
+          </div>
+          <div class="library-field">
+            <label class="library-label" for="library-aliases">Аліаси</label>
+            <v-textarea
+              id="library-aliases"
+              v-model="aliasesText"
+              variant="outlined"
+              density="comfortable"
+              rows="3"
+              auto-grow
+              hide-details
+              placeholder="N55&#10;2.5 tdi"
+              class="library-input"
+            />
+            <p class="library-hint">По одному в рядку.</p>
+          </div>
+          <div class="library-field">
+            <label class="library-label" for="library-body">Текст картки</label>
+            <v-textarea
+              id="library-body"
+              v-model="draft.body"
+              variant="outlined"
+              density="comfortable"
+              rows="12"
+              hide-details
+              placeholder="Текст, який агент може сказати клієнту"
+              class="library-input library-body"
+            />
+          </div>
+          <div class="library-switch">
+            <v-switch
+              v-model="isActive"
+              color="primary"
+              hide-details
+              inset
+              density="comfortable"
+            />
+            <div>
+              <div class="library-switch-title">{{ isActive ? 'Увімкнена' : 'Чернетка' }}</div>
+              <div class="library-hint">Чернетка в діалог не йде.</div>
+            </div>
+          </div>
         </v-card-text>
-        <v-card-actions class="dialog-actions-stack">
+        <v-card-actions class="library-dialog-actions dialog-actions-stack">
           <v-btn v-if="draft.id" color="error" variant="text" class="tap-target" @click="remove">
             Видалити
           </v-btn>
           <v-spacer />
           <v-btn variant="text" class="tap-target" @click="editor = false">Закрити</v-btn>
-          <v-btn color="primary" class="tap-target" :loading="saving" @click="save">Зберегти</v-btn>
+          <v-btn color="primary" variant="flat" class="tap-target" :loading="saving" @click="save">
+            Зберегти
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="importOpen" :fullscreen="mobile" max-width="720">
-      <v-card>
-        <v-card-title>Застосувати картки з JSON</v-card-title>
-        <v-card-text>
-          <p class="mb-3">
+    <v-dialog v-model="importOpen" :fullscreen="mobile" max-width="720" scrollable>
+      <v-card class="library-dialog">
+        <v-card-title class="library-dialog-title">Застосувати картки з JSON</v-card-title>
+        <v-card-text class="library-dialog-body">
+          <p class="library-lead">
             Файл або вставлений текст. Картка з тим самим slug оновлюється.
             Без status вона одразу вмикається і йде в наступний діалог.
             Інші картки цього тенанта не чіпаються.
           </p>
-          <pre class="import-sample mb-3">{{ sample }}</pre>
-          <v-file-input
-            accept="application/json,.json"
-            label="Файл JSON"
-            prepend-icon="mdi-file-upload-outline"
-            density="comfortable"
-            :disabled="importing"
-            @update:model-value="onImportFile"
-          />
-          <v-textarea
-            v-model="importText"
-            label="Або вставте JSON"
-            rows="8"
-            auto-grow
-            class="mt-2"
-          />
+          <pre class="import-sample">{{ sample }}</pre>
+          <div class="library-field">
+            <label class="library-label" for="library-file">Файл JSON</label>
+            <v-file-input
+              id="library-file"
+              accept="application/json,.json"
+              placeholder="Оберіть файл"
+              prepend-icon=""
+              prepend-inner-icon="mdi-file-upload-outline"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              class="library-input"
+              :disabled="importing"
+              @update:model-value="onImportFile"
+            />
+          </div>
+          <div class="library-field">
+            <label class="library-label" for="library-json">Або вставте JSON</label>
+            <v-textarea
+              id="library-json"
+              v-model="importText"
+              variant="outlined"
+              density="comfortable"
+              rows="8"
+              auto-grow
+              hide-details
+              placeholder="{ &quot;version&quot;: 1, &quot;cards&quot;: [] }"
+              class="library-input library-body"
+            />
+          </div>
           <v-alert
             v-if="importIssues.length"
             type="error"
@@ -150,10 +218,10 @@
             </div>
           </v-alert>
         </v-card-text>
-        <v-card-actions class="dialog-actions-stack">
+        <v-card-actions class="library-dialog-actions dialog-actions-stack">
           <v-spacer />
           <v-btn variant="text" class="tap-target" @click="importOpen = false">Закрити</v-btn>
-          <v-btn color="primary" class="tap-target" :loading="importing" @click="applyImport">
+          <v-btn color="primary" variant="flat" class="tap-target" :loading="importing" @click="applyImport">
             Застосувати
           </v-btn>
         </v-card-actions>
@@ -356,11 +424,137 @@ onMounted(load);
 </script>
 
 <style scoped>
+.library-card-desc {
+  color: #1c3348;
+  line-height: 1.45;
+}
+
+.library-dialog {
+  background: #fff;
+  color: #0a2540;
+}
+
+.library-dialog-title {
+  padding: 20px 24px 12px;
+  font-size: 20px;
+  font-weight: 650;
+  color: #0a2540;
+  letter-spacing: 0;
+}
+
+.library-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 4px;
+  background: #fff;
+}
+
+.library-lead {
+  margin: 0;
+  color: #1c3348;
+  line-height: 1.5;
+}
+
+.library-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.library-label {
+  margin: 0 0 6px;
+  color: #0a2540;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.library-hint {
+  margin: 6px 0 0;
+  color: #3d4f66;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.library-input :deep(.v-field) {
+  background: #fff;
+  border-radius: 12px;
+  font-size: 15px !important;
+}
+
+.library-input :deep(.v-field--variant-outlined .v-field__outline__start),
+.library-input :deep(.v-field--variant-outlined .v-field__outline__end),
+.library-input :deep(.v-field--variant-outlined .v-field__outline__notch::before),
+.library-input :deep(.v-field--variant-outlined .v-field__outline__notch::after) {
+  border-color: #6d7f93 !important;
+  border-width: 1.5px;
+}
+
+.library-input :deep(.v-field--focused .v-field__outline__start),
+.library-input :deep(.v-field--focused .v-field__outline__end),
+.library-input :deep(.v-field--focused .v-field__outline__notch::before),
+.library-input :deep(.v-field--focused .v-field__outline__notch::after) {
+  border-color: #635bff !important;
+}
+
+.library-input :deep(.v-field__input),
+.library-input :deep(textarea) {
+  color: #0a2540 !important;
+  caret-color: #0a2540;
+  opacity: 1;
+  font-size: 15px !important;
+  line-height: 1.5;
+}
+
+.library-input :deep(.v-field__input::placeholder),
+.library-input :deep(textarea::placeholder) {
+  color: #5c6d80;
+  opacity: 1;
+}
+
+.library-body :deep(textarea) {
+  min-height: 220px;
+}
+
+.library-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #c5d0dc;
+  border-radius: 12px;
+  background: #f7f9fc;
+}
+
+.library-switch :deep(.v-input) {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.library-switch :deep(.v-selection-control) {
+  min-height: 44px;
+}
+
+.library-switch-title {
+  color: #0a2540;
+  font-weight: 650;
+}
+
 .import-sample {
+  margin: 0;
   white-space: pre-wrap;
-  font-size: 12px;
-  padding: 12px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
+  font-size: 13px;
+  line-height: 1.45;
+  color: #0a2540;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #c5d0dc;
+  background: #f7f9fc;
+}
+
+.library-dialog-actions {
+  padding: 12px 20px 16px;
+  border-top: 1px solid #e6ebf1;
+  background: #fff;
 }
 </style>
