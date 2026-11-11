@@ -82,7 +82,7 @@
               density="comfortable"
               hide-details
               placeholder="Як людина знайде цю картку"
-              class="library-input"
+              class="library-input" spellcheck="false"
             />
           </div>
           <div class="library-field">
@@ -94,7 +94,7 @@
               density="comfortable"
               hide-details
               placeholder="diesel"
-              class="library-input"
+              class="library-input" spellcheck="false"
             />
             <p class="library-hint">Латиниця, цифри, дефіс. Агент кличе картку цим ім’ям.</p>
           </div>
@@ -109,7 +109,7 @@
               auto-grow
               hide-details
               placeholder="Одне речення: у якому питанні клієнта ця картка потрібна"
-              class="library-input"
+              class="library-input" spellcheck="false"
             />
           </div>
           <div class="library-field">
@@ -123,7 +123,7 @@
               auto-grow
               hide-details
               placeholder="N55&#10;2.5 tdi"
-              class="library-input"
+              class="library-input" spellcheck="false"
             />
             <p class="library-hint">По одному в рядку.</p>
           </div>
@@ -137,7 +137,7 @@
               rows="12"
               hide-details
               placeholder="Текст, який агент може сказати клієнту"
-              class="library-input library-body"
+              class="library-input library-body" spellcheck="false"
             />
           </div>
           <div class="library-switch">
@@ -188,7 +188,7 @@
               variant="outlined"
               density="comfortable"
               hide-details
-              class="library-input"
+              class="library-input" spellcheck="false"
               :disabled="importing"
               @update:model-value="onImportFile"
             />
@@ -204,7 +204,7 @@
               auto-grow
               hide-details
               placeholder="{ &quot;version&quot;: 1, &quot;cards&quot;: [] }"
-              class="library-input library-body"
+              class="library-input library-body" spellcheck="false"
             />
           </div>
           <v-alert
@@ -478,23 +478,17 @@ onMounted(load);
 
 .library-input :deep(.v-field) {
   background: #fff;
+  border: 1.5px solid #6d7f93;
   border-radius: 12px;
   font-size: 15px !important;
 }
 
-.library-input :deep(.v-field--variant-outlined .v-field__outline__start),
-.library-input :deep(.v-field--variant-outlined .v-field__outline__end),
-.library-input :deep(.v-field--variant-outlined .v-field__outline__notch::before),
-.library-input :deep(.v-field--variant-outlined .v-field__outline__notch::after) {
-  border-color: #6d7f93 !important;
-  border-width: 1.5px;
+.library-input :deep(.v-field--focused) {
+  border-color: #635bff;
 }
 
-.library-input :deep(.v-field--focused .v-field__outline__start),
-.library-input :deep(.v-field--focused .v-field__outline__end),
-.library-input :deep(.v-field--focused .v-field__outline__notch::before),
-.library-input :deep(.v-field--focused .v-field__outline__notch::after) {
-  border-color: #635bff !important;
+.library-input :deep(.v-field__outline) {
+  display: none;
 }
 
 .library-input :deep(.v-field__input),
