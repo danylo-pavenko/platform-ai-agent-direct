@@ -30,9 +30,10 @@ Telegram менеджерам — не окремий tool (йде з order/brie
 
 ## CRM (коротко)
 
+- Може бути **жодна CRM** (`none`): замовлення/клієнти/записи лише локально в адмінці, без vendor HTTP.
 - **KeyCRM** — каталог товарів, замовлення, ліди, пошук ТТН / статусу відправки (`lookup_order_shipment`).
 - **CleverBOX / BeautyPro / Altegio** — послуги, філії, слоти, запис; BeautyPro і Altegio ще історія візитів. В Altegio один запис = один майстер (паралельні послуги різних майстрів — окремі book_appointment).
-- Routing per-tenant (`crm_routing`). Після телефону клієнт може привʼязатись до CRM (`crmBuyerId`).
+- Routing per-tenant (`crm_routing`, vendor або `none`). Після телефону клієнт може привʼязатись до CRM (`crmBuyerId`).
 
 ## Джерела правди
 

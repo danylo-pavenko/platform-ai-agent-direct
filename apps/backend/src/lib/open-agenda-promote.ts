@@ -16,8 +16,7 @@ import {
   type BookingFunnelMissing,
 } from './booking-funnel.js';
 import type { CrmServiceItem } from '../services/crm/types.js';
-import { resolveCrmProvider } from './crm-routing.js';
-import { getCrmAdapter } from '../services/crm/index.js';
+import { getCrmForAction } from './crm-routing.js';
 import { getMastersCatalogPath } from './paths.js';
 import { readFile } from 'node:fs/promises';
 
@@ -90,10 +89,9 @@ async function loadMasterCatalog(): Promise<Array<{ id: string; name: string }>>
   if (fromFile.length > 0) return fromFile;
 
   try {
-    const provider = await resolveCrmProvider('booking');
-    const crm = getCrmAdapter(provider);
-    if (crm.fetchEmployees) {
-      const emps = await crm.fetchEmployees();
+    const bound = await getCrmForAction('booking');
+    if (bound?.adapter.fetchEmployees) {
+      const emps = await bound.adapter.fetchEmployees();
       return emps.map((e) => ({ id: e.id, name: e.name }));
     }
   } catch {

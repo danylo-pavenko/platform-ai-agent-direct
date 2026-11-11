@@ -4655,16 +4655,16 @@ const followUpConfig = ref<FollowUpConfigShape>({
 
 const defaultCrmRouting = (): CrmRoutingShape => ({
   mode: 'single',
-  default: 'keycrm',
-  enabled_providers: ['keycrm'],
+  default: 'none',
+  enabled_providers: [],
   routes: {
-    catalog: 'keycrm',
-    services: 'keycrm',
-    branches: 'keycrm',
-    booking: 'keycrm',
-    order: 'keycrm',
-    lead: 'keycrm',
-    client_upsert: 'keycrm',
+    catalog: 'none',
+    services: 'none',
+    branches: 'none',
+    booking: 'none',
+    order: 'none',
+    lead: 'none',
+    client_upsert: 'none',
   },
 });
 
@@ -4853,14 +4853,16 @@ async function fetchSettings() {
           ? raw.mode
           : base.mode;
       const defaultProvider =
+        raw.default === 'none' ||
         raw.default === 'cleverbox' ||
         raw.default === 'keycrm' ||
         raw.default === 'beautypro' ||
         raw.default === 'altegio'
           ? raw.default
           : base.default;
-      const enabledRaw = Array.isArray(raw.enabled_providers) ? raw.enabled_providers : [];
-      const enabled = enabledRaw.filter(
+      const enabledSpecified = Array.isArray(raw.enabled_providers);
+      const enabledRaw = enabledSpecified ? raw.enabled_providers : [];
+      const enabled = (enabledRaw as unknown[]).filter(
         (p): p is 'keycrm' | 'cleverbox' | 'beautypro' | 'altegio' =>
           p === 'keycrm' || p === 'cleverbox' || p === 'beautypro' || p === 'altegio',
       );
@@ -4870,14 +4872,25 @@ async function fetchSettings() {
           : {};
       const routes = { ...base.routes };
       for (const [key, val] of Object.entries(routesRaw)) {
-        if (val === 'keycrm' || val === 'cleverbox' || val === 'beautypro' || val === 'altegio') {
+        if (
+          val === 'none' ||
+          val === 'keycrm' ||
+          val === 'cleverbox' ||
+          val === 'beautypro' ||
+          val === 'altegio'
+        ) {
           routes[key] = val;
         }
       }
       crmRouting.value = {
         mode,
         default: defaultProvider,
-        enabled_providers: enabled.length > 0 ? enabled : base.enabled_providers,
+        // Keep explicit empty enabled_providers (local-only); only fall back when field omitted.
+        enabled_providers: enabledSpecified
+          ? enabled
+          : defaultProvider === 'none'
+            ? []
+            : base.enabled_providers,
         routes,
       };
     }
@@ -5212,7 +5225,7 @@ async function saveIntegrations() {
       api.put<{
         ok: boolean;
         crmRoutingUpdated?: {
-          applied: 'single_auto' | 'enabled_only' | 'noop';
+          applied: 'single_auto' | 'enabled_only' | 'local_only' | 'noop';
           config: CrmRoutingShape;
           configuredProviders: string[];
         };
@@ -5232,7 +5245,17 @@ async function saveIntegrations() {
     integrationsSaved.value = true;
 
     const routingUpdate = integrationsRes.data.crmRoutingUpdated;
-    if (routingUpdate?.applied === 'single_auto' && routingUpdate.config) {
+    if (routingUpdate?.applied === 'local_only' && routingUpdate.config) {
+      crmRouting.value = {
+        mode: routingUpdate.config.mode,
+        default: routingUpdate.config.default,
+        enabled_providers: [...routingUpdate.config.enabled_providers],
+        routes: { ...routingUpdate.config.routes },
+      };
+      crmRoutingSnackbarText.value =
+        'CRM не підключена — маршрути скинуто на локальну БД (замовлення/клієнти/записи без вендора).';
+      crmRoutingSnackbar.value = true;
+    } else if (routingUpdate?.applied === 'single_auto' && routingUpdate.config) {
       crmRouting.value = {
         mode: routingUpdate.config.mode,
         default: routingUpdate.config.default,
@@ -5246,13 +5269,17 @@ async function saveIntegrations() {
             ? 'CleverBOX'
             : routingUpdate.config.default === 'altegio'
               ? 'Altegio'
-              : 'KeyCRM';
+              : routingUpdate.config.default === 'none'
+                ? 'Жодна'
+                : 'KeyCRM';
       crmRoutingSnackbarText.value = `${name} став єдиним CRM для всіх дій (авто).`;
       crmRoutingSnackbar.value = true;
     } else if (routingUpdate?.applied === 'enabled_only' && routingUpdate.config) {
       crmRouting.value = {
         ...crmRouting.value,
+        default: routingUpdate.config.default,
         enabled_providers: [...routingUpdate.config.enabled_providers],
+        routes: { ...crmRouting.value.routes, ...routingUpdate.config.routes },
       };
       crmRoutingSnackbarText.value =
         'Підключено кілька CRM — увімкнені провайдери оновлено. Перевірте маршрути вручну.';

@@ -164,4 +164,13 @@ describe('isCrmWriteReady', () => {
     expect(result.ready).toBe(false);
     expect(result.reason).toMatch(/KeyCRM/);
   });
+
+  it('reports CRM not connected when resolve returns null', async () => {
+    config.CRM_WRITE_ENABLED = true;
+    resolveCrmProvider.mockResolvedValue(null);
+    const result = await isCrmWriteReady('order');
+    expect(result.ready).toBe(false);
+    expect(result.provider).toBeNull();
+    expect(result.reason).toMatch(/не підключена/);
+  });
 });

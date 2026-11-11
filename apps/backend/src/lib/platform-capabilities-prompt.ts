@@ -42,14 +42,17 @@ Telegram-сповіщення менеджерам — з collect_order / create
 
 ## CRM (через CrmAdapter + crm_routing, не хардкод у промпті)
 
+Може бути жодна CRM (crm_routing.default=none / порожній enabled_providers): замовлення, клієнти й записи лише в локальній БД; без vendor HTTP; слоти/каталог live недоступні. У маршрутах за дією теж можна обрати none.
+
 | Provider | Що вміє |
 |----------|---------|
+| none | лише локальна БД (orders / clients / appointments в адмінці) |
 | keycrm | catalog, orders, leads, client upsert, shipment/TTN lookup |
 | cleverbox | services, branches, booking |
 | beautypro | services, branches, booking, client upsert, visit history |
 | altegio | services, branches, booking, client upsert, visit history (B2B v2; slots and create stay on Online Booking v1) |
 
-Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox).
+Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox, lead→none).
 Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
 Історія візитів (фактична тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок. Платформа підставляє персональну duration у free_time / book.
 

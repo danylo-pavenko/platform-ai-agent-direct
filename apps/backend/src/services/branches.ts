@@ -4,7 +4,8 @@
 
 import { z } from 'zod';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { getCrmForAction, resolveCrmProvider } from '../lib/crm-routing.js';
+import { CRM_NOT_CONNECTED_LABEL, isCrmProviderName } from '../lib/crm-providers.js';
 import { getCrmAdapter } from '../services/crm/index.js';
 
 const slugSchema = z
@@ -108,20 +109,37 @@ export async function fetchBranchesFromCrm(providerOverride?: string): Promise<{
   branches: CrmBranchCandidate[];
   hint?: string;
 }> {
-  let providerName: string;
-  try {
-    providerName = providerOverride ?? (await resolveCrmProvider('branches'));
-  } catch {
-    providerName = 'keycrm';
+  let providerName: string | null = null;
+  if (providerOverride && isCrmProviderName(providerOverride)) {
+    providerName = providerOverride;
+  } else {
+    try {
+      providerName = await resolveCrmProvider('branches');
+    } catch {
+      providerName = null;
+    }
   }
 
-  const crm = getCrmAdapter(
-    providerName === 'cleverbox' ||
-      providerName === 'keycrm' ||
-      providerName === 'beautypro'
-      ? providerName
-      : undefined,
-  );
+  if (!providerName) {
+    return {
+      provider: 'none',
+      branches: [],
+      hint: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
+
+  const bound =
+    providerOverride && isCrmProviderName(providerOverride)
+      ? { provider: providerOverride, adapter: getCrmAdapter(providerOverride) }
+      : await getCrmForAction('branches');
+  if (!bound) {
+    return {
+      provider: providerName,
+      branches: [],
+      hint: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
+  const crm = bound.adapter;
 
   if (typeof crm.fetchBranches !== 'function') {
     return {

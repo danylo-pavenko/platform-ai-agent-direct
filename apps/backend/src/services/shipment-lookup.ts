@@ -5,7 +5,11 @@
  */
 
 import pino from 'pino';
-import { providerDisplayName, type CrmProviderName } from '../lib/crm-providers.js';
+import {
+  CRM_NOT_CONNECTED_LABEL,
+  providerDisplayName,
+  type CrmProviderName,
+} from '../lib/crm-providers.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { prisma } from '../lib/prisma.js';
 import { getCrmAdapter } from './crm/index.js';
@@ -322,7 +326,7 @@ export async function lookupOrderShipment(input: {
     return '[lookup_order_shipment] ПОМИЛКА: номер ТТН має містити 10–20 цифр. Попроси клієнта надіслати номер накладної ще раз.';
   }
 
-  let provider: CrmProviderName;
+  let provider: CrmProviderName | null = null;
   try {
     provider = await resolveCrmProvider('order');
   } catch (err) {
@@ -335,6 +339,35 @@ export async function lookupOrderShipment(input: {
       unsupported: false,
       missingIdentity: false,
       crmError: true,
+      timeZone,
+      trackingByCode: new Map(),
+    });
+  }
+
+  if (!provider) {
+    const phone = await loadClientPhone(input.clientId);
+    const np = await buildNovaPoshtaNote({
+      ttnQuery,
+      ownedTtn: false,
+      phone,
+      timeZone,
+      crmHasOrders: false,
+      crmHasTtn: false,
+    });
+    if (np?.hasDocument) {
+      return (
+        `[lookup_order_shipment] РЕЗУЛЬТАТ: ${CRM_NOT_CONNECTED_LABEL}.\n${np.text}\n` +
+        'Клієнту можна назвати лише ТТН і статус Нової Пошти з цього результату. Не вигадуй товари чи статус виробництва.'
+      );
+    }
+    return formatShipmentLookupResult({
+      providerLabel: CRM_NOT_CONNECTED_LABEL,
+      ttnQuery,
+      owned: [],
+      foreignTtn: false,
+      unsupported: true,
+      missingIdentity: false,
+      crmError: false,
       timeZone,
       trackingByCode: new Map(),
     });

@@ -8,23 +8,39 @@ const {
   sendText,
   mirrorCreateBooking,
   isCrmWriteEnabled,
-} = vi.hoisted(() => ({
-  prismaMock: {
-    conversation: { findUnique: vi.fn(), update: vi.fn() },
-    client: { findUnique: vi.fn(), update: vi.fn() },
-    appointment: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    clientReferencePhoto: { findMany: vi.fn() },
-    setting: { findUnique: vi.fn() },
-  },
-  resolveBookingBranchForAppointment: vi.fn(),
-  resolveCrmProvider: vi.fn(),
-  notifyOrder: vi.fn(),
-  sendText: vi.fn(),
-  mirrorCreateBooking: vi.fn(),
-  isCrmWriteEnabled: vi.fn(async () => false),
-}));
+  beautyproAdapter,
+  getCrmForAction,
+} = vi.hoisted(() => {
+  const mirrorCreateBooking = vi.fn();
+  const resolveCrmProvider = vi.fn();
+  const beautyproAdapter = () => ({
+    name: 'beautypro',
+    createBooking: mirrorCreateBooking,
+  });
+  return {
+    prismaMock: {
+      conversation: { findUnique: vi.fn(), update: vi.fn() },
+      client: { findUnique: vi.fn(), update: vi.fn() },
+      appointment: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+      order: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+      message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+      clientReferencePhoto: { findMany: vi.fn() },
+      setting: { findUnique: vi.fn() },
+    },
+    resolveBookingBranchForAppointment: vi.fn(),
+    resolveCrmProvider,
+    notifyOrder: vi.fn(),
+    sendText: vi.fn(),
+    mirrorCreateBooking,
+    isCrmWriteEnabled: vi.fn(async () => false),
+    beautyproAdapter,
+    getCrmForAction: vi.fn(async () => {
+      const provider = await resolveCrmProvider('booking');
+      if (!provider) return null;
+      return { provider, adapter: beautyproAdapter() };
+    }),
+  };
+});
 
 vi.mock('../config.js', () => ({
   config: {
@@ -43,6 +59,7 @@ vi.mock('../lib/crm-write.js', () => ({
 
 vi.mock('../lib/crm-routing.js', () => ({
   resolveCrmProvider,
+  getCrmForAction,
 }));
 
 vi.mock('./booking-branch.js', () => ({
@@ -51,10 +68,7 @@ vi.mock('./booking-branch.js', () => ({
 }));
 
 vi.mock('./crm/index.js', () => ({
-  getCrmAdapter: () => ({
-    name: 'beautypro',
-    createBooking: mirrorCreateBooking,
-  }),
+  getCrmAdapter: beautyproAdapter,
 }));
 
 vi.mock('./telegram-notify.js', () => ({

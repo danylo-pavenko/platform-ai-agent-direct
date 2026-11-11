@@ -534,17 +534,15 @@ async function listConfiguredSalonProviders(): Promise<CrmProviderName[]> {
   const cleverboxOk = Boolean(cleverbox.apiToken);
   const altegioOk = Boolean(altegio.partnerToken && altegio.userToken && altegio.locationId);
 
-  let servicesRoute: CrmProviderName = 'keycrm';
+  let servicesRoute: CrmProviderName | null = null;
   try {
     servicesRoute = await resolveCrmProvider('services');
   } catch {
     // ignore
   }
 
-  const candidates = new Set<CrmProviderName>([
-    ...routing.enabled_providers,
-    servicesRoute,
-  ]);
+  const candidates = new Set<CrmProviderName>([...routing.enabled_providers]);
+  if (servicesRoute) candidates.add(servicesRoute);
 
   for (const p of candidates) {
     if (p === 'beautypro' && beautyproOk) out.push('beautypro');
@@ -599,6 +597,11 @@ export async function runSync(): Promise<void> {
 
   try {
     const catalogProvider = await resolveCrmProvider('catalog');
+    if (!catalogProvider) {
+      log.info('Catalog sync skipped — CRM not connected');
+      artifacts.sources = { ...(artifacts.sources as object), catalog: 'skipped_no_crm' };
+      primaryProvider = 'none';
+    } else {
     const crm = getCrmAdapter(catalogProvider);
     primaryProvider = crm.name;
     log.info({ provider: catalogProvider }, 'Fetching catalog from CRM...');
@@ -667,6 +670,7 @@ export async function runSync(): Promise<void> {
         reason: 'no_catalog_capability',
       };
     }
+    } // end catalogProvider else
 
     const salonProviders = await listConfiguredSalonProviders();
     const allServices: Array<CrmServiceItem & { provider: string }> = [];

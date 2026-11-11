@@ -509,7 +509,7 @@ function kindColor(kind: string | null | undefined): string {
 }
 
 function crmStatusLabel(item: Order): string {
-  const provider = item.crmProviderLabel || 'CRM';
+  const provider = item.crmProviderLabel || (item.crmProvider ? 'CRM' : 'CRM не підключена');
   if (item.crmRecordId && item.crmProvider === 'keycrm') {
     return `${provider} #${item.crmRecordId}`;
   }

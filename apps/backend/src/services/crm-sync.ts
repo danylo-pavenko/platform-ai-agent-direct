@@ -18,8 +18,7 @@
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
-import { getCrmAdapter } from './crm/index.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { getCrmForAction } from '../lib/crm-routing.js';
 import type {
   CrmClientInput,
   CrmOrderInput,
@@ -54,8 +53,12 @@ export async function mirrorClientToCrm(
 
   if (!(await isCrmWriteEnabled())) return;
 
-  const provider = await resolveCrmProvider('client_upsert');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('client_upsert');
+  if (!bound) {
+    log.debug('CRM not connected for client_upsert — skipping mirror');
+    return;
+  }
+  const { provider, adapter: crm } = bound;
   if (!crm.upsertClient || !crm.findClient) {
     log.debug({ provider: crm.name }, 'CRM adapter has no client writes — skipping');
     return;
@@ -157,8 +160,15 @@ export async function mirrorOrderToCrm(
 ): Promise<void> {
   if (!opts?.force && !(await isCrmWriteEnabled())) return;
 
-  const provider = await resolveCrmProvider('order');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('order');
+  if (!bound) {
+    if (opts?.force) {
+      throw new Error('CRM не підключена');
+    }
+    log.debug('CRM not connected for order — skipping mirror');
+    return;
+  }
+  const { provider, adapter: crm } = bound;
   if (!crm.createOrder) {
     const message = 'CRM adapter has no order writes — skipping';
     if (opts?.force) {
@@ -321,8 +331,12 @@ export async function mirrorOrderToCrm(
 export async function mirrorBriefToCrm(briefId: string): Promise<void> {
   if (!(await isCrmWriteEnabled())) return;
 
-  const provider = await resolveCrmProvider('lead');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('lead');
+  if (!bound) {
+    log.debug({ briefId }, 'CRM not connected for lead — skipping mirror');
+    return;
+  }
+  const { adapter: crm } = bound;
   if (!crm.createLead) {
     log.debug(
       { provider: crm.name, briefId },

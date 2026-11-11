@@ -9,11 +9,19 @@ const { resolveCrmProvider, getCrmAdapter, getAvailableSlots, loadSyncedServices
   }),
 );
 
-vi.mock('../lib/crm-routing.js', () => ({ resolveCrmProvider }));
+vi.mock('../lib/crm-routing.js', () => ({
+  resolveCrmProvider,
+  getCrmForAction: vi.fn(async (action: string) => {
+    const provider = await resolveCrmProvider(action as 'booking');
+    if (!provider) return null;
+    return { provider, adapter: getCrmAdapter(provider) };
+  }),
+}));
 vi.mock('./crm/index.js', () => ({ getCrmAdapter }));
 vi.mock('../lib/synced-services.js', () => ({ loadSyncedServices }));
 
 import { getAvailableSlotsForContext, lookupAvailableSlotsForContext } from './service-search.js';
+import { getCrmForAction } from '../lib/crm-routing.js';
 
 describe('getAvailableSlotsForContext preferred master', () => {
   beforeEach(() => {
@@ -24,6 +32,11 @@ describe('getAvailableSlotsForContext preferred master', () => {
     loadSyncedServices.mockResolvedValue([]);
     resolveCrmProvider.mockResolvedValue('beautypro');
     getCrmAdapter.mockReturnValue({ getAvailableSlots });
+    vi.mocked(getCrmForAction).mockImplementation(async (action) => {
+      const provider = await resolveCrmProvider(action);
+      if (!provider) return null;
+      return { provider, adapter: getCrmAdapter(provider) };
+    });
   });
 
   it('passes masterId to CRM and formats master_id for book_appointment', async () => {

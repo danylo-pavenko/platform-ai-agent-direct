@@ -527,7 +527,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       } else if (typeof raw === 'string' && raw.trim()) {
         const provider = await resolveCrmProvider('booking');
         update.crmBuyerId = raw.trim();
-        update.crmProvider = provider;
+        update.crmProvider = provider ?? null;
         update.crmLinkedAt = new Date();
       }
     }

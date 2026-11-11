@@ -141,16 +141,17 @@ Parallel services at the same clock time need **per-line** `services[].master_id
 
 ## Multi-CRM
 
-All CRM I/O goes through `getCrmAdapter` + `resolveCrmProvider(action)`. Never call CRM HTTP from `conversation.ts`.
+All CRM I/O goes through `getCrmForAction(action)` / `resolveCrmProvider(action)` (returns `null` when the route is `none` or credentials are missing). Never call CRM HTTP from `conversation.ts`.
 
 | Provider | Typical actions |
 |----------|-----------------|
+| none (local-only) | No vendor HTTP; orders/clients/appointments stay in the tenant DB |
 | KeyCRM | catalog, orders, leads, client upsert, shipment/TTN (`lookup_order_shipment`) |
 | CleverBOX | services, branches, booking |
 | BeautyPro | services, branches, booking, client upsert, visit history |
 | Altegio | services, branches, booking, client upsert, visit history (B2B v2 for catalog and cancel; slots and create on Online Booking v1; one record = one master) |
 
-Routing modes: `single` | `by_action` | `prompt`. Hybrid example: catalog/order → KeyCRM, services/booking → BeautyPro.
+Routing modes: `single` | `by_action` | `prompt`. Route target may be a vendor or `none`. New tenants / zero credentials → `ensureCrmRoutingAfterIntegrations` persists local-only. Hybrid example: catalog/order → KeyCRM, services/booking → BeautyPro, lead → none.
 
 Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). A chat name updates the local client only. CRM `firstname`/`full_name` is sent when creating a buyer; an existing CRM card is not renamed (BeautyPro PUT, KeyCRM PUT, CleverBOX `slots/save` with `client_id`). Details: `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, BeautyPro: `docs/BEAUTYPRO_CRM_INTEGRATION.md`.
 

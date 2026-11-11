@@ -6,7 +6,8 @@
 import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { getCrmForAction, resolveCrmProvider } from '../lib/crm-routing.js';
+import { CRM_NOT_CONNECTED_LABEL } from '../lib/crm-providers.js';
 import { asCrmId, crmProviderRequiresGuid, crmProviderRequiresNumericId, formatInvalidCrmIdToolResult, isCrmGuid, isCrmGuidPrefix, isCrmNumericId, resolveCrmEntityId, shouldResolveBookingCrmIds } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
@@ -546,7 +547,7 @@ export async function handleBookAppointment(
         phone,
         comment: comment ?? undefined,
         branchId: resolved.branchId ?? mergeTarget.branchId,
-        crmProvider,
+        crmProvider: crmProvider ?? 'none',
         ...(addedServiceCount > 0 && mergeTarget.crmRecordId
           ? { crmSyncStatus: 'pending' as const }
           : {}),
@@ -583,8 +584,8 @@ export async function handleBookAppointment(
         phone,
         comment,
         status: 'confirmed',
-        crmProvider,
-        crmSyncStatus: 'pending',
+        crmProvider: crmProvider ?? 'none',
+        crmSyncStatus: crmProvider ? 'pending' : 'skipped',
       },
       select: { id: true },
     });
@@ -1000,8 +1001,11 @@ async function appendAppointmentServicesToCrm(
     throw new Error('Appointment CRM record missing for append');
   }
 
-  const provider = await resolveCrmProvider('booking');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('booking');
+  if (!bound) {
+    throw new Error(CRM_NOT_CONNECTED_LABEL);
+  }
+  const { provider, adapter: crm } = bound;
   if (!crm.appendBookingServices) {
     throw new Error(`${providerDisplayName(provider)} не підтримує додавання послуг до запису`);
   }
@@ -1098,8 +1102,17 @@ export async function mirrorAppointmentToCrm(
     return;
   }
 
-  const provider = await resolveCrmProvider('booking');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('booking');
+  if (!bound) {
+    if (opts?.force) throw new Error(CRM_NOT_CONNECTED_LABEL);
+    log.debug('CRM not connected for booking — skipping mirror');
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { crmSyncStatus: 'skipped', crmSyncError: null },
+    }).catch(() => undefined);
+    return;
+  }
+  const { provider, adapter: crm } = bound;
 
   if (!crm.createBooking) {
     const message = `${providerDisplayName(provider)} не підтримує створення записів`;
@@ -1298,8 +1311,11 @@ async function hydrateAppointmentServicesFromCrm(
     return { appointment, hydrated: false, error: 'немає crmRecordId' };
   }
 
-  const provider = await resolveCrmProvider('booking');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('booking');
+  if (!bound) {
+    return { appointment, hydrated: false, error: CRM_NOT_CONNECTED_LABEL };
+  }
+  const { provider, adapter: crm } = bound;
   if (!crm.fetchAppointmentServices) {
     return {
       appointment,
@@ -1395,7 +1411,9 @@ export async function fetchCrmUpcomingBookingsForClient(
 ): Promise<CrmUpcomingBooking[]> {
   const now = opts?.now ?? new Date();
   const timeZone = opts?.timeZone ?? (await getAgentConfig()).timezone;
-  const provider: CrmProviderName = opts?.provider ?? (await resolveCrmProvider('booking'));
+  const provider: CrmProviderName | null =
+    opts?.provider ?? (await resolveCrmProvider('booking'));
+  if (!provider) return [];
 
   const client = await prisma.client.findUnique({
     where: { id: clientId },
@@ -1690,27 +1708,29 @@ async function resolveActiveBookingAppointment(params: {
   }
 
   let crmBookings: CrmUpcomingBooking[] = [];
-  let bookingProvider: CrmProviderName = 'beautypro';
+  let bookingProvider: CrmProviderName | null = null;
   try {
     bookingProvider = await resolveCrmProvider('booking');
-    crmBookings = await fetchCrmUpcomingBookingsForClient(clientId, {
-      now,
-      timeZone: agentCfg.timezone,
-      provider: bookingProvider,
-      hintDateUa: hint?.dateUa,
-    });
-
-    // Wrong/stale CRM card: linked UUID has no open visits — re-find by ПІБ (full or token).
-    if (crmBookings.length === 0) {
-      const rediscovered = await rediscoverUpcomingByClientName({
-        clientId,
-        provider: bookingProvider,
+    if (bookingProvider) {
+      crmBookings = await fetchCrmUpcomingBookingsForClient(clientId, {
         now,
         timeZone: agentCfg.timezone,
+        provider: bookingProvider,
         hintDateUa: hint?.dateUa,
       });
-      if (rediscovered.length > 0) {
-        crmBookings = rediscovered;
+
+      // Wrong/stale CRM card: linked UUID has no open visits — re-find by ПІБ (full or token).
+      if (crmBookings.length === 0) {
+        const rediscovered = await rediscoverUpcomingByClientName({
+          clientId,
+          provider: bookingProvider,
+          now,
+          timeZone: agentCfg.timezone,
+          hintDateUa: hint?.dateUa,
+        });
+        if (rediscovered.length > 0) {
+          crmBookings = rediscovered;
+        }
       }
     }
   } catch (err) {
@@ -1732,6 +1752,7 @@ async function resolveActiveBookingAppointment(params: {
     return { kind: 'local', appointment };
   }
   if (preference.kind === 'crm_only') {
+    if (!bookingProvider) return { kind: 'none' };
     return {
       kind: 'crm_only',
       crmRecordId: preference.crmRecordId,
@@ -1805,10 +1826,9 @@ async function mirrorCrmBookingToLocalAppointment(params: {
     name: n,
     durationMin: 60,
   }));
-  const crm = getCrmAdapter(
-    (await resolveCrmProvider('booking')) as CrmProviderName,
-  );
-  if (crm.fetchAppointmentServices) {
+  const boundMirror = await getCrmForAction('booking');
+  const crm = boundMirror?.adapter;
+  if (crm?.fetchAppointmentServices) {
     try {
       const lines = await crm.fetchAppointmentServices(params.crmRecordId);
       const mapped: AppointmentServiceLine[] = [];
@@ -1930,12 +1950,13 @@ export async function cancelAppointmentById(
       crmError = 'CRM write вимкнено — скасовано лише локально';
     } else {
       try {
-        const provider = await resolveCrmProvider('booking');
-        const crm = getCrmAdapter(provider);
-        if (!crm.cancelBooking) {
-          crmError = `CRM ${provider} не підтримує скасування запису`;
+        const bound = await getCrmForAction('booking');
+        if (!bound) {
+          crmError = `${CRM_NOT_CONNECTED_LABEL} — скасовано лише локально`;
+        } else if (!bound.adapter.cancelBooking) {
+          crmError = `CRM ${bound.provider} не підтримує скасування запису`;
         } else {
-          await crm.cancelBooking(appointment.crmRecordId, 'cancel');
+          await bound.adapter.cancelBooking(appointment.crmRecordId, 'cancel');
           crmCancelled = true;
         }
       } catch (err) {
@@ -2063,8 +2084,15 @@ export async function handleCancelAppointment(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const provider = await resolveCrmProvider('booking');
-      const crm = getCrmAdapter(provider);
+      const bound = await getCrmForAction('booking');
+      if (!bound) {
+        return {
+          appointmentId: appointment.id,
+          crmSynced: false,
+          toolResult: `[cancel_appointment] failed: ${CRM_NOT_CONNECTED_LABEL}. Локально скасуємо без CRM.`,
+        };
+      }
+      const { provider, adapter: crm } = bound;
       if (!crm.cancelBooking) {
         return {
           appointmentId: appointment.id,
@@ -2232,8 +2260,15 @@ export async function handleRemoveAppointmentService(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const provider = await resolveCrmProvider('booking');
-      const crm = getCrmAdapter(provider);
+      const bound = await getCrmForAction('booking');
+      if (!bound) {
+        return {
+          appointmentId: appointment.id,
+          crmSynced: false,
+          toolResult: `[remove_appointment_service] failed: ${CRM_NOT_CONNECTED_LABEL}.`,
+        };
+      }
+      const { provider, adapter: crm } = bound;
       if (!crm.removeBookingService) {
         if (localServices.length <= 1 && crm.cancelBooking) {
           await crm.cancelBooking(appointment.crmRecordId, 'cancel');
@@ -2438,16 +2473,17 @@ export async function handleRescheduleAppointment(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const provider = await resolveCrmProvider('booking');
-      const crm = getCrmAdapter(provider);
-      if (!crm.cancelBooking) {
+      const bound = await getCrmForAction('booking');
+      if (!bound?.adapter.cancelBooking) {
         return {
           appointmentId: appointment.id,
           crmSynced: false,
-          toolResult: `[reschedule_appointment] failed: CRM ${provider} не підтримує скасування старого візиту. request_handoff.`,
+          toolResult: `[reschedule_appointment] failed: ${
+            bound ? `CRM ${bound.provider} не підтримує скасування старого візиту` : CRM_NOT_CONNECTED_LABEL
+          }. request_handoff.`,
         };
       }
-      await crm.cancelBooking(appointment.crmRecordId, 'move');
+      await bound.adapter.cancelBooking(appointment.crmRecordId, 'move');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error(
@@ -2540,10 +2576,9 @@ export async function handleRescheduleAppointment(
 }
 
 export async function listBookingMasters(): Promise<Array<{ id: string; name: string }>> {
-  const provider = await resolveCrmProvider('booking');
-  const crm = getCrmAdapter(provider);
-  if (!crm.fetchEmployees) return [];
-  const rows = await crm.fetchEmployees();
+  const bound = await getCrmForAction('booking');
+  if (!bound?.adapter.fetchEmployees) return [];
+  const rows = await bound.adapter.fetchEmployees();
   return rows
     .filter((row) => row.public !== false)
     .map((row) => ({ id: row.id, name: row.name }));

@@ -74,7 +74,9 @@
       <div class="text-medium-emphasis">Оплата: {{ paymentLabel }}</div>
     </div>
 
-    <h4 class="text-subtitle-2 mb-2">{{ item.crmProviderLabel || 'CRM' }}</h4>
+    <h4 class="text-subtitle-2 mb-2">
+      {{ item.crmProviderLabel || (item.crmProvider ? 'CRM' : 'CRM не підключена') }}
+    </h4>
     <div class="text-body-2 mb-2">{{ crmStatusLabel }}</div>
     <div v-if="item.crmSyncError" class="text-error text-body-2 mb-2">{{ item.crmSyncError }}</div>
 
@@ -239,7 +241,7 @@ const deltaLabel = computed(() => {
 
 const crmStatusLabel = computed(() => {
   const item = props.item;
-  const provider = item.crmProviderLabel || 'CRM';
+  const provider = item.crmProviderLabel || (item.crmProvider ? 'CRM' : 'CRM не підключена');
   if (item.crmRecordId && item.crmProvider === 'keycrm') {
     return `${provider} #${item.crmRecordId}`;
   }

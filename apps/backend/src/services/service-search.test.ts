@@ -7,15 +7,28 @@ const { loadSyncedServices, resolveCrmProvider, getCrmAdapter } = vi.hoisted(() 
 }));
 
 vi.mock('../lib/synced-services.js', () => ({ loadSyncedServices }));
-vi.mock('../lib/crm-routing.js', () => ({ resolveCrmProvider }));
+vi.mock('../lib/crm-routing.js', () => ({
+  resolveCrmProvider,
+  getCrmForAction: vi.fn(async () => {
+    const provider = await resolveCrmProvider('services');
+    if (!provider) return null;
+    return { provider, adapter: getCrmAdapter(provider) };
+  }),
+}));
 vi.mock('./crm/index.js', () => ({ getCrmAdapter }));
 
 import { searchServicesForContext } from './service-search.js';
+import { getCrmForAction } from '../lib/crm-routing.js';
 
 describe('searchServicesForContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resolveCrmProvider.mockResolvedValue('beautypro');
+    vi.mocked(getCrmForAction).mockImplementation(async () => {
+      const provider = await resolveCrmProvider('services');
+      if (!provider) return null;
+      return { provider, adapter: getCrmAdapter(provider) };
+    });
   });
 
   it('uses synced snapshot when it has ranked hits', async () => {

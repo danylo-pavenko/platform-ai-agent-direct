@@ -130,6 +130,9 @@ export async function handleCollectOrder(
   const quotedTotal = resolveQuotedTotal(quotedParsed, normalisedItems);
 
   const crmWrites = await isCrmWriteEnabled();
+  const { resolveCrmProvider } = await import('../lib/crm-routing.js');
+  const orderCrm = await resolveCrmProvider('order');
+  const willMirrorCrm = crmWrites && Boolean(orderCrm);
 
   const existing = await prisma.order.findFirst({
     where: {
@@ -160,7 +163,7 @@ export async function handleCollectOrder(
       quotedTotal,
       status: 'submitted',
       submittedToManagerAt: new Date(),
-      crmSyncStatus: crmWrites ? 'pending' : 'skipped',
+      crmSyncStatus: willMirrorCrm ? 'pending' : 'skipped',
     },
   });
 
@@ -205,9 +208,11 @@ export async function handleCollectOrder(
     log.error({ err, orderId: order.id, conversationId }, 'Failed to send order Telegram notification');
   });
 
-  mirrorOrderToCrm(order.id).catch((err) => {
-    log.error({ err, orderId: order.id }, 'Failed to mirror order to CRM');
-  });
+  if (willMirrorCrm) {
+    mirrorOrderToCrm(order.id).catch((err) => {
+      log.error({ err, orderId: order.id }, 'Failed to mirror order to CRM');
+    });
+  }
 
   log.info(
     { orderId: order.id, conversationId, itemCount: normalisedItems.length, quotedTotal },

@@ -7,5 +7,8 @@ export {
 export {
   getCrmRouting,
   resolveCrmProvider,
+  getCrmForAction,
+  isCrmRoutingLocalOnly,
+  localOnlyCrmRouting,
   invalidateCrmRoutingCache,
 } from '../../lib/crm-routing.js';

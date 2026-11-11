@@ -4,23 +4,31 @@ vi.mock('./synced-services.js', () => ({
   loadSyncedServices: vi.fn(),
 }));
 
+const liveServices = [
+  {
+    id: 'svc-brow',
+    name: 'Моделювання брів',
+    price: 0,
+    durationMin: 30,
+    priceRows: [
+      { branchId: 'loc', positionId: 'm', positionName: 'Майстер', price: 450 },
+    ],
+  },
+];
+
 vi.mock('./crm-routing.js', () => ({
   resolveCrmProvider: vi.fn(async () => 'beautypro'),
+  getCrmForAction: vi.fn(async () => ({
+    provider: 'beautypro',
+    adapter: {
+      fetchServices: vi.fn(async () => liveServices),
+    },
+  })),
 }));
 
 vi.mock('../services/crm/index.js', () => ({
   getCrmAdapter: vi.fn(() => ({
-    fetchServices: vi.fn(async () => [
-      {
-        id: 'svc-brow',
-        name: 'Моделювання брів',
-        price: 0,
-        durationMin: 30,
-        priceRows: [
-          { branchId: 'loc', positionId: 'm', positionName: 'Майстер', price: 450 },
-        ],
-      },
-    ]),
+    fetchServices: vi.fn(async () => liveServices),
   })),
 }));
 

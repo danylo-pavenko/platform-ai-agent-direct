@@ -74,7 +74,7 @@
                   variant="tonal"
                   label
                 >
-                  {{ item.crmProvider || 'CRM' }}
+                  {{ item.crmProvider || 'не привʼязано' }}
                 </v-chip>
                 <span v-else class="text-medium-emphasis">—</span>
               </template>
@@ -107,7 +107,7 @@
                   variant="tonal"
                   label
                 >
-                  {{ item.crmProvider || 'CRM' }}
+                  {{ item.crmProvider || 'не привʼязано' }}
                 </v-chip>
               </template>
               <template #append>

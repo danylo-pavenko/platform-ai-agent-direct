@@ -10,8 +10,7 @@ import { REPO_ROOT } from './paths.js';
 import { loadSyncedServices, type SyncedServiceRow } from './synced-services.js';
 import { catalogLinePrice } from './service-price-resolve.js';
 import type { CrmServiceItem } from '../services/crm/types.js';
-import { resolveCrmProvider } from './crm-routing.js';
-import { getCrmAdapter } from '../services/crm/index.js';
+import { getCrmForAction } from './crm-routing.js';
 import type { AppointmentServiceLine } from './appointment-services.js';
 import type { OrderLineItem } from './order-normalize.js';
 
@@ -53,10 +52,9 @@ async function loadLiveServicesFallback(): Promise<CrmServiceItem[]> {
     return liveServicesCache.rows;
   }
   try {
-    const provider = await resolveCrmProvider('services');
-    const crm = getCrmAdapter(provider);
-    if (!crm.fetchServices) return [];
-    const rows = await crm.fetchServices();
+    const bound = await getCrmForAction('services');
+    if (!bound?.adapter.fetchServices) return [];
+    const rows = await bound.adapter.fetchServices();
     liveServicesCache = { at: now, rows };
     return rows;
   } catch (err) {

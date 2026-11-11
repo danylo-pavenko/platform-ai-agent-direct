@@ -10,7 +10,7 @@ import { config } from '../config.js';
 import { prisma } from '../lib/prisma.js';
 import { resolveCrmProvider } from './crm-routing.js';
 import type { CrmAction, CrmProviderName } from './crm-providers.js';
-import { providerDisplayName } from './crm-providers.js';
+import { CRM_NOT_CONNECTED_LABEL, providerDisplayName } from './crm-providers.js';
 import { getIntegrationConfig, type IntegrationConfig } from './integration-config.js';
 
 const CACHE_TTL_MS = 60_000;
@@ -47,50 +47,75 @@ export interface CrmWriteReadyResult {
   enabled: boolean;
   source: CrmWriteSource;
   reason?: string;
-  provider?: CrmProviderName;
+  provider?: CrmProviderName | null;
 }
 
 type IntegrationCreds = Pick<IntegrationConfig, 'keycrm' | 'cleverbox' | 'beautypro' | 'altegio'>;
 
-/** Missing-credential reason, or null when the provider can accept writes. */
+/**
+ * Structural credentials present (integration plugged in).
+ * Does not treat BeautyPro Marketplace pending as "missing" — tenant still has CRM.
+ */
+export function providerHasCredentials(
+  provider: CrmProviderName,
+  cfg: IntegrationCreds,
+): boolean {
+  if (provider === 'keycrm') return Boolean(cfg.keycrm.apiKey);
+  if (provider === 'cleverbox') return Boolean(cfg.cleverbox.apiToken);
+  if (provider === 'beautypro') {
+    return Boolean(
+      cfg.beautypro.applicationId &&
+        cfg.beautypro.applicationSecret &&
+        cfg.beautypro.databaseCode,
+    );
+  }
+  if (provider === 'altegio') {
+    return Boolean(cfg.altegio.partnerToken && cfg.altegio.userToken && cfg.altegio.locationId);
+  }
+  return false;
+}
+
+/** Missing-credential reason for writes, or null when the provider can accept writes. */
 export function providerWriteCredentialsReason(
   provider: CrmProviderName,
   cfg: IntegrationCreds,
 ): string | null {
-  if (provider === 'keycrm') {
-    return cfg.keycrm.apiKey ? null : 'API ключ KeyCRM не налаштовано';
-  }
-  if (provider === 'cleverbox') {
-    return cfg.cleverbox.apiToken ? null : 'Токен CleverBOX не налаштовано';
-  }
-  if (provider === 'beautypro') {
-    if (
-      !cfg.beautypro.applicationId
-      || !cfg.beautypro.applicationSecret
-      || !cfg.beautypro.databaseCode
-    ) {
+  if (!providerHasCredentials(provider, cfg)) {
+    if (provider === 'keycrm') return 'API ключ KeyCRM не налаштовано';
+    if (provider === 'cleverbox') return 'Токен CleverBOX не налаштовано';
+    if (provider === 'beautypro') {
       return 'BeautyPro: application_id, secret або database_code не налаштовано';
     }
+    if (provider === 'altegio') {
+      return 'Altegio: partner token, user token або location id не налаштовано';
+    }
+    return `${providerDisplayName(provider)} не налаштовано`;
+  }
+  if (provider === 'beautypro') {
     if (cfg.beautypro.authStatus === 'pending') {
       return 'BeautyPro очікує Grant access у Marketplace';
     }
     if (cfg.beautypro.authStatus === 'refused') {
       return 'BeautyPro: доступ відхилено';
     }
-    return null;
   }
-  if (provider === 'altegio') {
-    if (!cfg.altegio.partnerToken || !cfg.altegio.userToken || !cfg.altegio.locationId) {
-      return 'Altegio: partner token, user token або location id не налаштовано';
-    }
-    return null;
-  }
-  return `${providerDisplayName(provider)} не налаштовано`;
+  return null;
+}
+
+/**
+ * Reason why live CRM HTTP should not run (reads + writes).
+ * Same as write for vendors; used by getCrmForAction short-circuit.
+ */
+export function providerReadCredentialsReason(
+  provider: CrmProviderName,
+  cfg: IntegrationCreds,
+): string | null {
+  return providerWriteCredentialsReason(provider, cfg);
 }
 
 /**
  * True when writes are enabled AND the CRM for this action has credentials.
- * Default action is `order` (KeyCRM) — dashboard / health keep that meaning.
+ * Default action is `order` — dashboard / health keep that meaning.
  */
 export async function isCrmWriteReady(
   action: CrmAction = 'order',
@@ -99,6 +124,16 @@ export async function isCrmWriteReady(
   const settingsEnabled = envEnabled ? false : await isCrmWriteEnabledInSettings();
   const enabled = envEnabled || settingsEnabled;
   const provider = await resolveCrmProvider(action);
+
+  if (!provider) {
+    return {
+      ready: false,
+      enabled,
+      source: enabled ? (envEnabled ? 'env' : 'settings') : 'none',
+      provider: null,
+      reason: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
 
   if (!enabled) {
     return {

@@ -53,7 +53,9 @@
           <v-card variant="tonal" class="pa-3">
             <div class="text-caption text-medium-emphasis">CRM</div>
             <div class="text-h6">{{ payload.insights.crmLinked ? 'Так' : 'Ні' }}</div>
-            <div class="text-caption">{{ payload.client.crmProvider || 'не привʼязано' }}</div>
+            <div class="text-caption">
+              {{ payload.client.crmProvider || 'CRM не підключена / не привʼязано' }}
+            </div>
           </v-card>
         </v-col>
       </v-row>

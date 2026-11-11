@@ -274,17 +274,33 @@ async function checkClaudeUsage(): Promise<HealthCheckItem> {
 async function checkCrm(): Promise<HealthCheckItem> {
   const label = 'CRM (каталог, read)';
 
-  if ((config.CRM_PROVIDER ?? 'keycrm').toLowerCase() === 'none') {
+  const { getCrmRouting, isCrmRoutingLocalOnly } = await import('../lib/crm-routing.js');
+  const { CRM_NOT_CONNECTED_LABEL } = await import('../lib/crm-providers.js');
+  const routing = await getCrmRouting();
+  if (
+    isCrmRoutingLocalOnly(routing) ||
+    (config.CRM_PROVIDER ?? '').toLowerCase() === 'none'
+  ) {
     return {
       id: 'crm',
       label,
       status: 'not_configured',
-      message: 'CRM вимкнено (CRM_PROVIDER=none)',
-      details: { provider: 'none' },
+      message: CRM_NOT_CONNECTED_LABEL,
+      details: { provider: 'none', localOnly: true },
     };
   }
 
   const catalogProvider = await resolveCrmProvider('catalog');
+  if (!catalogProvider) {
+    return {
+      id: 'crm',
+      label,
+      status: 'not_configured',
+      message: CRM_NOT_CONNECTED_LABEL,
+      details: { provider: 'none' },
+    };
+  }
+
   const { keycrm, cleverbox } = await getIntegrationConfig();
 
   if (catalogProvider === 'keycrm' && !keycrm.apiKey) {

@@ -8,8 +8,8 @@
 import pino from 'pino';
 import { prisma } from '../lib/prisma.js';
 import { isCrmWriteEnabled } from '../lib/crm-write.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
-import { isCrmProviderName, type CrmProviderName } from '../lib/crm-providers.js';
+import { getCrmForAction } from '../lib/crm-routing.js';
+import { CRM_NOT_CONNECTED_LABEL, isCrmProviderName, type CrmProviderName } from '../lib/crm-providers.js';
 import { getCrmAdapter } from './crm/index.js';
 import type { CrmVisitHistoryItem } from './crm/types.js';
 import {
@@ -56,6 +56,7 @@ export async function hydrateLocalClientFromCrm(
   if (!client) return { phoneSynced: false, nameSynced: false };
 
   const provider = await resolveLinkProvider(opts?.provider ?? client.crmProvider);
+  if (!provider) return { phoneSynced: false, nameSynced: false };
   const crm = getCrmAdapter(provider);
   const crmBuyerId = (opts?.crmBuyerId ?? client.crmBuyerId)?.trim();
 
@@ -117,18 +118,26 @@ export async function hydrateLocalClientFromCrm(
 
 async function resolveLinkProvider(
   preferred?: string | null,
-): Promise<CrmProviderName> {
+): Promise<CrmProviderName | null> {
   if (preferred && isCrmProviderName(preferred)) {
-    const adapter = getCrmAdapter(preferred);
-    if (adapter.findClient || adapter.fetchClientHistory) return preferred;
+    const { getIntegrationConfig } = await import('../lib/integration-config.js');
+    const { providerHasCredentials } = await import('../lib/crm-write.js');
+    const cfg = await getIntegrationConfig();
+    if (providerHasCredentials(preferred, cfg)) {
+      const adapter = getCrmAdapter(preferred);
+      if (adapter.findClient || adapter.fetchClientHistory) return preferred;
+    }
   }
   // Prefer booking CRM for salon history, fall back to client_upsert
-  const booking = await resolveCrmProvider('booking');
-  const bookingAdapter = getCrmAdapter(booking);
-  if (bookingAdapter.findClient || bookingAdapter.fetchClientHistory) {
-    return booking;
+  const bookingBound = await getCrmForAction('booking');
+  if (
+    bookingBound &&
+    (bookingBound.adapter.findClient || bookingBound.adapter.fetchClientHistory)
+  ) {
+    return bookingBound.provider;
   }
-  return resolveCrmProvider('client_upsert');
+  const upsertBound = await getCrmForAction('client_upsert');
+  return upsertBound?.provider ?? null;
 }
 
 /**
@@ -173,6 +182,15 @@ export async function linkClientToCrm(
   // Manual attach — validate UUID exists in CRM when adapter can fetch the card.
   if (typeof opts?.crmBuyerId === 'string' && opts.crmBuyerId.trim()) {
     const provider = await resolveLinkProvider(client.crmProvider);
+    if (!provider) {
+      return {
+        linked: false,
+        crmBuyerId: null,
+        provider: null,
+        source: 'skipped',
+        message: CRM_NOT_CONNECTED_LABEL,
+      };
+    }
     const crmBuyerId = opts.crmBuyerId.trim();
     const crm = getCrmAdapter(provider);
     if (crm.fetchClient || crm.findClient) {
@@ -243,10 +261,12 @@ export async function linkClientToCrm(
     const provider = isCrmProviderName(client.crmProvider ?? '')
       ? (client.crmProvider as CrmProviderName)
       : await resolveLinkProvider(client.crmProvider);
-    await hydrateLocalClientFromCrm(clientId, {
-      crmBuyerId: client.crmBuyerId,
-      provider,
-    });
+    if (provider) {
+      await hydrateLocalClientFromCrm(clientId, {
+        crmBuyerId: client.crmBuyerId,
+        provider,
+      });
+    }
     return {
       linked: true,
       crmBuyerId: client.crmBuyerId,
@@ -256,6 +276,15 @@ export async function linkClientToCrm(
   }
 
   const provider = await resolveLinkProvider(client.crmProvider);
+  if (!provider) {
+    return {
+      linked: false,
+      crmBuyerId: null,
+      provider: null,
+      source: 'skipped',
+      message: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
   const crm = getCrmAdapter(provider);
 
   if (!crm.findClient) {
@@ -602,6 +631,15 @@ export async function lookupClientByPhone(
   }
 
   const provider = await resolveLinkProvider(client.crmProvider);
+  if (!provider) {
+    return {
+      found: false,
+      crmBuyerId: client.crmBuyerId,
+      fullName: effectiveClientPersonName(client.displayName, client.igFullName) ?? null,
+      phone,
+      text: `[lookup_client_by_phone] ${CRM_NOT_CONNECTED_LABEL}.`,
+    };
+  }
   const crm = getCrmAdapter(provider);
   if (!crm.findClient) {
     return {
@@ -758,6 +796,14 @@ export async function fetchClientCrmHistory(
   }
 
   const provider = await resolveLinkProvider(refreshed.crmProvider);
+  if (!provider) {
+    return {
+      items: [],
+      provider: null,
+      crmBuyerId: refreshed.crmBuyerId,
+      text: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
   const crm = getCrmAdapter(provider);
   if (!crm.fetchClientHistory) {
     return {

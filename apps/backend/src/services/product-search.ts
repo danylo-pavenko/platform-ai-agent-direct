@@ -20,8 +20,7 @@ import {
   type CatalogIndex,
 } from '../lib/catalog-index.js';
 import { getIntegrationConfig } from '../lib/integration-config.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
-import { getCrmAdapter } from './crm/index.js';
+import { getCrmForAction } from '../lib/crm-routing.js';
 import type { CrmOffer, CrmProduct } from './crm/index.js';
 import { getCatalogImportSettings } from './catalog-import/import-catalog.js';
 import { loadCatalogMatches } from './catalog-import/catalog-match.js';
@@ -415,8 +414,12 @@ async function searchMerged(
 }
 
 async function searchViaCrmApi(keywords: string): Promise<ProductAvailabilityResult> {
-  const provider = await resolveCrmProvider('catalog');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('catalog');
+  if (!bound) {
+    log.info({ keywords }, 'Product CRM search skipped — CRM not connected');
+    return { contextBlock: '', matchCount: 0 };
+  }
+  const crm = bound.adapter;
   log.info({ keywords, provider: crm.name }, 'Searching products via CRM API');
 
   let products: CrmProduct[];

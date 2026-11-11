@@ -58,6 +58,21 @@ async function main() {
       send_typing_indicator: true,
       crm_write_enabled: true,
     },
+    // No CRM until integrations are saved — local orders/clients/appointments only.
+    crm_routing: {
+      mode: 'single',
+      default: 'none',
+      enabled_providers: [],
+      routes: {
+        catalog: 'none',
+        services: 'none',
+        branches: 'none',
+        booking: 'none',
+        order: 'none',
+        lead: 'none',
+        client_upsert: 'none',
+      },
+    },
     // Align with agent-config DEFAULTS — tools + first prompt are general.
     agent_config: {
       mode: 'general',

@@ -5,8 +5,7 @@
 
 import { resolveServicePrice } from './service-price-resolve.js';
 import { loadSyncedServices } from './synced-services.js';
-import { resolveCrmProvider } from './crm-routing.js';
-import { getCrmAdapter } from '../services/crm/index.js';
+import { getCrmForAction } from './crm-routing.js';
 import type { CrmEmployee, CrmServiceItem } from '../services/crm/types.js';
 
 export type MasterServiceMismatch = {
@@ -168,12 +167,12 @@ export async function checkBookingMasterServiceFit(opts: {
   if (!hasMaster) return [];
 
   try {
-    const provider = await resolveCrmProvider('booking');
-    const crm = getCrmAdapter(provider);
-    if (!crm.fetchEmployees) return [];
+    const bound = await getCrmForAction('booking');
+    if (!bound?.adapter.fetchEmployees) return [];
+    const { provider, adapter: crm } = bound;
 
     const [employees, synced] = await Promise.all([
-      crm.fetchEmployees(),
+      crm.fetchEmployees!(),
       loadSyncedServices(),
     ]);
 

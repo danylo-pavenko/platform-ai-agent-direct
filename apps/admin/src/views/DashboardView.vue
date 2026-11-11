@@ -634,6 +634,9 @@ const crmWriteLabel = computed(() => {
   const h = summary.value?.health;
   if (!h) return '—';
   if (h.crmWriteReady) return 'активний';
+  if (h.crmWriteMessage && /не підключена/i.test(h.crmWriteMessage)) {
+    return 'CRM не підключена';
+  }
   if (h.crmWriteEnabled) return h.crmWriteMessage ?? 'помилка';
   return 'вимкнено';
 });

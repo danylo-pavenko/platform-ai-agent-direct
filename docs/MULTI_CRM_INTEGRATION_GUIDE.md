@@ -55,10 +55,13 @@ resolveCrmProvider('client_upsert')   → crm-sync mirrorClientToCrm
 ┌─────────────────────────────────────────────────────────────┐
 │  Tenant settings (PostgreSQL `settings`)                    │
 │  • crm_routing { mode, default, enabled_providers, routes } │
+│    default/routes may be vendor OR "none" (local-only)      │
 │  • integration_keycrm, integration_cleverbox, integration_* │
 └──────────────────────────┬──────────────────────────────────┘
                            │
-              resolveCrmProvider(action, { toolProvider? })
+         getCrmForAction(action) / resolveCrmProvider → null
+                           │
+              null ──► skip vendor HTTP (local DB only)
                            │
          ┌─────────────────┼─────────────────┐
          ▼                 ▼                 ▼
@@ -72,7 +75,9 @@ resolveCrmProvider('client_upsert')   → crm-sync mirrorClientToCrm
                 conversation (tools → services)
 ```
 
-**Ключовий принцип:** жоден consumer не імпортує HTTP-клієнт CRM напряму. Тільки `getCrmAdapter(name)` + перевірка `capabilities`.
+**Local-only (`none`):** новий tenant / 0 credentials → `ensureCrmRoutingAfterIntegrations` пише `default: none`, `enabled_providers: []`. Admin → «Жодна (лише локальна БД)». `Client.crmProvider` лишається null (не `'none'`).
+
+**Ключовий принцип:** жоден consumer не імпортує HTTP-клієнт CRM напряму. Тільки `getCrmForAction` / `getCrmAdapter(name)` + перевірка `capabilities`.
 
 **Філії — окремо від CRM routing:**
 

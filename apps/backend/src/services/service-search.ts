@@ -2,8 +2,10 @@
  * Live + synced service search for booking-mode agents (CleverBOX, BeautyPro, …).
  */
 
-import { resolveCrmProvider } from '../lib/crm-routing.js';
+import { getCrmForAction, resolveCrmProvider } from '../lib/crm-routing.js';
+import { CRM_NOT_CONNECTED_LABEL } from '../lib/crm-providers.js';
 import { loadSyncedServices } from '../lib/synced-services.js';
+import { getCrmAdapter } from './crm/index.js';
 import {
   clampServiceSearchLimit,
   DEFAULT_SERVICE_SEARCH_LIMIT,
@@ -22,7 +24,6 @@ import {
   formatResolvedPrice,
   resolveServicePrice,
 } from '../lib/service-price-resolve.js';
-import { getCrmAdapter } from './crm/index.js';
 import { isSlotStartStillBookable, normalizeTenantTimezone } from '../lib/tenant-timezone.js';
 import { weekdayUkForDateKey } from '../lib/booking-weekday-calendar.js';
 import type { CrmEmployee, CrmServiceItem } from './crm/types.js';
@@ -98,13 +99,15 @@ async function loadSnapshotForProvider(): Promise<CrmServiceItem[]> {
   const provider = await resolveCrmProvider('services');
   const synced = await loadSyncedServices();
   if (synced.length === 0) return [];
+  if (!provider) return synced;
   const forProvider = synced.filter((s) => s.provider === provider);
   return forProvider.length > 0 ? forProvider : synced;
 }
 
 async function loadLiveServices(query: string): Promise<CrmServiceItem[]> {
-  const provider = await resolveCrmProvider('services');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('services');
+  if (!bound) return [];
+  const crm = bound.adapter;
 
   if (crm.fetchServices) {
     return crm.fetchServices();
@@ -222,8 +225,11 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
   text: string;
   offer: BookingSlotOffer | null;
 }> {
-  const provider = await resolveCrmProvider('booking');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('booking');
+  if (!bound) {
+    return { text: `Слоти недоступні — ${CRM_NOT_CONNECTED_LABEL}.`, offer: null };
+  }
+  const { provider, adapter: crm } = bound;
 
   if (!crm.getAvailableSlots) {
     return { text: 'Слоти недоступні — CRM не підтримує онлайн-запис.', offer: null };
@@ -318,9 +324,9 @@ export async function lookupAvailableSlotsForContext(args: AvailableSlotsLookupA
   const serviceIds = assigned.map((s) => s.id);
   let catalogForFit: CrmServiceItem[] = [];
   try {
-    const provider = await resolveCrmProvider('services');
+    const servicesProvider = (await resolveCrmProvider('services')) ?? provider;
     const synced = await loadSyncedServices();
-    catalogForFit = synced.filter((s) => s.provider === provider);
+    catalogForFit = synced.filter((s) => s.provider === servicesProvider);
     if (catalogForFit.length === 0) catalogForFit = synced;
     if (catalogForFit.length === 0 && crm.fetchServices) {
       catalogForFit = await crm.fetchServices();
@@ -525,22 +531,25 @@ async function formatMasterServicePrices(params: {
   branchId: string;
   serviceIds: string[];
 }): Promise<string[]> {
-  const provider = await resolveCrmProvider('services');
-  const crm = getCrmAdapter(provider);
+  const bound = await getCrmForAction('services');
+  const provider = bound?.provider ?? (await resolveCrmProvider('services'));
+  const crm = bound?.adapter;
 
   let masterPositionIds: string[] = [];
-  if (crm.fetchEmployees) {
+  if (crm?.fetchEmployees) {
     const employees = await crm.fetchEmployees();
     const master = employees.find((e) => e.id === params.masterId);
     masterPositionIds = master?.positionIds ?? [];
   }
 
   const synced = await loadSyncedServices();
-  const byProvider = synced.filter((s) => s.provider === provider);
+  const byProvider = provider
+    ? synced.filter((s) => s.provider === provider)
+    : synced;
   const catalog = byProvider.length > 0 ? byProvider : synced;
 
   let live: CrmServiceItem[] = [];
-  if (catalog.length === 0 && crm.fetchServices) {
+  if (catalog.length === 0 && crm?.fetchServices) {
     live = await crm.fetchServices();
   }
   const list = catalog.length > 0 ? catalog : live;

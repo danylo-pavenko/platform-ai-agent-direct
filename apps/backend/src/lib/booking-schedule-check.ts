@@ -3,8 +3,7 @@
  */
 
 import pino from 'pino';
-import { resolveCrmProvider } from './crm-routing.js';
-import { getCrmAdapter } from '../services/crm/index.js';
+import { getCrmForAction } from './crm-routing.js';
 import {
   BeautyproScheduleError,
   evaluateAnyMasterFreeTimeStatus,
@@ -37,8 +36,9 @@ export async function checkBookingMastersSchedule(opts: {
   if (!opts.branchId.trim() || opts.services.length === 0) return null;
 
   try {
-    const provider = await resolveCrmProvider('booking');
-    const crm = getCrmAdapter(provider);
+    const bound = await getCrmForAction('booking');
+    if (!bound) return null;
+    const crm = bound.adapter;
     if (!crm.getAvailableSlots) return null;
 
     const timeZone =
