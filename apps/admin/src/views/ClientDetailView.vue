@@ -63,6 +63,18 @@
           <div class="text-subtitle-2 mb-2">Картка</div>
           <div class="text-body-2">Телефон: {{ payload.client.phone || '—' }}</div>
           <div class="text-body-2">Email: {{ payload.client.email || '—' }}</div>
+          <v-select
+            :model-value="payload.client.preferredLanguage"
+            :items="languageItems"
+            item-title="title"
+            item-value="value"
+            label="Мова спілкування"
+            density="comfortable"
+            class="mt-3"
+            hide-details
+            :loading="savingLanguage"
+            @update:model-value="saveLanguage"
+          />
           <div class="text-body-2">
             Instagram:
             {{ payload.client.igUsername ? `@${payload.client.igUsername.replace(/^@/, '')}` : '—' }}
@@ -181,6 +193,7 @@ type Payload = {
     email: string | null;
     notes: string | null;
     tags: string[];
+    preferredLanguage: 'uk' | 'ru' | 'en' | null;
     crmProvider: string | null;
     lastActivityAt: string;
   };
@@ -221,6 +234,12 @@ type Payload = {
 const payload = ref<Payload | null>(null);
 const loading = ref(true);
 const error = ref('');
+const savingLanguage = ref(false);
+const languageItems = [
+  { title: 'Українська', value: 'uk' },
+  { title: 'Російська', value: 'ru' },
+  { title: 'Англійська', value: 'en' },
+];
 
 const title = computed(() => adminClientPrimaryName(payload.value?.client));
 const subtitle = computed(() => adminIgProfileTitle(payload.value?.client));
@@ -284,6 +303,19 @@ async function load() {
     error.value = 'Не вдалося відкрити картку клієнта';
   } finally {
     loading.value = false;
+  }
+}
+
+async function saveLanguage(value: string | null) {
+  if (!payload.value || !value || value === payload.value.client.preferredLanguage) return;
+  savingLanguage.value = true;
+  try {
+    await api.patch(`/clients/${props.id}/language`, { language: value });
+    payload.value.client.preferredLanguage = value as 'uk' | 'ru' | 'en';
+  } catch {
+    error.value = 'Не вдалося зберегти мову';
+  } finally {
+    savingLanguage.value = false;
   }
 }
 

@@ -100,6 +100,12 @@ const router = createRouter({
       meta: { roles: ['owner'], title: 'Навчання агента', hideBottomNav: true },
     },
     {
+      path: '/library',
+      name: 'library',
+      component: () => import('@/views/LibraryView.vue'),
+      meta: { roles: ['owner'], title: 'Бібліотека' },
+    },
+    {
       path: '/sandbox',
       name: 'sandbox',
       component: () => import('@/views/SandboxView.vue'),

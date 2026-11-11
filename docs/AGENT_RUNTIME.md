@@ -99,6 +99,8 @@ Order in `buildRuntimePrompt` / `askClaude`:
 | Live catalog / services / masters files | Yes (mode-aware snippet; products from CRM sync **or** manual CSV import per `catalog_import.sourcePriority`). Daily CRM pull: API `crm-sync-schedule` ~04:00 tenant TZ (CSV upload is separate / manual). |
 | Full CRM visit history | **No** on cold prompt — tool `get_client_crm_history` |
 | Legacy `knowledge/contacts|faq|…` | **No** |
+| Library index | **Yes** — slug, title, one line per active card |
+| Library card body | **Only** when an alias matched this message (max 3) or `read_library` returned it |
 | Tenant disk `CLAUDE.md` | **No** (spawn cwd isolated) |
 | `<platform_capabilities>` | Meta-agent + **AI-помічник (insights)** — not the customer IG agent |
 
@@ -106,7 +108,11 @@ Order in `buildRuntimePrompt` / `askClaude`:
 
 ## Agent modes and tools
 
-Shared: `update_client_info`, `tag_client`, `lookup_tenant_events`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`. Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`. Day+master slot replies (`Пт Анастасія`) and offered master names are not client ПІБ either — heuristics and `book_appointment` reject them.
+Shared: `update_client_info`, `tag_client`, `lookup_tenant_events`, `read_library`, `request_handoff`, `create_local_order`; optional `set_conversation_branch`.
+
+Client **displayName** is the person name: said in chat, or a person-like Instagram profile name (`igFullName`). Business headlines in `igFullName` are not ПІБ — do not copy them into CRM/`customer_name`. Day+master slot replies (`Пт Анастасія`) and offered master names are not client ПІБ either — heuristics and `book_appointment` reject them. `Client.preferredLanguage` (`uk` | `ru` | `en`) locks from the first or second clear inbound message and is reused in later conversations. A link, digits, «ок», a photo, or a model code does not set it, and a later ordinary message does not switch it. An explicit request («на русском», «українською», «in english») updates the card. The prompt shows one short «Мова клієнта» line. Canned busy/timeout replies use that language.
+
+**Library (Бібліотека):** Admin `/library`, table `knowledge_articles`. Same for every tenant. A card has slug, title, description (when to read it), body, aliases, status `draft|active`. Drafts are invisible. There is no built-in catalog. The owner applies a JSON pack (`version: 1`, `cards[]`, or a bare array) via `POST /library/import`: upsert by slug, omitted `status` becomes `active`, cards not in the file stay. Every customer turn, sandbox turn, and follow-up gets the same active-card index. Before Claude, alias match on the customer text attaches at most 3 bodies. `read_library` fetches another active card by slug in the same dialog. Do not copy CRM catalog prices into a card: `search_catalog` / `search_services` stay the source for goods and visits. Price, horsepower, and chassis lists in a tenant prompt may say they come only from a card present on this turn.
 
 **Tenant events (Події):** Admin `/events` CRUD. Each event has occurrence dates (`eventStartsAt`/`eventEndsAt`) and a **response window** (`openFrom`/`openUntil`; null `openUntil` = open-ended). Active open + scheduled events inject as a compact calendar; recently ended (~14d after `openUntil`) inject so the agent can say the casting/vacancy is no longer relevant. Soft keyword match (and Stories OCR + calendar) may pin `Conversation.matchedEventId`. Tool `lookup_tenant_events` returns `lifecycle` `open|scheduled|expired` + `onMatch` (`inform` / `handoff` / `continue_funnel`). Expired → do not treat as a live vacancy; open+handoff → custom client text + `request_handoff`.
 

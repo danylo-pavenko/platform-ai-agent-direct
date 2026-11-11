@@ -30,7 +30,7 @@ model Client {
   notes            String?                               // Free-text notes about the client
   tags             String[]       @default([]) @map("tags") // e.g. ["vip", "print", "repeat"]
 
-  /** Client conversation language for canned fallbacks (uk | en). Auto-detected from inbound. */
+  /** Client conversation language (uk | ru | en). Set from the chat and kept across conversations. */
   preferredLanguage String?       @map("preferred_language")
 
   // Cross-reference to the matching buyer/client record in the CRM.
@@ -387,6 +387,31 @@ model SystemPrompt {
   createdAt       DateTime      @default(now()) @map("created_at")
 
   @@map("system_prompts")
+}
+
+enum KnowledgeArticleStatus {
+  draft
+  active
+
+  @@map("knowledge_article_status")
+}
+
+/// Short facts the customer agent does not carry in every turn.
+/// Only `active` rows enter the prompt index and `read_library`.
+model KnowledgeArticle {
+  id          String                 @id @default(uuid()) @db.Uuid
+  slug        String                 @unique
+  title       String
+  description String
+  body        String
+  aliases     String[]               @default([])
+  status      KnowledgeArticleStatus @default(draft)
+  author      PromptAuthor           @default(human)
+  createdAt   DateTime               @default(now()) @map("created_at")
+  updatedAt   DateTime               @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("knowledge_articles")
 }
 
 // ── Admin Users ──

@@ -12,6 +12,7 @@ describe('lookupToolsForMcp', () => {
     const tools = buildAgentTools('booking');
     expect(lookupToolsForMcp(tools, { clientId: 'c1', crmHistoryAllowed: false })).toEqual([
       'lookup_tenant_events',
+      'read_library',
       'search_services',
       'get_available_slots',
       'lookup_client_by_phone',
@@ -20,6 +21,7 @@ describe('lookupToolsForMcp', () => {
       lookupToolsForMcp(tools, { clientId: 'c1', crmHistoryAllowed: true }),
     ).toEqual([
       'lookup_tenant_events',
+      'read_library',
       'search_services',
       'get_available_slots',
       'lookup_client_by_phone',
@@ -30,6 +32,7 @@ describe('lookupToolsForMcp', () => {
   it('allowlists sales catalog lookups, not booking tools', () => {
     expect(lookupToolsForMcp(buildAgentTools('sales'), {})).toEqual([
       'lookup_tenant_events',
+      'read_library',
       'search_catalog',
       'get_delivery_cost',
       'lookup_order_shipment',
@@ -37,7 +40,10 @@ describe('lookupToolsForMcp', () => {
   });
 
   it('gives leadgen the shared tenant-events lookup', () => {
-    expect(lookupToolsForMcp(buildAgentTools('leadgen'), {})).toEqual(['lookup_tenant_events']);
+    expect(lookupToolsForMcp(buildAgentTools('leadgen'), {})).toEqual([
+      'lookup_tenant_events',
+      'read_library',
+    ]);
   });
 
   it('registers booking terminal + profile tools on the platform MCP allowlist', () => {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { detectClientLanguage, normalizeClientLanguage } from './client-language.js';
+import {
+  detectClientLanguage,
+  detectRequestedLanguage,
+  languageToStore,
+  normalizeClientLanguage,
+} from './client-language.js';
 import {
   countConsecutiveFallbacksFromCodes,
   CUSTOMER_FALLBACK_BUSY_EN,
@@ -21,25 +26,59 @@ const DEFAULTS: FallbackMessages = {
 };
 
 describe('detectClientLanguage', () => {
-  it('detects Ukrainian from Cyrillic', () => {
+  it('detects Ukrainian from distinctive letters', () => {
     expect(detectClientLanguage('Добрий день! Хочу записатись на манікюр')).toBe('uk');
   });
 
-  it('detects English from Latin', () => {
-    expect(detectClientLanguage('Hi! I want to book a manicure tomorrow')).toBe('en');
+  it('detects Russian and does not treat every Cyrillic text as Ukrainian', () => {
+    expect(detectClientLanguage('Я хочу прошить мотор')).toBe('ru');
+    expect(detectClientLanguage('я хочу прошити авто')).toBe('uk');
+    expect(detectClientLanguage('Напишите, пожалуйста, цену')).toBe('ru');
   });
 
-  it('returns null for short or emoji-only text', () => {
+  it('detects English from a sentence, not from a model code', () => {
+    expect(detectClientLanguage('Hi! I want to book a manicure tomorrow')).toBe('en');
+    expect(detectClientLanguage('F30 320i')).toBeNull();
+  });
+
+  it('returns null for a link, digits, emoji, or a model code', () => {
     expect(detectClientLanguage('👍')).toBeNull();
     expect(detectClientLanguage('ok')).toBeNull();
+    expect(detectClientLanguage('2019 320')).toBeNull();
+    expect(detectClientLanguage('https://flashex-tuning.com/the-engine-price')).toBeNull();
+    expect(detectClientLanguage('F30 320i')).toBeNull();
   });
 });
 
+describe('languageToStore', () => {
+  it('locks a clear language on the first or second message only', () => {
+    expect(languageToStore({ stored: null, text: 'Я хочу прошить мотор', inboundOrdinal: 1 })).toBe('ru');
+    expect(languageToStore({ stored: null, text: 'https://flashex-tuning.com', inboundOrdinal: 1 })).toBeNull();
+    expect(languageToStore({ stored: null, text: 'я хочу прошити авто', inboundOrdinal: 2 })).toBe('uk');
+    expect(languageToStore({ stored: null, text: 'я хочу прошити авто', inboundOrdinal: 3 })).toBeNull();
+  });
+
+  it('does not switch a locked language until the person asks', () => {
+    expect(languageToStore({ stored: 'ru', text: 'Напишіть, будь ласка, ціну', inboundOrdinal: 2 })).toBeNull();
+    expect(languageToStore({ stored: 'ru', text: 'ок', inboundOrdinal: 4 })).toBeNull();
+    expect(languageToStore({ stored: 'ru', text: 'можна українською?', inboundOrdinal: 5 })).toBe('uk');
+    expect(languageToStore({ stored: 'uk', text: 'давайте на русском', inboundOrdinal: 6 })).toBe('ru');
+    expect(languageToStore({ stored: 'ru', text: 'speak english please', inboundOrdinal: 3 })).toBe('en');
+  });
+});
+
+describe('detectRequestedLanguage', () => {
+  it('ignores a sentence that is simply written in a language', () => {
+    expect(detectRequestedLanguage('Я хочу прошить мотор')).toBeNull();
+    expect(detectRequestedLanguage('я хочу прошити авто')).toBeNull();
+  });
+});
 describe('normalizeClientLanguage', () => {
-  it('accepts uk and en only', () => {
+  it('accepts uk, ru and en', () => {
     expect(normalizeClientLanguage('uk')).toBe('uk');
+    expect(normalizeClientLanguage('ru')).toBe('ru');
     expect(normalizeClientLanguage('en')).toBe('en');
-    expect(normalizeClientLanguage('ru')).toBeNull();
+    expect(normalizeClientLanguage('de')).toBeNull();
     expect(normalizeClientLanguage(null)).toBeNull();
   });
 });
@@ -48,6 +87,7 @@ describe('resolveCustomerFallback', () => {
   it('uses defaults by language', () => {
     expect(resolveCustomerFallback('timeout', 'uk', DEFAULTS)).toBe(CUSTOMER_FALLBACK_TIMEOUT);
     expect(resolveCustomerFallback('timeout', 'en', DEFAULTS)).toBe(CUSTOMER_FALLBACK_TIMEOUT_EN);
+    expect(resolveCustomerFallback('timeout', 'ru', DEFAULTS)).toContain('минуту');
     expect(resolveCustomerFallback('busy', 'en', DEFAULTS)).toBe(CUSTOMER_FALLBACK_BUSY_EN);
   });
 

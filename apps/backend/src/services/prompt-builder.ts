@@ -22,6 +22,7 @@ import {
   getZonedDateTimeParts,
 } from '../lib/tenant-timezone.js';
 import { formatUpcomingCalendarPromptBlock } from '../lib/booking-weekday-calendar.js';
+import { clientLanguageLabel, normalizeClientLanguage } from '../lib/client-language.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +46,8 @@ export interface ClientProfile {
   // CRM context
   notes?: string;        // Manual notes from admin or Claude
   tags?: string[];       // Segmentation tags
+  /** Saved conversation language (uk | ru | en). Empty until the first clear message. */
+  preferredLanguage?: string | null;
   // Repeat customer context
   previousOrdersCount?: number;  // How many orders this client has placed
   previousOrdersSummary?: string; // e.g. "Замовляв: Футболка з принтом (2), Худі"
@@ -152,6 +155,13 @@ export interface PromptBuildParams {
    * Allows a tenant-prompt new-day greeting; does not force a full re-intro.
    */
   newCivilDay?: boolean;
+  /**
+   * Index of active library cards (slug, title, one line). Empty when none.
+   * Card bodies are not part of this index.
+   */
+  libraryIndex?: string;
+  /** Up to 3 card bodies pre-matched to this customer message. */
+  libraryCards?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,10 +419,15 @@ ${catalogRule}${buildOutOfHoursBlock(isOutOfHours, outOfHoursStrategy, agentMode
     truncatedCatalog,
   );
 
+  const libraryBlocks = [params.libraryIndex, params.libraryCards]
+    .map((block) => block?.trim() ?? '')
+    .filter(Boolean);
+
   const fullPrompt = [
     ANTI_INJECTION_PREAMBLE,
     activePromptContent,
     finalSessionBlock,
+    ...libraryBlocks,
   ].join('\n\n');
 
   return fullPrompt;
@@ -639,6 +654,12 @@ function buildCustomFieldsBlock(hints: CustomFieldHint[] | undefined): string {
   );
 }
 
+function formatClientLanguageLine(value: string | null | undefined): string {
+  const lang = normalizeClientLanguage(value);
+  if (!lang) return '';
+  return `Мова клієнта: ${clientLanguageLabel(lang)}.`;
+}
+
 /**
  * Builds a multiline block of known customer data.
  * Empty lines are omitted so the block is compact when data is missing.
@@ -657,6 +678,8 @@ function buildClientDataBlock(profile: ClientProfile | undefined): string {
   if (profile.email) {
     knownLines.push(`Email: ${profile.email}`);
   }
+  const languageLine = formatClientLanguageLine(profile.preferredLanguage);
+  if (languageLine) knownLines.push(languageLine);
   if (profile.deliveryCity) {
     knownLines.push(`Місто доставки: ${profile.deliveryCity}`);
   }

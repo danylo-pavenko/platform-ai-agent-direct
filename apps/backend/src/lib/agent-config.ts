@@ -19,7 +19,7 @@
  *     claudeModel: 'sonnet' | 'opus',  // one model for the whole customer turn (including tool follow-ups)
  *     timezone: 'Europe/Kyiv',         // salon calendar / working hours / CRM day bounds
  *     autoUpdateEnabled: boolean,     // midnight SA poll → request Deploy (default true)
- *     fallbackMessages: { busy: { uk, en }, timeout: { uk, en } },
+ *     fallbackMessages: { busy: { uk, en, ru? }, timeout: { uk, en, ru? } },
  *     paymentRequisites: string, // IBAN / card text for the admin chat button
  *   }
  */
@@ -32,8 +32,10 @@ import { isAgentMode } from './tool-definitions.js';
 import {
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 
 export type OutOfHoursStrategy = 'warn_early' | 'defer_to_end';
@@ -53,6 +55,7 @@ export const RESPONSE_DELAY_SEC_MAX = 60;
 export type FallbackLocaleMap = {
   uk: string;
   en: string;
+  ru?: string;
 };
 
 export type FallbackMessages = {
@@ -99,10 +102,12 @@ export const DEFAULT_FALLBACK_MESSAGES: FallbackMessages = {
   busy: {
     uk: CUSTOMER_FALLBACK_BUSY,
     en: CUSTOMER_FALLBACK_BUSY_EN,
+    ru: CUSTOMER_FALLBACK_BUSY_RU,
   },
   timeout: {
     uk: CUSTOMER_FALLBACK_TIMEOUT,
     en: CUSTOMER_FALLBACK_TIMEOUT_EN,
+    ru: CUSTOMER_FALLBACK_TIMEOUT_RU,
   },
 };
 
@@ -189,10 +194,12 @@ export function normalizeFallbackMessages(raw: unknown): FallbackMessages {
     busy: {
       uk: pickLocaleText(busy.uk, DEFAULT_FALLBACK_MESSAGES.busy.uk),
       en: pickLocaleText(busy.en, DEFAULT_FALLBACK_MESSAGES.busy.en),
+      ru: pickLocaleText(busy.ru, DEFAULT_FALLBACK_MESSAGES.busy.ru ?? ''),
     },
     timeout: {
       uk: pickLocaleText(timeout.uk, DEFAULT_FALLBACK_MESSAGES.timeout.uk),
       en: pickLocaleText(timeout.en, DEFAULT_FALLBACK_MESSAGES.timeout.en),
+      ru: pickLocaleText(timeout.ru, DEFAULT_FALLBACK_MESSAGES.timeout.ru ?? ''),
     },
   };
 }

@@ -28,6 +28,7 @@ import {
   isWithinWorkingHours,
   loadCatalogSnippetForMode,
 } from '../services/prompt-builder.js';
+import { loadLibraryTurnContext } from '../services/library.js';
 import {
   buildReturningPersonaHistory,
   executeSandboxToolCall,
@@ -150,6 +151,7 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         const workingHours = await getWorkingHours();
         const agentCfg = await getAgentConfig();
         const catalogSnippet = await loadCatalogSnippetForMode(agentCfg.mode);
+        const libraryTurn = await loadLibraryTurnContext(lastMessage.content);
         const isOutOfHours = !isWithinWorkingHours(now, workingHours, agentCfg.timezone);
         const branchesList = await formatBranchesForPrompt();
         const activeBranchCount = await prisma.branch.count({ where: { isActive: true } });
@@ -174,6 +176,8 @@ export async function sandboxRoutes(app: FastifyInstance): Promise<void> {
         const systemPrompt = buildRuntimePrompt({
           activePromptContent: promptContent,
           catalogSnippet,
+          libraryIndex: libraryTurn.indexBlock,
+          libraryCards: libraryTurn.cardsBlock,
           currentTime: now,
           workingHours,
           conversationState: 'bot',

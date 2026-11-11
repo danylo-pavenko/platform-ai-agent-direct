@@ -18,12 +18,12 @@ export function buildPlatformCapabilitiesBlock(): string {
 
 ## Tools за режимом (бекенд виконує; у промпті інструкції КОЛИ їх викликати)
 
-Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, lookup_order_shipment, get_client_crm_history, lookup_client_by_phone, lookup_tenant_events) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки). lookup_order_shipment — sales/general: статус відправки і ТТН цього клієнта в CRM замовлень (KeyCRM filter[tracking_code] / телефон). Якщо CRM порожня або без ТТН і збережено ключ Нової Пошти — пошук у кабінеті НП (номер від клієнта або телефон отримувача). Чужу ТТН не розкривати і не трекати в НП. Не вигадувати «на виробництві» без tool. lookup_tenant_events — календар подій адмінки (/events): кастинг/акції/вакансії/співпраця; lifecycle open|scheduled|expired; expired → вже неактуально.
+Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost, lookup_order_shipment, get_client_crm_history, lookup_client_by_phone, lookup_tenant_events, read_library) — native in-process MCP (ті самі handlers, що conversation.ts). Default CLAUDE_RUNTIME=sdk. Terminal (book/cancel/reschedule/collect/handoff) — теж native MCP + canUseTool; виконує conversation.ts (другий book на іншу дату ≠ move — для перенесення reschedule_appointment). BeautyPro booking — force=true за замовчуванням. CLAUDE_RUNTIME=cli — hotfix, текстовий <tool_call>. get_client_crm_history лише коли є booking-tools (booking/general) + привʼязаний CRM-клієнт. lookup_client_by_phone — коли є телефон / «я в базі» (не потребує попередньої привʼязки). lookup_order_shipment — sales/general: статус відправки і ТТН цього клієнта в CRM замовлень (KeyCRM filter[tracking_code] / телефон). Якщо CRM порожня або без ТТН і збережено ключ Нової Пошти — пошук у кабінеті НП (номер від клієнта або телефон отримувача). Чужу ТТН не розкривати і не трекати в НП. Не вигадувати «на виробництві» без tool. lookup_tenant_events — календар подій адмінки (/events): кастинг/акції/вакансії/співпраця; lifecycle open|scheduled|expired; expired → вже неактуально.
 
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
-Спільні: update_client_info, tag_client, lookup_tenant_events, request_handoff, create_local_order; set_conversation_branch (якщо є філії).
-Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Вибір дня+майстра («Пт Анастасія») і імʼя майстра зі слотів — не ПІБ клієнта. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment.
+Спільні: update_client_info, tag_client, lookup_tenant_events, read_library, request_handoff, create_local_order; set_conversation_branch (якщо є філії). read_library читає активну картку бібліотеки і не замінює search_catalog.
+Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Вибір дня+майстра («Пт Анастасія») і імʼя майстра зі слотів — не ПІБ клієнта. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment. Мова клієнта (uk, ru, en) фіксується в картці на першому або другому зрозумілому повідомленні і лишається на цей діалог і наступні. Посилання, цифри, «ок» і код її не ставлять. Пряме прохання («на русском», «українською», «in english») оновлює картку. Кирилиця сама по собі не означає українську.
 
 sales: search_catalog, get_delivery_cost, lookup_order_shipment, collect_order
 leadgen: classify_intent, submit_brief
@@ -111,16 +111,20 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Knowledge / prompts (tenant)
 
 - **Business facts** (brand, contacts, delivery, FAQ, rules) → active system prompt in DB (Admin → Prompts).
+- **Бібліотека** (knowledge_articles, Admin → Бібліотека): факти цього тенанта, яких немає ні в системному промпті, ні в CRM. Готового каталогу в платформі немає. Власник застосовує JSON (version 1 і cards, або просто масив). Той самий slug оновлюється. Без status картка одразу active. У кожен хід їде лише зміст (slug, назва, коли брати). Текст картки підкладається лише якщо аліас збігся з повідомленням (не більше 3) або агент викликав read_library. Чернетка (draft) у хід не йде. Ціну, кінські сили і списки з картки не вигадуй, якщо тексту картки в цьому ході немає.
+- **Не копіюй прайс CRM у картку.** Товари, послуги, слоти і ціна візиту лишаються в search_catalog / search_services / get_available_slots. Бібліотека для правил, винятків і фактів, яких CRM не знає.
 - **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл. Пошук не підміняє дизайн: якщо напис є лише на іншому типі виробу, search_catalog це позначає, а не віддає сусіднє худі. CSV Shop-Express має InStock і IsAvailable; Available з нульовим InStock лишається «доступно до замовлення», без кількості штук. Пошук з файлу збирає кольори одного дизайну (навіть якщо кожен колір — окремий товар) у рядок «Кольори … які можна пропонувати».
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
+- Мета-агент може створити чернетку картки (назва, опис «коли брати», текст, аліаси). Увімкнути картку може лише людина.
 
 ## Admin assistants (не customer IG)
 
 | UI | Channel | Writes |
 |----|---------|--------|
 | AI-помічник /insights | insights | Owner-only tools: get/search conversation, get_client, propose/create_product_order (confirm), propose/update_client (confirm), get_crm_write_status, retry_order_crm_sync (confirm). Local Order + optional KeyCRM mirror; never IG outbound. |
-| Навчання /teach | meta_agent | Prompt diffs only |
+| Навчання /teach | meta_agent | Prompt diffs. Може зберегти чернетку картки бібліотеки. Публікація картки лише людиною в /library |
+| Бібліотека /library | knowledge_articles | Картки знань. У хід лише active: зміст завжди, текст за аліасом або read_library |
 | Події /events | tenant_events | Кастинг/акції/вакансії; календар + lookup_tenant_events |
 | Тестування /sandbox | sandbox | Dry-run writes; live CRM reads |
 

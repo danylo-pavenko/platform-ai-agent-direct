@@ -86,6 +86,13 @@
             :to="{ name: 'teach' }"
           />
           <v-list-item
+            v-if="authStore.isOwner"
+            prepend-icon="mdi-bookshelf"
+            title="Бібліотека"
+            subtitle="Картки знань"
+            :to="{ name: 'library' }"
+          />
+          <v-list-item
             prepend-icon="mdi-flask-outline"
             title="Тестування агента"
             subtitle="Симуляція чату з клієнтом"
@@ -156,6 +163,14 @@
             title="Навчання агента"
             subtitle="Редагує промпт"
             :to="{ name: 'teach' }"
+            @click="onNavClick"
+          />
+          <v-list-item
+            v-if="authStore.isOwner"
+            prepend-icon="mdi-bookshelf"
+            title="Бібліотека"
+            subtitle="Картки знань"
+            :to="{ name: 'library' }"
             @click="onNavClick"
           />
           <v-list-item

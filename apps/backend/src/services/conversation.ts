@@ -13,6 +13,7 @@ import {
   loadCatalogSnippetForMode,
   type ClientProfile,
 } from './prompt-builder.js';
+import { loadLibraryTurnContext } from './library.js';
 import {
   createRuntimePromptSession,
   getActiveSystemPrompt,
@@ -194,6 +195,8 @@ import {
   AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveBotFallbacks,
   detectClientLanguage,
+  detectRequestedLanguage,
+  languageToStore,
   formatBotFailureDetail,
   isAgentFallbackReply,
   isCustomerVisibleFallbackReply,
@@ -516,22 +519,6 @@ async function handleIncomingMessageImpl(
     }
   };
 
-  // Remember conversation language once (heuristic from inbound text).
-  if (!client.preferredLanguage && messageText.trim()) {
-    const detected = detectClientLanguage(messageText);
-    if (detected) {
-      try {
-        await prisma.client.update({
-          where: { id: client.id },
-          data: { preferredLanguage: detected },
-        });
-        client.preferredLanguage = detected;
-      } catch (err) {
-        log.warn({ err, clientId: client.id }, 'Failed to persist preferredLanguage');
-      }
-    }
-  }
-
   if (!client.igUserId) {
     log.error({ conversationId, clientId: client.id }, 'Client has no igUserId');
     return 'released';
@@ -649,6 +636,7 @@ async function handleIncomingMessageImpl(
     deliveryNpType: client.deliveryNpType ?? undefined,
     notes: client.notes ?? undefined,
     tags: client.tags.length > 0 ? client.tags : undefined,
+    preferredLanguage: client.preferredLanguage ?? undefined,
     previousOrdersCount: previousOrders.length > 0 ? previousOrders.length : undefined,
     previousOrdersSummary,
     conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
@@ -841,6 +829,7 @@ async function handleIncomingMessageImpl(
     getPromptRuntimeGeneration(),
   ]);
   const catalog = await loadCatalogSnippetForMode(agentCfg.mode);
+  const libraryTurn = await loadLibraryTurnContext(messageText);
 
   // Per-tenant CRM field mappings — shapes both the prompt (extra-fields
   // hints) and the tool schema (update_client_info.custom_fields). Cache
@@ -1002,6 +991,9 @@ async function handleIncomingMessageImpl(
     lastBotAt != null && isTimestampInHistoryWindow(lastBotAt, greetingWindow);
   const newCivilDay = lastBotAt != null && !botAlreadyReplied && !sessionResumeAfterGap;
 
+  await rememberClientLanguage(client, conversationId, messageText);
+  clientProfile.preferredLanguage = client.preferredLanguage ?? undefined;
+
   const promptSession = createRuntimePromptSession({
     initial: activeSystemPrompt,
     generation: runtimeGeneration,
@@ -1009,6 +1001,8 @@ async function handleIncomingMessageImpl(
       buildRuntimePrompt({
         activePromptContent: content,
         catalogSnippet: catalog,
+        libraryIndex: libraryTurn.indexBlock,
+        libraryCards: libraryTurn.cardsBlock,
         currentTime: now,
         workingHours: hours,
         conversationState: conversation.state as 'bot' | 'handoff',
@@ -1086,6 +1080,8 @@ async function handleIncomingMessageImpl(
         excludeIgMessageIds: sourceIgMessageIds,
       }),
     );
+    await rememberClientLanguage(client, conversationId, messageText);
+    clientProfile.preferredLanguage = client.preferredLanguage ?? undefined;
   }
 
   // ── 7. Resolve visual media for Claude (images/PDF; video skipped later) ──
@@ -2896,7 +2892,12 @@ async function handleIncomingMessageImpl(
     (agentFallback === 'busy' || agentFallback === 'timeout') &&
     CUSTOMER_CHANNELS.has(conversation.channel)
   ) {
+    const freshLang = await prisma.client.findUnique({
+      where: { id: client.id },
+      select: { preferredLanguage: true },
+    });
     const lang =
+      normalizeClientLanguage(freshLang?.preferredLanguage) ??
       normalizeClientLanguage(client.preferredLanguage) ??
       detectClientLanguage(messageText) ??
       'uk';
@@ -3921,6 +3922,57 @@ async function tryTerminalToolCalls(
 // ---------------------------------------------------------------------------
 
 /**
+ * Locks uk | ru | en on the client card.
+ * First or second inbound message decides it. A link, digits, «ок» or a code do not.
+ * An explicit «на русском» / «українською» / «in english» updates the card and stays.
+ */
+async function rememberClientLanguage(
+  client: { id: string; preferredLanguage: string | null },
+  conversationId: string,
+  messageText: string,
+): Promise<void> {
+  const inboundOrdinal = await prisma.message.count({
+    where: { conversationId, sender: 'client' },
+  });
+  const next = languageToStore({
+    stored: client.preferredLanguage,
+    text: messageText,
+    inboundOrdinal: Math.max(inboundOrdinal, 1),
+  });
+  if (!next) return;
+  try {
+    await prisma.client.update({
+      where: { id: client.id },
+      data: { preferredLanguage: next },
+    });
+    client.preferredLanguage = next;
+  } catch (err) {
+    log.warn({ err, clientId: client.id }, 'Failed to persist preferredLanguage');
+  }
+}
+
+async function clientLanguageWriteAllowed(
+  clientId: string,
+  language: 'uk' | 'ru' | 'en',
+): Promise<boolean> {
+  const [row, latest] = await Promise.all([
+    prisma.client.findUnique({
+      where: { id: clientId },
+      select: { preferredLanguage: true },
+    }),
+    prisma.message.findFirst({
+      where: { sender: 'client', conversation: { clientId } },
+      orderBy: { createdAt: 'desc' },
+      select: { text: true },
+    }),
+  ]);
+  const text = latest?.text ?? '';
+  if (detectRequestedLanguage(text) === language) return true;
+  const stored = normalizeClientLanguage(row?.preferredLanguage);
+  return !stored && detectClientLanguage(text) === language;
+}
+
+/**
  * Persists customer contact / delivery data extracted by Claude.
  *
  * Called when Claude fires the `update_client_info` tool.
@@ -3970,6 +4022,10 @@ async function handleUpdateClientInfo(
   }
   if (typeof args.email === 'string' && args.email.trim()) {
     update.email = args.email.trim().toLowerCase();
+  }
+  const language = normalizeClientLanguage(args.language);
+  if (language && (await clientLanguageWriteAllowed(clientId, language))) {
+    update.preferredLanguage = language;
   }
 
   if (Object.keys(update).length === 0) {

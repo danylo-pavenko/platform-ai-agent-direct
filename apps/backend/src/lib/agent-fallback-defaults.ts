@@ -11,3 +11,9 @@ export const CUSTOMER_FALLBACK_TIMEOUT =
 
 export const CUSTOMER_FALLBACK_TIMEOUT_EN =
   'One moment — a manager will get back to you shortly.';
+
+export const CUSTOMER_FALLBACK_BUSY_RU =
+  'Спасибо за сообщение! Менеджер ответит чуть позже.';
+
+export const CUSTOMER_FALLBACK_TIMEOUT_RU =
+  'Одну минуту, менеджер ответит чуть позже.';

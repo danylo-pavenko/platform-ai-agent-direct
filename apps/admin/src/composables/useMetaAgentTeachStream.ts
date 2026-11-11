@@ -21,6 +21,7 @@ export type TeachStreamDone = {
   reply: string;
   suggestedDiffs?: Array<{ before: string; after: string; summary: string }>;
   suggestedDiff?: { before: string; after: string; summary: string } | null;
+  savedLibraryDrafts?: Array<{ id: string; slug: string }>;
   parseFormat?: string;
   fallback?: string | null;
 };

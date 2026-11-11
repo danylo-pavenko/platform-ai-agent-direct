@@ -66,6 +66,30 @@ describe('parseMetaAgentResponse', () => {
     expect(parsed.reply).toContain('доставки');
     expect(parsed.diffs).toHaveLength(1);
     expect(parsed.diffs[0].after).toBe('new');
+    expect(parsed.libraryDrafts).toEqual([]);
+  });
+
+  it('parses a library draft and leaves it unpublished', () => {
+    const text = `\`\`\`json
+{
+  "reply": "Зберігаю як чернетку",
+  "diffs": [],
+  "libraryDrafts": [
+    {
+      "slug": "diesel-note",
+      "title": "Дизель",
+      "description": "Коли клієнт пише tdi",
+      "body": "Прошивки на дизельні ще в процесі розробки.",
+      "aliases": ["tdi", "diesel"]
+    }
+  ]
+}
+\`\`\``;
+    const parsed = parseMetaAgentResponse(text);
+    expect(parsed.libraryDrafts).toHaveLength(1);
+    expect(parsed.libraryDrafts[0].title).toBe('Дизель');
+    expect(parsed.libraryDrafts[0].slug).toBe('diesel-note');
+    expect(parsed.diffs).toHaveLength(0);
   });
 
   it('falls back to legacy markers', () => {

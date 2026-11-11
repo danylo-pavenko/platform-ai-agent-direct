@@ -649,11 +649,17 @@ async function sendMessage() {
           streamingText.value = '';
           streamStageLabel.value = '';
 
+          const savedCards = payload.savedLibraryDrafts ?? [];
           if (currentDiffs.value.length > 0) {
             diffSheetOpen.value = true;
             postReplyHint.value =
-              'Є запропоновані правки — збережіть як чернетку або активуйте, щоб змінити системний промпт.';
+              savedCards.length > 0
+                ? `Є правки промпту. Чернетку картки збережено (${savedCards.map((c) => c.slug).join(', ')}). Увімкніть її в Бібліотеці.`
+                : 'Є запропоновані правки — збережіть як чернетку або активуйте, щоб змінити системний промпт.';
             showSnackbar('Є запропоновані правки — збережіть або активуйте', 'info');
+          } else if (savedCards.length > 0) {
+            postReplyHint.value = `Чернетку картки збережено: ${savedCards.map((c) => c.slug).join(', ')}. У хід вона піде після вмикання в Бібліотеці.`;
+            showSnackbar('Чернетку картки збережено', 'info');
           } else {
             postReplyHint.value =
               'Відповідь без правок промпту — уточніть, що саме змінити в правилах (конкретний фрагмент).';

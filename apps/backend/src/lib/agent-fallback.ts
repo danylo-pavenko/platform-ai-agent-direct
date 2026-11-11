@@ -2,11 +2,15 @@ import { prisma } from './prisma.js';
 import {
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 import {
   detectClientLanguage,
+  detectRequestedLanguage,
+  languageToStore,
   normalizeClientLanguage,
   type ClientLanguage,
 } from './client-language.js';
@@ -14,16 +18,19 @@ import {
 export {
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 
-export { detectClientLanguage, normalizeClientLanguage };
+export { detectClientLanguage, detectRequestedLanguage, languageToStore, normalizeClientLanguage };
 export type { ClientLanguage };
 
 export type FallbackLocaleMap = {
   uk: string;
   en: string;
+  ru?: string;
 };
 
 export type FallbackMessages = {
@@ -46,8 +53,10 @@ export const AGENT_FALLBACK_RETRY_NOTE_PREFIX = 'Повторна спроба �
 const DEFAULT_FALLBACK_TEXTS = new Set([
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_RU,
 ]);
 
 /** How many fallback replies we send before auto-handoff on the next failure. */
@@ -70,7 +79,7 @@ export function collectCustomerFallbackTexts(
   const set = new Set(DEFAULT_FALLBACK_TEXTS);
   if (messages) {
     for (const reason of ['busy', 'timeout'] as const) {
-      for (const lang of ['uk', 'en'] as const) {
+      for (const lang of ['uk', 'en', 'ru'] as const) {
         const t = messages[reason][lang]?.trim();
         if (t) set.add(t);
       }
@@ -101,7 +110,7 @@ export function isAgentFallbackReply(
 
 /**
  * Resolve localized customer fallback from agent_config (+ defaults).
- * Unknown / missing language → uk.
+ * Unknown / missing language → uk. Russian uses the ru line, not the Ukrainian one.
  */
 export function resolveCustomerFallback(
   reason: CustomerFallbackReason,
@@ -109,8 +118,11 @@ export function resolveCustomerFallback(
   messages: FallbackMessages,
 ): string {
   const locale: ClientLanguage = normalizeClientLanguage(lang) ?? 'uk';
-  const text = messages[reason][locale]?.trim();
-  if (text) return text;
+  const configured = messages[reason][locale]?.trim();
+  if (configured) return configured;
+  if (locale === 'ru') {
+    return reason === 'busy' ? CUSTOMER_FALLBACK_BUSY_RU : CUSTOMER_FALLBACK_TIMEOUT_RU;
+  }
   return messages[reason].uk;
 }
 

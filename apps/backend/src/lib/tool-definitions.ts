@@ -39,6 +39,7 @@ export const LOOKUP_TOOL_NAMES = [
   'get_client_crm_history',
   'lookup_client_by_phone',
   'lookup_tenant_events',
+  'read_library',
 ] as const;
 
 export type LookupToolName = (typeof LOOKUP_TOOL_NAMES)[number];
@@ -103,7 +104,7 @@ export function canonicalToolName(raw: string): string {
 const UPDATE_CLIENT_INFO: ToolDefinition = {
   name: 'update_client_info',
   description:
-    'Зберегти контактні або доставочні дані клієнта. Викликай одразу, як тільки клієнт назвав ПІБ, телефон, місто чи відділення НП - не чекай кінця оформлення замовлення.',
+    'Зберегти контактні або доставочні дані клієнта. Викликай одразу, як тільки клієнт назвав ПІБ, телефон, місто чи відділення НП.',
   parameters: {
     type: 'object',
     properties: {
@@ -132,6 +133,12 @@ const UPDATE_CLIENT_INFO: ToolDefinition = {
       email: {
         type: 'string',
         description: 'Email-адреса клієнта',
+      },
+      language: {
+        type: 'string',
+        enum: ['uk', 'ru', 'en'],
+        description:
+          'Лише якщо людина прямо просить спілкуватися цією мовою: uk, ru або en. На звичайне повідомлення поле не передавай.',
       },
     },
     required: [],
@@ -175,6 +182,26 @@ const LOOKUP_TENANT_EVENTS: ToolDefinition = {
       event_id: {
         type: 'string',
         description: 'UUID події з календаря / попереднього result (якщо вже відомий)',
+      },
+    },
+  },
+};
+
+const READ_LIBRARY: ToolDefinition = {
+  name: 'read_library',
+  description:
+    'Прочитати одну або кілька активних карток бібліотеки за slug зі змісту в промпті. Викликай, коли для цього питання потрібен текст картки, якого ще немає в блоці «Картки цього ходу». Ціну, кінські сили і список кузовів бери лише з відповіді. Чернетки не повертаються.',
+  parameters: {
+    type: 'object',
+    properties: {
+      slug: {
+        type: 'string',
+        description: 'Один slug зі змісту бібліотеки',
+      },
+      slugs: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Кілька slug, не більше трьох',
       },
     },
   },
@@ -940,7 +967,7 @@ function buildSharedBaseTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
 
   const sharedBase: ToolDefinition[] = [updateClientInfo];
   if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
-  sharedBase.push(LOOKUP_TENANT_EVENTS, TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
+  sharedBase.push(LOOKUP_TENANT_EVENTS, READ_LIBRARY, TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
   return sharedBase;
 }
 

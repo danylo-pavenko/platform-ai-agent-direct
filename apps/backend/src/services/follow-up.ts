@@ -39,6 +39,7 @@ import {
   loadCatalogSnippetForMode,
   type ClientProfile,
 } from './prompt-builder.js';
+import { loadLibraryTurnContext } from './library.js';
 import {
   getActiveSystemPrompt,
   getPromptRuntimeGeneration,
@@ -294,6 +295,7 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         deliveryNpType: client.deliveryNpType ?? undefined,
         notes: client.notes ?? undefined,
         tags: client.tags.length > 0 ? client.tags : undefined,
+        preferredLanguage: client.preferredLanguage ?? undefined,
         previousOrdersCount: previousOrders.length > 0 ? previousOrders.length : undefined,
         previousOrdersSummary,
         conversationsCount: conversationsCount > 1 ? conversationsCount : undefined,
@@ -323,6 +325,12 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
         getPromptRuntimeGeneration(),
       ]);
       const catalog = await loadCatalogSnippetForMode(agentCfg.mode);
+      const lastClient = await prisma.message.findFirst({
+        where: { conversationId, sender: 'client' },
+        orderBy: { createdAt: 'desc' },
+        select: { text: true },
+      });
+      const libraryTurn = await loadLibraryTurnContext(lastClient?.text ?? '');
       const crmWritesEnabled = await isCrmWriteEnabled();
       const crmMappings = crmWritesEnabled ? await getActiveCrmFieldMappings() : null;
       const branchesList = await formatBranchesForPrompt();
@@ -342,6 +350,8 @@ async function processFollowUpJob(jobId: string, conversationId: string): Promis
       const prompt = buildRuntimePrompt({
         activePromptContent: activeSystemPrompt.content,
         catalogSnippet: catalog,
+        libraryIndex: libraryTurn.indexBlock,
+        libraryCards: libraryTurn.cardsBlock,
         currentTime: now,
         workingHours: hours,
         conversationState: 'bot',

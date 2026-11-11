@@ -16,6 +16,7 @@ import { searchActiveProductsForContext } from './product-search.js';
 import { getDeliveryCost } from './nova-poshta.js';
 import { lookupOrderShipment } from './shipment-lookup.js';
 import { executeLookupTenantEvents } from './tenant-events.js';
+import { readLibraryBySlugs } from './library.js';
 
 const log = pino({ name: 'agent-lookup-tools' });
 
@@ -220,6 +221,8 @@ export async function executeLookupTool(
           event_id: asString(args.event_id) || undefined,
           timeZone: ctx.timeZone,
         });
+      case 'read_library':
+        return readLibraryBySlugs(args);
       default:
         if (!isLookupToolName(name)) {
           return `[${name}] ПОМИЛКА: не lookup tool`;

@@ -16,6 +16,7 @@ import {
   type SuggestedDiff,
 } from '../lib/meta-agent-diff.js';
 import { bumpPromptRuntimeGeneration } from '../services/prompt-runtime.js';
+import { saveLibraryDraft } from '../services/library.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -143,7 +144,8 @@ ${metaCtx.promptBlock}
       "after": "<повний новий варіант цього фрагменту>",
       "summary": "<1 рядок>"
     }
-  ]
+  ],
+  "libraryDrafts": []
 }
 \`\`\`
 
@@ -155,6 +157,13 @@ ${metaCtx.promptBlock}
 - Кілька незалежних змін — кілька елементів у diffs.
 - Якщо зміна не потрібна — diffs: [] і поясни в reply.
 - Якщо запит суперечить безпеці або вимагає неіснуючого tool — відмов, diffs: [].
+
+Бібліотека (картки знань, не системний промпт):
+- Коли адмін просить винести факт, прайс поза CRM, виняток або довгу інструкцію в бібліотеку, додай елемент у libraryDrafts. Це стане чернеткою. Людина сама вмикає картку в розділі «Бібліотека».
+- title — коротка назва. description — коли брати картку, не реклама. body — сам факт. aliases — слова з повідомлення клієнта, за якими картку підкласти (коди, моделі).
+- Прайс і послуги, які вже є в CRM-каталозі, у картку не копіюй. Для них лишаються search_catalog / search_services.
+- Поведінку бота (тон, ескалація, заборони) лишай у diffs промпту, не в картці.
+- Якщо картка не потрібна — libraryDrafts: [].
 
 ${promptWrapper}${summaryBlock}${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
 }
@@ -288,12 +297,21 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
 
       const parsed = parseMetaAgentResponse(response.text);
       const suggestedDiffs = parsed.diffs;
+      const savedLibraryDrafts = [];
+      for (const draft of parsed.libraryDrafts) {
+        savedLibraryDrafts.push(await saveLibraryDraft(draft));
+      }
 
-      if (suggestedDiffs.length > 0) {
+      if (suggestedDiffs.length > 0 || savedLibraryDrafts.length > 0) {
         return {
           reply: parsed.reply || response.text,
-          suggestedDiff: suggestedDiffs[suggestedDiffs.length - 1],
-          suggestedDiffs,
+          ...(suggestedDiffs.length > 0
+            ? {
+                suggestedDiff: suggestedDiffs[suggestedDiffs.length - 1],
+                suggestedDiffs,
+              }
+            : {}),
+          savedLibraryDrafts,
           fallback: response.fallback ?? null,
           parseFormat: parsed.format,
         };

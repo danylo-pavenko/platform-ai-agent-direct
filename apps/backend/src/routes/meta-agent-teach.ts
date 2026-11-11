@@ -10,6 +10,7 @@ import {
   startNewTeachSession,
 } from '../services/meta-agent-teach.js';
 import { buildMetaAgentSystemPrompt, parseMetaAgentResponse } from './meta-agent.js';
+import { saveLibraryDraft } from '../services/library.js';
 import { getCachedMetaAgentExtras } from '../lib/meta-agent-extras-cache.js';
 
 interface TeachChatBody {
@@ -156,6 +157,10 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
       const parsed = parseMetaAgentResponse(response.text);
       const suggestedDiffs = parsed.diffs;
       const replyText = parsed.reply || response.text;
+      const savedLibraryDrafts = [];
+      for (const draft of parsed.libraryDrafts) {
+        savedLibraryDrafts.push(await saveLibraryDraft(draft));
+      }
 
       const session = await appendTeachAssistantMessage(
         sessionAfterUser.id,
@@ -182,6 +187,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
               suggestedDiffs,
             }
           : {}),
+        savedLibraryDrafts,
         fallback: response.fallback ?? null,
         parseFormat: parsed.format,
       };
@@ -352,6 +358,10 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         const parsed = parseMetaAgentResponse(finalText);
         const suggestedDiffs = parsed.diffs;
         const replyText = parsed.reply || finalText;
+        const savedLibraryDrafts = [];
+        for (const draft of parsed.libraryDrafts) {
+          savedLibraryDrafts.push(await saveLibraryDraft(draft));
+        }
 
         const session = await appendTeachAssistantMessage(
           sessionAfterUser.id,
@@ -368,6 +378,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
               ? suggestedDiffs[suggestedDiffs.length - 1]
               : null,
           parseFormat: parsed.format,
+          savedLibraryDrafts,
           fallback: null,
         });
         reply.raw.end();

@@ -10,9 +10,18 @@ export interface SuggestedDiff {
   sectionId?: string;
 }
 
+export interface LibraryDraftSuggestion {
+  slug?: string;
+  title: string;
+  description: string;
+  body: string;
+  aliases: string[];
+}
+
 export interface ParsedMetaAgentResponse {
   reply: string;
   diffs: SuggestedDiff[];
+  libraryDrafts: LibraryDraftSuggestion[];
   format: 'json' | 'legacy' | 'none';
 }
 
@@ -185,7 +194,23 @@ function coerceDiff(raw: unknown): SuggestedDiff | null {
   return { before, after, summary, ...(sectionId ? { sectionId } : {}) };
 }
 
-function tryParseJsonPayload(text: string): { reply: string; diffs: SuggestedDiff[] } | null {
+function coerceLibraryDraft(raw: unknown): LibraryDraftSuggestion | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const title = typeof obj.title === 'string' ? obj.title.trim() : '';
+  const description = typeof obj.description === 'string' ? obj.description.trim() : '';
+  const body = typeof obj.body === 'string' ? obj.body.trim() : '';
+  if (!title || !description || !body) return null;
+  const aliases = Array.isArray(obj.aliases)
+    ? obj.aliases.filter((item): item is string => typeof item === 'string').map((item) => item.trim())
+    : [];
+  const slug = typeof obj.slug === 'string' ? obj.slug.trim() : undefined;
+  return { title, description, body, aliases, ...(slug ? { slug } : {}) };
+}
+
+function tryParseJsonPayload(
+  text: string,
+): { reply: string; diffs: SuggestedDiff[]; libraryDrafts: LibraryDraftSuggestion[] } | null {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidates: string[] = [];
   if (fenced?.[1]) candidates.push(fenced[1].trim());
@@ -217,8 +242,12 @@ function tryParseJsonPayload(text: string): { reply: string; diffs: SuggestedDif
       const diffs = rawDiffs
         .map(coerceDiff)
         .filter((d): d is SuggestedDiff => d !== null);
-      if (reply || diffs.length > 0) {
-        return { reply: reply || text.trim(), diffs };
+      const rawCards = Array.isArray(parsed.libraryDrafts) ? parsed.libraryDrafts : [];
+      const libraryDrafts = rawCards
+        .map(coerceLibraryDraft)
+        .filter((card): card is LibraryDraftSuggestion => card !== null);
+      if (reply || diffs.length > 0 || libraryDrafts.length > 0) {
+        return { reply: reply || text.trim(), diffs, libraryDrafts };
       }
     } catch {
       /* try next */
@@ -237,20 +266,26 @@ export function parseMetaAgentResponse(text: string): ParsedMetaAgentResponse {
     if (json.diffs.length === 0) {
       const legacy = parseLegacyDiffs(text);
       if (legacy.length > 0) {
-        return { reply: json.reply || text, diffs: legacy, format: 'legacy' };
+        return {
+          reply: json.reply || text,
+          diffs: legacy,
+          libraryDrafts: json.libraryDrafts,
+          format: 'legacy',
+        };
       }
     }
     return {
       reply: json.reply || text,
       diffs: json.diffs,
-      format: json.diffs.length > 0 || json.reply ? 'json' : 'none',
+      libraryDrafts: json.libraryDrafts,
+      format: json.diffs.length > 0 || json.reply || json.libraryDrafts.length > 0 ? 'json' : 'none',
     };
   }
 
   const legacy = parseLegacyDiffs(text);
   if (legacy.length > 0) {
-    return { reply: text, diffs: legacy, format: 'legacy' };
+    return { reply: text, diffs: legacy, libraryDrafts: [], format: 'legacy' };
   }
 
-  return { reply: text, diffs: [], format: 'none' };
+  return { reply: text, diffs: [], libraryDrafts: [], format: 'none' };
 }

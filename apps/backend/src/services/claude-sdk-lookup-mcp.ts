@@ -238,6 +238,20 @@ export function createLookupMcpServer(
       ),
     );
   }
+  if (allowed.has('read_library')) {
+    tools.push(
+      tool(
+        'read_library',
+        'Текст активної картки бібліотеки за slug зі змісту. Ціну і кузови бери лише звідси.',
+        {
+          slug: z.string().optional().describe('Один slug зі змісту'),
+          slugs: z.array(z.string()).optional().describe('До трьох slug'),
+        },
+        lookupHandler('read_library', ctx),
+        { annotations: LOOKUP_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
   if (allowed.has('lookup_tenant_events')) {
     tools.push(
       tool(
@@ -257,7 +271,7 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'update_client_info',
-        'Зберегти контактні дані клієнта, щойно він їх назвав.',
+        'Зберегти контактні дані. language (uk, ru, en) передавай лише коли людина прямо просить іншу мову.',
         {
           full_name: z.string().optional(),
           phone: z.string().optional(),
@@ -265,6 +279,7 @@ export function createLookupMcpServer(
           np_branch: z.string().optional(),
           np_type: z.enum(['warehouse', 'postamat']).optional(),
           email: z.string().optional(),
+          language: z.enum(['uk', 'ru', 'en']).optional(),
           custom_fields: LOOSE_OBJECT,
         },
         hostQueuedHandler('update_client_info'),

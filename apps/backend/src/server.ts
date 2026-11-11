@@ -26,6 +26,7 @@ import { branchRoutes } from './routes/branches.js';
 import { eventRoutes } from './routes/events.js';
 import { mediaRoutes } from './routes/media.js';
 import { insightsRoutes } from './routes/insights.js';
+import { libraryRoutes } from './routes/library.js';
 
 const app = Fastify({
   logger: {
@@ -63,6 +64,7 @@ await app.register(adminUsersRoutes, { prefix: '/admin/users' });
 await app.register(syncRoutes, { prefix: '/sync' });
 await app.register(conversationRoutes, { prefix: '/conversations' });
 await app.register(promptRoutes, { prefix: '/prompts' });
+await app.register(libraryRoutes, { prefix: '/library' });
 await app.register(settingsRoutes, { prefix: '/settings' });
 await app.register(orderRoutes, { prefix: '/orders' });
 await app.register(clientRoutes, { prefix: '/clients' });

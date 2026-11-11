@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { buildClientSearchWhere } from '../lib/client-directory.js';
+import { normalizeClientLanguage } from '../lib/client-language.js';
 
 function appointmentServiceLabel(services: unknown): string {
   if (!Array.isArray(services)) return '';
@@ -176,6 +178,29 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
           servicesLabel: appointmentServiceLabel(a.services),
         })),
       };
+    },
+  );
+
+  app.patch<{ Params: { id: string }; Body: { language?: unknown } }>(
+    '/:id/language',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const parsed = z.object({ language: z.enum(['uk', 'ru', 'en']) }).safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Language must be uk, ru, or en' });
+      }
+      const language = normalizeClientLanguage(parsed.data.language);
+      const existing = await prisma.client.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!existing) return reply.code(404).send({ error: 'Client not found' });
+      const client = await prisma.client.update({
+        where: { id: existing.id },
+        data: { preferredLanguage: language },
+        select: { id: true, preferredLanguage: true },
+      });
+      return client;
     },
   );
 }

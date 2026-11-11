@@ -14,6 +14,7 @@ import { getDeliveryCost } from './nova-poshta.js';
 import { lookupOrderShipment } from './shipment-lookup.js';
 import { getAgentConfig } from '../lib/agent-config.js';
 import { executeLookupTenantEvents } from './tenant-events.js';
+import { readLibraryBySlugs } from './library.js';
 
 const log = pino({ name: 'sandbox-tools' });
 
@@ -174,6 +175,16 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
       };
     }
 
+    case 'read_library': {
+      try {
+        const content = await readLibraryBySlugs(tc.args);
+        return { content };
+      } catch (err) {
+        log.error({ err }, 'sandbox read_library failed');
+        return { content: '[read_library] ПОМИЛКА: бібліотека тимчасово недоступна.' };
+      }
+    }
+
     case 'lookup_tenant_events': {
       try {
         const agentCfg = await getAgentConfig();
@@ -262,6 +273,7 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
     'search_catalog',
     'search_services',
     'lookup_tenant_events',
+    'read_library',
     'get_delivery_cost',
     'lookup_order_shipment',
     'get_available_slots',
