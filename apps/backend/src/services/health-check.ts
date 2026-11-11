@@ -12,13 +12,19 @@ import { getClaudeAuthStatus } from './claude-auth.js';
 import { fetchClaudeUsageSnapshot } from './claude-usage.js';
 import { loadClaudeUsageSnapshot } from './claude-usage-monitor.js';
 import { getCrmAdapter } from './crm/registry.js';
-import { resolveCrmProvider } from '../lib/crm-routing.js';
+import {
+  getCrmRouting,
+  isCrmRoutingLocalOnly,
+  resolveCrmProvider,
+  type CrmRoutingConfig,
+} from '../lib/crm-routing.js';
 import { isCrmWriteReady } from '../lib/crm-write.js';
 import { getClaudeBinaryPath } from '../lib/claude-binary.js';
 import {
   findOrphanClaudeProcesses,
   parsePsProcessRows,
 } from '../lib/claude-orphan-processes.js';
+import type { CrmProviderName } from '../lib/crm-providers.js';
 
 const execFileAsync = promisify(execFile);
 const log = pino({ name: 'health-check' });
@@ -37,6 +43,41 @@ export interface TenantHealthCheckResult {
   checkedAt: string;
   overall: 'ok' | 'degraded';
   checks: HealthCheckItem[];
+}
+
+/** Overall is degraded only on live failures — missing optional CRM/STT is informational. */
+export function summarizeHealthOverall(
+  checks: Array<{ status: HealthCheckStatus }>,
+): 'ok' | 'degraded' {
+  return checks.some((c) => c.status === 'error') ? 'degraded' : 'ok';
+}
+
+function providerUsedInRouting(
+  routing: CrmRoutingConfig,
+  provider: CrmProviderName,
+): boolean {
+  if (isCrmRoutingLocalOnly(routing)) return false;
+  if (routing.enabled_providers.includes(provider)) return true;
+  if (routing.default === provider) return true;
+  return Object.values(routing.routes).some((target) => target === provider);
+}
+
+async function unusedCrmVendorCheck(
+  id: HealthCheckItem['id'],
+  label: string,
+  provider: CrmProviderName,
+): Promise<HealthCheckItem | null> {
+  const routing = await getCrmRouting();
+  if (providerUsedInRouting(routing, provider)) return null;
+  return {
+    id,
+    label,
+    status: 'ok',
+    message: isCrmRoutingLocalOnly(routing)
+      ? 'Локальний режим — CRM не використовується'
+      : 'Не в маршрутизації CRM',
+    details: { provider, inUse: false, localOnly: isCrmRoutingLocalOnly(routing) },
+  };
 }
 
 async function checkInstagram(): Promise<HealthCheckItem> {
@@ -274,7 +315,6 @@ async function checkClaudeUsage(): Promise<HealthCheckItem> {
 async function checkCrm(): Promise<HealthCheckItem> {
   const label = 'CRM (каталог, read)';
 
-  const { getCrmRouting, isCrmRoutingLocalOnly } = await import('../lib/crm-routing.js');
   const { CRM_NOT_CONNECTED_LABEL } = await import('../lib/crm-providers.js');
   const routing = await getCrmRouting();
   if (
@@ -284,8 +324,8 @@ async function checkCrm(): Promise<HealthCheckItem> {
     return {
       id: 'crm',
       label,
-      status: 'not_configured',
-      message: CRM_NOT_CONNECTED_LABEL,
+      status: 'ok',
+      message: 'Локальний режим — каталог CRM не потрібен',
       details: { provider: 'none', localOnly: true },
     };
   }
@@ -295,7 +335,7 @@ async function checkCrm(): Promise<HealthCheckItem> {
     return {
       id: 'crm',
       label,
-      status: 'not_configured',
+      status: 'ok',
       message: CRM_NOT_CONNECTED_LABEL,
       details: { provider: 'none' },
     };
@@ -347,6 +387,9 @@ async function checkCrm(): Promise<HealthCheckItem> {
 
 async function checkCleverbox(): Promise<HealthCheckItem> {
   const label = 'CleverBOX (запис)';
+  const unused = await unusedCrmVendorCheck('cleverbox', label, 'cleverbox');
+  if (unused) return unused;
+
   const { cleverbox } = await getIntegrationConfig();
   const token = cleverbox.apiToken || config.CLEVERBOX_API_TOKEN;
 
@@ -390,6 +433,9 @@ async function checkCleverbox(): Promise<HealthCheckItem> {
 
 async function checkAltegio(): Promise<HealthCheckItem> {
   const label = 'Altegio (запис)';
+  const unused = await unusedCrmVendorCheck('altegio', label, 'altegio');
+  if (unused) return unused;
+
   const { altegio } = await getIntegrationConfig();
   const configured = Boolean(
     (altegio.partnerToken || config.ALTEGIO_PARTNER_TOKEN)
@@ -436,6 +482,9 @@ async function checkAltegio(): Promise<HealthCheckItem> {
 
 async function checkBeautypro(): Promise<HealthCheckItem> {
   const label = 'BeautyPro (запис)';
+  const unused = await unusedCrmVendorCheck('beautypro', label, 'beautypro');
+  if (unused) return unused;
+
   const { beautypro } = await getIntegrationConfig();
   const configured = Boolean(
     (beautypro.applicationId || config.BEAUTYPRO_APPLICATION_ID) &&
@@ -496,23 +545,35 @@ async function checkCrmWrite(): Promise<HealthCheckItem> {
   const label = 'CRM (замовлення, write)';
   const write = await isCrmWriteReady();
 
+  // Route is none / local-only — local Order is fine; do not fail health.
+  if (!write.provider) {
+    return {
+      id: 'crm_write',
+      label,
+      status: 'ok',
+      message: 'Локальні замовлення — CRM write не потрібен',
+      details: { source: write.source, provider: null },
+    };
+  }
+
   if (!write.enabled) {
     return {
       id: 'crm_write',
       label,
-      status: 'not_configured',
+      status: 'ok',
       message: 'Запис замовлень у CRM вимкнено',
-      details: { source: write.source },
+      details: { source: write.source, provider: write.provider },
     };
   }
 
+  // Selected vendor without credentials: config gap (yellow), not a live outage (red).
   if (!write.ready) {
     return {
       id: 'crm_write',
       label,
-      status: 'error',
+      status: 'not_configured',
       message: write.reason ?? 'CRM write недоступний',
-      details: { source: write.source },
+      details: { source: write.source, provider: write.provider },
     };
   }
 
@@ -524,7 +585,7 @@ async function checkCrmWrite(): Promise<HealthCheckItem> {
     label,
     status: 'ok',
     message: `Запис у CRM активний (${sourceLabel})`,
-    details: { source: write.source },
+    details: { source: write.source, provider: write.provider },
   };
 }
 
@@ -681,11 +742,9 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
     stt,
     agentLatency,
   ];
-  const overall = checks.every((c) => c.status === 'ok') ? 'ok' : 'degraded';
-
   return {
     checkedAt: new Date().toISOString(),
-    overall,
+    overall: summarizeHealthOverall(checks),
     checks,
   };
 }
