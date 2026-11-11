@@ -41,6 +41,15 @@ describe('detectClientLanguage', () => {
     expect(detectClientLanguage('F30 320i')).toBeNull();
   });
 
+  it('does not let the Ukrainian join-preamble outvote Russian bubbles', () => {
+    const joined =
+      'Клієнт надіслав кілька повідомлень підряд — це ОДНА відповідь (читай суцільно, не як окремі репліки):\n1) Здесь\n2) Здравствуйте';
+    expect(detectClientLanguage(joined)).toBe('ru');
+    expect(detectClientLanguage('Здесь')).toBe('ru');
+    expect(detectClientLanguage('Сколько будет стоит прошить ф10 БМВ')).toBe('ru');
+    expect(detectClientLanguage('528i 3.0 литра бензин атмо')).toBe('ru');
+  });
+
   it('returns null for a link, digits, emoji, or a model code', () => {
     expect(detectClientLanguage('👍')).toBeNull();
     expect(detectClientLanguage('ok')).toBeNull();

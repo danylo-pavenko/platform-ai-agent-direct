@@ -196,6 +196,7 @@ import {
   countConsecutiveBotFallbacks,
   detectClientLanguage,
   detectRequestedLanguage,
+  explainLanguageDecision,
   languageToStore,
   formatBotFailureDetail,
   isAgentFallbackReply,
@@ -991,7 +992,7 @@ async function handleIncomingMessageImpl(
     lastBotAt != null && isTimestampInHistoryWindow(lastBotAt, greetingWindow);
   const newCivilDay = lastBotAt != null && !botAlreadyReplied && !sessionResumeAfterGap;
 
-  await rememberClientLanguage(client, conversationId, messageText);
+  let languageNote = await rememberClientLanguage(client, conversationId, messageText);
   clientProfile.preferredLanguage = client.preferredLanguage ?? undefined;
 
   const promptSession = createRuntimePromptSession({
@@ -1080,7 +1081,8 @@ async function handleIncomingMessageImpl(
         excludeIgMessageIds: sourceIgMessageIds,
       }),
     );
-    await rememberClientLanguage(client, conversationId, messageText);
+    const lateNote = await rememberClientLanguage(client, conversationId, messageText);
+    if (lateNote) languageNote = lateNote;
     clientProfile.preferredLanguage = client.preferredLanguage ?? undefined;
   }
 
@@ -1245,6 +1247,7 @@ async function handleIncomingMessageImpl(
   debug.promptId = promptSession.getMeta().id;
   debug.promptVersion = promptSession.getMeta().version;
   debug.runtimeGeneration = promptSession.getMeta().generation;
+  if (languageNote) debug.languageNote = languageNote;
 
   /** Soft-refresh active prompt before every Claude round (P1: mid-turn activate). */
   const sessions = createTurnClaudeSessions();
@@ -3930,16 +3933,25 @@ async function rememberClientLanguage(
   client: { id: string; preferredLanguage: string | null },
   conversationId: string,
   messageText: string,
-): Promise<void> {
-  const inboundOrdinal = await prisma.message.count({
-    where: { conversationId, sender: 'client' },
-  });
+): Promise<string> {
+  const inboundOrdinal = Math.max(
+    await prisma.message.count({
+      where: { conversationId, sender: 'client' },
+    }),
+    1,
+  );
   const next = languageToStore({
     stored: client.preferredLanguage,
     text: messageText,
-    inboundOrdinal: Math.max(inboundOrdinal, 1),
+    inboundOrdinal,
   });
-  if (!next) return;
+  const note = explainLanguageDecision({
+    stored: client.preferredLanguage,
+    text: messageText,
+    inboundOrdinal,
+    next,
+  });
+  if (!next) return note;
   try {
     await prisma.client.update({
       where: { id: client.id },
@@ -3949,6 +3961,7 @@ async function rememberClientLanguage(
   } catch (err) {
     log.warn({ err, clientId: client.id }, 'Failed to persist preferredLanguage');
   }
+  return note;
 }
 
 async function clientLanguageWriteAllowed(

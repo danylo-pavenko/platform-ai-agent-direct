@@ -508,8 +508,8 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if ('preferredLanguage' in body) {
-      const raw = body.preferredLanguage;
-      if (raw === null || raw === '') {
+      const raw = (body as { preferredLanguage?: unknown }).preferredLanguage;
+      if (raw == null || raw === '') {
         update.preferredLanguage = null;
       } else if (raw === 'uk' || raw === 'ru' || raw === 'en') {
         update.preferredLanguage = raw;

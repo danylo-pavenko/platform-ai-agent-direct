@@ -422,13 +422,15 @@ ${catalogRule}${buildOutOfHoursBlock(isOutOfHours, outOfHoursStrategy, agentMode
   const libraryBlocks = [params.libraryIndex, params.libraryCards]
     .map((block) => block?.trim() ?? '')
     .filter(Boolean);
+  const languageOverride = formatReplyLanguageOverride(clientProfile?.preferredLanguage);
 
   const fullPrompt = [
     ANTI_INJECTION_PREAMBLE,
     activePromptContent,
     finalSessionBlock,
     ...libraryBlocks,
-  ].join('\n\n');
+    languageOverride,
+  ].filter((part) => part.trim().length > 0).join('\n\n');
 
   return fullPrompt;
 }
@@ -658,6 +660,15 @@ function formatClientLanguageLine(value: string | null | undefined): string {
   const lang = normalizeClientLanguage(value);
   if (!lang) return '';
   return `Мова клієнта: ${clientLanguageLabel(lang)}.`;
+}
+
+/** Last block in the prompt: beats Ukrainian wording of the tenant prompt. */
+export function formatReplyLanguageOverride(value: string | null | undefined): string {
+  const lang = normalizeClientLanguage(value);
+  if (!lang) return '';
+  const name = clientLanguageLabel(lang);
+  const adverb = lang === 'ru' ? 'російською' : lang === 'en' ? 'англійською' : 'українською';
+  return `Мова відповіді клієнту: ${name}. Текст вище може бути іншою мовою. Клієнту пиши лише ${adverb}, включно з привітанням і готовими фразами. Не копіюй їх дослівно і не згадуй мову у відповіді.`;
 }
 
 /**

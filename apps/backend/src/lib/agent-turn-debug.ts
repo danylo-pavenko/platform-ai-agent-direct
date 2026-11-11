@@ -50,6 +50,8 @@ export type AgentTurnDebugCollector = {
   runtimeGeneration?: number;
   /** True when Admin activated a new prompt during this turn's tool rounds. */
   promptRefreshedMidTurn?: boolean;
+  /** How this turn read or kept the client's language. Admin debug only. */
+  languageNote?: string;
 };
 
 const PREVIEW_MAX = 500;
@@ -126,6 +128,7 @@ export function shouldPersistAgentTurnDebug(collector: AgentTurnDebugCollector):
     Boolean(collector.agentFallback) ||
     Boolean(collector.redactedInternals) ||
     Boolean(collector.promptRefreshedMidTurn) ||
+    Boolean(collector.languageNote) ||
     (collector.gateReason != null && collector.gateReason !== 'ok')
   );
 }
@@ -148,6 +151,9 @@ export function formatAgentTurnDebugNote(
 ): string {
   const lines: string[] = [AGENT_TURN_DEBUG_PREFIX];
 
+  if (collector.languageNote) {
+    lines.push(`• ${collector.languageNote}`);
+  }
   if (collector.agentMode) {
     lines.push(`• Режим: ${collector.agentMode}`);
   }

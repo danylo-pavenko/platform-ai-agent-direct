@@ -38,6 +38,14 @@ const RU_WORDS = [
   'добрый',
   'может',
   'машина',
+  'здесь',
+  'сколько',
+  'будет',
+  'стоит',
+  'литра',
+  'литр',
+  'это',
+  'что',
 ];
 
 const EN_WORDS = [
@@ -85,6 +93,17 @@ function withoutUrls(text: string): string {
   return text.replace(/https?:\/\/\S+|www\.\S+|t\.me\/\S+/gi, ' ');
 }
 
+/** Drop the Ukrainian join-preamble so it cannot outvote the client's own words. */
+export function clientLanguageSample(text: string): string {
+  const raw = text.trim();
+  if (!raw.includes('це ОДНА відповідь')) return raw;
+  const parts = raw
+    .split('\n')
+    .map((line) => line.match(/^\d+\)\s*(.*)$/)?.[1]?.trim() ?? '')
+    .filter((line) => line.length > 0);
+  return parts.length > 0 ? parts.join('\n') : raw;
+}
+
 const RU_ASK = /(?:по[-\s]?русски|на русском|російською|на російській|русском языке)/u;
 const UK_ASK = /(?:українською|на українській|по[-\s]?українськи|українською мовою)/u;
 const EN_ASK = /(?:\bin english\b|speak english|англійською|на англійській|на английском|по[-\s]?английски|по[-\s]?англійськи)/u;
@@ -111,7 +130,7 @@ function hits(text: string, words: readonly string[]): number {
  * Only a clear signal is returned, so a saved language is not overwritten by «ок».
  */
 export function detectClientLanguage(text: string): ClientLanguage | null {
-  const sample = withoutUrls(text).trim();
+  const sample = withoutUrls(clientLanguageSample(text)).trim();
   if (sample.length < 2) return null;
 
   const ukLetters = (sample.match(UK_LETTERS_RE) ?? []).length;
@@ -137,7 +156,7 @@ export function detectClientLanguage(text: string): ClientLanguage | null {
  * A link, a number, or a long product sentence that merely contains «українською» is not either.
  */
 export function detectRequestedLanguage(text: string): ClientLanguage | null {
-  const sample = fold(withoutUrls(text)).replace(/\s+/g, ' ').trim();
+  const sample = fold(withoutUrls(clientLanguageSample(text))).replace(/\s+/g, ' ').trim();
   if (!sample) return null;
   const found: ClientLanguage[] = [];
   if (askedFor(sample, RU_ASK)) found.push('ru');
@@ -164,4 +183,32 @@ export function languageToStore(input: {
   const detected = detectClientLanguage(input.text);
   if (!detected) return null;
   return detected;
+}
+
+/** One admin-debug line: what the text looked like, and whether the card changed. */
+export function explainLanguageDecision(input: {
+  stored: unknown;
+  text: string;
+  inboundOrdinal: number;
+  next: ClientLanguage | null;
+}): string {
+  const sample = clientLanguageSample(input.text).replace(/\s+/g, ' ').trim();
+  const preview = sample.length > 90 ? `${sample.slice(0, 89)}…` : sample;
+  const before = normalizeClientLanguage(input.stored);
+  const detected = detectClientLanguage(input.text);
+  const requested = detectRequestedLanguage(input.text);
+  const quoted = preview ? `«${preview}»` : 'порожньо';
+  if (input.next && requested === input.next) {
+    return `Мова: ${clientLanguageLabel(input.next)} (${input.next}). Клієнт попросив. Було: ${before ?? 'немає'}. Текст: ${quoted}.`;
+  }
+  if (input.next) {
+    return `Мова: ${clientLanguageLabel(input.next)} (${input.next}). За текстом клієнта. Було: ${before ?? 'немає'}. Текст: ${quoted}.`;
+  }
+  if (before && detected && detected !== before) {
+    return `Мова картки: ${clientLanguageLabel(before)} (${before}), без зміни. Цей текст схожий на ${clientLanguageLabel(detected)}, у діалозі не перемикаємо. Текст: ${quoted}.`;
+  }
+  if (before) {
+    return `Мова картки: ${clientLanguageLabel(before)} (${before}), без зміни. Повідомлення ${input.inboundOrdinal} мову не задає. Текст: ${quoted}.`;
+  }
+  return `Мова не визначена (повідомлення ${input.inboundOrdinal}). Текст: ${quoted}.`;
 }

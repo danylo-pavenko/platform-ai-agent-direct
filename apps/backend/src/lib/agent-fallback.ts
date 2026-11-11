@@ -10,6 +10,7 @@ import {
 import {
   detectClientLanguage,
   detectRequestedLanguage,
+  explainLanguageDecision,
   languageToStore,
   normalizeClientLanguage,
   type ClientLanguage,
@@ -24,7 +25,7 @@ export {
   CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 
-export { detectClientLanguage, detectRequestedLanguage, languageToStore, normalizeClientLanguage };
+export { detectClientLanguage, detectRequestedLanguage, explainLanguageDecision, languageToStore, normalizeClientLanguage };
 export type { ClientLanguage };
 
 export type FallbackLocaleMap = {
