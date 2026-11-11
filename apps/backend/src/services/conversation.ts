@@ -203,6 +203,7 @@ import {
   isCustomerVisibleFallbackReply,
   isSuppressedFallbackRetryNote,
   normalizeClientLanguage,
+  type ClientLanguage,
   resolveCustomerFallback,
   shouldHandoffAfterAgentFallback,
   shouldSuppressDuplicateCustomerFallback,
@@ -3966,7 +3967,7 @@ async function rememberClientLanguage(
 
 async function clientLanguageWriteAllowed(
   clientId: string,
-  language: 'uk' | 'ru' | 'en',
+  language: ClientLanguage,
 ): Promise<boolean> {
   const [row, latest] = await Promise.all([
     prisma.client.findUnique({

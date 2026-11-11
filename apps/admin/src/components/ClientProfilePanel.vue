@@ -151,9 +151,21 @@
             <span class="cpp-kv-k">Імʼя</span>
             <span class="cpp-kv-v">{{ chatName || '—' }}</span>
           </div>
-          <div class="cpp-kv">
+          <div class="cpp-kv cpp-kv--lang">
             <span class="cpp-kv-k">Мова</span>
-            <span class="cpp-kv-v">{{ languageLabel }}</span>
+            <v-select
+              :model-value="client?.preferredLanguage || null"
+              :items="languageItems"
+              item-title="title"
+              item-value="value"
+              placeholder="Ще не визначена"
+              variant="outlined"
+              density="comfortable"
+              hide-details
+              class="cpp-lang"
+              :loading="savingLanguage"
+              @update:model-value="saveLanguage"
+            />
           </div>
           <div v-if="igTitle" class="cpp-kv">
             <span class="cpp-kv-k">Профіль IG</span>
@@ -444,7 +456,7 @@ export interface ProfileClient {
   deliveryNpType?: string;
   notes?: string;
   tags?: string[];
-  preferredLanguage?: 'uk' | 'ru' | 'en' | null;
+  preferredLanguage?: 'uk' | 'ru' | 'en' | 'pl' | 'es' | 'de' | null;
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;
@@ -494,6 +506,7 @@ const router = useRouter();
 
 const editing = ref(false);
 const saving = ref(false);
+const savingLanguage = ref(false);
 const importing = ref(false);
 const newTag = ref('');
 const crmLinking = ref(false);
@@ -507,6 +520,9 @@ const languageItems = [
   { title: 'Українська', value: 'uk' },
   { title: 'Російська', value: 'ru' },
   { title: 'Англійська', value: 'en' },
+  { title: 'Польська', value: 'pl' },
+  { title: 'Іспанська', value: 'es' },
+  { title: 'Німецька', value: 'de' },
 ];
 
 watch(editing, (v) => emit('profileEditing', v));
@@ -531,11 +547,6 @@ const npDisplay = computed(() => {
   if (!branch) return '—';
   const kind = props.client?.deliveryNpType === 'postamat' ? 'Поштомат' : 'Відділення';
   return `${kind} ${branch}`;
-});
-
-const languageLabel = computed(() => {
-  const code = props.client?.preferredLanguage;
-  return languageItems.find((item) => item.value === code)?.title ?? 'Ще не визначена';
 });
 
 const orderKindLabel = computed(() => {
@@ -644,6 +655,25 @@ function addTag() {
 function removeTag(tag: string) {
   if (Array.isArray(form.value.tags)) {
     form.value.tags = form.value.tags.filter((t) => t !== tag);
+  }
+}
+
+async function saveLanguage(value: string | null) {
+  if (!props.client?.id) return;
+  const next = value || null;
+  if (next === (props.client.preferredLanguage ?? null)) return;
+  savingLanguage.value = true;
+  try {
+    const { data } = await api.put(`/conversations/clients/${props.client.id}`, {
+      preferredLanguage: next,
+    });
+    emit('updated', data);
+    form.value.preferredLanguage = next as ProfileClient['preferredLanguage'];
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    alert(err.response?.data?.error || 'Не вдалося зберегти мову');
+  } finally {
+    savingLanguage.value = false;
   }
 }
 
@@ -972,6 +1002,24 @@ watch(
   align-items: start;
   padding: 8px 0;
   border-bottom: 1px solid rgba(15, 23, 42, 0.05);
+}
+
+.cpp-kv--lang {
+  align-items: center;
+}
+
+.cpp-lang {
+  min-width: 0;
+}
+
+.cpp-lang :deep(.v-field) {
+  font-size: 14px !important;
+  background: #fff;
+}
+
+.cpp-lang :deep(.v-field__input) {
+  color: #0f172a;
+  min-height: 44px;
 }
 
 .cpp-kv:last-child {

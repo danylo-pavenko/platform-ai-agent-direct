@@ -271,7 +271,7 @@ export function createLookupMcpServer(
     tools.push(
       tool(
         'update_client_info',
-        'Зберегти контактні дані. language (uk, ru, en) передавай лише коли людина прямо просить іншу мову.',
+        'Зберегти контактні дані. language (uk, ru, en, pl, es, de) передавай лише коли людина прямо просить іншу мову.',
         {
           full_name: z.string().optional(),
           phone: z.string().optional(),
@@ -279,7 +279,7 @@ export function createLookupMcpServer(
           np_branch: z.string().optional(),
           np_type: z.enum(['warehouse', 'postamat']).optional(),
           email: z.string().optional(),
-          language: z.enum(['uk', 'ru', 'en']).optional(),
+          language: z.enum(['uk', 'ru', 'en', 'pl', 'es', 'de']).optional(),
           custom_fields: LOOSE_OBJECT,
         },
         hostQueuedHandler('update_client_info'),

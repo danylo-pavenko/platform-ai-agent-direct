@@ -193,7 +193,7 @@ type Payload = {
     email: string | null;
     notes: string | null;
     tags: string[];
-    preferredLanguage: 'uk' | 'ru' | 'en' | null;
+    preferredLanguage: 'uk' | 'ru' | 'en' | 'pl' | 'es' | 'de' | null;
     crmProvider: string | null;
     lastActivityAt: string;
   };
@@ -239,6 +239,9 @@ const languageItems = [
   { title: 'Українська', value: 'uk' },
   { title: 'Російська', value: 'ru' },
   { title: 'Англійська', value: 'en' },
+  { title: 'Польська', value: 'pl' },
+  { title: 'Іспанська', value: 'es' },
+  { title: 'Німецька', value: 'de' },
 ];
 
 const title = computed(() => adminClientPrimaryName(payload.value?.client));
@@ -311,7 +314,7 @@ async function saveLanguage(value: string | null) {
   savingLanguage.value = true;
   try {
     await api.patch(`/clients/${props.id}/language`, { language: value });
-    payload.value.client.preferredLanguage = value as 'uk' | 'ru' | 'en';
+    payload.value.client.preferredLanguage = value as 'uk' | 'ru' | 'en' | 'pl' | 'es' | 'de';
   } catch {
     error.value = 'Не вдалося зберегти мову';
   } finally {

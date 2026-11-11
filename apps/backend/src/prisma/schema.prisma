@@ -30,7 +30,7 @@ model Client {
   notes            String?                               // Free-text notes about the client
   tags             String[]       @default([]) @map("tags") // e.g. ["vip", "print", "repeat"]
 
-  /** Client conversation language (uk | ru | en). Set from the chat and kept across conversations. */
+  /** Client conversation language (uk | ru | en | pl | es | de). Set from the chat or the client card. */
   preferredLanguage String?       @map("preferred_language")
 
   // Cross-reference to the matching buyer/client record in the CRM.

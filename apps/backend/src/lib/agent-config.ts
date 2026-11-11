@@ -56,6 +56,9 @@ export type FallbackLocaleMap = {
   uk: string;
   en: string;
   ru?: string;
+  pl?: string;
+  es?: string;
+  de?: string;
 };
 
 export type FallbackMessages = {

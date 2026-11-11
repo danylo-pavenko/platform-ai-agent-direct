@@ -185,9 +185,9 @@ export async function clientRoutes(app: FastifyInstance): Promise<void> {
     '/:id/language',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
-      const parsed = z.object({ language: z.enum(['uk', 'ru', 'en']) }).safeParse(request.body ?? {});
+      const parsed = z.object({ language: z.enum(['uk', 'ru', 'en', 'pl', 'es', 'de']) }).safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.code(400).send({ error: 'Language must be uk, ru, or en' });
+        return reply.code(400).send({ error: 'Language must be uk, ru, en, pl, es, or de' });
       }
       const language = normalizeClientLanguage(parsed.data.language);
       const existing = await prisma.client.findUnique({

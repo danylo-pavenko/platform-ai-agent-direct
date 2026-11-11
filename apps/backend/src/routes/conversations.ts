@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { isClientLanguage } from '../lib/client-language.js';
 import { prisma } from '../lib/prisma.js';
 import { sendText } from '../services/instagram.js';
 import { persistIgOutboundMessage } from '../services/ig-outbound-persist.js';
@@ -479,7 +480,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       deliveryNpType?: string;
       notes?: string;
       tags?: string[];
-      preferredLanguage?: 'uk' | 'ru' | 'en' | null;
+      preferredLanguage?: string | null;
       crmBuyerId?: string | null;
     };
   }>('/clients/:clientId', { onRequest: [app.authenticate] }, async (request, reply) => {
@@ -511,7 +512,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       const raw = (body as { preferredLanguage?: unknown }).preferredLanguage;
       if (raw == null || raw === '') {
         update.preferredLanguage = null;
-      } else if (raw === 'uk' || raw === 'ru' || raw === 'en') {
+      } else if (isClientLanguage(raw)) {
         update.preferredLanguage = raw;
       }
     }

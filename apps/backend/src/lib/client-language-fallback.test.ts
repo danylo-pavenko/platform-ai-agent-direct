@@ -87,7 +87,10 @@ describe('normalizeClientLanguage', () => {
     expect(normalizeClientLanguage('uk')).toBe('uk');
     expect(normalizeClientLanguage('ru')).toBe('ru');
     expect(normalizeClientLanguage('en')).toBe('en');
-    expect(normalizeClientLanguage('de')).toBeNull();
+    expect(normalizeClientLanguage('pl')).toBe('pl');
+    expect(normalizeClientLanguage('es')).toBe('es');
+    expect(normalizeClientLanguage('de')).toBe('de');
+    expect(normalizeClientLanguage('fr')).toBeNull();
     expect(normalizeClientLanguage(null)).toBeNull();
   });
 });
@@ -101,7 +104,7 @@ describe('resolveCustomerFallback', () => {
   });
 
   it('falls back to uk for unknown language', () => {
-    expect(resolveCustomerFallback('timeout', 'de', DEFAULTS)).toBe(CUSTOMER_FALLBACK_TIMEOUT);
+    expect(resolveCustomerFallback('timeout', 'fr', DEFAULTS)).toBe(CUSTOMER_FALLBACK_TIMEOUT);
     expect(resolveCustomerFallback('timeout', null, DEFAULTS)).toBe(CUSTOMER_FALLBACK_TIMEOUT);
   });
 

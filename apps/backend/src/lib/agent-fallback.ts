@@ -1,10 +1,16 @@
 import { prisma } from './prisma.js';
 import {
   CUSTOMER_FALLBACK_BUSY,
+  CUSTOMER_FALLBACK_BUSY_DE,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_ES,
+  CUSTOMER_FALLBACK_BUSY_PL,
   CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
+  CUSTOMER_FALLBACK_TIMEOUT_DE,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_ES,
+  CUSTOMER_FALLBACK_TIMEOUT_PL,
   CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 import {
@@ -18,10 +24,16 @@ import {
 
 export {
   CUSTOMER_FALLBACK_BUSY,
+  CUSTOMER_FALLBACK_BUSY_DE,
   CUSTOMER_FALLBACK_BUSY_EN,
+  CUSTOMER_FALLBACK_BUSY_ES,
+  CUSTOMER_FALLBACK_BUSY_PL,
   CUSTOMER_FALLBACK_BUSY_RU,
   CUSTOMER_FALLBACK_TIMEOUT,
+  CUSTOMER_FALLBACK_TIMEOUT_DE,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
+  CUSTOMER_FALLBACK_TIMEOUT_ES,
+  CUSTOMER_FALLBACK_TIMEOUT_PL,
   CUSTOMER_FALLBACK_TIMEOUT_RU,
 } from './agent-fallback-defaults.js';
 
@@ -32,6 +44,9 @@ export type FallbackLocaleMap = {
   uk: string;
   en: string;
   ru?: string;
+  pl?: string;
+  es?: string;
+  de?: string;
 };
 
 export type FallbackMessages = {
@@ -55,9 +70,15 @@ const DEFAULT_FALLBACK_TEXTS = new Set([
   CUSTOMER_FALLBACK_BUSY,
   CUSTOMER_FALLBACK_BUSY_EN,
   CUSTOMER_FALLBACK_BUSY_RU,
+  CUSTOMER_FALLBACK_BUSY_PL,
+  CUSTOMER_FALLBACK_BUSY_ES,
+  CUSTOMER_FALLBACK_BUSY_DE,
   CUSTOMER_FALLBACK_TIMEOUT,
   CUSTOMER_FALLBACK_TIMEOUT_EN,
   CUSTOMER_FALLBACK_TIMEOUT_RU,
+  CUSTOMER_FALLBACK_TIMEOUT_PL,
+  CUSTOMER_FALLBACK_TIMEOUT_ES,
+  CUSTOMER_FALLBACK_TIMEOUT_DE,
 ]);
 
 /** How many fallback replies we send before auto-handoff on the next failure. */
@@ -80,7 +101,7 @@ export function collectCustomerFallbackTexts(
   const set = new Set(DEFAULT_FALLBACK_TEXTS);
   if (messages) {
     for (const reason of ['busy', 'timeout'] as const) {
-      for (const lang of ['uk', 'en', 'ru'] as const) {
+      for (const lang of ['uk', 'en', 'ru', 'pl', 'es', 'de'] as const) {
         const t = messages[reason][lang]?.trim();
         if (t) set.add(t);
       }
@@ -123,6 +144,15 @@ export function resolveCustomerFallback(
   if (configured) return configured;
   if (locale === 'ru') {
     return reason === 'busy' ? CUSTOMER_FALLBACK_BUSY_RU : CUSTOMER_FALLBACK_TIMEOUT_RU;
+  }
+  if (locale === 'pl') {
+    return reason === 'busy' ? CUSTOMER_FALLBACK_BUSY_PL : CUSTOMER_FALLBACK_TIMEOUT_PL;
+  }
+  if (locale === 'es') {
+    return reason === 'busy' ? CUSTOMER_FALLBACK_BUSY_ES : CUSTOMER_FALLBACK_TIMEOUT_ES;
+  }
+  if (locale === 'de') {
+    return reason === 'busy' ? CUSTOMER_FALLBACK_BUSY_DE : CUSTOMER_FALLBACK_TIMEOUT_DE;
   }
   return messages[reason].uk;
 }

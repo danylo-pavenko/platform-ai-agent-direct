@@ -22,7 +22,7 @@ import {
   getZonedDateTimeParts,
 } from '../lib/tenant-timezone.js';
 import { formatUpcomingCalendarPromptBlock } from '../lib/booking-weekday-calendar.js';
-import { clientLanguageLabel, normalizeClientLanguage } from '../lib/client-language.js';
+import { clientLanguageLabel, normalizeClientLanguage, clientLanguageAdverb } from '../lib/client-language.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,7 +46,7 @@ export interface ClientProfile {
   // CRM context
   notes?: string;        // Manual notes from admin or Claude
   tags?: string[];       // Segmentation tags
-  /** Saved conversation language (uk | ru | en). Empty until the first clear message. */
+  /** Saved conversation language (uk | ru | en | pl | es | de). Empty until the first clear message or a manager choice. */
   preferredLanguage?: string | null;
   // Repeat customer context
   previousOrdersCount?: number;  // How many orders this client has placed
@@ -667,8 +667,7 @@ export function formatReplyLanguageOverride(value: string | null | undefined): s
   const lang = normalizeClientLanguage(value);
   if (!lang) return '';
   const name = clientLanguageLabel(lang);
-  const adverb = lang === 'ru' ? 'російською' : lang === 'en' ? 'англійською' : 'українською';
-  return `Мова відповіді клієнту: ${name}. Текст вище може бути іншою мовою. Клієнту пиши лише ${adverb}, включно з привітанням і готовими фразами. Не копіюй їх дослівно і не згадуй мову у відповіді.`;
+  return `Мова відповіді клієнту: ${name}. Текст вище може бути іншою мовою. Клієнту пиши лише ${clientLanguageAdverb(lang)}, включно з привітанням і готовими фразами. Не копіюй їх дослівно і не згадуй мову у відповіді.`;
 }
 
 /**

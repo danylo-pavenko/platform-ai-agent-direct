@@ -17,3 +17,21 @@ export const CUSTOMER_FALLBACK_BUSY_RU =
 
 export const CUSTOMER_FALLBACK_TIMEOUT_RU =
   'Одну минуту, менеджер ответит чуть позже.';
+
+export const CUSTOMER_FALLBACK_BUSY_PL =
+  'Dziękujemy za wiadomość! Menedżer odpowie trochę później.';
+
+export const CUSTOMER_FALLBACK_TIMEOUT_PL =
+  'Chwilkę, menedżer odpowie trochę później.';
+
+export const CUSTOMER_FALLBACK_BUSY_ES =
+  'Gracias por tu mensaje. Un gestor responderá un poco más tarde.';
+
+export const CUSTOMER_FALLBACK_TIMEOUT_ES =
+  'Un momento, un gestor responderá en breve.';
+
+export const CUSTOMER_FALLBACK_BUSY_DE =
+  'Danke für Ihre Nachricht! Ein Manager antwortet etwas später.';
+
+export const CUSTOMER_FALLBACK_TIMEOUT_DE =
+  'Einen Moment, ein Manager antwortet in Kürze.';

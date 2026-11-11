@@ -1,9 +1,15 @@
 /**
- * Client conversation language: uk | ru | en.
- * A code, «ок», or a photo is not a language. Cyrillic alone is not Ukrainian.
+ * Client conversation language.
+ * uk | ru | en are detected from chat. pl | es | de are chosen on the client card.
  */
 
-export type ClientLanguage = 'uk' | 'ru' | 'en';
+export const CLIENT_LANGUAGE_CODES = ['uk', 'ru', 'en', 'pl', 'es', 'de'] as const;
+
+export type ClientLanguage = (typeof CLIENT_LANGUAGE_CODES)[number];
+
+export function isClientLanguage(value: unknown): value is ClientLanguage {
+  return typeof value === 'string' && (CLIENT_LANGUAGE_CODES as readonly string[]).includes(value);
+}
 
 const CYRILLIC_RE = /[\u0400-\u04FF]/g;
 const LATIN_RE = /[A-Za-z]/g;
@@ -65,24 +71,43 @@ const EN_WORDS = [
 ];
 
 export function normalizeClientLanguage(value: unknown): ClientLanguage | null {
-  if (value === 'uk' || value === 'ru' || value === 'en') return value;
+  if (isClientLanguage(value)) return value;
   if (typeof value === 'string') {
     const folded = value.trim().toLowerCase();
-    if (folded === 'uk' || folded === 'ua' || folded === 'ukrainian' || folded === 'українська') {
-      return 'uk';
-    }
-    if (folded === 'ru' || folded === 'russian' || folded === 'російська' || folded === 'русский') {
-      return 'ru';
-    }
-    if (folded === 'en' || folded === 'english' || folded === 'англійська') return 'en';
+    if (folded === 'ua' || folded === 'ukrainian' || folded === 'українська') return 'uk';
+    if (folded === 'russian' || folded === 'російська' || folded === 'русский') return 'ru';
+    if (folded === 'english' || folded === 'англійська') return 'en';
+    if (folded === 'polish' || folded === 'polski' || folded === 'польська') return 'pl';
+    if (folded === 'spanish' || folded === 'español' || folded === 'іспанська') return 'es';
+    if (folded === 'german' || folded === 'deutsch' || folded === 'німецька') return 'de';
   }
   return null;
 }
 
+const LANGUAGE_LABEL: Record<ClientLanguage, string> = {
+  uk: 'українська',
+  ru: 'російська',
+  en: 'англійська',
+  pl: 'польська',
+  es: 'іспанська',
+  de: 'німецька',
+};
+
+const LANGUAGE_ADVERB: Record<ClientLanguage, string> = {
+  uk: 'українською',
+  ru: 'російською',
+  en: 'англійською',
+  pl: 'польською',
+  es: 'іспанською',
+  de: 'німецькою',
+};
+
 export function clientLanguageLabel(lang: ClientLanguage): string {
-  if (lang === 'ru') return 'російська';
-  if (lang === 'en') return 'англійська';
-  return 'українська';
+  return LANGUAGE_LABEL[lang];
+}
+
+export function clientLanguageAdverb(lang: ClientLanguage): string {
+  return LANGUAGE_ADVERB[lang];
 }
 
 function fold(text: string): string {

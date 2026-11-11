@@ -136,9 +136,9 @@ const UPDATE_CLIENT_INFO: ToolDefinition = {
       },
       language: {
         type: 'string',
-        enum: ['uk', 'ru', 'en'],
+        enum: ['uk', 'ru', 'en', 'pl', 'es', 'de'],
         description:
-          'Лише якщо людина прямо просить спілкуватися цією мовою: uk, ru або en. На звичайне повідомлення поле не передавай.',
+          'Лише якщо людина прямо просить спілкуватися цією мовою: uk, ru, en, pl, es або de. На звичайне повідомлення поле не передавай.',
       },
     },
     required: [],
