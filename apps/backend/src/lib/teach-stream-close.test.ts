@@ -23,6 +23,17 @@ describe('resolveTeachStreamClose', () => {
     );
   });
 
+  it('is partial_ok when reply text arrived without done (not a hard silent failure)', () => {
+    expect(
+      resolveTeachStreamClose({
+        gotDone: false,
+        gotError: false,
+        aborted: false,
+        gotPartialText: true,
+      }),
+    ).toBe('partial_ok');
+  });
+
   it('prefers terminal events over aborted flag', () => {
     expect(resolveTeachStreamClose({ gotDone: true, gotError: false, aborted: true })).toBe('ok');
     expect(resolveTeachStreamClose({ gotDone: false, gotError: true, aborted: true })).toBe('ok');

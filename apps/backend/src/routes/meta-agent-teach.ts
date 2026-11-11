@@ -11,7 +11,11 @@ import {
 } from '../services/meta-agent-teach.js';
 import { buildMetaAgentSystemPrompt, parseMetaAgentResponse } from './meta-agent.js';
 import { saveLibraryDraft } from '../services/library.js';
-import { getCachedMetaAgentExtras } from '../lib/meta-agent-extras-cache.js';
+import {
+  clearMetaAgentExtrasCache,
+  getCachedMetaAgentExtras,
+} from '../lib/meta-agent-extras-cache.js';
+import { visibleMetaAgentStreamText } from '../lib/meta-agent-stream-display.js';
 
 interface TeachChatBody {
   message: string;
@@ -135,6 +139,7 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
           userMessage: message.trim(),
           useFullPrompt: useFullPrompt === true,
           sessionSummary: sessionAfterUser.sessionSummary ?? undefined,
+          libraryIndex: extras.libraryIndex,
         },
       );
 
@@ -161,11 +166,13 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
       for (const draft of parsed.libraryDrafts) {
         savedLibraryDrafts.push(await saveLibraryDraft(draft));
       }
+      if (savedLibraryDrafts.length > 0) clearMetaAgentExtrasCache();
 
       const session = await appendTeachAssistantMessage(
         sessionAfterUser.id,
         replyText,
         suggestedDiffs.length > 0 ? suggestedDiffs : undefined,
+        savedLibraryDrafts.length > 0 ? savedLibraryDrafts : undefined,
       );
 
       app.log.info(
@@ -296,12 +303,14 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
             userMessage: message.trim(),
             useFullPrompt: useFullPrompt === true,
             sessionSummary: sessionAfterUser.sessionSummary ?? undefined,
+            libraryIndex: extras.libraryIndex,
           },
         );
 
         send('stage', { stage: 'generate', label: 'Генерую правки…' });
 
         let streamed = '';
+        let lastVisible = '';
         const response = await askClaudeStream(
           {
             systemPrompt: metaAgentPrompt,
@@ -311,7 +320,10 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
           (ev) => {
             if (ev.type === 'delta' && ev.text) {
               streamed += ev.text;
-              send('delta', { text: ev.text });
+              const visible = visibleMetaAgentStreamText(streamed);
+              const next = visible.slice(lastVisible.length);
+              lastVisible = visible;
+              if (next) send('delta', { text: next });
             }
           },
           { channel: 'meta_agent', timeoutMs: config.CLAUDE_TEACH_TIMEOUT_MS },
@@ -323,12 +335,26 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         if (ac.signal.aborted || !clientOpen) {
           // Client gone — still persist assistant text if we have something useful
           const text = (response.text || streamed).trim();
+          app.log.warn(
+            {
+              reason: ac.signal.aborted ? 'client_abort' : 'client_closed',
+              hasText: text.length > 0,
+              visibleLen: lastVisible.trim().length,
+            },
+            'Meta-agent teach stream silent_end (client gone)',
+          );
           if (text && !response.fallback) {
             const parsed = parseMetaAgentResponse(text);
+            const drafts = [];
+            for (const draft of parsed.libraryDrafts) {
+              drafts.push(await saveLibraryDraft(draft));
+            }
+            if (drafts.length > 0) clearMetaAgentExtrasCache();
             await appendTeachAssistantMessage(
               sessionAfterUser.id,
               parsed.reply || text,
               parsed.diffs.length > 0 ? parsed.diffs : undefined,
+              drafts.length > 0 ? drafts : undefined,
             );
           } else if (userMessageId) {
             await prisma.metaAgentTeachMessage.delete({ where: { id: userMessageId } }).catch(() => {});
@@ -362,11 +388,13 @@ export async function metaAgentTeachRoutes(app: FastifyInstance): Promise<void> 
         for (const draft of parsed.libraryDrafts) {
           savedLibraryDrafts.push(await saveLibraryDraft(draft));
         }
+        if (savedLibraryDrafts.length > 0) clearMetaAgentExtrasCache();
 
         const session = await appendTeachAssistantMessage(
           sessionAfterUser.id,
           replyText,
           suggestedDiffs.length > 0 ? suggestedDiffs : undefined,
+          savedLibraryDrafts.length > 0 ? savedLibraryDrafts : undefined,
         );
 
         send('done', {

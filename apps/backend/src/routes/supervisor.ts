@@ -29,6 +29,10 @@ import { config } from '../config.js';
 import { toAdminUserPublic } from '../lib/admin-user.js';
 import { assertNotRemovingLastActiveOwner } from '../lib/admin-user-guards.js';
 import { parsePm2Targets, restartTenantPm2Apps } from '../lib/pm2-restart.js';
+import {
+  buildSupervisorAnalytics,
+  parseAnalyticsPeriod,
+} from '../services/supervisor-analytics.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -315,6 +319,13 @@ export async function supervisorRoutes(app: FastifyInstance): Promise<void> {
   app.get('/snapshot', async (request, reply) => {
     if (!requireSupervisorToken(request, reply)) return;
     return buildDiagnosticSnapshot();
+  });
+
+  // GET /analytics?period=7d|30d|90d — funnel + Claude drops + prompt versions for SA.
+  app.get<{ Querystring: { period?: string } }>('/analytics', async (request, reply) => {
+    if (!requireSupervisorToken(request, reply)) return;
+    const period = parseAnalyticsPeriod(request.query?.period);
+    return buildSupervisorAnalytics(period);
   });
 
   // GET /claude-health — probes Claude CLI binary + auth session.

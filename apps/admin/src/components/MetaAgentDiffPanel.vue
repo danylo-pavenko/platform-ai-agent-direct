@@ -116,15 +116,18 @@
       </div>
       <div class="d-flex ga-2 align-center" :class="stackActions ? 'flex-column' : ''">
         <v-btn
-          variant="outlined"
+          v-if="unappliedCount > 0"
+          color="warning"
           size="small"
+          variant="flat"
           :block="stackActions"
+          :loading="batchApplying"
           :disabled="applyingIndex !== null"
-          @click="$emit('reject')"
+          @click="$emit('apply-and-activate')"
         >
-          {{ appliedResults.size > 0 ? 'Закрити' : 'Відхилити всі' }}
+          <v-icon start size="16">mdi-flash</v-icon>
+          Застосувати і активувати
         </v-btn>
-        <v-spacer v-if="!stackActions" />
         <v-btn
           v-if="unappliedCount > 1"
           color="primary"
@@ -136,7 +139,7 @@
           @click="$emit('apply-all')"
         >
           <v-icon start size="16">mdi-check-all</v-icon>
-          Зберегти всі як чернетки ({{ unappliedCount }})
+          Чернетка ({{ unappliedCount }})
         </v-btn>
         <v-btn
           v-if="unappliedCount > 0"
@@ -149,7 +152,16 @@
           @click="$emit('save-and-sandbox')"
         >
           <v-icon start size="16">mdi-flask-outline</v-icon>
-          Зберегти і відкрити пісочницю
+          Пісочниця
+        </v-btn>
+        <v-btn
+          variant="text"
+          size="small"
+          :block="stackActions"
+          :disabled="applyingIndex !== null"
+          @click="$emit('reject')"
+        >
+          {{ appliedResults.size > 0 ? 'Закрити' : 'Відхилити' }}
         </v-btn>
       </div>
     </div>
@@ -189,6 +201,7 @@ defineEmits<{
   'activate-confirm': [idx: number];
   reject: [];
   'apply-all': [];
+  'apply-and-activate': [];
   'save-and-sandbox': [];
   close: [];
 }>();

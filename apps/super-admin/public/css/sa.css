@@ -522,3 +522,50 @@ tr:hover td { background: var(--surface2); }
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* ── Analytics ── */
+.an-intro { color: var(--muted); margin-bottom: 16px; max-width: 860px; line-height: 1.45; }
+.an-error { color: var(--danger); margin-bottom: 12px; }
+.an-period {
+  background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 7px; padding: 7px 10px; font-size: 13px;
+}
+.an-rate { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+.an-table-wrap { margin-top: 8px; }
+.an-table th { white-space: nowrap; }
+.an-row { cursor: pointer; }
+.an-row.an-bad td { background: rgba(239,68,68,.06); }
+.an-row.an-warn td { background: rgba(245,158,11,.05); }
+.an-row.an-ok:hover td { background: var(--surface2); }
+.an-tenant-name { font-weight: 600; }
+.an-tenant-id { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.an-offline { font-size: 11px; color: var(--danger); margin-top: 2px; max-width: 220px; }
+.an-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.an-muted { color: var(--muted); font-weight: 400; }
+.an-bad-text { color: var(--danger); }
+.an-warn-text { color: var(--warn); }
+.an-ok-text { color: var(--success); }
+.an-alerts { display: flex; flex-wrap: wrap; gap: 4px; }
+.an-chip {
+  display: inline-flex; padding: 2px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: .2px;
+}
+.an-chip-ok { background: rgba(34,197,94,.12); color: var(--success); }
+.an-chip-warn { background: rgba(245,158,11,.14); color: var(--warn); }
+.an-chip-bad { background: rgba(239,68,68,.14); color: var(--danger); }
+.an-footer { margin-top: 12px; font-size: 11px; color: var(--muted); }
+.an-detail-modal { width: min(920px, 96vw); }
+.an-detail-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
+.an-detail-card {
+  background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+}
+.an-detail-card h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 10px; }
+.an-detail-card ul { list-style: none; display: flex; flex-direction: column; gap: 7px; font-size: 13px; line-height: 1.35; }
+.an-prompt-table { width: 100%; font-size: 12px; }
+.an-prompt-table th, .an-prompt-table td { padding: 8px 10px; }
+.an-prompt-active td { background: rgba(124,110,255,.08); }
+@media (max-width: 900px) {
+  .an-detail-grid { grid-template-columns: 1fr; }
+}

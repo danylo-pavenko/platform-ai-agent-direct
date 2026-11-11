@@ -18,6 +18,7 @@ import { platformVersionRoutes } from './routes/platform-version.js';
 import { saSelfDeployRoutes } from './routes/sa-self-deploy.js';
 import { notificationsRoutes } from './routes/notifications.js';
 import { backupsRoutes } from './routes/backups.js';
+import { analyticsRoutes } from './routes/analytics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -65,6 +66,7 @@ await app.register(landingContactRoutes);
 await app.register(leadsRoutes);
 await app.register(notificationsRoutes);
 await app.register(backupsRoutes);
+await app.register(analyticsRoutes);
 await app.register(workersRoutes);
 await app.register(platformVersionRoutes);
 await app.register(saSelfDeployRoutes);

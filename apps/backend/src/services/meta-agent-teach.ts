@@ -18,10 +18,23 @@ export const TEACH_KEEP_MESSAGES_AFTER_COMPACT = 16;
 /** Max prior messages passed to Claude as conversation history. */
 export const TEACH_CLAUDE_HISTORY_LIMIT = 24;
 
+export interface TeachSuggestedDiff {
+  before: string;
+  after: string;
+  summary: string;
+}
+
+export interface TeachLibraryDraftHint {
+  id: string;
+  slug: string;
+  title?: string;
+}
+
 export interface TeachChatMessage {
   role: 'user' | 'assistant';
   content: string;
-  suggestedDiffs?: Array<{ before: string; after: string; summary: string }>;
+  suggestedDiffs?: TeachSuggestedDiff[];
+  libraryDrafts?: TeachLibraryDraftHint[];
   createdAt: string;
 }
 
@@ -52,6 +65,67 @@ function sessionTitleFromMessage(text: string): string {
   return `${oneLine.slice(0, 57)}...`;
 }
 
+function isDiffLike(value: unknown): value is TeachSuggestedDiff {
+  return (
+    !!value
+    && typeof value === 'object'
+    && typeof (value as TeachSuggestedDiff).after === 'string'
+  );
+}
+
+function isLibraryHint(value: unknown): value is TeachLibraryDraftHint {
+  return (
+    !!value
+    && typeof value === 'object'
+    && typeof (value as TeachLibraryDraftHint).id === 'string'
+    && typeof (value as TeachLibraryDraftHint).slug === 'string'
+  );
+}
+
+/** Unpack legacy array or `{ diffs, libraryDrafts }` JSONB. */
+export function unpackTeachSuggestedPayload(raw: unknown): {
+  suggestedDiffs?: TeachSuggestedDiff[];
+  libraryDrafts?: TeachLibraryDraftHint[];
+} {
+  if (Array.isArray(raw) && raw.length > 0) {
+    const diffs = raw.filter(isDiffLike).map((d) => ({
+      before: typeof d.before === 'string' ? d.before : '',
+      after: d.after,
+      summary: typeof d.summary === 'string' ? d.summary : '',
+    }));
+    return diffs.length > 0 ? { suggestedDiffs: diffs } : {};
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const obj = raw as Record<string, unknown>;
+  const diffsRaw = Array.isArray(obj.diffs) ? obj.diffs : [];
+  const draftsRaw = Array.isArray(obj.libraryDrafts) ? obj.libraryDrafts : [];
+  const suggestedDiffs = diffsRaw.filter(isDiffLike).map((d) => ({
+    before: typeof d.before === 'string' ? d.before : '',
+    after: d.after,
+    summary: typeof d.summary === 'string' ? d.summary : '',
+  }));
+  const libraryDrafts = draftsRaw.filter(isLibraryHint).map((d) => ({
+    id: d.id,
+    slug: d.slug,
+    ...(typeof d.title === 'string' ? { title: d.title } : {}),
+  }));
+  return {
+    ...(suggestedDiffs.length > 0 ? { suggestedDiffs } : {}),
+    ...(libraryDrafts.length > 0 ? { libraryDrafts } : {}),
+  };
+}
+
+export function packTeachSuggestedPayload(
+  diffs?: TeachSuggestedDiff[],
+  libraryDrafts?: TeachLibraryDraftHint[],
+): unknown | undefined {
+  const cleanDiffs = (diffs ?? []).filter((d) => d.after?.trim());
+  const cleanDrafts = (libraryDrafts ?? []).filter((d) => d.id && d.slug);
+  if (cleanDiffs.length === 0 && cleanDrafts.length === 0) return undefined;
+  if (cleanDrafts.length === 0) return cleanDiffs;
+  return { diffs: cleanDiffs, libraryDrafts: cleanDrafts };
+}
+
 function mapMessages(
   rows: Array<{
     role: 'user' | 'assistant';
@@ -60,14 +134,15 @@ function mapMessages(
     createdAt: Date;
   }>,
 ): TeachChatMessage[] {
-  return rows.map((m) => ({
-    role: m.role,
-    content: m.content,
-    ...(Array.isArray(m.suggestedDiffs) && m.suggestedDiffs.length > 0
-      ? { suggestedDiffs: m.suggestedDiffs as TeachChatMessage['suggestedDiffs'] }
-      : {}),
-    createdAt: m.createdAt.toISOString(),
-  }));
+  return rows.map((m) => {
+    const unpacked = unpackTeachSuggestedPayload(m.suggestedDiffs);
+    return {
+      role: m.role,
+      content: m.content,
+      ...unpacked,
+      createdAt: m.createdAt.toISOString(),
+    };
+  });
 }
 
 function buildSessionPayload(
@@ -123,6 +198,10 @@ function buildCompactSummary(
     } else if (m.suggestedDiffs && m.suggestedDiffs.length > 0) {
       for (const d of m.suggestedDiffs) {
         lines.push(`Рішення: ${d.summary || d.after.slice(0, 120)}`);
+      }
+    } else if (m.libraryDrafts && m.libraryDrafts.length > 0) {
+      for (const d of m.libraryDrafts) {
+        lines.push(`Картка: ${d.slug}${d.title ? ` (${d.title})` : ''}`);
       }
     } else {
       lines.push(`Мета-агент: ${m.content.replace(/\s+/g, ' ').trim().slice(0, 160)}`);
@@ -284,14 +363,16 @@ export async function appendTeachUserMessage(
 export async function appendTeachAssistantMessage(
   sessionId: string,
   content: string,
-  suggestedDiffs?: Array<{ before: string; after: string; summary: string }>,
+  suggestedDiffs?: TeachSuggestedDiff[],
+  libraryDrafts?: TeachLibraryDraftHint[],
 ): Promise<TeachSessionPayload> {
+  const packed = packTeachSuggestedPayload(suggestedDiffs, libraryDrafts);
   await prisma.metaAgentTeachMessage.create({
     data: {
       sessionId,
       role: 'assistant',
       content,
-      suggestedDiffs: suggestedDiffs?.length ? suggestedDiffs : undefined,
+      suggestedDiffs: packed ?? undefined,
     },
   });
 

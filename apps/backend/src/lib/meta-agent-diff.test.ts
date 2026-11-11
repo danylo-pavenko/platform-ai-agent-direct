@@ -92,6 +92,62 @@ describe('parseMetaAgentResponse', () => {
     expect(parsed.diffs).toHaveLength(0);
   });
 
+  it('routes tone/shorten as diffs without library', () => {
+    const text = `Писатиму коротше.
+\`\`\`json
+{
+  "reply": "Писатиму коротше.",
+  "diffs": [
+    { "before": "Відповідай розгорнуто.", "after": "Пиши коротко, 1–3 речення.", "summary": "коротше" }
+  ],
+  "libraryDrafts": []
+}
+\`\`\``;
+    const parsed = parseMetaAgentResponse(text);
+    expect(parsed.diffs).toHaveLength(1);
+    expect(parsed.diffs[0].summary).toBe('коротше');
+    expect(parsed.libraryDrafts).toEqual([]);
+  });
+
+  it('routes event/offer as libraryDraft (+ optional pointer diff)', () => {
+    const text = `Картка для Чорної пʼятниці.
+\`\`\`json
+{
+  "reply": "Картка для Чорної пʼятниці.",
+  "diffs": [
+    { "before": "", "after": "Для акцій читай картку black-friday через read_library.", "summary": "pointer" }
+  ],
+  "libraryDrafts": [
+    {
+      "slug": "black-friday",
+      "title": "Чорна пʼятниця",
+      "description": "Коли клієнт питає про акцію",
+      "body": "−20% до неділі.",
+      "aliases": ["чорна п'ятниця", "black friday"]
+    }
+  ]
+}
+\`\`\``;
+    const parsed = parseMetaAgentResponse(text);
+    expect(parsed.libraryDrafts[0].slug).toBe('black-friday');
+    expect(parsed.diffs[0].summary).toBe('pointer');
+  });
+
+  it('routes metrics refusal with empty diffs/library', () => {
+    const text = `Метрики — у AI-помічнику (/insights).
+\`\`\`json
+{
+  "reply": "Метрики — у AI-помічнику (/insights).",
+  "diffs": [],
+  "libraryDrafts": []
+}
+\`\`\``;
+    const parsed = parseMetaAgentResponse(text);
+    expect(parsed.diffs).toEqual([]);
+    expect(parsed.libraryDrafts).toEqual([]);
+    expect(parsed.reply).toContain('/insights');
+  });
+
   it('falls back to legacy markers', () => {
     const text = `ПОЯСНЕННЯ: тест
 

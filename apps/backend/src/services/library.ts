@@ -172,30 +172,111 @@ export async function saveLibraryDraft(input: {
   body: string;
   aliases: string[];
   slug?: string;
-}): Promise<{ id: string; slug: string }> {
+}): Promise<{ id: string; slug: string; title: string }> {
   const base = normalizeDraftSlug(input.slug, input.title);
-  let slug = base;
-  for (let n = 2; n < 50; n += 1) {
-    const clash = await prisma.knowledgeArticle.findUnique({
-      where: { slug },
-      select: { id: true },
+  const title = input.title.trim().slice(0, 200);
+  const description = input.description.trim().slice(0, 400);
+  const body = input.body.trim().slice(0, 30000);
+  const aliases = input.aliases
+    .map((alias) => alias.trim())
+    .filter((alias) => alias.length >= 2)
+    .slice(0, 40);
+
+  const existing = await prisma.knowledgeArticle.findUnique({
+    where: { slug: base },
+    select: { id: true, author: true, status: true, title: true },
+  });
+
+  // Upsert meta-agent drafts by slug (avoid -2 suffix spam on re-teach).
+  if (existing && existing.author === 'meta_agent' && existing.status === 'draft') {
+    const row = await prisma.knowledgeArticle.update({
+      where: { id: existing.id },
+      data: { title, description, body, aliases },
+      select: { id: true, slug: true, title: true },
     });
-    if (!clash) break;
-    slug = `${base}-${n}`.slice(0, 80);
+    return row;
   }
+
+  let slug = base;
+  if (existing) {
+    for (let n = 2; n < 50; n += 1) {
+      slug = `${base}-${n}`.slice(0, 80);
+      const clash = await prisma.knowledgeArticle.findUnique({
+        where: { slug },
+        select: { id: true, author: true, status: true },
+      });
+      if (!clash) break;
+      if (clash.author === 'meta_agent' && clash.status === 'draft') {
+        const row = await prisma.knowledgeArticle.update({
+          where: { id: clash.id },
+          data: { title, description, body, aliases },
+          select: { id: true, slug: true, title: true },
+        });
+        return row;
+      }
+    }
+  }
+
   const row = await prisma.knowledgeArticle.create({
     data: {
       slug,
-      title: input.title.trim().slice(0, 200),
-      description: input.description.trim().slice(0, 400),
-      body: input.body.trim().slice(0, 30000),
-      aliases: input.aliases.map((alias) => alias.trim()).filter((alias) => alias.length >= 2).slice(0, 40),
+      title,
+      description,
+      body,
+      aliases,
       status: 'draft',
       author: 'meta_agent',
     },
-    select: { id: true, slug: true },
+    select: { id: true, slug: true, title: true },
   });
   return row;
+}
+
+/** Compact index for meta-agent (active + draft). */
+export async function loadMetaAgentLibraryIndex(limit = 80): Promise<string> {
+  const rows = await prisma.knowledgeArticle.findMany({
+    where: { status: { in: ['active', 'draft'] } },
+    orderBy: [{ status: 'asc' }, { title: 'asc' }],
+    take: limit,
+    select: { slug: true, title: true, description: true, status: true },
+  });
+  if (rows.length === 0) {
+    return 'Карток ще немає. Факти/події/тимчасові офери можна запропонувати через libraryDrafts.';
+  }
+  const lines = rows.map((row) => {
+    const oneLine = row.description.replace(/\s+/g, ' ').trim().slice(0, 120);
+    const mark = row.status === 'draft' ? ' [draft]' : '';
+    return `- ${row.slug}${mark}: ${row.title}. ${oneLine}`;
+  });
+  return lines.join('\n');
+}
+
+/** Publish draft→active by id (owner teach/apply). Skips missing / already active. */
+export async function publishLibraryDraftsByIds(
+  ids: string[],
+): Promise<Array<{ id: string; slug: string; title: string; status: string }>> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (unique.length === 0) return [];
+  const published: Array<{ id: string; slug: string; title: string; status: string }> = [];
+  for (const id of unique) {
+    const current = await prisma.knowledgeArticle.findUnique({
+      where: { id },
+      select: { id: true, slug: true, title: true, status: true },
+    });
+    if (!current) continue;
+    if (current.status === 'active') {
+      published.push(current);
+      continue;
+    }
+    if (current.status !== 'draft') continue;
+    const row = await prisma.knowledgeArticle.update({
+      where: { id: current.id },
+      data: { status: 'active' },
+      select: { id: true, slug: true, title: true, status: true },
+    });
+    published.push(row);
+  }
+  return published;
 }
 
 function normalizeDraftSlug(slug: string | undefined, title: string): string {

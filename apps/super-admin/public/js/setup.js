@@ -27,6 +27,7 @@ import { createWorkers } from './composables/workers.js';
 import { createSaSelfDeploy } from './composables/sa-self-deploy.js';
 import { createNotifications } from './composables/notifications.js';
 import { createBackups } from './composables/backups.js';
+import { createAnalytics } from './composables/analytics.js';
 
 /** Vue setup() — wires shared state + domain composables. */
 export function setup() {
@@ -167,6 +168,18 @@ export function setup() {
     status: null,
   });
   const backupLogEl = ref(null);
+  const analytics = reactive({
+    loading: false,
+    error: '',
+    summary: null,
+    rows: [],
+    generatedAt: null,
+    detailOpen: false,
+    detailLoading: false,
+    detail: null,
+    detailError: '',
+  });
+  const analyticsFilter = reactive({ period: '7d' });
 
   const webhookInbox = reactive({
     loading: false,
@@ -373,6 +386,13 @@ export function setup() {
     nextTick,
   });
 
+  const analyticsApi = createAnalytics({
+    analytics,
+    analyticsFilter,
+    authHeaders,
+    logout,
+  });
+
   function syncPageUrl(p, { replace = false } = {}) {
     const target = pathForPage(p);
     const cur = location.pathname.replace(/\/+$/, '') || '/';
@@ -400,6 +420,9 @@ export function setup() {
       void tenantsApi.loadTenants();
       void backupsApi.loadBackups();
     }
+    if (p === 'analytics') {
+      void analyticsApi.loadFleetAnalytics();
+    }
     if (p === 'webhooks') {
       void webhookInboxApi.loadWebhookInbox();
       webhookInboxApi.startWebhookInboxPoll();
@@ -420,6 +443,9 @@ export function setup() {
       await workersApi.loadWorkers();
       await tenantsApi.loadTenants();
       await backupsApi.loadBackups();
+    }
+    if (page.value === 'analytics') {
+      await analyticsApi.loadFleetAnalytics();
     }
     if (page.value === 'webhooks') {
       await webhookInboxApi.loadWebhookInbox();
@@ -482,6 +508,17 @@ export function setup() {
     runBackupNow: backupsApi.runBackupNow,
     restoreBackup: backupsApi.restoreBackup,
     closeBackupLog: backupsApi.closeBackupLog,
+    analytics, analyticsFilter,
+    loadFleetAnalytics: analyticsApi.loadFleetAnalytics,
+    openAnalyticsDetail: analyticsApi.openAnalyticsDetail,
+    closeAnalyticsDetail: analyticsApi.closeAnalyticsDetail,
+    analyticsPct: analyticsApi.pct,
+    analyticsNum: analyticsApi.num,
+    analyticsAlertLabel: analyticsApi.alertLabel,
+    analyticsFormatWhen: analyticsApi.formatWhen,
+    analyticsRelativeAge: analyticsApi.relativeAge,
+    analyticsRowAlerts: analyticsApi.rowAlerts,
+    analyticsRowHealthClass: analyticsApi.rowHealthClass,
     saVersionLabel, saSelfDeployBusy, saDeployLog, saDeployLogEl,
     saDeployLogElapsed: saSelfDeployApi.saDeployLogElapsed,
     triggerSaSelfDeploy: saSelfDeployApi.triggerSaSelfDeploy,

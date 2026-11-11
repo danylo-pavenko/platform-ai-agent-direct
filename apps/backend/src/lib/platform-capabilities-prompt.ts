@@ -119,14 +119,14 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 - **Live catalog** → CRM sync (knowledge/catalog.txt + data/products.json) **або** ручний CSV імпорт Shop-Express (knowledge/catalog-manual.txt + data/manual-*.json). Пріоритет пошуку: file | crm; **ціна для агента** (pricePreference) окремо, коли товари зматчені (SKU/назва / ручний link у data/catalog-matches.json). Без CRM credentials — лише файл. Пошук не підміняє дизайн: якщо напис є лише на іншому типі виробу, search_catalog це позначає, а не віддає сусіднє худі. CSV Shop-Express має InStock і IsAvailable; Available з нульовим InStock лишається «доступно до замовлення», без кількості штук. Пошук з файлу збирає кольори одного дизайну (навіть якщо кожен колір — окремий товар) у рядок «Кольори … які можна пропонувати».
 - Seed files: prompts/{sales|leadgen|booking|general}-agent.txt (first DB seed = **general**, matches default agent_config.mode).
 - Legacy knowledge/{contacts,delivery,faq,...}.txt are **not** injected at runtime.
-- Мета-агент може створити чернетку картки (назва, опис «коли брати», текст, аліаси). Увімкнути картку може лише людина.
+- Мета-агент може створити/оновити чернетку картки (назва, опис «коли брати», текст, аліаси). Публікація — з Teach («Опублікувати») або в /library.
 
 ## Admin assistants (не customer IG)
 
 | UI | Channel | Writes |
 |----|---------|--------|
 | AI-помічник /insights | insights | Owner-only tools: get/search conversation, get_client, propose/create_product_order (confirm), propose/update_client (confirm), get_crm_write_status, retry_order_crm_sync (confirm). Local Order + optional KeyCRM mirror; never IG outbound. |
-| Навчання /teach | meta_agent | Prompt diffs. Може зберегти чернетку картки бібліотеки. Публікація картки лише людиною в /library |
+| Навчання /teach | meta_agent | Prompt diffs + libraryDrafts (upsert чернетки). З Teach можна опублікувати картку (draft→active) або відкрити /library. Метрики → /insights |
 | Бібліотека /library | knowledge_articles | Картки знань. У хід лише active: зміст завжди, текст за аліасом або read_library |
 | Події /events | tenant_events | Кастинг/акції/вакансії; календар + lookup_tenant_events |
 | Тестування /sandbox | sandbox | Dry-run writes; live CRM reads |

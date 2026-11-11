@@ -7,9 +7,10 @@ import {
   type TeachStreamCloseKind,
 } from '@/lib/teach-stream-close';
 import { consumeSse } from '@/lib/teach-stream-sse';
+import { visibleMetaAgentStreamText } from '@/lib/meta-agent-stream-display';
 
 export type { TeachStreamCloseKind };
-export { resolveTeachStreamClose, consumeSse };
+export { resolveTeachStreamClose, consumeSse, visibleMetaAgentStreamText };
 
 export type TeachStreamStage = {
   stage: string;
@@ -21,7 +22,7 @@ export type TeachStreamDone = {
   reply: string;
   suggestedDiffs?: Array<{ before: string; after: string; summary: string }>;
   suggestedDiff?: { before: string; after: string; summary: string } | null;
-  savedLibraryDrafts?: Array<{ id: string; slug: string }>;
+  savedLibraryDrafts?: Array<{ id: string; slug: string; title?: string }>;
   parseFormat?: string;
   fallback?: string | null;
 };
@@ -32,6 +33,11 @@ export type TeachStreamError = {
   errorDetail?: string | null;
   /** Client aborted the request (Cancel / navigation). */
   aborted?: boolean;
+  /**
+   * Stream ended without done/error, but some reply text arrived —
+   * UI should reload the session instead of treating as hard failure.
+   */
+  recoverable?: boolean;
 };
 
 export type TeachStreamHandlers = {
@@ -87,6 +93,8 @@ export async function streamTeachChat(
 
   let gotDone = false;
   let gotError = false;
+  let accumulatedRaw = '';
+  let lastVisible = '';
 
   await consumeSse(
     res.body,
@@ -99,7 +107,13 @@ export async function streamTeachChat(
             label: String(payload.label ?? ''),
           });
         } else if (event === 'delta') {
-          handlers.onDelta?.(String(payload.text ?? ''));
+          const chunk = String(payload.text ?? '');
+          // Backend may already send display-only deltas; keep client-side strip as defense.
+          accumulatedRaw += chunk;
+          const visible = visibleMetaAgentStreamText(accumulatedRaw);
+          const next = visible.slice(lastVisible.length);
+          lastVisible = visible;
+          if (next) handlers.onDelta?.(next);
         } else if (event === 'done') {
           gotDone = true;
           handlers.onDone?.(payload as unknown as TeachStreamDone);
@@ -123,9 +137,15 @@ export async function streamTeachChat(
     gotDone,
     gotError,
     aborted: signal?.aborted === true,
+    gotPartialText: lastVisible.trim().length > 0,
   });
 
-  if (closeKind === 'silent_end') {
+  if (closeKind === 'partial_ok') {
+    handlers.onError?.({
+      error: 'Стрім обірвався — перевіряю збережену відповідь…',
+      recoverable: true,
+    });
+  } else if (closeKind === 'silent_end') {
     handlers.onError?.({
       error: 'Стрім обірвався без відповіді. Спробуйте ще раз.',
     });

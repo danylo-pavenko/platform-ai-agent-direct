@@ -56,9 +56,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(403).send(platformAccessError(access));
     }
 
-    const token = signAdminToken(app, user);
+    const loggedIn = await prisma.adminUser.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
 
-    return { token, user: toAdminUserPublic(user) };
+    const token = signAdminToken(app, loggedIn);
+
+    return { token, user: toAdminUserPublic(loggedIn) };
   });
 
   // POST /auth/change-password — authenticated admin changes own password

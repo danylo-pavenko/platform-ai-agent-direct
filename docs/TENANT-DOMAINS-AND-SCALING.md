@@ -202,6 +202,8 @@ bash infra/scripts/install-sa-watchdog-cron.sh
 # лог: ~/.pm2/logs/sa-watchdog.log
 ```
 
+**Analytics (флот):** Super Admin → **Analytics** (`/analytics`). Fan-out на `GET {tenant}/supervisor/analytics?period=7d|30d|90d` (X-Supervisor-Token): воронка (написали → прийняв агент → результат), Claude drops (busy/timeout), активна версія промпта + історія, platform version vs SA. Потрібні оновлені SA і Deploy кожного клієнта.
+
 **Tenant DB backups (MinIO/S3):** ключі **не** в `.env` — у Super Admin → **Workers → Edit → Backup storage** (окремо на кожен worker). Сторінка **Backups**: список дампів, Backup now, Restore (confirm instanceId). Перед Deploy і перед Restore — safety dump. Nightly з SA-хоста:
 
 ```bash

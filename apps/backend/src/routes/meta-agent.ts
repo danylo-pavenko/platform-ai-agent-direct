@@ -7,7 +7,10 @@ import {
   type ClaudeAuthStatus,
 } from '../services/claude-auth.js';
 import { buildPlatformCapabilitiesBlock } from '../lib/platform-capabilities-prompt.js';
-import { getCachedMetaAgentExtras } from '../lib/meta-agent-extras-cache.js';
+import {
+  clearMetaAgentExtrasCache,
+  getCachedMetaAgentExtras,
+} from '../lib/meta-agent-extras-cache.js';
 import { buildMetaPromptContext } from '../services/prompt-sections.js';
 import {
   applyDiffToContent,
@@ -16,7 +19,7 @@ import {
   type SuggestedDiff,
 } from '../lib/meta-agent-diff.js';
 import { bumpPromptRuntimeGeneration } from '../services/prompt-runtime.js';
-import { saveLibraryDraft } from '../services/library.js';
+import { publishLibraryDraftsByIds, saveLibraryDraft } from '../services/library.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +40,8 @@ interface ApplyBody {
   summary: string;
   activate?: boolean;
   basePromptId?: string;
+  /** Publish these library draft ids (draft→active) in the same owner action. */
+  publishLibraryIds?: string[];
 }
 
 interface ApplyBatchBody {
@@ -44,6 +49,7 @@ interface ApplyBatchBody {
   summary?: string;
   activate?: boolean;
   basePromptId?: string;
+  publishLibraryIds?: string[];
 }
 
 export type { SuggestedDiff };
@@ -62,6 +68,7 @@ export function buildMetaAgentSystemPrompt(
     userMessage?: string;
     useFullPrompt?: boolean;
     sessionSummary?: string;
+    libraryIndex?: string;
   },
 ): string {
   const userMessage = options?.userMessage?.trim() ?? '';
@@ -109,6 +116,14 @@ ${options.sessionSummary.trim()}
 </session_summary>`
     : '';
 
+  const libraryIndex = options?.libraryIndex?.trim() ?? '';
+  const libraryBlock = libraryIndex
+    ? `\n\n<library_index>
+Існуючі картки знань (active + draft). Перед новою карткою перевір, чи не оновити slug існуючої.
+${libraryIndex}
+</library_index>`
+    : '';
+
   const promptWrapper = metaCtx.usedFullPrompt
     ? `<current_prompt>
 ${metaCtx.promptBlock}
@@ -122,6 +137,7 @@ ${metaCtx.promptBlock}
 - Адміністратор каже, як змінити поведінку бота.
 - Блок <platform_capabilities> — що платформа РЕАЛЬНО вміє (режими, tools, CRM). Орієнтуйся на нього: не пропонуй інструменти чи CRM-дії, яких немає.
 - Блок <telegram_bots> — маршрутизація сповіщень менеджерам (без токенів).
+- Блок <library_index> — картки знань (факти/події/офери поза CRM).
 
 Твоя задача:
 1. Зрозумій, що саме адмін хоче змінити.
@@ -130,6 +146,16 @@ ${metaCtx.promptBlock}
 4. НЕ видаляй правила безпеки, ескалації, заборонені дії.
 5. НЕ додавай нічого, про що адмін не просив (окрім режиму аудиту, якщо адмін його явно просить).
 6. Якщо адмін просить «підключити CRM / запис / каталог» — описуй поведінку через ІСНУЮЧІ tools з <platform_capabilities>.
+
+Маршрутизація запиту (критично):
+- Поведінка бота (тон, довжина, «пиши коротше», ескалація, заборони, стиль) → лише diffs промпту.
+- Факти / події / тимчасові офери (Чорна пʼятниця, акція, прайс поза CRM, виняток для моделі) → libraryDrafts (+ за потреби короткий diff «читай картку X через read_library»).
+- Метрики / «скільки повідомлень / діалогів / конверсія» → НЕ рахуй і НЕ вигадуй цифри. Коротка відмова + направ адміна в AI-помічник (/insights). diffs: [], libraryDrafts: [].
+
+Приклади:
+- «Забагато тексту / пиши коротше» → diff у секції тону/довжини.
+- «Чорна пʼятниця −20% до неділі» → libraryDraft (aliases: чорна пʼятниця, black friday) + optional diff-вказівник на read_library.
+- «Скільки сьогодні повідомлень?» → reply з посиланням на /insights, без diffs.
 
 ФОРМАТ ВІДПОВІДІ (обов'язково):
 Спочатку коротке пояснення українською (1–4 речення), потім JSON у fenced-блоці:
@@ -159,13 +185,14 @@ ${metaCtx.promptBlock}
 - Якщо запит суперечить безпеці або вимагає неіснуючого tool — відмов, diffs: [].
 
 Бібліотека (картки знань, не системний промпт):
-- Коли адмін просить винести факт, прайс поза CRM, виняток або довгу інструкцію в бібліотеку, додай елемент у libraryDrafts. Це стане чернеткою. Людина сама вмикає картку в розділі «Бібліотека».
-- title — коротка назва. description — коли брати картку, не реклама. body — сам факт. aliases — слова з повідомлення клієнта, за якими картку підкласти (коди, моделі).
-- Прайс і послуги, які вже є в CRM-каталозі, у картку не копіюй. Для них лишаються search_catalog / search_services.
+- Коли адмін просить винести факт, прайс поза CRM, подію/акцію, виняток або довгу інструкцію в бібліотеку, додай елемент у libraryDrafts (чернетка; публікація — з Teach або в «Бібліотека»).
+- Якщо slug уже є в <library_index> як draft — оновлюй ту саму картку (той самий slug), не вигадуй -2.
+- title — коротка назва. description — коли брати картку, не реклама. body — сам факт. aliases — слова з повідомлення клієнта.
+- Прайс і послуги з CRM-каталогу в картку не копіюй (search_catalog / search_services).
 - Поведінку бота (тон, ескалація, заборони) лишай у diffs промпту, не в картці.
 - Якщо картка не потрібна — libraryDrafts: [].
 
-${promptWrapper}${summaryBlock}${contextBlock}${catalogBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
+${promptWrapper}${summaryBlock}${contextBlock}${catalogBlock}${libraryBlock}${claudeAuthBlock}${telegramBlock}${capabilitiesBlock}`;
 }
 
 /** @deprecated Use parseMetaAgentResponse — kept for callers expecting legacy array. */
@@ -278,7 +305,11 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         extras.catalogSnippet,
         extras.claudeAuth,
         extras.telegramBotsBlock,
-        { userMessage: message.trim(), useFullPrompt: useFullPrompt === true },
+        {
+          userMessage: message.trim(),
+          useFullPrompt: useFullPrompt === true,
+          libraryIndex: extras.libraryIndex,
+        },
       );
 
       const response = await askClaude(
@@ -301,6 +332,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       for (const draft of parsed.libraryDrafts) {
         savedLibraryDrafts.push(await saveLibraryDraft(draft));
       }
+      if (savedLibraryDrafts.length > 0) clearMetaAgentExtrasCache();
 
       if (suggestedDiffs.length > 0 || savedLibraryDrafts.length > 0) {
         return {
@@ -329,7 +361,8 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/apply',
     { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
-      const { before, after, summary, activate, basePromptId } = request.body ?? {};
+      const { before, after, summary, activate, basePromptId, publishLibraryIds } =
+        request.body ?? {};
 
       if (!after || typeof after !== 'string' || after.trim().length === 0) {
         return reply.code(400).send({ error: 'New prompt content (after) is required' });
@@ -384,18 +417,29 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      const publishedLibrary =
+        Array.isArray(publishLibraryIds) && publishLibraryIds.length > 0
+          ? await publishLibraryDraftsByIds(
+              publishLibraryIds.filter((id): id is string => typeof id === 'string'),
+            )
+          : [];
+
       app.log.info(
         {
           promptId: result.prompt.id,
           version: result.prompt.version,
           activated: shouldActivate,
+          publishedLibraryCount: publishedLibrary.length,
         },
         shouldActivate
           ? 'Meta-agent applied prompt change (activated)'
           : 'Meta-agent created draft prompt',
       );
 
-      return reply.code(201).send(result.prompt);
+      return reply.code(201).send({
+        ...result.prompt,
+        publishedLibrary,
+      });
     },
   );
 
@@ -404,7 +448,7 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
     '/apply-batch',
     { onRequest: [app.authenticate, app.requireOwner] },
     async (request, reply) => {
-      const { diffs, summary, activate, basePromptId } = request.body ?? {};
+      const { diffs, summary, activate, basePromptId, publishLibraryIds } = request.body ?? {};
 
       if (!Array.isArray(diffs) || diffs.length === 0) {
         return reply.code(400).send({ error: 'diffs array is required' });
@@ -469,12 +513,20 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
+      const publishedLibrary =
+        Array.isArray(publishLibraryIds) && publishLibraryIds.length > 0
+          ? await publishLibraryDraftsByIds(
+              publishLibraryIds.filter((id): id is string => typeof id === 'string'),
+            )
+          : [];
+
       app.log.info(
         {
           promptId: result.prompt.id,
           version: result.prompt.version,
           activated: shouldActivate,
           diffCount: normalized.length,
+          publishedLibraryCount: publishedLibrary.length,
         },
         'Meta-agent apply-batch completed',
       );
@@ -482,7 +534,25 @@ export async function metaAgentRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(201).send({
         ...result.prompt,
         appliedCount: normalized.length,
+        publishedLibrary,
       });
+    },
+  );
+
+  /** Publish library drafts from Teach without applying prompt diffs. */
+  app.post<{ Body: { publishLibraryIds?: string[] } }>(
+    '/publish-library',
+    { onRequest: [app.authenticate, app.requireOwner] },
+    async (request, reply) => {
+      const ids = request.body?.publishLibraryIds;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return reply.code(400).send({ error: 'publishLibraryIds is required' });
+      }
+      const publishedLibrary = await publishLibraryDraftsByIds(
+        ids.filter((id): id is string => typeof id === 'string'),
+      );
+      if (publishedLibrary.length > 0) clearMetaAgentExtrasCache();
+      return { publishedLibrary };
     },
   );
 }

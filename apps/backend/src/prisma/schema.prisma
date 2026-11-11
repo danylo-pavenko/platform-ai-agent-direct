@@ -432,11 +432,14 @@ model AdminUser {
   tgUserId      String?   @unique @map("tg_user_id")
   tgUsername    String?   @map("tg_username")
   isActive      Boolean   @default(true) @map("is_active")
+  /// Last successful tenant-admin panel login (password).
+  lastLoginAt   DateTime? @map("last_login_at")
   createdAt     DateTime  @default(now()) @map("created_at")
 
   metaAgentTeachSessions MetaAgentTeachSession[]
   telegramLinkCodes      AdminTelegramLinkCode[]
 
+  @@index([lastLoginAt])
   @@map("admin_users")
 }
 

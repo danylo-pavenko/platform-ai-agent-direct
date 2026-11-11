@@ -162,8 +162,10 @@ Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). A chat name u
 | UI (nav) | Route | Channel | Role |
 |----------|-------|---------|------|
 | **AI-помічник** | `/insights` | `insights` | Ops assistant: metrics snapshot + **host tools** (get/search conversation, client R/W, propose→confirm product order + CRM mirror, CRM write status / retry). Owner-only. Writes require `confirm: true` after explicit owner confirmation; **never** sends IG to the customer. |
-| **Навчання агента** | `/teach` | `meta_agent` | Edits system prompt via diffs; gets `<platform_capabilities>`. |
+| **Навчання агента** | `/teach` | `meta_agent` | Prompt diffs + library drafts (upsert); optional publish draft→active from Teach; metrics refused → `/insights`. Sees `<platform_capabilities>` + `<library_index>`. SSE streams visible reply only (JSON fence hidden); reload restores last diffs/library cards. Mobile CTA: «Застосувати і активувати» (with confirm). |
 | **Тестування агента** | `/sandbox` | `sandbox` | Simulates customer chat with real tools/prompt. |
+
+Teach mobile AC (manual): «пиши коротше» → diff → activate; «Чорна пʼятниця…» → library card + publish; stats question → link to `/insights`; F5 restores result cards.
 
 Insights context: fresh `buildInsightsSnapshot(period)` + `buildPlatformCapabilitiesBlock()` + `buildInsightsToolDefinitions()` / `executeInsightsToolCall` in `routes/insights.ts` (`services/insights-tools.ts`, `services/order-admin.ts`). Snapshot samples are truncated — load a dialog via `get_conversation` when the owner pastes `/conversations/{uuid}`.
 

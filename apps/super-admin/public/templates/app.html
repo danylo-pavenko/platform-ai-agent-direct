@@ -40,6 +40,9 @@
         <a class="nav-item" href="/backups" :class="{'active': page==='backups'}" @click.prevent="goPage('backups')">
           <span class="icon">💾</span> Backups
         </a>
+        <a class="nav-item" href="/analytics" :class="{'active': page==='analytics'}" @click.prevent="goPage('analytics')">
+          <span class="icon">▣</span> Analytics
+        </a>
         <a class="nav-item" href="/links" :class="{'active': page==='links'}" @click.prevent="goPage('links')">
           <span class="icon">🔗</span> Посилання
         </a>
@@ -423,6 +426,285 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- Analytics -->
+      <template v-if="page==='analytics'">
+        <div class="topbar">
+          <button class="burger" @click="sidebarOpen=true" aria-label="Menu">☰</button>
+          <h1>Analytics</h1>
+          <div class="topbar-actions">
+            <select v-model="analyticsFilter.period" @change="loadFleetAnalytics" class="an-period">
+              <option value="7d">7 днів</option>
+              <option value="30d">30 днів</option>
+              <option value="90d">90 днів</option>
+            </select>
+            <button class="btn btn-ghost" @click="loadFleetAnalytics" :disabled="analytics.loading">
+              {{ analytics.loading ? 'Завантаження…' : 'Refresh' }}
+            </button>
+          </div>
+        </div>
+        <div class="content">
+          <p class="an-intro">
+            Флот по тенантах: кого прийняв агент, скільки довів до результату (замовлення / запис),
+            де падає Claude, яка версія промпта активна і чи відстає platform version від SA.
+            Дані з кожного tenant API через supervisor (без PII).
+            Потрібні оновлені SA + Deploy клієнта (endpoint <code>/supervisor/analytics</code>).
+          </p>
+
+          <div v-if="analytics.error" class="an-error">{{ analytics.error }}</div>
+
+          <div class="stats" v-if="analytics.summary">
+            <div class="stat-card">
+              <div class="stat-label">Онлайн / усього</div>
+              <div class="stat-value accent">{{ analytics.summary.tenantsOnline }}/{{ analytics.summary.tenantsTotal }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Клієнти написали</div>
+              <div class="stat-value">{{ analytics.summary.funnel.clientWrote }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Агент прийняв</div>
+              <div class="stat-value green">{{ analytics.summary.funnel.botAccepted }}
+                <small class="an-rate">{{ analyticsPct(analytics.summary.funnel.botAcceptRate) }}</small>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">До результату</div>
+              <div class="stat-value accent">{{ analytics.summary.funnel.convertedFromBot }}
+                <small class="an-rate">{{ analyticsPct(analytics.summary.funnel.conversionFromBotRate) }}</small>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Claude drops</div>
+              <div class="stat-value" :style="{color: (analytics.summary.claude.dropRate||0) > 0.1 ? 'var(--danger)' : 'var(--text)'}">
+                {{ analytics.summary.claude.drops }}
+                <small class="an-rate">{{ analyticsPct(analytics.summary.claude.dropRate) }}</small>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">З алертами</div>
+              <div class="stat-value" :style="{color: analytics.summary.tenantsWithAlerts ? 'var(--warn)' : 'var(--success)'}">
+                {{ analytics.summary.tenantsWithAlerts }}
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Адмінка тиха</div>
+              <div class="stat-value" :style="{color: analytics.summary.adminInactive ? 'var(--warn)' : 'var(--success)'}">
+                {{ analytics.summary.adminInactive }}
+              </div>
+            </div>
+          </div>
+
+          <div class="card table-wrap an-table-wrap">
+            <table class="an-table">
+              <thead>
+                <tr>
+                  <th>Тенант</th>
+                  <th>Mode</th>
+                  <th>Прийняв</th>
+                  <th>Результат</th>
+                  <th>Handoff</th>
+                  <th>Claude</th>
+                  <th>Промпт</th>
+                  <th>Адмін логін</th>
+                  <th>Platform</th>
+                  <th>Алерти</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-if="!analytics.loading && !analytics.rows.length">
+                  <td colspan="10" style="color:var(--muted)">Немає даних. Оновіть або перевірте, що тенанти online.</td>
+                </tr>
+                <tr
+                  v-for="row in analytics.rows"
+                  :key="row.tenantId"
+                  class="an-row"
+                  :class="analyticsRowHealthClass(row)"
+                  @click="openAnalyticsDetail(row)"
+                >
+                  <td>
+                    <div class="an-tenant-name">{{ row.name }}</div>
+                    <div class="an-tenant-id">{{ row.instanceId }}</div>
+                    <div v-if="!row.ok" class="an-offline">offline — {{ row.error }}</div>
+                  </td>
+                  <td>
+                    <span v-if="row.ok" class="badge badge-provisioned">{{ row.analytics.agentMode }}</span>
+                    <span v-else>—</span>
+                  </td>
+                  <td v-if="row.ok">
+                    <strong>{{ row.analytics.funnel.botAccepted }}</strong>
+                    <span class="an-muted">/ {{ row.analytics.funnel.clientWrote }}</span>
+                    <div class="an-sub">{{ analyticsPct(row.analytics.funnel.botAcceptRate) }}</div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    <strong>{{ row.analytics.funnel.convertedFromBot }}</strong>
+                    <div class="an-sub">{{ analyticsPct(row.analytics.funnel.conversionFromBotRate) }}</div>
+                    <div v-if="row.analytics.funnel.briefsSubmitted" class="an-sub">briefs {{ row.analytics.funnel.briefsSubmitted }}</div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    {{ row.analytics.funnel.handedToManager }}
+                    <div class="an-sub">{{ analyticsPct(row.analytics.funnel.handoffRate) }}</div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    <span :class="(row.analytics.claude.dropRate||0) > 0.1 ? 'an-bad-text' : ''">
+                      {{ analyticsPct(row.analytics.claude.successRate) }} ok
+                    </span>
+                    <div class="an-sub">
+                      drop {{ row.analytics.claude.busy + row.analytics.claude.timeout }}
+                      · fail msg {{ row.analytics.claude.botFailureMessages }}
+                    </div>
+                    <div class="an-sub" v-if="row.analytics.claude.latencyP50Ms != null">
+                      p50 {{ row.analytics.claude.latencyP50Ms }}ms
+                    </div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    <strong>v{{ row.analytics.prompt.activeVersion ?? '—' }}</strong>
+                    <div class="an-sub">{{ analyticsRelativeAge(row.analytics.prompt.activeCreatedAt) }}</div>
+                    <div class="an-sub" v-if="row.analytics.prompt.totalVersions">{{ row.analytics.prompt.totalVersions }} версій</div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    <span v-if="row.analytics.adminUsage?.lastLoginAt"
+                      :class="(row.analytics.adminUsage.daysSinceLogin ?? 0) >= 14 ? 'an-warn-text' : 'an-ok-text'">
+                      {{ analyticsRelativeAge(row.analytics.adminUsage.lastLoginAt) || analyticsFormatWhen(row.analytics.adminUsage.lastLoginAt) }}
+                    </span>
+                    <span v-else class="an-bad-text">ніколи</span>
+                    <div class="an-sub" v-if="row.analytics.adminUsage?.lastLoginUsername">
+                      {{ row.analytics.adminUsage.lastLoginDisplayName || row.analytics.adminUsage.lastLoginUsername }}
+                      <span v-if="row.analytics.adminUsage.lastLoginRole"> · {{ row.analytics.adminUsage.lastLoginRole }}</span>
+                    </div>
+                  </td>
+                  <td v-else>—</td>
+                  <td v-if="row.ok">
+                    <span :class="row.platformBehind ? 'an-warn-text' : 'an-ok-text'">
+                      {{ row.analytics.platformVersion?.name || '—' }}
+                    </span>
+                    <div class="an-sub" v-if="row.platformBehind">відстає від SA</div>
+                  </td>
+                  <td v-else>—</td>
+                  <td>
+                    <div class="an-alerts">
+                      <span
+                        v-for="a in analyticsRowAlerts(row)"
+                        :key="a"
+                        class="an-chip"
+                        :class="a === 'offline' || a === 'claude_auth' || a === 'high_claude_drop' ? 'an-chip-bad' : 'an-chip-warn'"
+                      >{{ analyticsAlertLabel(a) }}</span>
+                      <span v-if="row.ok && row.platformBehind" class="an-chip an-chip-warn">platform</span>
+                      <span v-if="row.ok && !analyticsRowAlerts(row).length && !row.platformBehind" class="an-chip an-chip-ok">ok</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="analytics.generatedAt" class="an-footer">Оновлено {{ analyticsFormatWhen(analytics.generatedAt) }}</p>
+        </div>
+
+        <!-- Detail drawer -->
+        <div class="modal-overlay" v-if="analytics.detailOpen" @click.self="closeAnalyticsDetail">
+          <div class="modal an-detail-modal" @click.stop>
+            <h2 v-if="analytics.detail">{{ analytics.detail.name }}
+              <small class="an-muted">({{ analytics.detail.instanceId }})</small>
+            </h2>
+            <h2 v-else>Деталі</h2>
+            <div v-if="analytics.detailLoading">Завантаження…</div>
+            <div v-else-if="analytics.detailError" style="color:var(--danger)">{{ analytics.detailError }}</div>
+            <div v-else-if="analytics.detail && !analytics.detail.ok">
+              <p style="color:var(--danger)">Тенант недоступний: {{ analytics.detail.error }}</p>
+            </div>
+            <div class="an-detail" v-else-if="analytics.detail?.ok">
+              <div class="an-detail-grid">
+                <div class="an-detail-card">
+                  <h4>Воронка</h4>
+                  <ul>
+                    <li>Написали: <strong>{{ analytics.detail.analytics.funnel.clientWrote }}</strong></li>
+                    <li>Прийняв агент: <strong>{{ analytics.detail.analytics.funnel.botAccepted }}</strong> ({{ analyticsPct(analytics.detail.analytics.funnel.botAcceptRate) }})</li>
+                    <li>Закрив сам: <strong>{{ analytics.detail.analytics.funnel.botClosed }}</strong> ({{ analyticsPct(analytics.detail.analytics.funnel.botCloseRate) }})</li>
+                    <li>До результату: <strong>{{ analytics.detail.analytics.funnel.convertedFromBot }}</strong> ({{ analyticsPct(analytics.detail.analytics.funnel.conversionFromBotRate) }})</li>
+                    <li>Handoff: <strong>{{ analytics.detail.analytics.funnel.handedToManager }}</strong> → closed {{ analytics.detail.analytics.funnel.handoffThenClosed }}</li>
+                    <li v-if="analytics.detail.analytics.funnel.briefsSubmitted">Briefs: <strong>{{ analytics.detail.analytics.funnel.briefsSubmitted }}</strong></li>
+                  </ul>
+                </div>
+                <div class="an-detail-card">
+                  <h4>Claude</h4>
+                  <ul>
+                    <li>Виклики (IG/TG): <strong>{{ analytics.detail.analytics.claude.invocations }}</strong></li>
+                    <li>Success: <strong>{{ analyticsPct(analytics.detail.analytics.claude.successRate) }}</strong></li>
+                    <li>Busy / timeout: <strong>{{ analytics.detail.analytics.claude.busy }}</strong> / <strong>{{ analytics.detail.analytics.claude.timeout }}</strong></li>
+                    <li>Bot failure msgs: <strong>{{ analytics.detail.analytics.claude.botFailureMessages }}</strong></li>
+                    <li>Latency p50/p95: {{ analyticsNum(analytics.detail.analytics.claude.latencyP50Ms) }} / {{ analyticsNum(analytics.detail.analytics.claude.latencyP95Ms) }} ms</li>
+                    <li>Auth:
+                      <span :class="analytics.detail.analytics.claude.auth.loggedIn ? 'an-ok-text' : 'an-bad-text'">
+                        {{ analytics.detail.analytics.claude.auth.loggedIn ? 'logged in' : 'not logged in' }}
+                      </span>
+                      <span v-if="analytics.detail.analytics.claude.auth.email" class="an-muted"> · {{ analytics.detail.analytics.claude.auth.email }}</span>
+                    </li>
+                    <li v-if="analytics.detail.analytics.claude.usage.status">
+                      Quota: <strong>{{ analytics.detail.analytics.claude.usage.status }}</strong>
+                      <span v-if="analytics.detail.analytics.claude.usage.worstPercent != null">
+                        ({{ Math.round(analytics.detail.analytics.claude.usage.worstPercent) }}%)
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+                <div class="an-detail-card">
+                  <h4>Промпт і версія</h4>
+                  <ul>
+                    <li>Mode: <strong>{{ analytics.detail.analytics.agentMode }}</strong></li>
+                    <li>Active prompt: <strong>v{{ analytics.detail.analytics.prompt.activeVersion ?? '—' }}</strong>
+                      <span class="an-muted" v-if="analytics.detail.analytics.prompt.activeAuthor"> · {{ analytics.detail.analytics.prompt.activeAuthor }}</span>
+                    </li>
+                    <li>Активовано: {{ analyticsFormatWhen(analytics.detail.analytics.prompt.activeCreatedAt) }}</li>
+                    <li v-if="analytics.detail.analytics.prompt.activeChangeSummary">{{ analytics.detail.analytics.prompt.activeChangeSummary }}</li>
+                    <li>Platform: <strong>{{ analytics.detail.analytics.platformVersion?.name }}</strong>
+                      (code {{ analytics.detail.analytics.platformVersion?.code }})
+                      <span v-if="analytics.detail.platformBehind" class="an-warn-text"> — відстає від SA</span>
+                    </li>
+                    <li>Останній inbound: {{ analyticsFormatWhen(analytics.detail.analytics.activity.lastInboundAt) }}</li>
+                    <li>Останній bot reply: {{ analyticsFormatWhen(analytics.detail.analytics.activity.lastBotReplyAt) }}</li>
+                    <li>Останній логін в адмінку:
+                      <strong v-if="analytics.detail.analytics.adminUsage?.lastLoginAt"
+                        :class="(analytics.detail.analytics.adminUsage.daysSinceLogin ?? 0) >= 14 ? 'an-warn-text' : ''">
+                        {{ analyticsFormatWhen(analytics.detail.analytics.adminUsage.lastLoginAt) }}
+                      </strong>
+                      <strong v-else class="an-bad-text">ніколи</strong>
+                      <span class="an-muted" v-if="analytics.detail.analytics.adminUsage?.lastLoginUsername">
+                        · {{ analytics.detail.analytics.adminUsage.lastLoginDisplayName || analytics.detail.analytics.adminUsage.lastLoginUsername }}
+                        ({{ analytics.detail.analytics.adminUsage.lastLoginRole }})
+                      </span>
+                    </li>
+                    <li>Активних адмінів: {{ analytics.detail.analytics.adminUsage?.activeAdmins ?? '—' }}</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="an-detail-card" style="margin-top:14px" v-if="analytics.detail.analytics.prompt.recent?.length">
+                <h4>Історія промптів</h4>
+                <table class="an-prompt-table">
+                  <thead>
+                    <tr><th>v</th><th>Коли</th><th>Автор</th><th>Summary</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="p in analytics.detail.analytics.prompt.recent" :key="p.version" :class="{'an-prompt-active': p.isActive}">
+                      <td><strong>v{{ p.version }}</strong> <span v-if="p.isActive" class="badge badge-active">active</span></td>
+                      <td>{{ analyticsFormatWhen(p.createdAt) }}</td>
+                      <td>{{ p.author || '—' }}</td>
+                      <td>{{ p.changeSummary || '—' }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="modal-actions">
+                <button class="btn btn-ghost" @click="closeAnalyticsDetail">Закрити</button>
+              </div>
+            </div>
           </div>
         </div>
       </template>

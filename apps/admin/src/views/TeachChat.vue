@@ -7,11 +7,10 @@
       <div class="flex-grow-1 min-width-0">
         <div class="page-title" style="font-size: 18px;">Навчання агента</div>
         <div class="page-subtitle d-none d-sm-block">
-          Мета-агент пропонує правки (diff). Активний системний промпт змінюється лише після
-          «Зберегти» / «Активувати». Перевірка відповідей клієнту — у пісочниці.
+          Поведінка бота → правки промпту. Факти й події → картка бібліотеки. Метрики — у AI-помічнику.
         </div>
         <div v-if="mobile" class="page-subtitle-mobile d-sm-none">
-          Diff → Зберегти/Активувати · тест — пісочниця
+          Промпт або картка · потім застосувати
         </div>
       </div>
       <v-btn
@@ -96,7 +95,7 @@
             <v-icon size="48" color="grey-lighten-1" class="mb-3">mdi-chat-outline</v-icon>
             <div class="text-body-1 text-grey-darken-1 mb-1">Почніть розмову</div>
             <div class="text-body-2 text-grey px-4 mb-3" style="max-width: 420px;">
-              Опишіть зміну або оберіть швидкий сценарій нижче
+              Два шляхи: змінити поведінку бота (промпт) або додати факт/подію (картка бібліотеки).
             </div>
             <div class="d-flex flex-wrap justify-center ga-2 px-2" style="max-width: 480px;">
               <v-chip
@@ -159,45 +158,112 @@
             </div>
           </div>
 
-          <v-alert
-            v-if="lastError"
-            type="error"
-            variant="tonal"
-            density="compact"
-            class="mt-2"
-            closable
-            @click:close="lastError = null; lastErrorDetail = null"
+          <div
+            v-if="!loading && (currentDiffs.length > 0 || savedLibraryCards.length > 0 || showInsightsCta)"
+            class="teach-result-cards mt-2"
           >
-            <div class="text-body-2">{{ lastError }}</div>
-            <div v-if="lastErrorDetail" class="text-caption text-medium-emphasis mt-1">
-              {{ lastErrorDetail }}
-            </div>
+            <v-card
+              v-if="currentDiffs.length > 0"
+              variant="outlined"
+              rounded="lg"
+              class="pa-3 mb-2"
+            >
+              <div class="text-subtitle-2 mb-1">Правки промпту ({{ currentDiffs.length }})</div>
+              <div class="text-body-2 text-medium-emphasis mb-2">
+                {{ currentDiffs[0]?.summary || 'Зміни поведінки бота' }}
+                <span v-if="currentDiffs.length > 1"> · +{{ currentDiffs.length - 1 }}</span>
+              </div>
+              <div class="d-flex flex-wrap ga-2">
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  @click="diffSheetOpen = true"
+                >
+                  Переглянути
+                </v-btn>
+                <v-btn
+                  size="small"
+                  color="warning"
+                  variant="flat"
+                  :loading="batchApplying"
+                  :disabled="unappliedDiffs.length === 0"
+                  @click="openBatchActivateConfirm"
+                >
+                  Застосувати і активувати
+                </v-btn>
+              </div>
+            </v-card>
+
+            <v-card
+              v-for="card in savedLibraryCards"
+              :key="card.id"
+              variant="outlined"
+              rounded="lg"
+              class="pa-3 mb-2"
+            >
+              <div class="text-subtitle-2 mb-1">{{ card.title || card.slug }}</div>
+              <div class="text-caption text-medium-emphasis mb-2">{{ card.slug }}</div>
+              <div class="d-flex flex-wrap ga-2">
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="flat"
+                  :loading="publishingLibraryId === card.id"
+                  :disabled="card.published"
+                  @click="publishLibraryCard(card)"
+                >
+                  {{ card.published ? 'Опубліковано' : 'Опублікувати' }}
+                </v-btn>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  :to="{ name: 'library' }"
+                >
+                  Відкрити в Бібліотеці
+                </v-btn>
+              </div>
+            </v-card>
+
+            <v-card
+              v-if="showInsightsCta"
+              variant="tonal"
+              color="info"
+              rounded="lg"
+              class="pa-3 mb-2"
+            >
+              <div class="text-body-2 mb-2">Метрики дивись у AI-помічнику — тут лише правки промпту й бібліотека.</div>
+              <v-btn size="small" color="info" variant="flat" :to="{ name: 'insights' }">
+                Відкрити AI-помічник
+              </v-btn>
+            </v-card>
+          </div>
+
+          <div
+            v-if="lastError && !loading"
+            class="teach-stream-toast mt-2 d-flex align-center ga-2 flex-wrap"
+          >
+            <span class="text-caption text-error">{{ lastError }}</span>
             <v-btn
               v-if="lastFailedMessage"
-              size="small"
+              size="x-small"
               variant="text"
-              class="mt-1 px-0"
+              color="error"
               @click="retryLast"
             >
               Повторити
             </v-btn>
-          </v-alert>
-
-          <v-alert
-            v-if="postReplyHint && !lastError && !loading"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="mt-2"
-            closable
-            @click:close="postReplyHint = null"
-          >
-            {{ postReplyHint }}
-          </v-alert>
+            <v-btn
+              size="x-small"
+              variant="text"
+              @click="lastError = null; lastErrorDetail = null"
+            >
+              Закрити
+            </v-btn>
+          </div>
         </div>
 
         <v-divider />
-        <div class="agent-chat-input pa-2 pa-md-3">
+        <div class="agent-chat-input teach-composer-sticky pa-2 pa-md-3">
           <div
             v-if="messages.length > 0 && !loading"
             class="d-flex flex-wrap ga-1 mb-2"
@@ -215,7 +281,7 @@
           <div class="d-flex ga-2 align-end">
             <v-textarea
               v-model="inputText"
-              placeholder="Опишіть зміни до промпту..."
+              placeholder="Опишіть зміну поведінки або факт/подію…"
               variant="outlined"
               density="compact"
               rows="1"
@@ -261,6 +327,7 @@
           @activate-confirm="openActivateConfirm"
           @reject="rejectDiff"
           @apply-all="applyAllDiffs"
+          @apply-and-activate="openBatchActivateConfirm"
           @save-and-sandbox="saveAndOpenSandbox"
         />
       </v-card>
@@ -299,6 +366,7 @@
           @activate-confirm="openActivateConfirm"
           @reject="onMobileRejectDiff"
           @apply-all="applyAllDiffs"
+          @apply-and-activate="openBatchActivateConfirm"
           @save-and-sandbox="saveAndOpenSandbox"
           @close="diffSheetOpen = false"
         />
@@ -344,14 +412,50 @@
       </v-card>
     </v-dialog>
 
+    <v-dialog v-model="stalePromptDialogOpen" max-width="440" class="dialog-actions-stack">
+      <v-card>
+        <v-card-title class="text-subtitle-1">Промпт уже змінився</v-card-title>
+        <v-card-text class="text-body-2">
+          Активна версія оновилась з моменту генерації правок
+          <span v-if="stalePromptVersion"> (зараз v{{ stalePromptVersion }})</span>.
+          Перезавантажте базу й сформулюйте запит ще раз.
+        </v-card-text>
+        <v-card-actions class="dialog-actions-stack">
+          <v-spacer class="d-none d-sm-flex" />
+          <v-btn variant="text" @click="stalePromptDialogOpen = false">Закрити</v-btn>
+          <v-btn color="primary" variant="flat" @click="reloadAfterStalePrompt">
+            Перезавантажити
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-snackbar
       v-model="snackbar"
       :color="snackbarColor"
-      :timeout="3000"
+      :timeout="snackbarActions ? 8000 : 3500"
       location="bottom"
       :style="{ marginBottom: mobile ? 'env(safe-area-inset-bottom)' : undefined }"
     >
-      {{ snackbarText }}
+      <div class="d-flex align-center flex-wrap ga-2">
+        <span>{{ snackbarText }}</span>
+        <template v-if="snackbarActions">
+          <v-btn
+            size="small"
+            variant="text"
+            @click="router.push({ name: 'sandbox' }); snackbar = false"
+          >
+            Пісочниця
+          </v-btn>
+          <v-btn
+            size="small"
+            variant="text"
+            @click="router.push({ name: 'prompts' }); snackbar = false"
+          >
+            Промпти
+          </v-btn>
+        </template>
+      </div>
     </v-snackbar>
   </v-container>
 </template>
@@ -372,6 +476,8 @@ const router = useRouter();
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  suggestedDiffs?: SuggestedDiff[];
+  libraryDrafts?: LibraryCardHint[];
 }
 
 interface TeachSessionState {
@@ -392,6 +498,13 @@ interface SuggestedDiff {
   summary: string;
 }
 
+interface LibraryCardHint {
+  id: string;
+  slug: string;
+  title?: string;
+  published?: boolean;
+}
+
 interface AppliedResult {
   promptId: string;
   version: number;
@@ -399,6 +512,18 @@ interface AppliedResult {
 }
 
 const suggestionChips = [
+  {
+    label: 'Коротше',
+    text: 'Пиши коротше в Instagram DM: менше абзаців, без води, одна чітка відповідь на питання клієнта.',
+  },
+  {
+    label: 'Подія',
+    text: 'Додай у бібліотеку картку про подію/акцію (дати, умови, що казати клієнту). Не дублюй це в системний промпт.',
+  },
+  {
+    label: 'Бібліотека',
+    text: 'Винеси факт / прайс поза CRM / виняток у картку бібліотеки з aliases; за потреби короткий diff «читай через read_library».',
+  },
   {
     label: 'Доставка',
     text: 'Онови правила доставки: уточни вартість, терміни та безкоштовну доставку, якщо це вже є в знаннях магазину.',
@@ -438,8 +563,10 @@ const streamingText = ref('');
 const lastError = ref<string | null>(null);
 const lastErrorDetail = ref<string | null>(null);
 const lastFailedMessage = ref<string | null>(null);
-const postReplyHint = ref<string | null>(null);
 const currentDiffs = ref<SuggestedDiff[]>([]);
+const savedLibraryCards = ref<LibraryCardHint[]>([]);
+const showInsightsCta = ref(false);
+const publishingLibraryId = ref<string | null>(null);
 const appliedResults = ref<Map<number, AppliedResult>>(new Map());
 const applyingIndex = ref<number | null>(null);
 const batchApplying = ref(false);
@@ -451,12 +578,15 @@ const linkedConversationId = ref<string | null>(null);
 const activeBasePromptId = ref<string | null>(null);
 const activeBaseVersion = ref<number | null>(null);
 
-const confirmActivate = ref<{ diffIdx: number } | null>(null);
+const confirmActivate = ref<{ diffIdx: number } | 'batch' | null>(null);
 const newSessionDialogOpen = ref(false);
+const stalePromptDialogOpen = ref(false);
+const stalePromptVersion = ref<number | null>(null);
 
 const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
+const snackbarActions = ref(false);
 
 let abortController: AbortController | null = null;
 /** Optimistic user bubble for the in-flight request (cleared on done / cancel / error). */
@@ -472,20 +602,37 @@ const activateDialogOpen = computed({
   set: (v) => { if (!v) confirmActivate.value = null; },
 });
 
-watch(currentDiffs, (diffs) => {
-  if (mobile.value && diffs.length > 0) {
-    diffSheetOpen.value = true;
-  }
-});
-
 watch(mobile, (isMobile) => {
   if (!isMobile) diffSheetOpen.value = false;
 });
 
-function showSnackbar(text: string, color = 'success') {
+function showSnackbar(text: string, color = 'success', withActions = false) {
   snackbarText.value = text;
   snackbarColor.value = color;
+  snackbarActions.value = withActions;
   snackbar.value = true;
+}
+
+function looksLikeInsightsRequest(text: string): boolean {
+  return /скільки|статистик|метрик|конверсі|повідомлень|діалогів|insights/i.test(text);
+}
+
+function restoreResultFromMessages(sessionMessages: ChatMessage[]) {
+  for (let i = sessionMessages.length - 1; i >= 0; i -= 1) {
+    const msg = sessionMessages[i];
+    if (msg.role !== 'assistant') continue;
+    if (msg.suggestedDiffs && msg.suggestedDiffs.length > 0) {
+      currentDiffs.value = msg.suggestedDiffs;
+      appliedResults.value = new Map();
+    }
+    if (msg.libraryDrafts && msg.libraryDrafts.length > 0) {
+      savedLibraryCards.value = msg.libraryDrafts.map((c) => ({
+        ...c,
+        published: c.published === true,
+      }));
+    }
+    break;
+  }
 }
 
 async function scrollToBottom() {
@@ -495,17 +642,23 @@ async function scrollToBottom() {
   }
 }
 
-function applySessionState(session: TeachSessionState) {
+function applySessionState(session: TeachSessionState, opts?: { restoreResults?: boolean }) {
   sessionId.value = session.id;
   sessionTitle.value = session.title;
   messageCount.value = session.messageCount;
   exchangeCount.value = session.exchangeCount;
   contextLimit.value = session.contextLimit;
   contextNearFull.value = session.contextNearFull;
-  messages.value = session.messages.map((m) => ({
+  const mapped = session.messages.map((m) => ({
     role: m.role,
     content: m.content,
+    ...(m.suggestedDiffs?.length ? { suggestedDiffs: m.suggestedDiffs } : {}),
+    ...(m.libraryDrafts?.length ? { libraryDrafts: m.libraryDrafts } : {}),
   }));
+  messages.value = mapped;
+  if (opts?.restoreResults) {
+    restoreResultFromMessages(mapped);
+  }
 }
 
 function applyChip(chip: { label: string; text: string }) {
@@ -519,11 +672,11 @@ function clearConversationLink() {
   router.replace({ query: q });
 }
 
-async function loadSession() {
+async function loadSession(opts?: { restoreResults?: boolean }) {
   sessionLoading.value = true;
   try {
     const { data } = await api.get('/meta-agent/teach/session');
-    applySessionState(data.session);
+    applySessionState(data.session, { restoreResults: opts?.restoreResults !== false });
     sessionLoaded.value = true;
     await scrollToBottom();
   } catch (e: any) {
@@ -539,6 +692,8 @@ async function confirmNewSession() {
     const { data } = await api.post('/meta-agent/teach/session/new');
     applySessionState(data.session);
     currentDiffs.value = [];
+    savedLibraryCards.value = [];
+    showInsightsCta.value = false;
     appliedResults.value = new Map();
     inputText.value = '';
     lastError.value = null;
@@ -596,7 +751,7 @@ async function sendMessage() {
   lastError.value = null;
   lastErrorDetail.value = null;
   lastFailedMessage.value = null;
-  postReplyHint.value = null;
+  showInsightsCta.value = looksLikeInsightsRequest(text);
   const optimisticUser: ChatMessage = { role: 'user', content: text };
   inFlightOptimisticUser = optimisticUser;
   streamTerminalReceived = false;
@@ -606,6 +761,7 @@ async function sendMessage() {
   streamStageLabel.value = 'Готую контекст…';
   streamingText.value = '';
   currentDiffs.value = [];
+  savedLibraryCards.value = [];
   appliedResults.value = new Map();
   diffSheetOpen.value = false;
   await scrollToBottom();
@@ -650,26 +806,43 @@ async function sendMessage() {
           streamStageLabel.value = '';
 
           const savedCards = payload.savedLibraryDrafts ?? [];
+          savedLibraryCards.value = savedCards.map((c) => ({
+            id: c.id,
+            slug: c.slug,
+            title: (c as { title?: string }).title,
+            published: false,
+          }));
+
+          const replyLower = (payload.reply || '').toLowerCase();
+          if (replyLower.includes('/insights') || replyLower.includes('ai-помічник')) {
+            showInsightsCta.value = true;
+          }
+
           if (currentDiffs.value.length > 0) {
-            diffSheetOpen.value = true;
-            postReplyHint.value =
-              savedCards.length > 0
-                ? `Є правки промпту. Чернетку картки збережено (${savedCards.map((c) => c.slug).join(', ')}). Увімкніть її в Бібліотеці.`
-                : 'Є запропоновані правки — збережіть як чернетку або активуйте, щоб змінити системний промпт.';
-            showSnackbar('Є запропоновані правки — збережіть або активуйте', 'info');
-          } else if (savedCards.length > 0) {
-            postReplyHint.value = `Чернетку картки збережено: ${savedCards.map((c) => c.slug).join(', ')}. У хід вона піде після вмикання в Бібліотеці.`;
+            showSnackbar('Є правки — перегляньте й застосуйте', 'info');
+          } else if (savedLibraryCards.value.length > 0) {
             showSnackbar('Чернетку картки збережено', 'info');
-          } else {
-            postReplyHint.value =
-              'Відповідь без правок промпту — уточніть, що саме змінити в правилах (конкретний фрагмент).';
           }
         },
         onError: (err) => {
           streamTerminalReceived = true;
           removeInFlightOptimistic();
           if (err.aborted) {
-            // cancelStream already snackbars + reloads; avoid duplicate error UI
+            return;
+          }
+          if (err.recoverable) {
+            void (async () => {
+              await loadSession({ restoreResults: true });
+              const last = [...messages.value].reverse().find((m) => m.role === 'assistant');
+              if (last?.content?.trim()) {
+                lastError.value = null;
+                showSnackbar('Відповідь відновлено після обриву стріму', 'info');
+              } else {
+                lastFailedMessage.value = text;
+                lastError.value = 'Стрім обірвався. Спробуйте ще раз.';
+                showSnackbar(lastError.value, 'error');
+              }
+            })();
             return;
           }
           lastFailedMessage.value = text;
@@ -679,7 +852,7 @@ async function sendMessage() {
           );
           lastErrorDetail.value = detailParts.length > 0 ? detailParts.join(' · ') : null;
           showSnackbar(lastError.value, 'error');
-          void loadSession();
+          void loadSession({ restoreResults: true });
         },
       },
       signal,
@@ -691,19 +864,19 @@ async function sendMessage() {
       lastFailedMessage.value = text;
       lastError.value = 'Стрім обірвався без відповіді. Спробуйте ще раз.';
       showSnackbar(lastError.value, 'error');
-      await loadSession();
+      await loadSession({ restoreResults: true });
     } else if (!streamTerminalReceived && signal.aborted) {
       removeInFlightOptimistic();
-      await loadSession();
+      await loadSession({ restoreResults: true });
     }
   } catch (e: any) {
     removeInFlightOptimistic();
     if (e?.name === 'AbortError') {
-      await loadSession();
+      await loadSession({ restoreResults: true });
     } else {
       lastFailedMessage.value = text;
       lastError.value = e?.message || 'Помилка стріму';
-      await loadSession();
+      await loadSession({ restoreResults: true });
       showSnackbar(lastError.value!, 'error');
     }
   } finally {
@@ -722,6 +895,21 @@ function retryLast() {
   void sendMessage();
 }
 
+function handleStalePromptConflict(e: any) {
+  const newActive = e.response?.data?.currentActiveVersion;
+  stalePromptVersion.value = typeof newActive === 'number' ? newActive : null;
+  stalePromptDialogOpen.value = true;
+  currentDiffs.value = [];
+  appliedResults.value = new Map();
+  diffSheetOpen.value = false;
+}
+
+async function reloadAfterStalePrompt() {
+  stalePromptDialogOpen.value = false;
+  await loadActiveBase();
+  showSnackbar('Базу оновлено — сформулюйте запит ще раз', 'info');
+}
+
 async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
   const diff = currentDiffs.value[idx];
   if (!diff || applyingIndex.value !== null || batchApplying.value) return;
@@ -729,12 +917,16 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
   const activate = opts.activate === true;
   applyingIndex.value = idx;
   try {
+    const publishIds = savedLibraryCards.value
+      .filter((c) => !c.published)
+      .map((c) => c.id);
     const { data } = await api.post('/meta-agent/apply', {
       before: diff.before,
       after: diff.after,
       summary: diff.summary,
       activate,
       basePromptId: activeBasePromptId.value,
+      ...(activate && publishIds.length > 0 ? { publishLibraryIds: publishIds } : {}),
     });
 
     const next = new Map(appliedResults.value);
@@ -750,26 +942,24 @@ async function applyDiffAt(idx: number, opts: { activate?: boolean } = {}) {
       activeBaseVersion.value = data.version;
     }
 
-    showSnackbar(
-      activate
-        ? `v${data.version} активовано`
-        : `Чернетку v${data.version} створено`,
-    );
+    if (Array.isArray(data.publishedLibrary) && data.publishedLibrary.length > 0) {
+      const publishedIds = new Set(data.publishedLibrary.map((c: { id: string }) => c.id));
+      savedLibraryCards.value = savedLibraryCards.value.map((c) =>
+        publishedIds.has(c.id) ? { ...c, published: true } : c,
+      );
+    }
+
+    if (activate) {
+      showSnackbar(`v${data.version} активовано`, 'success', true);
+    } else {
+      showSnackbar(`Чернетку v${data.version} створено`);
+    }
   } catch (e: any) {
     const status = e.response?.status;
     const errorMsg = e.response?.data?.error || 'Не вдалося застосувати';
     if (status === 409) {
-      const newActive = e.response?.data?.currentActiveVersion;
-      currentDiffs.value = [];
-      appliedResults.value = new Map();
-      diffSheetOpen.value = false;
+      handleStalePromptConflict(e);
       await loadActiveBase();
-      showSnackbar(
-        newActive
-          ? `Активний промпт змінився на v${newActive}. Переформулюйте запит.`
-          : errorMsg,
-        'warning',
-      );
     } else {
       showSnackbar(errorMsg, 'error');
     }
@@ -786,6 +976,9 @@ async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean }
 
   batchApplying.value = true;
   try {
+    const publishIds = savedLibraryCards.value
+      .filter((c) => !c.published)
+      .map((c) => c.id);
     const { data } = await api.post('/meta-agent/apply-batch', {
       diffs: pending.map(({ d }) => ({
         before: d.before,
@@ -794,6 +987,7 @@ async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean }
       })),
       activate: opts.activate === true,
       basePromptId: activeBasePromptId.value,
+      ...(opts.activate && publishIds.length > 0 ? { publishLibraryIds: publishIds } : {}),
     });
 
     const next = new Map(appliedResults.value);
@@ -811,11 +1005,18 @@ async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean }
       activeBaseVersion.value = data.version;
     }
 
-    showSnackbar(
-      opts.activate
-        ? `v${data.version} активовано (${pending.length} змін)`
-        : `Чернетку v${data.version} створено (${pending.length} змін)`,
-    );
+    if (Array.isArray(data.publishedLibrary) && data.publishedLibrary.length > 0) {
+      const publishedIds = new Set(data.publishedLibrary.map((c: { id: string }) => c.id));
+      savedLibraryCards.value = savedLibraryCards.value.map((c) =>
+        publishedIds.has(c.id) ? { ...c, published: true } : c,
+      );
+    }
+
+    if (opts.activate) {
+      showSnackbar(`v${data.version} активовано (${pending.length} змін)`, 'success', true);
+    } else {
+      showSnackbar(`Чернетку v${data.version} створено (${pending.length} змін)`);
+    }
 
     if (opts.openSandbox) {
       showSnackbar(
@@ -828,9 +1029,11 @@ async function applyAllDiffs(opts: { activate?: boolean; openSandbox?: boolean }
     const status = e.response?.status;
     const errorMsg = e.response?.data?.error || 'Не вдалося зберегти batch';
     if (status === 409) {
+      handleStalePromptConflict(e);
       await loadActiveBase();
+    } else {
+      showSnackbar(errorMsg, 'error');
     }
-    showSnackbar(errorMsg, 'error');
   } finally {
     batchApplying.value = false;
   }
@@ -844,18 +1047,28 @@ function openActivateConfirm(idx: number) {
   confirmActivate.value = { diffIdx: idx };
 }
 
+function openBatchActivateConfirm() {
+  if (unappliedDiffs.value.length === 0) return;
+  confirmActivate.value = 'batch';
+}
+
 async function confirmActivateNow() {
   if (!confirmActivate.value) return;
-  const idx = confirmActivate.value.diffIdx;
+  const target = confirmActivate.value;
   confirmActivate.value = null;
 
+  if (target === 'batch') {
+    await applyAllDiffs({ activate: true });
+    return;
+  }
+
+  const idx = target.diffIdx;
   const existing = appliedResults.value.get(idx);
   if (existing && !existing.activated) {
     await activateExistingDraft(existing.promptId);
     return;
   }
 
-  // Prefer batch if multiple unapplied
   if (unappliedDiffs.value.length > 1) {
     await applyAllDiffs({ activate: true });
     return;
@@ -881,13 +1094,34 @@ async function activateExistingDraft(promptId: string) {
     if (justActivated) activeBaseVersion.value = justActivated.version;
     else if (data?.version != null) activeBaseVersion.value = data.version;
     const version = data?.version != null ? `v${data.version}` : 'Версію';
-    showSnackbar(
-      `${version} активовано — наступні повідомлення клієнтів використовуватимуть цю версію`,
-    );
+    showSnackbar(`${version} активовано`, 'success', true);
   } catch (e: any) {
     showSnackbar(e.response?.data?.error || 'Не вдалося активувати', 'error');
   } finally {
     activatingPromptId.value = null;
+  }
+}
+
+async function publishLibraryCard(card: LibraryCardHint) {
+  if (card.published || publishingLibraryId.value) return;
+  publishingLibraryId.value = card.id;
+  try {
+    const { data } = await api.post('/meta-agent/publish-library', {
+      publishLibraryIds: [card.id],
+    });
+    const published = Array.isArray(data?.publishedLibrary) ? data.publishedLibrary : [];
+    if (published.some((c: { id: string }) => c.id === card.id)) {
+      savedLibraryCards.value = savedLibraryCards.value.map((c) =>
+        c.id === card.id ? { ...c, published: true } : c,
+      );
+      showSnackbar(`Картку «${card.slug}» опубліковано`);
+    } else {
+      showSnackbar('Картку не знайдено або вже активна', 'warning');
+    }
+  } catch (e: any) {
+    showSnackbar(e.response?.data?.error || 'Не вдалося опублікувати', 'error');
+  } finally {
+    publishingLibraryId.value = null;
   }
 }
 
@@ -927,6 +1161,22 @@ onBeforeUnmount(() => {
 
 .min-width-0 {
   min-width: 0;
+}
+
+.teach-composer-sticky {
+  flex-shrink: 0;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  background: rgb(var(--v-theme-surface));
+}
+
+.teach-result-cards .v-card {
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+.teach-stream-toast {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(var(--v-theme-error), 0.08);
 }
 
 .typing-dots {
