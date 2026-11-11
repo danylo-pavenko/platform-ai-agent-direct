@@ -190,11 +190,20 @@ export function createSaSelfDeploy(deps) {
   async function streamUntilDone(jobId, sessionId, signal) {
     let attempt = 0;
     const maxAttempts = 120;
+    // After API downtime, replay from byte 0 — fromEnd would skip "Done!" written
+    // while the stream was down.
+    let replayFromStart = false;
 
     while (saDeployLog.open && sessionId === session && attempt < maxAttempts) {
       if (signal.aborted) return;
       try {
-        const finished = await streamOnce(jobId, attempt > 0, sessionId, signal);
+        if (replayFromStart) {
+          saDeployLog.html = '';
+          appendLine('[stream] replaying log after API restart…', sessionId);
+        }
+        const fromEnd = attempt > 0 && !replayFromStart;
+        const finished = await streamOnce(jobId, fromEnd, sessionId, signal);
+        replayFromStart = false;
         if (sessionId !== session || signal.aborted) return;
         const st = await refreshStatus();
         if (finished || !st?.running) return;
@@ -206,10 +215,25 @@ export function createSaSelfDeploy(deps) {
         if (isAbortError(e) || sessionId !== session || signal.aborted) return;
         // Expected while PM2 restarts SA-api
         const st = await refreshStatus();
-        if (st && !st.running) return;
+        if (st && !st.running) {
+          // Job finished while we were down — one full replay to catch the ending.
+          replayFromStart = true;
+          try {
+            saDeployLog.html = '';
+            await streamOnce(jobId, false, sessionId, signal);
+          } catch { /* ignore */ }
+          return;
+        }
 
         attempt += 1;
+        replayFromStart = true;
         const msg = (e && e.message) ? e.message : String(e);
+        if (attempt === 1) {
+          appendLine(
+            '[stream] SA-api restarting (expected) — waiting for health…',
+            sessionId,
+          );
+        }
         appendLine(`[stream] ${msg} — waiting for API… (${attempt})`, sessionId);
         await sleepMs(Math.min(1500 + attempt * 400, 6000));
       }
@@ -259,7 +283,8 @@ export function createSaSelfDeploy(deps) {
     const ok = window.confirm(
       'Оновити Super Admin?\n\n'
       + 'Запустить git pull + build + PM2 restart (deploy-super-admin.sh).\n'
-      + 'UI може коротко відключитися — лог можна відкрити знову після рестарту.',
+      + 'Під час рестарту API (~5–20 с) можливий 502 — це очікувано.\n'
+      + 'Лог підхопиться знову, коли SA підніметься.',
     );
     if (!ok) return;
 

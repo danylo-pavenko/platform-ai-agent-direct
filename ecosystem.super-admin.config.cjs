@@ -14,6 +14,9 @@ module.exports = {
       node_args: '--enable-source-maps',
       instances: 1,
       exec_mode: 'fork', // avoid cluster kill quirks; single process is enough for SA
+      // Self-deploy runs deploy-super-admin.sh outside SA-api; default kill_tree
+      // still murders that job on pm2 delete/restart. Keep the tree local to SA-api.
+      kill_tree: false,
       autorestart: true,
       max_restarts: 20,
       min_uptime: '10s',

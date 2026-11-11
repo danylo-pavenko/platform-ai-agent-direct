@@ -97,10 +97,13 @@ function isPidAlive(pid: number | null | undefined): boolean {
 }
 
 function lockHeld(): boolean {
-  // Linux flock file is not a reliable "held" signal without flock(2);
-  // mkdir lock dir is the portable indicator used by the wrapper fallback.
+  // Presence markers (wrapper creates running.lockdir; flock alone is invisible).
   // startGate stays for the whole job (incl. daemonize parent→child hop).
-  return existsSync(resolve(deployDir(), 'flock.lockdir')) || existsSync(startGatePath());
+  return (
+    existsSync(resolve(deployDir(), 'running.lockdir')) ||
+    existsSync(resolve(deployDir(), 'flock.lockdir')) ||
+    existsSync(startGatePath())
+  );
 }
 
 function parseJob(raw: unknown): SaSelfDeployJob | null {

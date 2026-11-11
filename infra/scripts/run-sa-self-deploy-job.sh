@@ -19,6 +19,7 @@ JOB_ID="${SA_SELF_DEPLOY_JOB_ID:?SA_SELF_DEPLOY_JOB_ID required}"
 SCRIPT="${SA_SELF_DEPLOY_SCRIPT:?SA_SELF_DEPLOY_SCRIPT required}"
 LOCK_FILE="${DIR}/deploy.lock"
 LOCK_DIR="${DIR}/flock.lockdir"
+RUNNING_DIR="${DIR}/running.lockdir"
 JOB_JSON="${DIR}/job.json"
 LOG="${DIR}/current.log"
 START_GATE="${DIR}/starting.lockdir"
@@ -32,12 +33,17 @@ touch "${LOG}"
 if [ "${SA_SELF_DEPLOY_DAEMONIZED:-}" != "1" ]; then
   export SA_SELF_DEPLOY_DAEMONIZED=1
   echo "[self-deploy] daemonizing (survive PM2 kill_tree)..." >>"${LOG}"
+  # Prefer util-linux `setsid -f` (fork into new session, parent returns).
   if command -v setsid >/dev/null 2>&1; then
+    if setsid -f bash "$0" "$@" </dev/null >>"${LOG}" 2>&1; then
+      exit 0
+    fi
+    # Older setsid without -f: background ourselves.
     setsid bash "$0" "$@" </dev/null >>"${LOG}" 2>&1 &
-  else
-    nohup bash "$0" "$@" </dev/null >>"${LOG}" 2>&1 &
+    exit 0
   fi
-  # Parent exits; startGate stays until the daemon finishes.
+  # Last resort: double-fork via subshell + nohup (macOS / busybox).
+  ( nohup bash "$0" "$@" </dev/null >>"${LOG}" 2>&1 & )
   exit 0
 fi
 
@@ -47,6 +53,7 @@ release_lock() {
     :
   fi
   rmdir "${LOCK_DIR}" 2>/dev/null || true
+  rm -rf "${RUNNING_DIR}" 2>/dev/null || true
 }
 
 acquire_lock() {
@@ -71,6 +78,11 @@ if ! acquire_lock; then
   rm -rf "${START_GATE}" 2>/dev/null || true
   exit 1
 fi
+
+# Presence marker for Node reconcileStale (flock FD alone is invisible to lockHeld()).
+rm -rf "${RUNNING_DIR}" 2>/dev/null || true
+mkdir "${RUNNING_DIR}" 2>/dev/null || true
+echo $$ >"${RUNNING_DIR}/pid" 2>/dev/null || true
 
 trap 'release_lock; rm -rf "${START_GATE}" 2>/dev/null || true' EXIT
 
@@ -142,7 +154,7 @@ with open(path, "w", encoding="utf-8") as f:
 PY
 }
 
-echo "[self-deploy] job=${JOB_ID} pid=$$" >>"${LOG}"
+echo "[self-deploy] job=${JOB_ID} pid=$$ ppid=$PPID (daemonized session)" >>"${LOG}"
 echo "[self-deploy] script=${SCRIPT}" >>"${LOG}"
 write_job "running" "" "" ""
 
