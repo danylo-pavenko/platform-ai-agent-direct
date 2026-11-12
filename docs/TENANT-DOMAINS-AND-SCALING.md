@@ -202,7 +202,7 @@ bash infra/scripts/install-sa-watchdog-cron.sh
 # лог: ~/.pm2/logs/sa-watchdog.log
 ```
 
-**Analytics (флот):** Super Admin → **Analytics** (`/analytics`). Fan-out на `GET {tenant}/supervisor/analytics?period=7d|30d|90d` (X-Supervisor-Token): воронка (написали → прийняв агент → результат), Claude drops (busy/timeout), активна версія промпта + історія, platform version vs SA. Потрібні оновлені SA і Deploy кожного клієнта.
+**Analytics (флот):** Super Admin → **Analytics** (`/analytics`). UI спочатку читає кеш `tenant_analytics_cache` у SA DB, потім `POST /api/analytics/fleet/refresh` робить fan-out на `GET {tenant}/supervisor/analytics?period=7d|30d|90d` (X-Supervisor-Token) і зберігає знімки. Метрики: воронка, Claude drops, промпт, platform version, останній логін адміна. Потрібні оновлені SA і Deploy клієнтів.
 
 **Tenant DB backups (MinIO/S3):** ключі **не** в `.env` — у Super Admin → **Workers → Edit → Backup storage** (окремо на кожен worker). Сторінка **Backups**: список дампів, Backup now, Restore (confirm instanceId). Перед Deploy і перед Restore — safety dump. Nightly з SA-хоста:
 

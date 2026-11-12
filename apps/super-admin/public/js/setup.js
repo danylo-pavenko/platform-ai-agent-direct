@@ -170,12 +170,16 @@ export function setup() {
   const backupLogEl = ref(null);
   const analytics = reactive({
     loading: false,
+    refreshing: false,
     error: '',
     summary: null,
     rows: [],
     generatedAt: null,
+    source: null,
+    stale: false,
     detailOpen: false,
     detailLoading: false,
+    detailRefreshing: false,
     detail: null,
     detailError: '',
   });

@@ -14,6 +14,9 @@ const ALERT_LABELS = {
 export function createAnalytics(deps) {
   const { analytics, analyticsFilter, authHeaders, logout } = deps;
 
+  let fleetRefreshGen = 0;
+  let detailRefreshGen = 0;
+
   function pct(v) {
     if (v == null || Number.isNaN(v)) return '—';
     return `${Math.round(v * 100)}%`;
@@ -75,12 +78,60 @@ export function createAnalytics(deps) {
     return 'an-ok';
   }
 
+  function applyFleetPayload(d) {
+    analytics.summary = d.summary || null;
+    analytics.rows = d.tenants || [];
+    analytics.generatedAt = d.generatedAt || null;
+    analytics.source = d.source || null;
+    analytics.stale = !!d.stale;
+  }
+
+  async function refreshFleetLive(gen) {
+    analytics.refreshing = true;
+    analytics.error = '';
+    try {
+      const qs = new URLSearchParams({ period: analyticsFilter.period || '7d' });
+      const r = await fetch(`${BASE}/analytics/fleet/refresh?${qs}`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (gen !== fleetRefreshGen) return;
+      if (r.status === 401) {
+        logout();
+        return;
+      }
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        // Keep cached rows visible; only show error if we have nothing.
+        if (!analytics.rows.length) {
+          analytics.error = d.error || `HTTP ${r.status}`;
+        }
+        return;
+      }
+      const d = await r.json();
+      if (gen !== fleetRefreshGen) return;
+      applyFleetPayload(d);
+      analytics.error = '';
+    } catch (e) {
+      if (gen !== fleetRefreshGen) return;
+      if (!analytics.rows.length) {
+        analytics.error = e.message || 'Network error';
+      }
+    } finally {
+      if (gen === fleetRefreshGen) analytics.refreshing = false;
+    }
+  }
+
+  /** Cache-first paint, then live refresh in background. */
   async function loadFleetAnalytics() {
+    const gen = ++fleetRefreshGen;
     analytics.loading = true;
     analytics.error = '';
     try {
       const qs = new URLSearchParams({ period: analyticsFilter.period || '7d' });
       const r = await fetch(`${BASE}/analytics/fleet?${qs}`, { headers: authHeaders() });
+      if (gen !== fleetRefreshGen) return;
       if (r.status === 401) {
         logout();
         return;
@@ -88,56 +139,92 @@ export function createAnalytics(deps) {
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
         analytics.error = d.error || `HTTP ${r.status}`;
-        analytics.rows = [];
-        analytics.summary = null;
-        return;
+      } else {
+        const d = await r.json();
+        if (gen !== fleetRefreshGen) return;
+        applyFleetPayload(d);
       }
-      const d = await r.json();
-      analytics.summary = d.summary || null;
-      analytics.rows = d.tenants || [];
-      analytics.generatedAt = d.generatedAt || null;
     } catch (e) {
+      if (gen !== fleetRefreshGen) return;
       analytics.error = e.message || 'Network error';
-      analytics.rows = [];
-      analytics.summary = null;
     } finally {
-      analytics.loading = false;
+      if (gen === fleetRefreshGen) analytics.loading = false;
+    }
+
+    // Always refresh live after cache (even if cache was empty).
+    if (gen === fleetRefreshGen) {
+      void refreshFleetLive(gen);
     }
   }
 
   async function openAnalyticsDetail(row) {
     if (!row?.tenantId) return;
+    const gen = ++detailRefreshGen;
     analytics.detailOpen = true;
     analytics.detailLoading = true;
-    analytics.detail = null;
+    analytics.detail = row.ok ? row : null;
     analytics.detailError = '';
+    analytics.detailRefreshing = false;
+
     try {
       const qs = new URLSearchParams({ period: analyticsFilter.period || '7d' });
       const r = await fetch(`${BASE}/analytics/tenants/${row.tenantId}?${qs}`, {
         headers: authHeaders(),
       });
+      if (gen !== detailRefreshGen) return;
       if (r.status === 401) {
         logout();
         return;
       }
       if (!r.ok) {
         const d = await r.json().catch(() => ({}));
-        analytics.detailError = d.error || `HTTP ${r.status}`;
+        if (!analytics.detail) analytics.detailError = d.error || `HTTP ${r.status}`;
+      } else {
+        const d = await r.json();
+        if (gen !== detailRefreshGen) return;
+        analytics.detail = d.tenant || null;
+      }
+    } catch (e) {
+      if (gen !== detailRefreshGen) return;
+      if (!analytics.detail) analytics.detailError = e.message || 'Network error';
+    } finally {
+      if (gen === detailRefreshGen) analytics.detailLoading = false;
+    }
+
+    // Background live refresh for this tenant
+    if (gen !== detailRefreshGen) return;
+    analytics.detailRefreshing = true;
+    try {
+      const qs = new URLSearchParams({ period: analyticsFilter.period || '7d' });
+      const r = await fetch(`${BASE}/analytics/tenants/${row.tenantId}/refresh?${qs}`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (gen !== detailRefreshGen) return;
+      if (r.status === 401) {
+        logout();
         return;
       }
-      const d = await r.json();
-      analytics.detail = d.tenant || null;
-    } catch (e) {
-      analytics.detailError = e.message || 'Network error';
+      if (r.ok) {
+        const d = await r.json();
+        if (gen !== detailRefreshGen) return;
+        analytics.detail = d.tenant || null;
+        analytics.detailError = '';
+      }
+    } catch {
+      // keep cached detail
     } finally {
-      analytics.detailLoading = false;
+      if (gen === detailRefreshGen) analytics.detailRefreshing = false;
     }
   }
 
   function closeAnalyticsDetail() {
+    detailRefreshGen += 1;
     analytics.detailOpen = false;
     analytics.detail = null;
     analytics.detailError = '';
+    analytics.detailRefreshing = false;
   }
 
   return {

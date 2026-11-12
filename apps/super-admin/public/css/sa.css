@@ -525,6 +525,10 @@ tr:hover td { background: var(--surface2); }
 
 /* ── Analytics ── */
 .an-intro { color: var(--muted); margin-bottom: 16px; max-width: 860px; line-height: 1.45; }
+.an-refresh-banner {
+  margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; font-size: 12px;
+  background: rgba(124,110,255,.12); color: var(--accent2); border: 1px solid rgba(124,110,255,.25);
+}
 .an-error { color: var(--danger); margin-bottom: 12px; }
 .an-period {
   background: var(--surface2); border: 1px solid var(--border); color: var(--text);

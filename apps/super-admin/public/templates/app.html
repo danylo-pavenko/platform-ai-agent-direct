@@ -441,8 +441,8 @@
               <option value="30d">30 днів</option>
               <option value="90d">90 днів</option>
             </select>
-            <button class="btn btn-ghost" @click="loadFleetAnalytics" :disabled="analytics.loading">
-              {{ analytics.loading ? 'Завантаження…' : 'Refresh' }}
+            <button class="btn btn-ghost" @click="loadFleetAnalytics" :disabled="analytics.loading || analytics.refreshing">
+              {{ analytics.refreshing ? 'Оновлення…' : (analytics.loading ? 'Кеш…' : 'Refresh') }}
             </button>
           </div>
         </div>
@@ -450,10 +450,11 @@
           <p class="an-intro">
             Флот по тенантах: кого прийняв агент, скільки довів до результату (замовлення / запис),
             де падає Claude, яка версія промпта активна і чи відстає platform version від SA.
-            Дані з кожного tenant API через supervisor (без PII).
-            Потрібні оновлені SA + Deploy клієнта (endpoint <code>/supervisor/analytics</code>).
+            Спочатку кеш із БД SA, потім live-оновлення з tenant API (без PII).
+            Потрібні Deploy клієнта (endpoint <code>/supervisor/analytics</code>).
           </p>
 
+          <div v-if="analytics.refreshing" class="an-refresh-banner">Оновлюємо з тенантів у фоні…</div>
           <div v-if="analytics.error" class="an-error">{{ analytics.error }}</div>
 
           <div class="stats" v-if="analytics.summary">
@@ -515,8 +516,11 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="!analytics.loading && !analytics.rows.length">
+                <tr v-if="!analytics.loading && !analytics.refreshing && !analytics.rows.length">
                   <td colspan="10" style="color:var(--muted)">Немає даних. Оновіть або перевірте, що тенанти online.</td>
+                </tr>
+                <tr v-else-if="analytics.loading && !analytics.rows.length">
+                  <td colspan="10" style="color:var(--muted)">Читаємо кеш…</td>
                 </tr>
                 <tr
                   v-for="row in analytics.rows"
@@ -605,7 +609,12 @@
               </tbody>
             </table>
           </div>
-          <p v-if="analytics.generatedAt" class="an-footer">Оновлено {{ analyticsFormatWhen(analytics.generatedAt) }}</p>
+          <p v-if="analytics.generatedAt || analytics.refreshing" class="an-footer">
+            <span v-if="analytics.generatedAt">Кеш {{ analyticsFormatWhen(analytics.generatedAt) }}</span>
+            <span v-if="analytics.source" class="an-muted"> · {{ analytics.source }}</span>
+            <span v-if="analytics.refreshing" class="an-muted"> · оновлення…</span>
+            <span v-else-if="analytics.stale" class="an-warn-text"> · неповний кеш</span>
+          </p>
         </div>
 
         <!-- Detail drawer -->
@@ -613,9 +622,10 @@
           <div class="modal an-detail-modal" @click.stop>
             <h2 v-if="analytics.detail">{{ analytics.detail.name }}
               <small class="an-muted">({{ analytics.detail.instanceId }})</small>
+              <small v-if="analytics.detailRefreshing" class="an-muted"> · оновлення…</small>
             </h2>
             <h2 v-else>Деталі</h2>
-            <div v-if="analytics.detailLoading">Завантаження…</div>
+            <div v-if="analytics.detailLoading && !analytics.detail">Завантаження…</div>
             <div v-else-if="analytics.detailError" style="color:var(--danger)">{{ analytics.detailError }}</div>
             <div v-else-if="analytics.detail && !analytics.detail.ok">
               <p style="color:var(--danger)">Тенант недоступний: {{ analytics.detail.error }}</p>
