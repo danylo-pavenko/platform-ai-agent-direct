@@ -1056,337 +1056,408 @@
       </v-card>
       </div>
 
-      <div v-if="activeSection === 'settings-agent'" class="settings-section">
-      <!-- Agent type & SLA (agent_config) -->
-      <v-card id="settings-agent" class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="deep-purple">mdi-account-tie</v-icon>
-          Тип агента та SLA
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Визначає, які інструменти має агент та як поводиться поза робочими годинами.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-row dense>
-            <v-col cols="12" sm="6">
+      <div v-if="activeSection === 'settings-agent'" id="settings-agent" class="settings-section settings-agent">
+        <header class="settings-agent__intro">
+          <h2 class="settings-agent__title">Агент і SLA</h2>
+          <p class="settings-agent__lead">
+            Як бот відповідає в Instagram, коли чекає менеджер і що писати клієнту, якщо агент не встиг.
+          </p>
+        </header>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--violet">
+              <v-icon size="20">mdi-robot-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Режим роботи</h3>
+              <p class="settings-widget__desc">Які сценарії доступні агенту і що робити поза робочими годинами.</p>
+            </div>
+          </div>
+          <div class="settings-widget__body settings-widget__body--grid">
+            <div class="settings-field">
+              <label class="settings-field__label">Режим агента</label>
               <v-select
                 v-model="agentConfig.mode"
-                :items="[
-                  {
-                    title: 'General — усі tools (sales + leadgen + booking)',
-                    value: 'general',
-                  },
-                  { title: 'Продажі (sales) — замовлення, каталог, доставка', value: 'sales' },
-                  { title: 'Лідген (leadgen) — бриф, кваліфікація ліда', value: 'leadgen' },
-                  { title: 'Запис (booking) — салон, послуги, CleverBOX/BeautyPro', value: 'booking' },
-                ]"
+                :items="agentModeItems"
                 item-title="title"
                 item-value="value"
-                label="Режим агента"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                <strong>general</strong> (за замовчуванням): усі tools разом;
-                <strong>sales</strong>: collect_order; <strong>leadgen</strong>: submit_brief;
-                <strong>booking</strong>: search_services + book/cancel/reschedule.
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
+              <p class="settings-field__hint">
+                {{ agentModeHint }}
+              </p>
+            </div>
+            <div class="settings-field">
+              <label class="settings-field__label">Поза робочими годинами</label>
               <v-select
                 v-model="agentConfig.outOfHoursStrategy"
                 :items="[
-                  { title: 'Попередити одразу (warn_early)', value: 'warn_early' },
-                  { title: 'Повідомити в кінці розмови (defer_to_end)', value: 'defer_to_end' },
+                  { title: 'Попередити одразу', value: 'warn_early' },
+                  { title: 'Сказати в кінці розмови', value: 'defer_to_end' },
                 ]"
                 item-title="title"
                 item-value="value"
-                label="Поведінка поза годинами"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                <strong>warn_early</strong> для продажів, <strong>defer_to_end</strong> для лідгену (не переривати бриф).
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
+              <p class="settings-field__hint">
+                «Одразу» — для продажів. «В кінці» — щоб не перебивати збір брифу.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--blue">
+              <v-icon size="20">mdi-timer-sand</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Час очікування</h3>
+              <p class="settings-widget__desc">SLA менеджера, «свіжість» діалогу і пауза перед відповіддю бота.</p>
+            </div>
+          </div>
+          <div class="settings-widget__body settings-widget__body--grid">
+            <div class="settings-field">
+              <label class="settings-field__label">SLA менеджера</label>
               <v-text-field
                 v-model.number="agentConfig.managerSlaHoursBusiness"
                 type="number"
                 min="1"
                 max="48"
-                label="SLA відповіді менеджера (робочих годин)"
+                suffix="год"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Робочі години без відповіді менеджера після ескалації. У Telegram — одна картка
-                ескалації, далі лише одне нагадування якщо клієнт чекає довше цього SLA (не кожне
-                повідомлення). Якщо «Повернути боту» коротше за SLA, бот може підхопити тред раніше.
-                Також плейсхолдер
-                <code v-pre>{{MANAGER_SLA_HOURS}}</code> у промпті.
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
+              <p class="settings-field__hint">
+                Скільки робочих годин чекати відповіді менеджера після ескалації. В Telegram — одне нагадування, не на кожне повідомлення.
+              </p>
+            </div>
+            <div class="settings-field">
+              <label class="settings-field__label">Нова розмова після тиші</label>
               <v-text-field
                 v-model.number="agentConfig.sessionFreshnessDays"
                 type="number"
                 min="1"
                 max="90"
-                label="Свіжість розмови (днів)"
+                suffix="днів"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Після стількох днів тиші нова вхідна відкриває нову розмову (і з бота, і з handoff). Коротша пауза лишає той самий діалог.
-              </div>
-            </v-col>
-            <v-col cols="12">
-              <v-switch
-                v-model="agentConfig.respondAdsOnly"
-                color="primary"
-                density="compact"
-                hide-details
-                label="Відповідати лише на звернення з реклами (CTD)"
-              />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Бот відповідає лише в тредах з Instagram Click-to-Direct (є referral). Звичайні DM —
-                soft-handoff менеджеру без відповіді клієнту; після «Повернути боту» / idle TTL бот підхоплює.
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
+              <p class="settings-field__hint">
+                Після стількох днів без повідомлень нова вхідна відкриє новий діалог (і з бота, і з handoff).
+              </p>
+            </div>
+            <div class="settings-field">
+              <label class="settings-field__label">Пауза відповіді · від</label>
               <v-text-field
                 v-model.number="agentConfig.responseDelayMinSeconds"
                 type="number"
                 min="0"
                 max="60"
-                label="Затримка відповіді: від (сек)"
+                suffix="сек"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                0 = відповідати одразу після coalesce. Typing показується під час паузи.
-              </div>
-            </v-col>
-            <v-col cols="12" sm="6">
+              <p class="settings-field__hint">0 — відповідати одразу. Під час паузи клієнт бачить «друкує…».</p>
+            </div>
+            <div class="settings-field">
+              <label class="settings-field__label">Пауза відповіді · до</label>
               <v-text-field
                 v-model.number="agentConfig.responseDelayMaxSeconds"
                 type="number"
                 min="0"
                 max="60"
-                label="Затримка відповіді: до (сек)"
+                suffix="сек"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 hide-details
+                class="settings-field__control"
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Випадкова пауза в діапазоні [від; до], макс. 60 с. Якщо рівні — фіксована затримка.
+              <p class="settings-field__hint">Випадкова пауза в діапазоні. Якщо від = до — фіксована затримка (макс. 60 с).</p>
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="settings-widget settings-widget--accent"
+          :class="{ 'settings-widget--on': agentConfig.respondAdsOnly }"
+        >
+          <div class="settings-widget__head settings-widget__head--row">
+            <div class="settings-widget__head-text">
+              <div class="settings-widget__icon settings-widget__icon--orange">
+                <v-icon size="20">mdi-bullhorn-outline</v-icon>
               </div>
-            </v-col>
-            <v-col cols="12">
+              <div>
+                <h3 class="settings-widget__title">Лише звернення з реклами</h3>
+                <p class="settings-widget__desc">
+                  Бот відповідає тільки в тредах із Instagram Click-to-Direct (є referral від Meta).
+                </p>
+              </div>
+            </div>
+            <v-switch
+              v-model="agentConfig.respondAdsOnly"
+              color="deep-orange"
+              :density="density"
+              hide-details
+              class="settings-widget__switch"
+              aria-label="Лише звернення з реклами"
+            />
+          </div>
+          <div class="settings-callout">
+            <p>
+              Звичайні DM без реклами йдуть менеджеру <strong>без відповіді бота</strong>.
+              Після «Повернути боту» або idle TTL бот знову підхоплює тред.
+            </p>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--green">
+              <v-icon size="20">mdi-credit-card-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Реквізити для оплати</h3>
+              <p class="settings-widget__desc">
+                Текст кнопки «Реквізити» в чаті розмови. Якщо порожньо — кнопка не спрацює.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-field settings-field--full">
+              <label class="settings-field__label">Картка / IBAN / ФОП</label>
               <v-textarea
                 v-model="agentConfig.paymentRequisites"
-                label="Реквізити для оплати (кнопка в діалозі)"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 rows="4"
                 auto-grow
                 hide-details
-                placeholder="Картка / IBAN / ФОП… Після оплати надішліть скрін квитанції."
+                class="settings-field__control"
+                placeholder="Після оплати надішліть скрін квитанції."
               />
-              <div class="text-caption text-medium-emphasis mt-1">
-                Текст, який менеджер надсилає клієнту кнопкою «Реквізити» в чаті розмови. Порожньо — кнопка поверне помилку.
-              </div>
-            </v-col>
-          </v-row>
-        </v-card-text>
-      </v-card>
-
-      <!-- Fallback messages (busy / timeout) per language -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="orange-darken-2">mdi-message-alert-outline</v-icon>
-          Fallback-повідомлення
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Надсилається клієнту, коли Claude busy або timeout. Мова береться з профілю клієнта
-          (автодетект uk/en з повідомлень). Порожнє поле → дефолт.
-        </v-card-subtitle>
-        <v-card-text>
-          <div class="text-subtitle-2 mb-2">Timeout (агент не встиг)</div>
-          <v-textarea
-            v-model="agentConfig.fallbackMessages.timeout.uk"
-            label="Українською (uk)"
-            variant="outlined"
-            density="compact"
-            rows="2"
-            auto-grow
-            class="mb-2"
-            hide-details
-          />
-          <v-textarea
-            v-model="agentConfig.fallbackMessages.timeout.en"
-            label="English (en)"
-            variant="outlined"
-            density="compact"
-            rows="2"
-            auto-grow
-            class="mb-4"
-            hide-details
-          />
-          <div class="text-subtitle-2 mb-2">Busy (черга перевантажена)</div>
-          <v-textarea
-            v-model="agentConfig.fallbackMessages.busy.uk"
-            label="Українською (uk)"
-            variant="outlined"
-            density="compact"
-            rows="2"
-            auto-grow
-            class="mb-2"
-            hide-details
-          />
-          <v-textarea
-            v-model="agentConfig.fallbackMessages.busy.en"
-            label="English (en)"
-            variant="outlined"
-            density="compact"
-            rows="2"
-            auto-grow
-            hide-details
-          />
-        </v-card-text>
-      </v-card>
-
-      <!-- Smart-trigger: agent remarketing after client silence -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="teal">mdi-bell-ring-outline</v-icon>
-          Smart-trigger (ремаркетинг)
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Якщо бот написав, а клієнт не відповів — після паузи (у годинах) агент один раз напише
-          контекстний ремаркетинг за системним промптом і історією діалогу.
-          Джоба ставиться в чергу одразу після відповіді бота; Claude викликається лише в запланований час
-          (не сканує всі чати). Після відповіді клієнта черга скасовується.
-          Для Instagram — лише в межах ~24 год messaging window Meta (макс. затримка 24 год, дефолт 18).
-        </v-card-subtitle>
-        <v-card-text>
-          <v-switch
-            v-model="followUpConfig.enabled"
-            label="Увімкнути Smart-trigger (ремаркетинг)"
-            color="teal"
-            hide-details
-            class="mb-3"
-          />
-          <v-text-field
-            v-model.number="followUpConfig.delayHours"
-            type="number"
-            min="1"
-            max="24"
-            label="Затримка (годин)"
-            variant="outlined"
-            density="compact"
-            hint="За замовчуванням 18 год, максимум 24 (вікно Meta для Instagram). Текст пише агент, не шаблон."
-            persistent-hint
-            style="max-width: 280px"
-            :disabled="!followUpConfig.enabled"
-          />
-        </v-card-text>
-      </v-card>
-
-      <!-- Handoff keywords -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start>mdi-account-switch</v-icon>
-          Передача менеджеру
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Ключові слова, при яких бот автоматично передає розмову менеджеру. AI-агент також сам визначає потребу в ескалації.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-text-field
-            v-model="handoffKeywords"
-            variant="outlined"
-            hide-details
-            placeholder="менеджер, оператор, людина, скарга, повернення"
-          />
-          <div class="text-caption text-medium-emphasis mt-1">Через кому. Приклад: менеджер, оператор, людина, скарга</div>
-          <v-text-field
-            v-model.number="handoffReturnToBotMinutes"
-            class="mt-4"
-            type="number"
-            min="0"
-            max="10080"
-            variant="outlined"
-            hide-details
-            suffix="хв"
-            label="Повернути боту, якщо менеджер не завершив"
-          />
-          <div class="text-caption text-medium-emphasis mt-1">
-            Після перехоплення бот знову підхопить діалог, якщо менеджер не писав клієнту вказаний час.
-            0 — вимкнено. За замовчуванням: 60 хв.
+            </div>
           </div>
-        </v-card-text>
-      </v-card>
+        </section>
 
-      <!-- Feature flags -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start>mdi-toggle-switch</v-icon>
-          Додаткові опції
-        </v-card-title>
-        <v-card-text>
-          <v-switch
-            v-model="featureFlags.auto_handoff"
-            color="primary"
-            hide-details
-            class="mb-3"
-          >
-            <template #label>
-              <div>
-                <strong>Автоматична ескалація</strong>
-                <div class="text-caption text-medium-emphasis">
-                  Бот сам вирішує, коли передати розмову менеджеру (скарга, брак, невпевненість у відповіді).
-                </div>
-              </div>
-            </template>
-          </v-switch>
-          <v-switch
-            v-model="featureFlags.send_typing_indicator"
-            color="primary"
-            hide-details
-          >
-            <template #label>
-              <div>
-                <strong>Індикатор набору</strong>
-                <div class="text-caption text-medium-emphasis">
-                  Показувати "друкує..." в Instagram, поки бот формує відповідь.
-                </div>
-              </div>
-            </template>
-          </v-switch>
-        </v-card-text>
-      </v-card>
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--amber">
+              <v-icon size="20">mdi-message-alert-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Fallback-повідомлення</h3>
+              <p class="settings-widget__desc">
+                Якщо агент не встиг або черга перевантажена. Мова — з картки клієнта. Порожнє поле = стандартний текст.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body settings-widget__body--stack">
+            <div class="settings-fallback-block">
+              <div class="settings-fallback-block__label">Timeout · агент не встиг</div>
+              <v-textarea
+                v-model="agentConfig.fallbackMessages.timeout.uk"
+                label="Українською"
+                variant="outlined"
+                :density="density"
+                rows="2"
+                auto-grow
+                hide-details
+                class="mb-2"
+              />
+              <v-textarea
+                v-model="agentConfig.fallbackMessages.timeout.en"
+                label="English"
+                variant="outlined"
+                :density="density"
+                rows="2"
+                auto-grow
+                hide-details
+              />
+            </div>
+            <div class="settings-fallback-block">
+              <div class="settings-fallback-block__label">Busy · черга перевантажена</div>
+              <v-textarea
+                v-model="agentConfig.fallbackMessages.busy.uk"
+                label="Українською"
+                variant="outlined"
+                :density="density"
+                rows="2"
+                auto-grow
+                hide-details
+                class="mb-2"
+              />
+              <v-textarea
+                v-model="agentConfig.fallbackMessages.busy.en"
+                label="English"
+                variant="outlined"
+                :density="density"
+                rows="2"
+                auto-grow
+                hide-details
+              />
+            </div>
+          </div>
+        </section>
 
-      <!-- Save button (agent settings) -->
-      <v-row class="mb-5">
-        <v-col cols="auto">
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--teal">
+              <v-icon size="20">mdi-bell-ring-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Ремаркетинг після тиші</h3>
+              <p class="settings-widget__desc">
+                Якщо бот написав, а клієнт мовчить — один контекстний follow-up. Для Instagram макс. 24 год (вікно Meta).
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-toggle-row">
+              <div>
+                <div class="settings-toggle-row__title">Увімкнути ремаркетинг</div>
+                <p class="settings-field__hint mb-0">Текст пише агент за історією діалогу, не шаблон.</p>
+              </div>
+              <v-switch
+                v-model="followUpConfig.enabled"
+                color="teal"
+                :density="density"
+                hide-details
+                class="settings-widget__switch"
+              />
+            </div>
+            <div class="settings-field" style="max-width: 220px">
+              <label class="settings-field__label">Чекати</label>
+              <v-text-field
+                v-model.number="followUpConfig.delayHours"
+                type="number"
+                min="1"
+                max="24"
+                suffix="год"
+                variant="outlined"
+                :density="density"
+                hide-details
+                :disabled="!followUpConfig.enabled"
+                class="settings-field__control"
+              />
+              <p class="settings-field__hint">За замовчуванням 18 год.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--slate">
+              <v-icon size="20">mdi-account-switch</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Передача менеджеру</h3>
+              <p class="settings-widget__desc">
+                Слова-тригери для ескалації і коли бот знову підхоплює діалог після менеджера.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-field settings-field--full">
+              <label class="settings-field__label">Ключові слова</label>
+              <v-text-field
+                v-model="handoffKeywords"
+                variant="outlined"
+                :density="density"
+                hide-details
+                class="settings-field__control"
+                placeholder="менеджер, оператор, людина, скарга, повернення"
+              />
+              <p class="settings-field__hint">Через кому. Агент також сам може ескалювати за змістом.</p>
+            </div>
+            <div class="settings-field" style="max-width: 280px">
+              <label class="settings-field__label">Повернути боту</label>
+              <v-text-field
+                v-model.number="handoffReturnToBotMinutes"
+                type="number"
+                min="0"
+                max="10080"
+                suffix="хв"
+                variant="outlined"
+                :density="density"
+                hide-details
+                class="settings-field__control"
+              />
+              <p class="settings-field__hint">
+                Якщо менеджер мовчить стільки хвилин — бот знову відповідає. 0 = вимкнено (дефолт 60).
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--slate">
+              <v-icon size="20">mdi-toggle-switch</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Додатково</h3>
+              <p class="settings-widget__desc">Швидкі перемикачі поведінки бота.</p>
+            </div>
+          </div>
+          <div class="settings-widget__body settings-widget__body--stack">
+            <div class="settings-toggle-row">
+              <div>
+                <div class="settings-toggle-row__title">Автоматична ескалація</div>
+                <p class="settings-field__hint mb-0">
+                  Бот сам передає менеджеру при скарзі, браку даних або невпевненості.
+                </p>
+              </div>
+              <v-switch
+                v-model="featureFlags.auto_handoff"
+                color="primary"
+                :density="density"
+                hide-details
+                class="settings-widget__switch"
+              />
+            </div>
+            <div class="settings-toggle-row">
+              <div>
+                <div class="settings-toggle-row__title">Індикатор «друкує…»</div>
+                <p class="settings-field__hint mb-0">Показувати в Instagram, поки бот формує відповідь.</p>
+              </div>
+              <v-switch
+                v-model="featureFlags.send_typing_indicator"
+                color="primary"
+                :density="density"
+                hide-details
+                class="settings-widget__switch"
+              />
+            </div>
+          </div>
+        </section>
+
+        <div class="settings-agent__save sticky-action-bar">
           <v-btn
             color="primary"
             size="large"
+            block
+            class="settings-agent__save-btn"
             :loading="saving"
             @click="saveSettings"
           >
             <v-icon start>mdi-content-save</v-icon>
             Зберегти налаштування
           </v-btn>
-        </v-col>
-      </v-row>
+        </div>
       </div>
 
       <div v-if="activeSection === 'settings-crm-routing'" class="settings-section">
@@ -2848,6 +2919,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import api from '@/api';
 import { useAuthStore } from '@/stores/auth';
+import { useTouchDensity } from '@/composables/useTouchDensity';
 import { formatPlatformVersion, platformVersion } from '@/lib/platform-version';
 import BranchesCard from '@/components/settings/BranchesCard.vue';
 import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmRoutingCard.vue';
@@ -2871,6 +2943,7 @@ import {
 type SettingsSectionId = string;
 
 const authStore = useAuthStore();
+const { density } = useTouchDensity();
 const settingsNavGroups = buildSettingsNavGroups();
 
 const visibleSettingsNavGroups = computed(() =>
@@ -4572,6 +4645,13 @@ function scheduleScheduleSave() {
 }
 
 type AgentModeValue = 'sales' | 'leadgen' | 'booking' | 'general';
+
+const agentModeItems = [
+  { title: 'General — усі сценарії', value: 'general' as const },
+  { title: 'Продажі — каталог і замовлення', value: 'sales' as const },
+  { title: 'Лідген — бриф і кваліфікація', value: 'leadgen' as const },
+  { title: 'Запис — салон і слоти', value: 'booking' as const },
+];
 type OutOfHoursStrategyValue = 'warn_early' | 'defer_to_end';
 
 interface FallbackLocaleMap {
@@ -4644,6 +4724,19 @@ const agentConfig = ref<AgentConfigShape>({
   autoUpdateEnabled: true,
   fallbackMessages: { ...DEFAULT_FALLBACK_MESSAGES, busy: { ...DEFAULT_FALLBACK_MESSAGES.busy }, timeout: { ...DEFAULT_FALLBACK_MESSAGES.timeout } },
   paymentRequisites: '',
+});
+
+const agentModeHint = computed(() => {
+  switch (agentConfig.value.mode) {
+    case 'sales':
+      return 'Каталог, доставка, оформлення замовлення.';
+    case 'leadgen':
+      return 'Кваліфікація ліда і збір брифу.';
+    case 'booking':
+      return 'Послуги, слоти, запис / скасування / перенесення.';
+    default:
+      return 'Усі інструменти разом: продаж, лідген і запис.';
+  }
 });
 
 const timezoneSelectItems = computed(() => {
@@ -5558,6 +5651,239 @@ onUnmounted(() => {
 
 .settings-section {
   min-height: 120px;
+}
+
+/* ── Agent & SLA widgets ───────────────────────────────────────────────── */
+.settings-agent {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 88px;
+}
+
+.settings-agent__intro {
+  margin-bottom: 2px;
+}
+
+.settings-agent__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-text, #0a2540);
+  line-height: 1.25;
+}
+
+.settings-agent__lead {
+  margin: 6px 0 0;
+  max-width: 42rem;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: #425466;
+}
+
+.settings-widget {
+  background: #fff;
+  border: 1px solid #d9e2ec;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.settings-widget--accent {
+  border-color: #f5c4a8;
+  background: linear-gradient(180deg, #fffaf6 0%, #fff 55%);
+}
+
+.settings-widget--on {
+  border-color: #e07a3d;
+  box-shadow: 0 0 0 1px rgba(224, 122, 61, 0.2), 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
+.settings-widget__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 16px 0;
+}
+
+.settings-widget__head--row {
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0;
+}
+
+.settings-widget__head-text {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-widget__icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0a2540;
+}
+
+.settings-widget__icon--violet { background: #ecebff; color: #4f46e5; }
+.settings-widget__icon--blue { background: #e8f1ff; color: #2563eb; }
+.settings-widget__icon--orange { background: #ffe8d6; color: #c2410c; }
+.settings-widget__icon--green { background: #e6f7ef; color: #0f766e; }
+.settings-widget__icon--amber { background: #fff3d6; color: #b45309; }
+.settings-widget__icon--teal { background: #dff7f3; color: #0f766e; }
+.settings-widget__icon--slate { background: #eef2f6; color: #334155; }
+
+.settings-widget__title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: #0a2540;
+  line-height: 1.3;
+}
+
+.settings-widget__desc {
+  margin: 4px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #425466;
+}
+
+.settings-widget__body {
+  display: grid;
+  gap: 16px;
+  padding: 14px 16px 16px;
+}
+
+.settings-widget__body--grid {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 600px) {
+  .settings-widget__body--grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.settings-widget__body--stack {
+  gap: 12px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-field--full {
+  grid-column: 1 / -1;
+}
+
+.settings-field__label {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: #0a2540;
+}
+
+.settings-field__hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #4b5565;
+}
+
+.settings-field__control :deep(.v-field) {
+  background: #fff;
+  border-radius: 10px !important;
+}
+
+.settings-field__control :deep(.v-field__outline) {
+  --v-field-border-opacity: 1;
+  color: #c5d0dc;
+}
+
+.settings-field__control :deep(.v-field--focused .v-field__outline) {
+  color: var(--color-primary, #635bff);
+}
+
+.settings-callout {
+  margin: 0 16px 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px solid #f0d0b8;
+}
+
+.settings-callout p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #3d2c22;
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f7f9fc;
+  border: 1px solid #e3eaf2;
+}
+
+.settings-toggle-row__title {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  color: #0a2540;
+  line-height: 1.3;
+}
+
+.settings-widget__switch {
+  flex-shrink: 0;
+  margin-inline-end: 0;
+}
+
+.settings-fallback-block {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fbfcfe;
+  border: 1px solid #e3eaf2;
+}
+
+.settings-fallback-block__label {
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: #0a2540;
+}
+
+.settings-agent__save {
+  margin-top: 4px;
+  border-radius: 12px;
+  border: 1px solid #d9e2ec;
+}
+
+.settings-agent__save-btn {
+  max-width: 420px;
+}
+
+@media (min-width: 960px) {
+  .settings-agent__save .settings-agent__save-btn {
+    width: auto;
+    min-width: 260px;
+  }
 }
 
 /* ── Settings side nav ─────────────────────────────────────────────────── */
