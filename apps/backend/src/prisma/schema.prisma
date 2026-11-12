@@ -113,6 +113,11 @@ model Conversation {
   matchedEventId  String?             @map("matched_event_id") @db.Uuid
   /** Sticky Instagram ads / CTD referral for this thread (first ADS win). */
   igAdReferral    Json?               @map("ig_ad_referral") @db.JsonB
+  /**
+   * After ads-only soft-handoff reclaim (SLA / TG return / admin), organic
+   * inbound stays on the bot until a manager takes the thread again.
+   */
+  adsOnlyBotAssumedAt DateTime?       @map("ads_only_bot_assumed_at")
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid
@@ -126,6 +131,7 @@ model Conversation {
   appointments    Appointment[]
   referencePhotos ClientReferencePhoto[]
   followUpJobs    FollowUpJob[]
+  handoffSlaJobs  HandoffSlaJob[]
 
   @@index([state, followUpSentAt, lastMessageAt])
   @@index([matchedEventId])
@@ -221,6 +227,25 @@ model FollowUpJob {
   @@index([status, runAt])
   @@index([conversationId, status])
   @@map("follow_up_jobs")
+}
+
+/// Ads-only organic dual SLA: TG nudge + bot reclaim/дожим when due.
+model HandoffSlaJob {
+  id             String            @id @default(uuid()) @db.Uuid
+  conversationId String            @map("conversation_id") @db.Uuid
+  runAt          DateTime          @map("run_at")
+  status         FollowUpJobStatus @default(pending)
+  scheduledFrom  DateTime          @map("scheduled_from")
+  attemptCount   Int               @default(0) @map("attempt_count")
+  lastError      String?           @map("last_error")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt])
+  @@index([conversationId, status])
+  @@map("handoff_sla_jobs")
 }
 
 // ── Messages ──

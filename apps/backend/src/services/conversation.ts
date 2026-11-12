@@ -92,6 +92,7 @@ import { getAgentConfig, resolveResponseDelayMs,
 } from '../lib/agent-config.js';
 import {
   ADS_ONLY_ORGANIC_HANDOFF_REASON,
+  shouldAdsOnlySoftHandoffOrganic,
   ADS_ONLY_SLA_RESUME_HINT,
   buildAdReferralPromptBlock,
   conversationHasAdAttribution,
@@ -115,6 +116,11 @@ import {
   cancelPendingFollowUpsSafe,
   scheduleFollowUpAfterBotOutboundSafe,
 } from '../lib/follow-up-schedule.js';
+import {
+  cancelPendingHandoffSlaJobsSafe,
+  clearAdsOnlyBotAssumed,
+  scheduleAdsOnlyHandoffSlaJobSafe,
+} from '../lib/handoff-sla-schedule.js';
 import { handleCollectOrder, handleCreateLocalOrder } from './order.js';
 import { parseOrderSummaryFromText } from '../lib/order-summary-detect.js';
 import { runConversationTurnSerialized } from '../lib/conversation-turn-queue.js';
@@ -287,19 +293,41 @@ async function performSilentOrganicAdsOnlyHandoff(params: {
     return;
   }
 
+  const now = new Date();
   await prisma.conversation.update({
     where: { id: conversationId },
     data: {
       state: 'handoff',
       handoffReason: reason,
-      handedOffAt: new Date(),
+      handedOffAt: now,
+      adsOnlyBotAssumedAt: null,
     },
   });
   cancelPendingFollowUpsSafe(conversationId, 'handoff');
+  scheduleAdsOnlyHandoffSlaJobSafe(conversationId, now);
 
   log.info({ conversationId, reason }, 'Ads-only organic soft handoff (no client ack)');
 
-  if (!client.igUserId) return;
+  await prisma.message.create({
+    data: {
+      conversationId,
+      direction: 'system',
+      sender: 'system',
+      text: '📢 Режим «лише реклама»: органічний DM → soft-handoff менеджеру без відповіді бота. Dual SLA підхопить, якщо менеджер не відповість.',
+    },
+  });
+
+  if (!client.igUserId) {
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text: '⚠️ Немає igUserId — Telegram escalate пропущено.',
+      },
+    });
+    return;
+  }
 
   const recentMsgs = await prisma.message.findMany({
     where: { conversationId },
@@ -322,14 +350,26 @@ async function performSilentOrganicAdsOnlyHandoff(params: {
       text: line.text,
       isVoice: line.isVoice,
     }));
-  notifyHandoff({
-    conversationId,
-    clientIgUserId: client.igUserId,
-    clientDisplayName: client.displayName,
-    clientIgUsername: client.igUsername,
-    reason,
-    lastMessages,
-  }).catch((err) => log.error({ err }, 'Failed to send ads-only handoff notification'));
+  try {
+    await notifyHandoff({
+      conversationId,
+      clientIgUserId: client.igUserId,
+      clientDisplayName: client.displayName,
+      clientIgUsername: client.igUsername,
+      reason,
+      lastMessages,
+    });
+  } catch (err) {
+    log.error({ err }, 'Failed to send ads-only handoff notification');
+    await prisma.message.create({
+      data: {
+        conversationId,
+        direction: 'system',
+        sender: 'system',
+        text: '⚠️ Soft-handoff: не вдалося надіслати Telegram менеджерам. Перевірте інтеграцію Telegram.',
+      },
+    });
+  }
 }
 
 async function performManagerHandoff(params: {
@@ -364,9 +404,11 @@ async function performManagerHandoff(params: {
       state: 'handoff',
       handoffReason: reason,
       handedOffAt: new Date(),
+      adsOnlyBotAssumedAt: null,
     },
   });
   cancelPendingFollowUpsSafe(conversationId, 'handoff');
+  cancelPendingHandoffSlaJobsSafe(conversationId, 'manager_handoff');
 
   const handoffMessage = resolveHandoffClientMessage({
     agentText: clientFacingText,
@@ -568,6 +610,25 @@ export async function runForcedManagerBotTurn(
   );
 }
 
+/** Dual-SLA worker: conversation already reclaimed to bot; run Claude turn. */
+export async function handleIncomingMessageForAdsOnlySlaReclaim(
+  conversationId: string,
+  messageText: string,
+): Promise<BotTurnOutcome> {
+  const turnId = newClaudeTurnId();
+  return handleIncomingMessageImpl(
+    conversationId,
+    messageText,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    turnId,
+    { skipResponseDelay: true, adsOnlySlaReclaim: true },
+  );
+}
+
 async function handleIncomingMessageImpl(
   conversationId: string,
   messageText: string,
@@ -577,7 +638,11 @@ async function handleIncomingMessageImpl(
   sourceIgMessageIds?: string[],
   igContext?: IgInboundContext,
   turnId?: string,
-  opts?: { skipResponseDelay?: boolean; managerAction?: ManagerForcedClaudeAction },
+  opts?: {
+    skipResponseDelay?: boolean;
+    managerAction?: ManagerForcedClaudeAction;
+    adsOnlySlaReclaim?: boolean;
+  },
 ): Promise<BotTurnOutcome> {
   // ── 1. Fetch conversation with client ─────────────────────────────
   let conversation = await prisma.conversation.findUnique({
@@ -741,14 +806,17 @@ async function handleIncomingMessageImpl(
     });
   }
 
-  // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
-  let resumedFromAdsOnlyHandoff = false;
+  // ── 2. Handoff state - skip bot response (unless idle/SLA expired) ──
+  let resumedFromAdsOnlyHandoff = Boolean(
+    (opts as { adsOnlySlaReclaim?: boolean } | undefined)?.adsOnlySlaReclaim,
+  );
   if (conversation.state === 'handoff' && !opts?.managerAction) {
     const wasAdsOnlyOrganic =
       conversation.handoffReason === ADS_ONLY_ORGANIC_HANDOFF_REASON;
     const returnedToBot = await autoReturnHandoffToBotIfExpired(conversation);
     if (returnedToBot) {
-      resumedFromAdsOnlyHandoff = wasAdsOnlyOrganic;
+      resumedFromAdsOnlyHandoff = wasAdsOnlyOrganic || resumedFromAdsOnlyHandoff;
+      cancelPendingHandoffSlaJobsSafe(conversationId, 'inbound_auto_return');
       const refreshed = await prisma.conversation.findUnique({
         where: { id: conversationId },
         include: { client: true, branch: true },
@@ -858,11 +926,15 @@ async function handleIncomingMessageImpl(
     conversationReferral: conversation.igAdReferral,
     messageReferral,
   });
+  const adsOnlyAssumed = Boolean(conversation.adsOnlyBotAssumedAt);
   if (
-    agentCfg.respondAdsOnly
-    && !opts?.managerAction
-    && !hasAdAttribution
-    && !resumedFromAdsOnlyHandoff
+    shouldAdsOnlySoftHandoffOrganic({
+      respondAdsOnly: agentCfg.respondAdsOnly,
+      hasAdAttribution,
+      adsOnlyAssumed,
+      resumedFromAdsOnlyHandoff,
+      managerAction: opts?.managerAction,
+    })
   ) {
     await performSilentOrganicAdsOnlyHandoff({
       conversationId,

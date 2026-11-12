@@ -366,6 +366,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
             handoffReason: null,
             handedOffAt: null,
             handedOffTo: null,
+            adsOnlyBotAssumedAt: new Date(),
           }
         : {
             state: 'paused',
@@ -380,6 +381,11 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
 
     if (!enabled) {
       cancelPendingFollowUpsSafe(updated.id, 'bot_paused');
+    } else {
+      const { cancelPendingHandoffSlaJobsSafe } = await import(
+        '../lib/handoff-sla-schedule.js'
+      );
+      cancelPendingHandoffSlaJobsSafe(updated.id, 'admin_bot_enable');
     }
 
     await prisma.message.create({

@@ -112,3 +112,86 @@ export function elapsedWorkingMs(
 
   return total;
 }
+
+const MS_PER_HOUR = 60 * 60 * 1000;
+
+/**
+ * UTC instant when `targetWorkingHours` of salon working time have elapsed
+ * after `from`. Walks civil days in the tenant zone (same rules as elapsedWorkingMs).
+ */
+export function utcAfterWorkingHours(
+  from: Date,
+  targetWorkingHours: number,
+  hours: WorkingHoursLike,
+  timeZone: string,
+): Date {
+  if (!(targetWorkingHours > 0)) return new Date(from.getTime());
+  const targetMs = targetWorkingHours * MS_PER_HOUR;
+  const fromMs = from.getTime();
+  if (!Number.isFinite(fromMs)) return new Date(from.getTime());
+
+  let year = getZonedDateTimeParts(from, timeZone).year;
+  let month = getZonedDateTimeParts(from, timeZone).month;
+  let day = getZonedDateTimeParts(from, timeZone).day;
+  let remaining = targetMs;
+  let cursorMs = fromMs;
+
+  for (let i = 0; i < MAX_ELAPSED_DAYS; i++) {
+    const noonMs = zonedWallTimeToUtcMs({
+      year,
+      month,
+      day,
+      hour: 12,
+      minute: 0,
+      second: 0,
+      timeZone,
+    });
+    const weekday = getZonedDateTimeParts(new Date(noonMs), timeZone).weekday;
+    const dayKey = JS_DAY_TO_KEY[weekday];
+    const dayConfig = dayKey ? hours[dayKey] : undefined;
+    if (dayConfig?.enabled) {
+      const startMin = parseHmToMinutes(dayConfig.start);
+      const endMin = parseHmToMinutes(dayConfig.end);
+      if (startMin != null && endMin != null && endMin > startMin) {
+        const windowStart = zonedWallTimeToUtcMs({
+          year,
+          month,
+          day,
+          hour: Math.floor(startMin / 60),
+          minute: startMin % 60,
+          second: 0,
+          timeZone,
+        });
+        const windowEnd = zonedWallTimeToUtcMs({
+          year,
+          month,
+          day,
+          hour: Math.floor(endMin / 60),
+          minute: endMin % 60,
+          second: 0,
+          timeZone,
+        });
+        const lo = Math.max(cursorMs, windowStart);
+        if (windowEnd > lo) {
+          const available = windowEnd - lo;
+          if (available >= remaining) {
+            return new Date(lo + remaining);
+          }
+          remaining -= available;
+        }
+      }
+    }
+    ({ year, month, day } = nextCivilDate(year, month, day));
+    cursorMs = zonedWallTimeToUtcMs({
+      year,
+      month,
+      day,
+      hour: 0,
+      minute: 0,
+      second: 0,
+      timeZone,
+    });
+  }
+
+  return new Date(fromMs + targetMs);
+}

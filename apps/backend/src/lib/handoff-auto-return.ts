@@ -4,6 +4,11 @@ import {
   DEFAULT_HANDOFF_RETURN_TO_BOT_MINUTES,
   getHandoffReturnToBotMinutes,
 } from './handoff-settings.js';
+import { getAgentConfig } from './agent-config.js';
+import { getWorkingHours } from '../services/prompt-builder.js';
+import { elapsedWorkingMs } from './working-time.js';
+import { ADS_ONLY_ORGANIC_HANDOFF_REASON } from './ig-ad-referral.js';
+import { cancelPendingHandoffSlaJobs } from './handoff-sla-schedule.js';
 
 const log = pino({ name: 'handoff-auto-return' });
 
@@ -13,6 +18,7 @@ type HandoffTimingConversation = {
   handedOffAt: Date | null;
   lastMessageAt: Date | null;
   createdAt: Date;
+  handoffReason?: string | null;
 };
 
 export function effectiveHandoffStartedAt(conversation: {
@@ -58,8 +64,13 @@ export function isHandoffIdleExpired(
   return isHandoffIdleExpiredAt(effectiveHandoffStartedAt(conversation), timeoutMinutes, nowMs);
 }
 
+export function isAdsOnlyOrganicHandoffReason(reason: string | null | undefined): boolean {
+  return reason === ADS_ONLY_ORGANIC_HANDOFF_REASON;
+}
+
 /**
- * If handoff idle timeout elapsed, return the conversation to the bot.
+ * If handoff idle/SLA timeout elapsed, return the conversation to the bot.
+ * Ads-only organic uses working-hours SLA; other handoffs use wall-clock TTL.
  * @returns true when state was switched back to `bot`.
  */
 export async function autoReturnHandoffToBotIfExpired(
@@ -67,11 +78,25 @@ export async function autoReturnHandoffToBotIfExpired(
 ): Promise<boolean> {
   if (conversation.state !== 'handoff') return false;
 
-  const timeoutMinutes = await getHandoffReturnToBotMinutes();
-  if (timeoutMinutes <= 0) return false;
-
   const idleStartedAt = await getHandoffIdleStartedAt(conversation);
-  if (!isHandoffIdleExpiredAt(idleStartedAt, timeoutMinutes)) return false;
+  const adsOnly = isAdsOnlyOrganicHandoffReason(conversation.handoffReason);
+
+  if (adsOnly) {
+    const [agentCfg, hours] = await Promise.all([getAgentConfig(), getWorkingHours()]);
+    const slaHours = agentCfg.managerSlaHoursBusiness;
+    if (!(slaHours > 0)) return false;
+    const elapsed = elapsedWorkingMs(
+      idleStartedAt,
+      new Date(),
+      hours,
+      agentCfg.timezone,
+    );
+    if (elapsed < slaHours * 60 * 60_000) return false;
+  } else {
+    const timeoutMinutes = await getHandoffReturnToBotMinutes();
+    if (timeoutMinutes <= 0) return false;
+    if (!isHandoffIdleExpiredAt(idleStartedAt, timeoutMinutes)) return false;
+  }
 
   await prisma.conversation.update({
     where: { id: conversation.id },
@@ -80,17 +105,48 @@ export async function autoReturnHandoffToBotIfExpired(
       handedOffTo: null,
       handedOffAt: null,
       handoffReason: null,
+      ...(adsOnly ? { adsOnlyBotAssumedAt: new Date() } : {}),
     },
   });
+
+  if (adsOnly) {
+    await cancelPendingHandoffSlaJobs(conversation.id, 'inbound_sla_reclaim').catch(() => undefined);
+  }
 
   log.info(
     {
       conversationId: conversation.id,
-      timeoutMinutes: timeoutMinutes || DEFAULT_HANDOFF_RETURN_TO_BOT_MINUTES,
+      adsOnly,
+      timeoutMinutes: adsOnly
+        ? null
+        : (await getHandoffReturnToBotMinutes()) || DEFAULT_HANDOFF_RETURN_TO_BOT_MINUTES,
       handedOffAt: conversation.handedOffAt?.toISOString() ?? null,
     },
-    'Handoff idle timeout — conversation returned to bot',
+    adsOnly
+      ? 'Ads-only working SLA — conversation returned to bot'
+      : 'Handoff idle timeout — conversation returned to bot',
   );
 
+  return true;
+}
+
+/** Shared reclaim used by dual-SLA worker (sets exemption). */
+export async function reclaimAdsOnlyHandoffToBot(conversationId: string): Promise<boolean> {
+  const updated = await prisma.conversation.updateMany({
+    where: {
+      id: conversationId,
+      state: 'handoff',
+      handoffReason: ADS_ONLY_ORGANIC_HANDOFF_REASON,
+    },
+    data: {
+      state: 'bot',
+      handedOffTo: null,
+      handedOffAt: null,
+      handoffReason: null,
+      adsOnlyBotAssumedAt: new Date(),
+    },
+  });
+  if (updated.count === 0) return false;
+  await cancelPendingHandoffSlaJobs(conversationId, 'sla_job_reclaim');
   return true;
 }

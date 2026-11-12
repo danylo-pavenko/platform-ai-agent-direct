@@ -10,9 +10,12 @@ import {
 import {
   buildSettingsNavGroups,
   flattenSettingsNav,
+  resolveClaudeNavStatus,
   resolveClientChannelView,
+  resolveInstagramNavStatus,
   sectionNeedsIntegrationsLoad,
   settingsNavSelectItems,
+  settingsNavStatusLabel,
   simulateOwnerSettingsJourney,
   visibleSettingsNavGroups,
 } from './settings-nav';
@@ -105,16 +108,40 @@ describe('Settings · Канали з клієнтами (owner E2E flow)', () =
 
   it('mobile select marks coming-soon and hash deep-links stay valid', () => {
     const flat = flattenSettingsNav(visibleSettingsNavGroups(buildSettingsNavGroups(), true));
-    const select = settingsNavSelectItems(flat);
+    const select = settingsNavSelectItems(flat, {
+      'settings-instagram': 'needed',
+      'settings-claude': 'ok',
+    });
 
     const wa = select.find((i) => i.id === 'settings-whatsapp');
     expect(wa?.title).toBe('WhatsApp · Скоро');
-    expect(select.find((i) => i.id === 'settings-instagram')?.title).toBe('Instagram');
+    expect(select.find((i) => i.id === 'settings-instagram')?.title).toBe('Instagram · Потрібно');
+    expect(select.find((i) => i.id === 'settings-claude')?.title).toBe('Claude · Готово');
 
     // Deep-link ids used in URL hash must all exist for owner
     for (const src of MESSAGE_SOURCES) {
       expect(flat.some((i) => i.id === src.sectionId)).toBe(true);
     }
+  });
+
+  it('marks Instagram and Claude as required for go-live', () => {
+    const flat = flattenSettingsNav(visibleSettingsNavGroups(buildSettingsNavGroups(), true));
+    expect(flat.find((i) => i.id === 'settings-instagram')?.requiredForGoLive).toBe(true);
+    expect(flat.find((i) => i.id === 'settings-claude')?.requiredForGoLive).toBe(true);
+    expect(flat.find((i) => i.id === 'settings-agent')?.requiredForGoLive).toBeFalsy();
+  });
+
+  it('resolves Instagram / Claude nav setup statuses', () => {
+    expect(resolveInstagramNavStatus({})).toBe('needed');
+    expect(resolveInstagramNavStatus({ pageId: '1', hasToken: true })).toBe('warn');
+    expect(resolveInstagramNavStatus({ pageId: '1', igUserId: 'ig' })).toBe('ok');
+    expect(resolveClaudeNavStatus({ loaded: false })).toBe('unknown');
+    expect(resolveClaudeNavStatus({ loaded: true, loggedIn: true })).toBe('ok');
+    expect(resolveClaudeNavStatus({ loaded: true, loggedIn: false, sessionExpired: true })).toBe(
+      'needed',
+    );
+    expect(settingsNavStatusLabel('needed')).toBe('Потрібно');
+    expect(settingsNavStatusLabel('ok')).toBe('Готово');
   });
 
   it('manager role does not see client-channel or integrations groups', () => {

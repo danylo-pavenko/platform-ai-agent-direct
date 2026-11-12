@@ -28,7 +28,7 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 
 Telegram менеджерам — не окремий tool (йде з order/brief/booking/handoff). Картка замовлення без кнопок підтвердження — агент уже підтвердив клієнту. «Хід агента» лише в особистий чат з ботом, не в групи. Після ескалації клієнтські бульбашки в Telegram не дублюються; нагадування — лише якщо клієнт чекає довше SLA.
 
-Instagram CTD/ads: платформа може інжектити блок атрибуції з реклами. Режим respondAdsOnly (налаштування tenant) — органіка йде в soft-handoff без відповіді бота, поки не спливе return-to-bot TTL.
+Instagram CTD/ads: платформа може інжектити блок атрибуції з реклами. Режим respondAdsOnly (налаштування tenant) — органіка → soft-handoff без відповіді бота; dual SLA (робочі години) — TG nudge + reclaim ботом з дожимом без нового inbound; після reclaim exemption у цьому UUID.
 
 ## CRM (коротко)
 

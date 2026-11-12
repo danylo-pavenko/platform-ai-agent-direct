@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   effectiveHandoffStartedAt,
+  isAdsOnlyOrganicHandoffReason,
   isHandoffIdleExpired,
 } from './handoff-auto-return.js';
+import { ADS_ONLY_ORGANIC_HANDOFF_REASON } from './ig-ad-referral.js';
 
 const base = {
   handedOffAt: new Date('2026-06-15T10:00:00Z'),
@@ -36,5 +38,13 @@ describe('isHandoffIdleExpired', () => {
   it('never expires when timeout is 0 (disabled)', () => {
     const now = new Date('2026-06-16T10:00:00Z').getTime();
     expect(isHandoffIdleExpired(base, 0, now)).toBe(false);
+  });
+});
+
+describe('isAdsOnlyOrganicHandoffReason', () => {
+  it('matches only the ads-only organic soft-handoff reason', () => {
+    expect(isAdsOnlyOrganicHandoffReason(ADS_ONLY_ORGANIC_HANDOFF_REASON)).toBe(true);
+    expect(isAdsOnlyOrganicHandoffReason('Клієнт просить менеджера')).toBe(false);
+    expect(isAdsOnlyOrganicHandoffReason(null)).toBe(false);
   });
 });

@@ -122,6 +122,27 @@ export function conversationHasAdAttribution(opts: {
   return false;
 }
 
+/**
+ * Soft-handoff gate for respondAdsOnly: organic inbound without exemption /
+ * this-turn reclaim / manager action / CTD attribution.
+ */
+export function shouldAdsOnlySoftHandoffOrganic(opts: {
+  respondAdsOnly: boolean;
+  hasAdAttribution: boolean;
+  adsOnlyAssumed: boolean;
+  resumedFromAdsOnlyHandoff?: boolean;
+  /** Any truthy manager-forced Claude action skips soft-handoff. */
+  managerAction?: unknown;
+}): boolean {
+  return (
+    opts.respondAdsOnly
+    && !opts.managerAction
+    && !opts.hasAdAttribution
+    && !opts.resumedFromAdsOnlyHandoff
+    && !opts.adsOnlyAssumed
+  );
+}
+
 export function referralFromUnknown(value: unknown): IgAdReferral | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;

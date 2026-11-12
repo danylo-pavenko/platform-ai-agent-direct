@@ -16,9 +16,29 @@
           variant="outlined"
           hide-details
           clearable
-          class="mb-4"
+          class="mb-3"
           @click:clear="searchInput = ''"
         />
+
+        <div class="clients-waiting-filters mb-4">
+          <v-chip-group
+            v-model="waitingFilter"
+            mandatory
+            selected-class="text-primary"
+            column
+          >
+            <v-chip filter variant="outlined" value="all" label>Усі</v-chip>
+            <v-chip filter variant="outlined" value="reply" label color="warning">
+              Без відповіді
+            </v-chip>
+            <v-chip filter variant="outlined" value="long" label color="error">
+              Довго чекають
+            </v-chip>
+          </v-chip-group>
+          <p class="text-caption text-medium-emphasis mb-0">
+            «Без відповіді» — останнє повідомлення від клієнта. «Довго чекають» — понад SLA робочих годин.
+          </p>
+        </div>
 
         <v-alert v-if="loadError" type="error" variant="tonal" class="mb-4">
           {{ loadError }}
@@ -78,6 +98,10 @@
                 </v-chip>
                 <span v-else class="text-medium-emphasis">—</span>
               </template>
+              <template #item.waitingSince="{ item }">
+                <span v-if="item.waitingSince">{{ formatDate(item.waitingSince) }}</span>
+                <span v-else class="text-medium-emphasis">—</span>
+              </template>
               <template #item.lastActivityAt="{ item }">
                 {{ formatDate(item.lastActivityAt) }}
               </template>
@@ -101,6 +125,15 @@
               </template>
               <template #chips>
                 <v-chip
+                  v-if="item.waitingSince"
+                  size="small"
+                  color="warning"
+                  variant="tonal"
+                  label
+                >
+                  Чекає з {{ formatDate(item.waitingSince) }}
+                </v-chip>
+                <v-chip
                   v-if="item.crmLinked"
                   size="small"
                   color="primary"
@@ -122,7 +155,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useDisplay } from 'vuetify';
 import { useRouter } from 'vue-router';
 import api from '@/api';
@@ -146,7 +179,11 @@ type ClientRow = {
   createdAt: string;
   conversationCount: number;
   orderCount: number;
+  waitingSince?: string | null;
+  waitingConversationId?: string | null;
 };
+
+type WaitingFilter = 'all' | 'reply' | 'long';
 
 const router = useRouter();
 const { mdAndUp } = useDisplay();
@@ -160,16 +197,23 @@ const loading = ref(false);
 const loadError = ref('');
 const searchInput = ref('');
 const search = ref('');
+const waitingFilter = ref<WaitingFilter>('all');
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
-const headers = [
-  { title: "Ім'я", key: 'name', sortable: false },
-  { title: 'Контакт', key: 'contact', sortable: false },
-  { title: 'Діалоги', key: 'conversationCount', sortable: false, width: '110px' },
-  { title: 'Замовлення', key: 'orderCount', sortable: false, width: '120px' },
-  { title: 'CRM', key: 'crm', sortable: false, width: '120px' },
-  { title: 'Активність', key: 'lastActivityAt', sortable: false, width: '180px' },
-];
+const headers = computed(() => {
+  const base = [
+    { title: "Ім'я", key: 'name', sortable: false },
+    { title: 'Контакт', key: 'contact', sortable: false },
+    { title: 'Діалоги', key: 'conversationCount', sortable: false, width: '110px' },
+    { title: 'Замовлення', key: 'orderCount', sortable: false, width: '120px' },
+    { title: 'CRM', key: 'crm', sortable: false, width: '120px' },
+  ];
+  if (waitingFilter.value !== 'all') {
+    base.push({ title: 'Чекає з', key: 'waitingSince', sortable: false, width: '180px' });
+  }
+  base.push({ title: 'Активність', key: 'lastActivityAt', sortable: false, width: '180px' });
+  return base;
+});
 
 function primaryName(item: ClientRow): string {
   return adminClientPrimaryName(item);
@@ -197,6 +241,10 @@ async function fetchClients() {
         page: page.value,
         limit: limit.value,
         search: search.value || undefined,
+        waiting:
+          waitingFilter.value === 'reply' || waitingFilter.value === 'long'
+            ? waitingFilter.value
+            : undefined,
       },
     });
     clients.value = data.data ?? [];
@@ -218,7 +266,11 @@ watch(searchInput, (value) => {
   }, 300);
 });
 
-watch([page, limit, search], () => {
+watch(waitingFilter, () => {
+  page.value = 1;
+});
+
+watch([page, limit, search, waitingFilter], () => {
   void fetchClients();
 }, { immediate: true });
 

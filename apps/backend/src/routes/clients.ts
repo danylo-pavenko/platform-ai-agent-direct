@@ -3,6 +3,11 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { buildClientSearchWhere } from '../lib/client-directory.js';
 import { normalizeClientLanguage } from '../lib/client-language.js';
+import {
+  mergeClientWhereWithWaitingIds,
+  resolveWaitingClientIds,
+  type ClientWaitingFilter,
+} from '../lib/client-waiting.js';
 
 function appointmentServiceLabel(services: unknown): string {
   if (!Array.isArray(services)) return '';
@@ -33,43 +38,69 @@ const clientListSelect = {
 
 export async function clientRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
-    Querystring: { search?: string; page?: string; limit?: string };
+    Querystring: { search?: string; page?: string; limit?: string; waiting?: string };
   }>('/', { onRequest: [app.authenticate] }, async (request) => {
     const search = request.query.search?.trim() ?? '';
     const page = Math.max(1, parseInt(request.query.page ?? '1', 10) || 1);
     const limit = Math.max(1, Math.min(50, parseInt(request.query.limit ?? '20', 10) || 20));
-    const where = buildClientSearchWhere(search);
+    const waitingRaw = request.query.waiting?.trim();
+    const waiting: ClientWaitingFilter | undefined =
+      waitingRaw === 'reply' || waitingRaw === 'long' ? waitingRaw : undefined;
 
-    const [rows, total] = await Promise.all([
-      prisma.client.findMany({
-        where,
-        select: clientListSelect,
-        orderBy: { lastActivityAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-      }),
-      prisma.client.count({ where }),
-    ]);
+    const baseWhere = buildClientSearchWhere(search);
+    const { ids: waitingIds, waitingMeta } = await resolveWaitingClientIds(waiting);
+    const where = mergeClientWhereWithWaitingIds(baseWhere, waitingIds);
+
+    const orderBy =
+      waiting && waitingIds && waitingIds.length > 0
+        ? undefined
+        : ({ lastActivityAt: 'desc' } as const);
+
+    let rows = await prisma.client.findMany({
+      where,
+      select: clientListSelect,
+      ...(orderBy ? { orderBy } : {}),
+      skip: waiting ? 0 : (page - 1) * limit,
+      take: waiting ? 500 : limit,
+    });
+
+    if (waiting && waitingMeta.size > 0) {
+      rows = [...rows].sort((a, b) => {
+        const aw = waitingMeta.get(a.id)?.waitingSince.getTime() ?? 0;
+        const bw = waitingMeta.get(b.id)?.waitingSince.getTime() ?? 0;
+        return bw - aw;
+      });
+      const start = (page - 1) * limit;
+      rows = rows.slice(start, start + limit);
+    }
+
+    const total = await prisma.client.count({ where });
 
     return {
-      data: rows.map((row) => ({
-        id: row.id,
-        displayName: row.displayName,
-        igFullName: row.igFullName,
-        igUsername: row.igUsername,
-        phone: row.phone,
-        email: row.email,
-        tags: row.tags,
-        crmLinked: Boolean(row.crmBuyerId),
-        crmProvider: row.crmProvider,
-        lastActivityAt: row.lastActivityAt,
-        createdAt: row.createdAt,
-        conversationCount: row._count.conversations,
-        orderCount: row._count.orders,
-      })),
+      data: rows.map((row) => {
+        const meta = waitingMeta.get(row.id);
+        return {
+          id: row.id,
+          displayName: row.displayName,
+          igFullName: row.igFullName,
+          igUsername: row.igUsername,
+          phone: row.phone,
+          email: row.email,
+          tags: row.tags,
+          crmLinked: Boolean(row.crmBuyerId),
+          crmProvider: row.crmProvider,
+          lastActivityAt: row.lastActivityAt,
+          createdAt: row.createdAt,
+          conversationCount: row._count.conversations,
+          orderCount: row._count.orders,
+          waitingSince: meta?.waitingSince?.toISOString() ?? null,
+          waitingConversationId: meta?.conversationId ?? null,
+        };
+      }),
       total,
       page,
       limit,
+      waiting: waiting ?? null,
     };
   });
 

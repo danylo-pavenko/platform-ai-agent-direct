@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { elapsedWorkingMs, type WorkingHoursLike } from './working-time.js';
+import {
+  elapsedWorkingMs,
+  utcAfterWorkingHours,
+  type WorkingHoursLike,
+} from './working-time.js';
 
 const WEEKDAYS: WorkingHoursLike = {
   mon: { start: '09:00', end: '18:00', enabled: true },
@@ -30,5 +34,21 @@ describe('elapsedWorkingMs', () => {
     const from = new Date('2026-09-21T16:00:00.000Z'); // Mon 19:00
     const to = new Date('2026-09-21T20:00:00.000Z'); // Mon 23:00
     expect(elapsedWorkingMs(from, to, WEEKDAYS, TZ)).toBe(0);
+  });
+});
+
+describe('utcAfterWorkingHours', () => {
+  it('schedules dual SLA due within the same working day', () => {
+    const from = new Date('2026-09-21T07:00:00.000Z'); // Mon 10:00 Kyiv
+    const due = utcAfterWorkingHours(from, 2, WEEKDAYS, TZ);
+    expect(due.toISOString()).toBe('2026-09-21T09:00:00.000Z'); // Mon 12:00
+    expect(elapsedWorkingMs(from, due, WEEKDAYS, TZ)).toBe(2 * 60 * 60 * 1000);
+  });
+
+  it('skips weekend when SLA spans Friday evening', () => {
+    const from = new Date('2026-09-18T14:00:00.000Z'); // Fri 17:00 Kyiv
+    const due = utcAfterWorkingHours(from, 2, WEEKDAYS, TZ);
+    // 1h Fri + 1h Mon → Mon 10:00 Kyiv
+    expect(due.toISOString()).toBe('2026-09-21T07:00:00.000Z');
   });
 });

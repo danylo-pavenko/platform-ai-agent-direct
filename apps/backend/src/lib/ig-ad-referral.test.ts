@@ -4,6 +4,7 @@ import {
   conversationHasAdAttribution,
   parseMetaAdReferral,
   referralFromUnknown,
+  shouldAdsOnlySoftHandoffOrganic,
 } from './ig-ad-referral.js';
 
 describe('ig-ad-referral', () => {
@@ -47,5 +48,34 @@ describe('ig-ad-referral', () => {
     });
     expect(stored?.source).toBe('ADS');
     expect(buildAdReferralPromptBlock(stored!)).toContain('ad_id: 1');
+  });
+
+  it('soft-handoffs organic when respondAdsOnly and no exemption', () => {
+    expect(
+      shouldAdsOnlySoftHandoffOrganic({
+        respondAdsOnly: true,
+        hasAdAttribution: false,
+        adsOnlyAssumed: false,
+      }),
+    ).toBe(true);
+  });
+
+  it('skips soft-handoff after exemption, reclaim, ads, or manager action', () => {
+    const base = {
+      respondAdsOnly: true,
+      hasAdAttribution: false,
+      adsOnlyAssumed: false,
+    };
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, adsOnlyAssumed: true })).toBe(false);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, resumedFromAdsOnlyHandoff: true })).toBe(false);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, hasAdAttribution: true })).toBe(false);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, managerAction: true })).toBe(false);
+    expect(
+      shouldAdsOnlySoftHandoffOrganic({
+        respondAdsOnly: false,
+        hasAdAttribution: false,
+        adsOnlyAssumed: false,
+      }),
+    ).toBe(false);
   });
 });

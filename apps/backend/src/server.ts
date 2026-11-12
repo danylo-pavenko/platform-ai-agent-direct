@@ -149,6 +149,9 @@ try {
   const { startFollowUpMonitor } = await import('./services/follow-up.js');
   startFollowUpMonitor(app.log);
 
+  const { attachAdsOnlySlaToFollowUpMonitor } = await import('./services/handoff-sla.js');
+  attachAdsOnlySlaToFollowUpMonitor(app.log);
+
   const { startLogRetentionMonitor } = await import('./services/log-retention.js');
   startLogRetentionMonitor(app.log);
 

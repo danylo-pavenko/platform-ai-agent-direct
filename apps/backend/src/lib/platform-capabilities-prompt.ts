@@ -101,7 +101,7 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 
 - Click-to-Direct: Meta шле message.referral (source ADS + ad_id / ads_context_data) на першому повідомленні. Платформа зберігає sticky на Conversation + Client (first/last) і інжектить блок атрибуції в хід Claude.
 - Адмінка: чіп «З реклами» на треді/бульбашці; у профілі клієнта — «Джерело IG» (title / ad_id / first–last).
-- agent_config.respondAdsOnly (Налаштування → Агент і SLA): бот відповідає лише в тредах з CTD/ads sticky або referral на цьому inbound. Органіка → soft-handoff менеджеру без IG-ack клієнту; після handoff return-to-bot / idle TTL бот підхоплює (SLA Telegram як звичайний handoff).
+- agent_config.respondAdsOnly (Налаштування → Агент і SLA): бот відповідає лише в тредах з CTD/ads sticky або referral на цьому inbound. Органіка → soft-handoff без IG-ack; dual SLA (managerSlaHoursBusiness робочих годин) — TG nudge + reclaim ботом з дожимом клієнта без нового inbound; після reclaim exemption (adsOnlyBotAssumedAt) без повторного soft-handoff у цьому UUID. Звичайний handoff лишається на wall-clock return-to-bot. У вкладці Клієнти — фільтри «Без відповіді» / «Довго чекають».
 - Без referral (поділився постом / написав під рекламним постом без CTD) — це не ads attribution. Окремого MCP tool get_ad_attribution немає.
 
 ## Instagram inbound nuances (webhook → Claude)

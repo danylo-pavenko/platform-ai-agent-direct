@@ -25,6 +25,7 @@ import {
   parsePsProcessRows,
 } from '../lib/claude-orphan-processes.js';
 import type { CrmProviderName } from '../lib/crm-providers.js';
+import { getAgentConfig } from '../lib/agent-config.js';
 
 const execFileAsync = promisify(execFile);
 const log = pino({ name: 'health-check' });
@@ -32,7 +33,19 @@ const log = pino({ name: 'health-check' });
 export type HealthCheckStatus = 'ok' | 'not_configured' | 'error';
 
 export interface HealthCheckItem {
-  id: 'instagram' | 'claude' | 'claude_usage' | 'crm' | 'cleverbox' | 'beautypro' | 'altegio' | 'crm_write' | 'agent_latency' | 'stt';
+  id:
+    | 'instagram'
+    | 'claude'
+    | 'claude_usage'
+    | 'crm'
+    | 'cleverbox'
+    | 'beautypro'
+    | 'altegio'
+    | 'crm_write'
+    | 'agent_latency'
+    | 'stt'
+    | 'ads_referral_schema'
+    | 'respond_ads_only';
   label: string;
   status: HealthCheckStatus;
   message: string;
@@ -713,19 +726,96 @@ async function checkAgentLatency(claudeReady: boolean): Promise<HealthCheckItem>
   };
 }
 
+async function checkAdsReferralSchema(): Promise<HealthCheckItem> {
+  const label = 'IG ads referral schema';
+  try {
+    await prisma.$queryRaw`
+      SELECT ig_ad_referral, ads_only_bot_assumed_at
+      FROM conversations
+      LIMIT 1
+    `;
+    await prisma.$queryRaw`SELECT 1 FROM handoff_sla_jobs LIMIT 1`;
+    return {
+      id: 'ads_referral_schema',
+      label,
+      status: 'ok',
+      message: 'Колонки ig_ad_* / ads_only_bot_assumed_at і handoff_sla_jobs на місці',
+    };
+  } catch (err) {
+    return {
+      id: 'ads_referral_schema',
+      label,
+      status: 'error',
+      message:
+        'Немає міграції ads referral / dual SLA — застосуйте prisma migrate (ig_ad_referral, handoff_sla_jobs)',
+      details: { error: err instanceof Error ? err.message : String(err) },
+    };
+  }
+}
+
+async function checkRespondAdsOnlyReady(): Promise<HealthCheckItem> {
+  const label = 'Режим лише реклама';
+  const agentCfg = await getAgentConfig();
+  if (!agentCfg.respondAdsOnly) {
+    return {
+      id: 'respond_ads_only',
+      label,
+      status: 'ok',
+      message: 'Вимкнено (бот відповідає на всі DM)',
+      details: { respondAdsOnly: false },
+    };
+  }
+
+  const { telegram } = await getIntegrationConfig();
+  const hasToken = Boolean(
+    (typeof telegram.botToken === 'string' && telegram.botToken.trim().length > 0)
+      || telegram.bots?.some((b) => typeof b.botToken === 'string' && b.botToken.trim().length > 0),
+  );
+  if (!hasToken) {
+    return {
+      id: 'respond_ads_only',
+      label,
+      status: 'error',
+      message:
+        'respondAdsOnly увімкнено, але Telegram для менеджерів не налаштований — органіка піде в тиху діру',
+      details: { respondAdsOnly: true, telegramConfigured: false },
+    };
+  }
+  return {
+    id: 'respond_ads_only',
+    label,
+    status: 'ok',
+    message: 'Увімкнено: органіка → soft-handoff + dual SLA (потрібен живий CTD referral)',
+    details: { respondAdsOnly: true, telegramConfigured: true },
+  };
+}
+
 export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
-  const [instagram, claude, claudeUsage, crm, cleverbox, beautypro, altegio, crmWrite, stt] =
-    await Promise.all([
-      checkInstagram(),
-      checkClaude(),
-      checkClaudeUsage(),
-      checkCrm(),
-      checkCleverbox(),
-      checkBeautypro(),
-      checkAltegio(),
-      checkCrmWrite(),
-      checkStt(),
-    ]);
+  const [
+    instagram,
+    claude,
+    claudeUsage,
+    crm,
+    cleverbox,
+    beautypro,
+    altegio,
+    crmWrite,
+    stt,
+    adsSchema,
+    respondAdsOnly,
+  ] = await Promise.all([
+    checkInstagram(),
+    checkClaude(),
+    checkClaudeUsage(),
+    checkCrm(),
+    checkCleverbox(),
+    checkBeautypro(),
+    checkAltegio(),
+    checkCrmWrite(),
+    checkStt(),
+    checkAdsReferralSchema(),
+    checkRespondAdsOnlyReady(),
+  ]);
 
   const claudeReady = claude.status === 'ok';
   const agentLatency = await checkAgentLatency(claudeReady);
@@ -741,6 +831,8 @@ export async function runTenantHealthCheck(): Promise<TenantHealthCheckResult> {
     crmWrite,
     stt,
     agentLatency,
+    adsSchema,
+    respondAdsOnly,
   ];
   return {
     checkedAt: new Date().toISOString(),

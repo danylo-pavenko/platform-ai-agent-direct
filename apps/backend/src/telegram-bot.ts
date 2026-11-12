@@ -23,6 +23,8 @@ import {
 } from './lib/telegram-link.js';
 import { formatAdminLabel } from './lib/admin-user.js';
 import { cancelPendingFollowUpsSafe } from './lib/follow-up-schedule.js';
+import { cancelPendingHandoffSlaJobsSafe } from './lib/handoff-sla-schedule.js';
+import { ADS_ONLY_ORGANIC_HANDOFF_REASON } from './lib/ig-ad-referral.js';
 
 const log = pino({
   name: `${config.INSTANCE_ID.toUpperCase()}-bot`,
@@ -455,9 +457,11 @@ bot.command('takeover', async (ctx) => {
         handedOffTo: manager.id,
         handoffReason: 'Менеджер взяв вручну',
         handedOffAt: conversation.handedOffAt ?? now,
+        adsOnlyBotAssumedAt: null,
       },
     });
     cancelPendingFollowUpsSafe(conversation.id, 'telegram_takeover');
+    cancelPendingHandoffSlaJobsSafe(conversation.id, 'telegram_takeover');
 
     // Refresh username from Telegram when available
     if (ctx.from?.username && ctx.from.username !== manager.tgUsername) {
@@ -584,8 +588,11 @@ bot.on('callback_query:data', async (ctx) => {
           handedOffTo: manager.id,
           handoffReason: 'Менеджер взяв вручну',
           handedOffAt: conversation.handedOffAt ?? now,
+          adsOnlyBotAssumedAt: null,
         },
       });
+      cancelPendingFollowUpsSafe(conversationId, 'telegram_takeover');
+      cancelPendingHandoffSlaJobsSafe(conversationId, 'telegram_takeover');
 
       if (ctx.from.username && ctx.from.username !== manager.tgUsername) {
         await prisma.adminUser.update({
@@ -622,14 +629,20 @@ bot.on('callback_query:data', async (ctx) => {
         return;
       }
 
+      const wasAdsOnly = conversation.handoffReason === ADS_ONLY_ORGANIC_HANDOFF_REASON;
       await prisma.conversation.update({
         where: { id: conversationId },
         data: {
           state: 'bot',
           handedOffTo: null,
           handedOffAt: null,
+          handoffReason: null,
+          ...(wasAdsOnly ? { adsOnlyBotAssumedAt: new Date() } : {}),
         },
       });
+      if (wasAdsOnly) {
+        cancelPendingHandoffSlaJobsSafe(conversationId, 'tg_return');
+      }
 
       log.info({ conversationId, tgUserId: ctx.from.id }, 'Conversation returned to bot via callback');
 

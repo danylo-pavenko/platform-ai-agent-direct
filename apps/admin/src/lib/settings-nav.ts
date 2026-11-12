@@ -15,6 +15,8 @@ export type SettingsNavItem = {
   title: string;
   icon: string;
   comingSoon?: boolean;
+  /** Must be configured before the bot can serve customers. */
+  requiredForGoLive?: boolean;
 };
 
 export type SettingsNavGroup = {
@@ -22,6 +24,64 @@ export type SettingsNavGroup = {
   ownerOnly: boolean;
   items: SettingsNavItem[];
 };
+
+/** Setup badge for required (and optionally other) nav rows. */
+export type SettingsNavSetupStatus = 'ok' | 'needed' | 'warn' | 'unknown' | 'soon';
+
+export function resolveInstagramNavStatus(input: {
+  pageId?: string | null;
+  igUserId?: string | null;
+  hasToken?: boolean;
+}): SettingsNavSetupStatus {
+  const hasPage = !!(input.pageId?.trim() || input.hasToken);
+  const hasIg = !!input.igUserId?.trim();
+  if (hasPage && hasIg) return 'ok';
+  if (hasPage && !hasIg) return 'warn';
+  return 'needed';
+}
+
+export function resolveClaudeNavStatus(input: {
+  loaded: boolean;
+  loggedIn?: boolean;
+  sessionExpired?: boolean;
+  binaryOk?: boolean;
+}): SettingsNavSetupStatus {
+  if (!input.loaded) return 'unknown';
+  if (input.loggedIn) return 'ok';
+  if (input.binaryOk === false) return 'needed';
+  if (input.sessionExpired) return 'needed';
+  return 'needed';
+}
+
+export function settingsNavStatusLabel(status: SettingsNavSetupStatus): string {
+  switch (status) {
+    case 'ok':
+      return 'Готово';
+    case 'needed':
+      return 'Потрібно';
+    case 'warn':
+      return 'Доповнити';
+    case 'soon':
+      return 'Скоро';
+    default:
+      return '';
+  }
+}
+
+export function settingsNavStatusColor(status: SettingsNavSetupStatus): string {
+  switch (status) {
+    case 'ok':
+      return 'success';
+    case 'needed':
+      return 'warning';
+    case 'warn':
+      return 'orange';
+    case 'soon':
+      return 'grey';
+    default:
+      return 'grey';
+  }
+}
 
 /** Sections that must load Meta/CRM integration payloads. */
 export const INTEGRATION_SECTION_IDS = [
@@ -44,6 +104,7 @@ export function buildSettingsNavGroups(): SettingsNavGroup[] {
         title: item.title,
         icon: item.icon,
         comingSoon: item.comingSoon,
+        requiredForGoLive: item.id === 'settings-instagram',
       })),
     },
     {
@@ -51,7 +112,12 @@ export function buildSettingsNavGroups(): SettingsNavGroup[] {
       ownerOnly: true,
       items: [
         { id: 'settings-health', title: 'Health Check', icon: 'mdi-heart-pulse' },
-        { id: 'settings-claude', title: 'Claude', icon: 'mdi-robot' },
+        {
+          id: 'settings-claude',
+          title: 'Claude',
+          icon: 'mdi-robot',
+          requiredForGoLive: true,
+        },
         { id: 'settings-runtime', title: 'Кому відповідає бот', icon: 'mdi-toggle-switch' },
         { id: 'settings-agent', title: 'Агент і SLA', icon: 'mdi-head-cog' },
       ],
@@ -95,12 +161,22 @@ export function flattenSettingsNav(groups: SettingsNavGroup[]): SettingsNavItem[
   return groups.flatMap((g) => [...g.items]);
 }
 
-/** Mobile select labels — coming-soon channels get an explicit marker. */
-export function settingsNavSelectItems(items: SettingsNavItem[]): SettingsNavItem[] {
-  return items.map((item) => ({
-    ...item,
-    title: item.comingSoon ? `${item.title} · Скоро` : item.title,
-  }));
+/**
+ * Mobile select labels — coming-soon + go-live setup status markers.
+ */
+export function settingsNavSelectItems(
+  items: SettingsNavItem[],
+  statusById: Partial<Record<string, SettingsNavSetupStatus>> = {},
+): SettingsNavItem[] {
+  return items.map((item) => {
+    if (item.comingSoon) {
+      return { ...item, title: `${item.title} · Скоро` };
+    }
+    const status = statusById[item.id];
+    const label = status ? settingsNavStatusLabel(status) : '';
+    if (!label || status === 'unknown') return { ...item };
+    return { ...item, title: `${item.title} · ${label}` };
+  });
 }
 
 export function isKnownSettingsSection(

@@ -14,22 +14,56 @@
       <v-row>
         <v-col cols="12" lg="3" class="settings-nav-col">
           <v-select
-            class="d-lg-none mb-4"
+            class="d-lg-none mb-4 settings-nav-select"
             :model-value="activeSection"
             :items="settingsNavFlatForSelect"
             item-title="title"
             item-value="id"
             label="Розділ"
             variant="outlined"
-            density="compact"
+            :density="density"
             hide-details
             @update:model-value="onMobileSectionSelect"
-          />
+          >
+            <template #selection="{ item }">
+              <div class="settings-nav-select__selection">
+                <span>{{ settingsNavBaseTitle(navSelectValueId(item), String(item.title ?? '')) }}</span>
+                <v-chip
+                  v-if="navStatusChip(navSelectValueId(item))"
+                  size="x-small"
+                  :color="navStatusChip(navSelectValueId(item))!.color"
+                  variant="flat"
+                  class="settings-nav-status-chip"
+                >
+                  {{ navStatusChip(navSelectValueId(item))!.label }}
+                </v-chip>
+              </div>
+            </template>
+            <template #item="{ props: itemProps, item }">
+              <v-list-item
+                v-bind="itemProps"
+                :class="navItemClass(navItemById(navSelectValueId(item)))"
+                min-height="44"
+              >
+                <template #append>
+                  <v-chip
+                    v-if="navStatusChip(navSelectValueId(item))"
+                    size="x-small"
+                    :color="navStatusChip(navSelectValueId(item))!.color"
+                    variant="flat"
+                    class="settings-nav-status-chip"
+                  >
+                    {{ navStatusChip(navSelectValueId(item))!.label }}
+                  </v-chip>
+                </template>
+              </v-list-item>
+            </template>
+          </v-select>
           <v-card variant="outlined" class="settings-nav-card mb-4 d-none d-lg-block">
-            <v-list density="compact" nav>
+            <v-list density="compact" nav class="settings-nav-list">
               <template v-for="(group, gi) in visibleSettingsNavGroups" :key="group.label">
                 <v-divider v-if="gi > 0" class="my-2" />
-                <v-list-subheader>{{ group.label }}</v-list-subheader>
+                <v-list-subheader class="settings-nav-subheader">{{ group.label }}</v-list-subheader>
                 <v-list-item
                   v-for="item in group.items"
                   :key="item.id"
@@ -38,10 +72,20 @@
                   :active="activeSection === item.id"
                   color="primary"
                   rounded
+                  :class="navItemClass(item)"
+                  min-height="44"
                   @click="selectSection(item.id)"
                 >
-                  <template v-if="item.comingSoon" #append>
-                    <v-chip size="x-small" variant="tonal" class="ms-1">Скоро</v-chip>
+                  <template #append>
+                    <v-chip
+                      v-if="navStatusChip(item.id)"
+                      size="x-small"
+                      :color="navStatusChip(item.id)!.color"
+                      variant="flat"
+                      class="settings-nav-status-chip ms-1"
+                    >
+                      {{ navStatusChip(item.id)!.label }}
+                    </v-chip>
                   </template>
                 </v-list-item>
               </template>
@@ -52,6 +96,7 @@
                   title="Синхронізація"
                   subtitle="Каталог / CRM"
                   rounded
+                  min-height="44"
                   :to="{ name: 'sync' }"
                 />
               </template>
@@ -1203,7 +1248,7 @@
               <div>
                 <h3 class="settings-widget__title">Лише звернення з реклами</h3>
                 <p class="settings-widget__desc">
-                  Бот відповідає тільки в тредах із Instagram Click-to-Direct (є referral від Meta).
+                  Бот відповідає тільки в тредах із Instagram Click-to-Direct (Meta шле referral). Без referral — це органіка.
                 </p>
               </div>
             </div>
@@ -1218,8 +1263,9 @@
           </div>
           <div class="settings-callout">
             <p>
-              Звичайні DM без реклами йдуть менеджеру <strong>без відповіді бота</strong>.
-              Після «Повернути боту» або idle TTL бот знову підхоплює тред.
+              Органіка → soft-handoff менеджеру <strong>без відповіді бота</strong>.
+              Dual SLA (робочі години з поля SLA вище): нагадування в Telegram і автоматичний дожим ботом, якщо менеджер забув.
+              Після reclaim бот веде цей тред далі, поки менеджер знову не забере.
             </p>
           </div>
         </section>
@@ -2934,10 +2980,16 @@ import MessageSourcesIntro from '@/components/settings/MessageSourcesIntro.vue';
 import {
   buildSettingsNavGroups,
   flattenSettingsNav,
+  resolveClaudeNavStatus,
   resolveClientChannelView,
+  resolveInstagramNavStatus,
   sectionNeedsIntegrationsLoad,
   settingsNavSelectItems,
+  settingsNavStatusColor,
+  settingsNavStatusLabel,
   visibleSettingsNavGroups as filterSettingsNavGroups,
+  type SettingsNavItem,
+  type SettingsNavSetupStatus,
 } from '@/lib/settings-nav';
 
 type SettingsSectionId = string;
@@ -2945,16 +2997,14 @@ type SettingsSectionId = string;
 const authStore = useAuthStore();
 const { density } = useTouchDensity();
 const settingsNavGroups = buildSettingsNavGroups();
+/** True after first background Claude probe for nav badges (even if request failed). */
+const claudeNavProbeDone = ref(false);
 
 const visibleSettingsNavGroups = computed(() =>
   filterSettingsNavGroups(settingsNavGroups, authStore.isOwner),
 );
 
 const settingsNavFlat = computed(() => flattenSettingsNav(visibleSettingsNavGroups.value));
-
-const settingsNavFlatForSelect = computed(() =>
-  settingsNavSelectItems(settingsNavFlat.value),
-);
 
 const activeSection = ref<SettingsSectionId>('settings-health');
 const integrationsLoaded = ref(false);
@@ -3362,6 +3412,7 @@ async function loadClaudeAuth(manual = false, fresh = manual) {
     if (manual) claudeAuth.value = null;
   } finally {
     claudeAuthLoading.value = false;
+    claudeNavProbeDone.value = true;
   }
 }
 
@@ -4347,6 +4398,76 @@ const metaNeedsManualIg = computed(
     (!!integrations.value.meta.pageId || metaPageTokenMasked.value) &&
     !integrations.value.meta.igUserId,
 );
+
+const settingsNavStatusById = computed((): Partial<Record<string, SettingsNavSetupStatus>> => {
+  const map: Partial<Record<string, SettingsNavSetupStatus>> = {};
+  for (const item of settingsNavFlat.value) {
+    if (item.comingSoon) {
+      map[item.id] = 'soon';
+      continue;
+    }
+    if (item.id === 'settings-instagram') {
+      map[item.id] = resolveInstagramNavStatus({
+        pageId: integrations.value.meta.pageId,
+        igUserId: integrations.value.meta.igUserId,
+        hasToken: metaPageTokenMasked.value || !!integrations.value.meta.pageAccessToken,
+      });
+      continue;
+    }
+    if (item.id === 'settings-claude') {
+      map[item.id] = resolveClaudeNavStatus({
+        loaded: claudeAuth.value != null || (!claudeAuthLoading.value && claudeNavProbeDone.value),
+        loggedIn: claudeAuth.value?.loggedIn,
+        sessionExpired: claudeAuth.value?.sessionExpired,
+        binaryOk: claudeAuth.value?.binaryOk,
+      });
+    }
+  }
+  return map;
+});
+
+const settingsNavFlatForSelect = computed(() =>
+  settingsNavSelectItems(settingsNavFlat.value, settingsNavStatusById.value),
+);
+
+function navStatusChip(sectionId: string): { label: string; color: string } | null {
+  const status = settingsNavStatusById.value[sectionId];
+  if (!status || status === 'unknown') return null;
+  const label = settingsNavStatusLabel(status);
+  if (!label) return null;
+  return { label, color: settingsNavStatusColor(status) };
+}
+
+function navItemClass(item: SettingsNavItem | { id: string; requiredForGoLive?: boolean; comingSoon?: boolean }) {
+  const status = settingsNavStatusById.value[item.id];
+  return {
+    'settings-nav-item': true,
+    'settings-nav-item--required': !!item.requiredForGoLive && !item.comingSoon,
+    'settings-nav-item--needed': status === 'needed',
+    'settings-nav-item--warn': status === 'warn',
+    'settings-nav-item--ok': status === 'ok',
+    'settings-nav-item--soon': status === 'soon' || !!item.comingSoon,
+  };
+}
+
+function settingsNavBaseTitle(sectionId: string, selectTitle: string): string {
+  const base = settingsNavFlat.value.find((i) => i.id === sectionId)?.title;
+  return base ?? selectTitle.replace(/\s·\s(Потрібно|Готово|Доповнити|Скоро)$/, '');
+}
+
+function navSelectValueId(item: { value?: unknown; title?: unknown }): string {
+  return typeof item.value === 'string' ? item.value : '';
+}
+
+function navItemById(sectionId: string): SettingsNavItem {
+  return (
+    settingsNavFlat.value.find((i) => i.id === sectionId) ?? {
+      id: sectionId,
+      title: sectionId,
+      icon: 'mdi-circle-outline',
+    }
+  );
+}
 
 const metaAvailablePages = computed(() =>
   (integrations.value.meta.availablePages ?? []).filter((p) => p.pageId && p.hasToken),
@@ -5516,6 +5637,13 @@ onMounted(async () => {
 
   if (authStore.isOwner) {
     await fetchSettings();
+    // Nav badges for Instagram / Claude need status before opening those sections.
+    void fetchIntegrations()
+      .then(() => {
+        integrationsLoaded.value = true;
+      })
+      .catch(() => {});
+    void loadClaudeAuth(false, false).catch(() => {});
   } else {
     loading.value = false;
     activeSection.value = 'settings-account';
@@ -5539,6 +5667,72 @@ onUnmounted(() => {
 <style scoped>
 .claude-login-stepper :deep(.v-stepper-header) {
   box-shadow: none;
+}
+
+.settings-nav-card {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+}
+
+.settings-nav-subheader {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b !important;
+  opacity: 1 !important;
+  min-height: 28px !important;
+  padding-inline: 12px !important;
+}
+
+.settings-nav-item {
+  margin-inline: 4px;
+  margin-block: 2px;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.settings-nav-item--required {
+  font-weight: 600;
+}
+
+.settings-nav-item--needed {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+.settings-nav-item--warn {
+  background: rgba(249, 115, 22, 0.1) !important;
+  border-color: rgba(249, 115, 22, 0.3) !important;
+}
+
+.settings-nav-item--ok {
+  background: rgba(16, 185, 129, 0.1) !important;
+  border-color: rgba(16, 185, 129, 0.28) !important;
+}
+
+.settings-nav-item--soon {
+  opacity: 0.72;
+}
+
+.settings-nav-status-chip {
+  font-weight: 700 !important;
+  letter-spacing: 0.01em;
+  height: 22px !important;
+}
+
+.settings-nav-select__selection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: var(--tap-min, 44px);
+}
+
+.settings-nav-select__selection > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Section divider title ─────────────────────────────────────────────── */
