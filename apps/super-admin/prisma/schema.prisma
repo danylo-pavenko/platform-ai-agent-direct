@@ -71,9 +71,28 @@ model Tenant {
   updatedAt         DateTime @updatedAt @map("updated_at")
   deployJobs        DeployJob[]
   backups           TenantBackup[]
+  analyticsCaches   TenantAnalyticsCache[]
 
   @@index([serverId])
   @@map("tenants")
+}
+
+/// Cached supervisor analytics per tenant + period (stale-while-revalidate for SA UI).
+model TenantAnalyticsCache {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// 7d | 30d | 90d
+  period    String
+  /// FleetRow JSON (ok/error + analytics payload)
+  payload   Json
+  fetchedAt DateTime @map("fetched_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, period])
+  @@index([period, fetchedAt])
+  @@map("tenant_analytics_cache")
 }
 
 /// Catalog of tenant Postgres dumps uploaded to a worker's S3 bucket.

@@ -97,7 +97,13 @@
       </button>
     </div>
 
-    <v-dialog v-model="editor" :fullscreen="mobile" max-width="880" scrollable>
+    <v-dialog
+      v-model="editor"
+      class="library-editor-dialog"
+      :fullscreen="mobile"
+      max-width="880"
+      scrollable
+    >
       <v-card class="library-dialog settings-agent">
         <v-card-title class="library-dialog-title d-flex align-center justify-space-between flex-wrap ga-2">
           <span>{{ draft.id ? 'Картка' : 'Нова картка' }}</span>
@@ -331,7 +337,7 @@
             </div>
           </section>
         </v-card-text>
-        <v-card-actions class="library-dialog-actions dialog-actions-stack sticky-action-bar">
+        <v-card-actions class="library-dialog-actions dialog-actions-stack">
           <v-btn v-if="draft.id" color="error" variant="text" class="tap-target" @click="remove">
             Видалити
           </v-btn>
@@ -371,7 +377,13 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="importOpen" :fullscreen="mobile" max-width="720" scrollable>
+    <v-dialog
+      v-model="importOpen"
+      class="library-editor-dialog"
+      :fullscreen="mobile"
+      max-width="720"
+      scrollable
+    >
       <v-card class="library-dialog">
         <v-card-title class="library-dialog-title">Застосувати картки з JSON</v-card-title>
         <v-card-text class="library-dialog-body">
@@ -839,9 +851,16 @@ onMounted(load);
 .library-dialog {
   background: #f4f7fb;
   color: #0a2540;
+  display: flex;
+  flex-direction: column;
+  /* Grow with content; only cap at the browser viewport so body can scroll. */
+  max-height: 100dvh;
+  height: auto;
+  overflow: hidden;
 }
 
 .library-dialog-title {
+  flex-shrink: 0;
   padding: 20px 24px 8px;
   font-size: 20px;
   font-weight: 650;
@@ -849,6 +868,12 @@ onMounted(load);
 }
 
 .library-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -917,15 +942,50 @@ onMounted(load);
 }
 
 .library-dialog-actions {
-  padding: 12px 20px 16px;
+  flex-shrink: 0;
+  padding: 12px 20px max(16px, env(safe-area-inset-bottom, 0px));
   border-top: 1px solid #e6ebf1;
   background: #fff;
+}
+
+/* Overlay follows content height, but never taller than the viewport. */
+.library-editor-dialog :deep(.v-overlay__content) {
+  max-height: 100dvh;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.library-editor-dialog :deep(.v-overlay__content > .v-card) {
+  max-height: 100dvh;
+  height: auto;
+}
+
+/* Mobile fullscreen: fill the screen; scroll only the form body */
+@media (max-width: 959px) {
+  .library-dialog {
+    max-height: 100dvh;
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .library-editor-dialog :deep(.v-overlay__content) {
+    max-height: 100dvh;
+    height: 100%;
+    width: 100%;
+  }
+
+  .library-editor-dialog :deep(.v-overlay__content > .v-card) {
+    height: 100%;
+    max-height: 100dvh;
+  }
 }
 
 /* Reuse Agent & SLA widget vocabulary */
 .settings-agent {
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .settings-widget {
