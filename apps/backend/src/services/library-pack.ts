@@ -1,27 +1,18 @@
 import { z } from 'zod';
+import {
+  libraryAttachmentSchema,
+  normalizeAttachment,
+  type LibraryAttachment,
+} from '../lib/library-attachments.js';
 
 /**
  * Tenant-neutral library pack. Any tenant pastes or uploads this JSON
- * in Admin → Бібліотека. Cards upsert by slug. Omitted status becomes active,
- * so a file applies on the next customer turn.
+ * in Admin → Бібліотека. Cards upsert by slug. Omitted status becomes active.
  *
- * {
- *   "version": 1,
- *   "cards": [
- *     {
- *       "slug": "refund-rules",
- *       "title": "Повернення",
- *       "description": "Коли клієнт просить повернути гроші",
- *       "aliases": ["повернення", "refund"],
- *       "body": "Текст, який агент може цитувати.",
- *       "status": "active"
- *     }
- *   ]
- * }
- *
- * A bare array of cards is accepted too.
+ * version 1 — text cards only
+ * version 2 — optional attachments (image/file/link); external https urls preferred in packs
  */
-export const LIBRARY_PACK_VERSION = 1;
+export const LIBRARY_PACK_VERSION = 2;
 
 const slugSchema = z
   .string()
@@ -30,6 +21,16 @@ const slugSchema = z
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'slug: lowercase letters, digits, hyphens');
 
+const attachmentPackSchema = libraryAttachmentSchema.transform((row) => {
+  const normalized = normalizeAttachment(row);
+  // Packs should not rely on local storageKey across tenants — drop unless url present.
+  if (normalized.storageKey && !normalized.url) {
+    const { storageKey: _sk, ...rest } = normalized;
+    return rest as LibraryAttachment;
+  }
+  return normalized;
+});
+
 export const libraryCardInputSchema = z.object({
   slug: slugSchema,
   title: z.string().trim().min(1).max(200),
@@ -37,12 +38,13 @@ export const libraryCardInputSchema = z.object({
   body: z.string().trim().min(1).max(30000),
   aliases: z.array(z.string().trim().min(2).max(80)).max(40).default([]),
   status: z.enum(['draft', 'active']).default('active'),
+  attachments: z.array(attachmentPackSchema).max(5).default([]),
 });
 
 export type LibraryCardInput = z.infer<typeof libraryCardInputSchema>;
 
 const packObjectSchema = z.object({
-  version: z.literal(LIBRARY_PACK_VERSION).optional(),
+  version: z.union([z.literal(1), z.literal(2)]).optional(),
   cards: z.array(libraryCardInputSchema).min(1).max(200),
 });
 

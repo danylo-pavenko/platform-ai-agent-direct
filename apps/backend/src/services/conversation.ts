@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma.js';
 import { askClaude, type ClaudeCallContext, type ClaudeRequest } from './claude.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
+import { flushSendLibraryAssetCalls } from './send-library-asset.js';
 import { beginIgTypingIndicator, stopIgTypingBeforeSend } from './ig-typing-indicator.js';
 import {
   buildRuntimePrompt,
@@ -3445,6 +3446,25 @@ async function handleIncomingMessageImpl(
     }
   }
 
+  const queuedLibrarySends = pendingLibraryAssetSends.get(conversationId) ?? [];
+  pendingLibraryAssetSends.delete(conversationId);
+  if (queuedLibrarySends.length > 0 && !suppressCustomerSend) {
+    const results = await flushSendLibraryAssetCalls({
+      conversationId,
+      igUserId: client.igUserId,
+      channel: conversation.channel,
+      toolCalls: queuedLibrarySends,
+    });
+    if (turnDebug) {
+      for (const result of results) {
+        const last = [...turnDebug.tools].reverse().find((t) => t.name === 'send_library_asset');
+        if (last) last.resultPreview = result.message;
+      }
+    }
+  } else {
+    pendingLibraryAssetSends.delete(conversationId);
+  }
+
   // ── 12. Persist: customer bot bubble, or admin-only system note ──
   const persistAuthExpiredNote =
     suppressCustomerSend && botFailureCode === 'auth';
@@ -3560,6 +3580,7 @@ async function handleIncomingMessageImpl(
   );
   return opts?.managerAction && skipCustomerBotPersist ? 'failed' : 'completed';
   } finally {
+    pendingLibraryAssetSends.delete(conversationId);
     const debugSnapshot = turnDebug;
     if (debugSnapshot && shouldPersistAgentTurnDebug(debugSnapshot)) {
       const note = formatAgentTurnDebugNote(debugSnapshot, {
@@ -3709,6 +3730,22 @@ type TerminalToolContext = {
   managerAction?: ManagerForcedClaudeAction;
 };
 
+/** Queued send_library_asset calls — flushed after the customer text bubble. */
+const pendingLibraryAssetSends = new Map<
+  string,
+  Array<{ name: string; args: Record<string, unknown> }>
+>();
+
+function queuePendingLibraryAssetSends(
+  conversationId: string,
+  toolCalls: { name: string; args: Record<string, unknown> }[],
+): void {
+  const sends = toolCalls.filter((tc) => tc.name === 'send_library_asset');
+  if (sends.length === 0) return;
+  const prev = pendingLibraryAssetSends.get(conversationId) ?? [];
+  pendingLibraryAssetSends.set(conversationId, [...prev, ...sends]);
+}
+
 /** Profile / intent writes — await phone+CRM link so same-turn slots/history see crmBuyerId. */
 async function runSideEffectToolCalls(
   toolCalls: { name: string; args: Record<string, unknown> }[],
@@ -3717,6 +3754,18 @@ async function runSideEffectToolCalls(
   mediaAttachments?: StoredMediaAttachment[],
   turnDebug?: AgentTurnDebugCollector | null,
 ): Promise<void> {
+  queuePendingLibraryAssetSends(conversationId, toolCalls);
+  for (const send of toolCalls.filter((tc) => tc.name === 'send_library_asset')) {
+    if (turnDebug) {
+      recordTurnTool(
+        turnDebug,
+        'send_library_asset',
+        send.args,
+        '[send_library_asset] queued — after text reply',
+      );
+    }
+  }
+
   const updateInfo = toolCalls.find((tc) => tc.name === 'update_client_info');
   if (updateInfo) {
     if (turnDebug) {

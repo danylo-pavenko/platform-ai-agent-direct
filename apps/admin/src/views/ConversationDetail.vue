@@ -362,7 +362,7 @@
               </div>
               <v-card flat rounded="xl" class="pa-3 message-bubble-card" :class="bubbleCardClass(msg)">
                 <div
-                  v-if="msg.text"
+                  v-if="msg.text && !(isIgMediaPlaceholderText(msg.text) && getDisplayMediaItems(msg).length > 0)"
                   class="message-bubble-text"
                   :class="mobile ? 'message-bubble-text--mobile' : 'text-body-2'"
                   style="word-break: break-word; white-space: pre-wrap;"
@@ -813,6 +813,7 @@ import { isAgentTurnDebugNote } from '@/lib/agentTurnDebug';
 import {
   getDisplayMediaItems,
   hasSharedPostPreview,
+  isIgMediaPlaceholderText,
   isIgPermalinkHref,
   mediaKindIcon,
   sharedPostImageSrc,

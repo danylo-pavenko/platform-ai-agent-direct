@@ -52,6 +52,44 @@ describe('extractEchoEventsFromWebhookBody', () => {
     ]);
   });
 
+  it('extracts attachment CDN urls from is_echo media', () => {
+    const events = extractEchoEventsFromWebhookBody({
+      entry: [
+        {
+          messaging: [
+            {
+              sender: { id: BUSINESS },
+              recipient: { id: CLIENT },
+              timestamp: 1_700_000_000_000,
+              message: {
+                mid: 'mid.echo.media',
+                is_echo: true,
+                attachments: [
+                  {
+                    type: 'image',
+                    payload: {
+                      url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1&signature=x',
+                    },
+                  },
+                  {
+                    type: 'image',
+                    payload: {
+                      url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=2&signature=y',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attachmentTypes).toEqual(['image', 'image']);
+    expect(events[0]?.mediaUrls).toHaveLength(2);
+    expect(echoDisplayText(events[0]!)).toBe('[медіа Instagram]');
+  });
+
   it('dedupes the same mid across messaging and changes', () => {
     const events = extractEchoEventsFromWebhookBody({
       entry: [

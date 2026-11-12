@@ -27,6 +27,7 @@ import { eventRoutes } from './routes/events.js';
 import { mediaRoutes } from './routes/media.js';
 import { insightsRoutes } from './routes/insights.js';
 import { libraryRoutes } from './routes/library.js';
+import { publicLibraryAssetRoutes } from './routes/public-library-assets.js';
 
 const app = Fastify({
   logger: {
@@ -77,6 +78,7 @@ await app.register(supervisorRoutes, { prefix: '/supervisor' });
 await app.register(crmFieldsRoutes, { prefix: '/crm-fields' });
 await app.register(analyticsRoutes, { prefix: '/analytics' });
 await app.register(mediaRoutes, { prefix: '/media' });
+await app.register(publicLibraryAssetRoutes, { prefix: '/public' });
 await app.register(branchRoutes, { prefix: '/branches' });
 await app.register(eventRoutes, { prefix: '/events' });
 await app.register(referencePhotoRoutes, { prefix: '/reference-photos' });

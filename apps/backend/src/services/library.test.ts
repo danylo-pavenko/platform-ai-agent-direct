@@ -25,6 +25,7 @@ const cards: LibraryCard[] = [
     description: 'Коли називають E39 або старшу серію',
     aliases: ['e39', 'e46', 'e60'],
     body: 'Підтримка лише з F-серії. Не викликай request_handoff.',
+    attachments: [],
   },
   {
     slug: 'diesel',
@@ -32,6 +33,7 @@ const cards: LibraryCard[] = [
     description: 'Коли пишуть tdi або дизель',
     aliases: ['tdi', '2.5 tdi', 'diesel'],
     body: 'Прошивки на дизельні ще в процесі розробки. Не викликай request_handoff.',
+    attachments: [],
   },
   {
     slug: 'prices-n55',
@@ -39,6 +41,7 @@ const cards: LibraryCard[] = [
     description: 'Коли питають ціну N55',
     aliases: ['n55'],
     body: 'Stage 1/2: 349€',
+    attachments: [],
   },
 ];
 

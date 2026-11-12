@@ -1,4 +1,9 @@
-import { prisma } from '../lib/prisma.js';
+import { prisma, toInputJsonValue } from '../lib/prisma.js';
+import {
+  formatAttachmentsForAgent,
+  parseLibraryAttachments,
+  type LibraryAttachment,
+} from '../lib/library-attachments.js';
 import { parseLibraryPack, type LibraryCardInput } from './library-pack.js';
 
 /** How many card bodies may ride along before Claude on one turn. */
@@ -13,6 +18,7 @@ export interface LibraryCard {
   description: string;
   body: string;
   aliases: string[];
+  attachments: LibraryAttachment[];
 }
 
 export interface LibraryTurnContext {
@@ -78,12 +84,18 @@ export function formatLibraryIndex(cards: LibraryCard[]): string {
   if (cards.length === 0) return '';
   const lines = [
     '## Бібліотека',
-    'Зміст карток знань. Ціна, кінські сили і список кузовів беріть лише з тексту картки в цьому ході або з результату read_library. Немає тексту картки, немає цифри. Каталог CRM нижче, якщо він є, це інше джерело: товари і візити звідти, а не з бібліотеки.',
+    'Зміст карток знань. Ціна, кінські сили і список кузовів беріть лише з тексту картки в цьому ході або з результату read_library. Немає тексту картки, немає цифри. Каталог CRM нижче, якщо він є, це інше джерело: товари і візити звідти, а не з бібліотеки. Якщо в картці є фото (розмірна сітка тощо) — надішли клієнту через send_library_asset, не описуй таблицю текстом.',
   ];
   let used = lines.join('\n').length;
   for (const card of cards) {
     const description = card.description.replace(/\s+/g, ' ').trim();
-    const line = `- ${card.slug}: ${card.title}. ${description}`;
+    const mediaHint =
+      card.attachments.length > 0
+        ? ` [вкладення: ${card.attachments
+            .map((a) => `${a.type}${a.title ? ` «${a.title}»` : ''}`)
+            .join('; ')} → send_library_asset]`
+        : '';
+    const line = `- ${card.slug}: ${card.title}. ${description}${mediaHint}`;
     if (used + line.length + 1 > INDEX_CHAR_BUDGET) break;
     lines.push(line);
     used += line.length + 1;
@@ -95,10 +107,13 @@ export function formatMatchedLibraryCards(cards: LibraryCard[]): string {
   if (cards.length === 0) return '';
   const parts = [
     '## Картки цього ходу',
-    'Цей текст уже прочитаний. Цифри і кузови звідси можна називати. Іншу картку візьми через read_library, не з памʼяті.',
+    'Цей текст уже прочитаний. Цифри і кузови звідси можна називати. Іншу картку візьми через read_library, не з памʼяті. Фото/сітку клієнту — send_library_asset.',
   ];
   for (const card of cards) {
-    parts.push(`### ${card.title} (${card.slug})\n${card.body.trim()}`);
+    const assetBlock = formatAttachmentsForAgent(card.attachments);
+    parts.push(
+      `### ${card.title} (${card.slug})\n${card.body.trim()}${assetBlock ? `\n\n${assetBlock}` : ''}`,
+    );
   }
   return parts.join('\n\n');
 }
@@ -109,6 +124,7 @@ function toCard(row: {
   description: string;
   body: string;
   aliases: string[];
+  attachments?: unknown;
 }): LibraryCard {
   return {
     slug: row.slug,
@@ -116,6 +132,7 @@ function toCard(row: {
     description: row.description,
     body: row.body,
     aliases: row.aliases,
+    attachments: parseLibraryAttachments(row.attachments),
   };
 }
 
@@ -130,6 +147,7 @@ export async function loadLibraryTurnContext(userText: string): Promise<LibraryT
       description: true,
       body: true,
       aliases: true,
+      attachments: true,
     },
   });
   const cards = rows.map(toCard);
@@ -151,7 +169,7 @@ export async function readLibraryBySlugs(raw: unknown): Promise<string> {
   }
   const rows = await prisma.knowledgeArticle.findMany({
     where: { status: 'active', slug: { in: slugs } },
-    select: { slug: true, title: true, body: true },
+    select: { slug: true, title: true, body: true, attachments: true },
   });
   const bySlug = new Map(rows.map((row) => [row.slug, row]));
   const parts: string[] = [];
@@ -161,7 +179,10 @@ export async function readLibraryBySlugs(raw: unknown): Promise<string> {
       parts.push(`[read_library] Картки «${slug}» немає серед активних. Візьми slug зі змісту.`);
       continue;
     }
-    parts.push(`### ${row.title} (${row.slug})\n${row.body.trim()}`);
+    const assets = formatAttachmentsForAgent(parseLibraryAttachments(row.attachments));
+    parts.push(
+      `### ${row.title} (${row.slug})\n${row.body.trim()}${assets ? `\n\n${assets}` : ''}`,
+    );
   }
   return parts.join('\n\n');
 }
@@ -317,6 +338,7 @@ async function upsertLibraryCard(
   tx: Pick<typeof prisma, 'knowledgeArticle'>,
   card: LibraryCardInput,
 ): Promise<void> {
+  const attachmentsJson = toInputJsonValue(card.attachments ?? []);
   await tx.knowledgeArticle.upsert({
     where: { slug: card.slug },
     create: {
@@ -327,6 +349,7 @@ async function upsertLibraryCard(
       aliases: card.aliases,
       status: card.status,
       author: 'human',
+      attachments: attachmentsJson ?? [],
     },
     update: {
       title: card.title,
@@ -334,6 +357,7 @@ async function upsertLibraryCard(
       body: card.body,
       aliases: card.aliases,
       status: card.status,
+      ...(attachmentsJson !== undefined ? { attachments: attachmentsJson } : {}),
     },
   });
 }

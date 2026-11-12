@@ -3,6 +3,9 @@ import { prisma, toInputJsonValue } from '../lib/prisma.js';
 import { sanitizeMessage, redactSensitive } from '../lib/sanitize.js';
 import { cancelPendingFollowUpsSafe } from '../lib/follow-up-schedule.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
+import type { StoredMediaAttachment } from '../lib/media-attachments.js';
+import { igTypeToMediaKind } from '../lib/media-attachments.js';
+import { persistIncomingMediaItems } from './media.js';
 import {
   buildIgNativeEchoContext,
   echoConversationEffect,
@@ -112,6 +115,33 @@ async function persistNativeIgEcho(event: EchoWebhookEvent): Promise<void> {
   const text = sanitized || displayText || '[повідомлення Instagram]';
   const createdAt = echoCreatedAt(event);
 
+  // Download CDN attachments promptly (lookaside signatures expire); fall back to
+  // the signed URL so admin can still preview until Meta expires the asset.
+  let mediaAttachments: StoredMediaAttachment[] = [];
+  if (event.mediaUrls.length > 0) {
+    const items = event.mediaUrls.map((url, i) => ({
+      url,
+      igType: event.attachmentTypes[i] || 'image',
+    }));
+    const persisted = await persistIncomingMediaItems(items);
+    mediaAttachments = persisted.map((row, i) => {
+      if (row.status === 'ready' && row.storageKey) return row;
+      const url = items[i]?.url;
+      if (!url) return row;
+      let kind = row.kind;
+      if (kind === 'unknown' || kind === 'file') {
+        kind = igTypeToMediaKind(items[i]?.igType ?? 'image');
+      }
+      if (kind === 'unknown' || kind === 'file') kind = 'image';
+      return {
+        kind,
+        igType: row.igType || items[i]?.igType || 'image',
+        status: 'ready' as const,
+        storageKey: url,
+      };
+    });
+  }
+
   try {
     await prisma.message.create({
       data: {
@@ -122,6 +152,8 @@ async function persistNativeIgEcho(event: EchoWebhookEvent): Promise<void> {
         igMessageId: event.mid,
         igContext: toInputJsonValue(buildIgNativeEchoContext('webhook_echo')),
         mediaUrls: event.mediaUrls.length > 0 ? toInputJsonValue(event.mediaUrls) : undefined,
+        mediaAttachments:
+          mediaAttachments.length > 0 ? toInputJsonValue(mediaAttachments) : undefined,
         createdAt,
       },
     });

@@ -347,6 +347,23 @@ export function createLookupMcpServer(
       ),
     );
   }
+  if (allowed.has('send_library_asset')) {
+    tools.push(
+      tool(
+        'send_library_asset',
+        'Надіслати клієнту фото/лінк з активної картки бібліотеки (розмірна сітка тощо). Лише assets з картки.',
+        {
+          slug: z.string().describe('Slug активної картки'),
+          attachment_id: z.string().optional().describe('UUID вкладення; якщо один image — можна опустити'),
+        },
+        (async () =>
+          mcpTextResult(
+            '[send_library_asset] QUEUED — бекенд надішле фото/лінк клієнту в Instagram одразу після твоєї текстової відповіді в цьому ж ході. Можеш коротко сказати, що надсилаєш сітку/фото; не стверджуй «вже доставлено», якщо Graph упаде — клієнт просто не побачить вкладення.',
+          )) as never,
+        { annotations: PROFILE_ANNOTATIONS, alwaysLoad: true },
+      ),
+    );
+  }
   if (allowed.has('request_handoff')) {
     tools.push(
       tool(

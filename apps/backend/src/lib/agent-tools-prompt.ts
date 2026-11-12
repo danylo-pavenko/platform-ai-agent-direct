@@ -217,6 +217,11 @@ export function formatAgentToolsPrompt(
       'read_library — текст картки бібліотеки за slug зі змісту. Ціна, кінські сили і список кузовів лише з картки цього ходу або з відповіді тула. Каталог CRM цим тулом не замінюй.',
     );
   }
+  if (names.has('send_library_asset')) {
+    rules.push(
+      'send_library_asset — надіслати клієнту фото/лінк з активної картки (розмірна сітка тощо). Викликай у тому ж ході, що й текстова відповідь: slug зі змісту; attachment_id лише якщо кілька вкладень (з read_library / «Картки цього ходу»). Один image — достатньо slug. Не вигадуй URL і не описуй таблицю текстом, якщо є image.',
+    );
+  }
   if (names.has('lookup_tenant_events')) {
     rules.push(
       'lookup_tenant_events — кастинг/акції/вакансії/UGC/Stories-офер. Перевір календар у промпті; для деталей виклич tool. lifecycle=expired → скажи що вже неактуально (не book/handoff як на живу). open+handoff → клієнтський текст + request_handoff(show_to_client=true).',

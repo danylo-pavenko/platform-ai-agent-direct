@@ -12,9 +12,9 @@ Tools: native MCP (lookup виконує процес, terminal — canUseTool +
 | **booking** | `search_services`, `get_available_slots`, `lookup_client_by_phone`, `get_client_crm_history`, `attach_reference_photo`, `notify_client_running_late`, `book_appointment`, `cancel_appointment`, `remove_appointment_service`, `reschedule_appointment` | запис → CleverBOX / BeautyPro / Altegio |
 | **general** | усі з sales + leadgen + booking | обирай tool за наміром клієнта |
 
-Спільні: `update_client_info` (контакти і `language` uk|ru|en), `tag_client`, `lookup_tenant_events`, `read_library`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії. Мова картки їде в усі наступні діалоги.
+Спільні: `update_client_info` (контакти і `language` uk|ru|en), `tag_client`, `lookup_tenant_events`, `read_library`, `send_library_asset`, `request_handoff`, `create_local_order`; `set_conversation_branch` якщо є філії. Мова картки їде в усі наступні діалоги.
 
-`read_library` — текст картки з Бібліотеки за slug зі змісту. Ціну і списки з картки не вигадуй, якщо тексту в цьому ході немає. Каталог CRM цим не замінюється.
+`read_library` — текст картки з Бібліотеки за slug зі змісту. Ціну і списки з картки не вигадуй, якщо тексту в цьому ході немає. Каталог CRM цим не замінюється. Якщо в картці є фото (розмірна сітка) — `send_library_asset`, не описуй таблицю текстом.
 
 `lookup_tenant_events` — кастинг/акції/вакансії/UGC з адмінки «Події»; дивись календар у промпті. `expired` → вже неактуально. `open` + handoff → клієнтський текст + `request_handoff(show_to_client=true)`. `request_handoff` — `reason` для Telegram; клієнту за замовчуванням «зʼєдную». Свій клієнтський текст (вакансія/SMM) — лише з `show_to_client=true`. Скасування візиту → `cancel_appointment`; одну послугу → `remove_appointment_service`; перенесення → `reschedule_appointment` (не другий `book_appointment`). Refund / оплата → `request_handoff`.
 

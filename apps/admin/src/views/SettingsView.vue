@@ -634,185 +634,241 @@
       <!-- Runtime mode (Public / Debug) -->
       </div>
 
-      <div v-if="activeSection === 'settings-runtime'" class="settings-section">
-      <v-card id="settings-runtime" class="mb-4">
-        <v-card-title class="d-flex align-center ga-2 flex-wrap">
-          <v-icon start :color="runtimeMode === 'public' ? 'success' : 'warning'">
-            {{ runtimeMode === 'public' ? 'mdi-earth' : 'mdi-bug-outline' }}
-          </v-icon>
-          <span>Кому відповідає бот</span>
-          <v-chip
-            size="small"
-            :color="runtimeMode === 'public' ? 'success' : 'warning'"
-            variant="tonal"
-            class="ml-2"
-          >
-            {{ runtimeMode === 'public' ? 'Для всіх клієнтів' : 'Лише тест' }}
-          </v-chip>
-          <v-chip
-            v-if="runtimeSaveState === 'saving'"
-            size="small"
-            color="primary"
-            variant="tonal"
-            prepend-icon="mdi-content-save-outline"
-          >
-            Зберігаю…
-          </v-chip>
-          <v-chip
-            v-else-if="runtimeSaveState === 'saved'"
-            size="small"
-            color="success"
-            variant="tonal"
-            prepend-icon="mdi-check"
-          >
-            Збережено
-          </v-chip>
-          <v-chip
-            v-else-if="runtimeSaveState === 'error'"
-            size="small"
-            color="error"
-            variant="tonal"
-            prepend-icon="mdi-alert-circle-outline"
-          >
-            Помилка збереження
-          </v-chip>
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Хто отримує відповіді бота в Instagram. Те саме перемикання є на Дашборді —
-          зручно швидко «приглушити» агента, якщо щось пішло не так.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-radio-group
-            v-model="runtimeMode"
-            hide-details
-            class="mb-2"
-          >
-            <v-radio value="public">
-              <template #label>
-                <div class="radio-label">
-                  <strong>Для всіх клієнтів</strong>
-                  <div class="text-caption text-medium-emphasis">
-                    Бот відповідає кожному, хто пише. Перед першим увімкненням завантажте
-                    останні розмови нижче (історичний імпорт).
-                  </div>
-                </div>
-              </template>
-            </v-radio>
-            <v-radio value="debug" class="mt-1">
-              <template #label>
-                <div class="radio-label">
-                  <strong>Лише тест</strong>
-                  <div class="text-caption text-medium-emphasis">
-                    Бот відповідає тільки акаунтам зі списку нижче. Інші клієнти відповіді
-                    від бота не отримають — для тестування або аварійного вимкнення.
-                  </div>
-                </div>
-              </template>
-            </v-radio>
-          </v-radio-group>
+      <div
+        v-if="activeSection === 'settings-runtime'"
+        id="settings-runtime"
+        class="settings-section settings-agent"
+      >
+        <header class="settings-agent__intro">
+          <div class="settings-agent__intro-row">
+            <div>
+              <h2 class="settings-agent__title">Кому відповідає бот</h2>
+              <p class="settings-agent__lead">
+                Аудиторія в Instagram, ігнор-список, часовий пояс салону і коли бот відповідає автоматично.
+                Зміни зберігаються одразу. Те саме перемикання є на Дашборді.
+              </p>
+            </div>
+            <div class="settings-agent__status">
+              <v-chip
+                size="small"
+                :color="runtimeMode === 'public' ? 'success' : 'warning'"
+                variant="tonal"
+                label
+              >
+                {{ runtimeMode === 'public' ? 'Для всіх' : 'Лише тест' }}
+              </v-chip>
+              <v-chip
+                v-if="runtimeSaveState === 'saving' || scheduleSaveState === 'saving'"
+                size="small"
+                color="primary"
+                variant="tonal"
+                prepend-icon="mdi-content-save-outline"
+                label
+              >
+                Зберігаю…
+              </v-chip>
+              <v-chip
+                v-else-if="runtimeSaveState === 'saved' || scheduleSaveState === 'saved'"
+                size="small"
+                color="success"
+                variant="tonal"
+                prepend-icon="mdi-check"
+                label
+              >
+                Збережено
+              </v-chip>
+              <v-chip
+                v-else-if="runtimeSaveState === 'error' || scheduleSaveState === 'error'"
+                size="small"
+                color="error"
+                variant="tonal"
+                prepend-icon="mdi-alert-circle-outline"
+                label
+              >
+                Помилка збереження
+              </v-chip>
+            </div>
+          </div>
+        </header>
 
-          <v-expand-transition>
-            <div v-if="runtimeMode === 'debug'" class="debug-whitelist-block">
-              <div class="text-caption text-medium-emphasis mb-1">
-                Кому можна писати в режимі «Лише тест» — @нікнейми через кому.
-                Регістр не важливий, «@» можна залишати або опускати.
+        <section
+          class="settings-widget"
+          :class="{
+            'settings-widget--accent settings-widget--on': runtimeMode === 'debug',
+            'settings-widget--ok': runtimeMode === 'public',
+          }"
+        >
+          <div class="settings-widget__head">
+            <div
+              class="settings-widget__icon"
+              :class="runtimeMode === 'public' ? 'settings-widget__icon--green' : 'settings-widget__icon--orange'"
+            >
+              <v-icon size="20">
+                {{ runtimeMode === 'public' ? 'mdi-earth' : 'mdi-bug-outline' }}
+              </v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Аудиторія</h3>
+              <p class="settings-widget__desc">
+                Хто отримує відповіді бота. «Лише тест» — аварійне приглушення або QA без відповіді всім клієнтам.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-choice-grid" role="radiogroup" aria-label="Аудиторія бота">
+              <button
+                type="button"
+                class="settings-choice"
+                :class="{ 'settings-choice--active settings-choice--ok': runtimeMode === 'public' }"
+                role="radio"
+                :aria-checked="runtimeMode === 'public'"
+                @click="runtimeMode = 'public'"
+              >
+                <span class="settings-choice__icon settings-choice__icon--ok">
+                  <v-icon size="18">mdi-earth</v-icon>
+                </span>
+                <span class="settings-choice__text">
+                  <strong>Для всіх клієнтів</strong>
+                  <span>Бот відповідає кожному, хто пише. Перед першим увімкненням — історичний імпорт нижче.</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="settings-choice"
+                :class="{ 'settings-choice--active settings-choice--warn': runtimeMode === 'debug' }"
+                role="radio"
+                :aria-checked="runtimeMode === 'debug'"
+                @click="runtimeMode = 'debug'"
+              >
+                <span class="settings-choice__icon settings-choice__icon--warn">
+                  <v-icon size="18">mdi-bug-outline</v-icon>
+                </span>
+                <span class="settings-choice__text">
+                  <strong>Лише тест</strong>
+                  <span>Відповідає тільки @нікнеймам зі списку. Інші клієнти відповіді від бота не отримають.</span>
+                </span>
+              </button>
+            </div>
+
+            <v-expand-transition>
+              <div v-if="runtimeMode === 'debug'" class="settings-callout settings-callout--warn">
+                <p class="mb-2">
+                  Кому можна писати в режимі «Лише тест» — @нікнейми через кому.
+                  Регістр не важливий, «@» можна залишати або опускати.
+                </p>
+                <v-textarea
+                  v-model="debugWhitelistRaw"
+                  variant="outlined"
+                  :density="density"
+                  rows="2"
+                  auto-grow
+                  hide-details
+                  class="settings-field__control"
+                  placeholder="@olena.kovalenko, @dev_test, your_qa_handle"
+                />
+                <div v-if="debugWhitelistParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
+                  <v-chip
+                    v-for="tag in debugWhitelistParsed"
+                    :key="tag"
+                    size="small"
+                    color="warning"
+                    variant="tonal"
+                    prepend-icon="mdi-at"
+                    label
+                  >
+                    {{ tag }}
+                  </v-chip>
+                </div>
+                <v-alert
+                  v-else
+                  type="warning"
+                  variant="tonal"
+                  density="compact"
+                  class="text-caption mt-2 mb-0"
+                >
+                  Список порожній — у режимі «Лише тест» бот не відповідатиме нікому.
+                </v-alert>
               </div>
+            </v-expand-transition>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--slate">
+              <v-icon size="20">mdi-account-cancel-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Не відповідати цим @нікнеймам</h3>
+              <p class="settings-widget__desc">
+                Бот ніколи не відповідає цим користувачам — і «для всіх», і в тесті.
+                Повідомлення зберігаються; менеджер може відповісти вручну.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-field settings-field--full">
+              <label class="settings-field__label">Ігнор-список</label>
               <v-textarea
-                v-model="debugWhitelistRaw"
+                v-model="botIgnoreUsernamesRaw"
                 variant="outlined"
-                density="compact"
+                :density="density"
                 rows="2"
                 auto-grow
                 hide-details
-                placeholder="@olena.kovalenko, @dev_test, your_qa_handle"
+                class="settings-field__control"
+                placeholder="@spam_account, @competitor_brand"
               />
-              <div v-if="debugWhitelistParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
-                <v-chip
-                  v-for="tag in debugWhitelistParsed"
-                  :key="tag"
-                  size="x-small"
-                  color="warning"
-                  variant="tonal"
-                  prepend-icon="mdi-at"
-                >
-                  {{ tag }}
-                </v-chip>
-              </div>
-              <v-alert
-                v-else
-                type="warning"
-                variant="tonal"
-                density="compact"
-                class="text-caption mt-2"
-              >
-                Список порожній — у режимі «Лише тест» бот не відповідатиме нікому.
-              </v-alert>
+              <p class="settings-field__hint">Через кому, регістр не важливий.</p>
             </div>
-          </v-expand-transition>
-
-          <v-divider class="my-3" />
-
-          <div class="bot-ignore-block">
-            <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
-              <v-icon size="16">mdi-account-cancel-outline</v-icon>
-              Не відповідати цим @нікнеймам
-            </div>
-            <div class="text-caption text-medium-emphasis mb-1">
-              Бот <strong>ніколи не відповідає</strong> цим користувачам — і «для всіх», і в тесті.
-              Повідомлення зберігаються в діалозі, менеджер може відповісти вручну.
-              Через кому, регістр не важливий.
-            </div>
-            <v-textarea
-              v-model="botIgnoreUsernamesRaw"
-              variant="outlined"
-              density="compact"
-              rows="2"
-              auto-grow
-              hide-details
-              placeholder="@spam_account, @competitor_brand"
-            />
-            <div v-if="botIgnoreUsernamesParsed.length > 0" class="d-flex flex-wrap ga-1 mt-2">
+            <div v-if="botIgnoreUsernamesParsed.length > 0" class="d-flex flex-wrap ga-1">
               <v-chip
                 v-for="tag in botIgnoreUsernamesParsed"
                 :key="tag"
-                size="x-small"
+                size="small"
                 color="error"
                 variant="tonal"
                 prepend-icon="mdi-at"
+                label
               >
                 {{ tag }}
               </v-chip>
             </div>
           </div>
+        </section>
 
-          <v-divider class="my-3" />
-
-          <div class="backfill-row">
-            <div class="backfill-info">
-              <div class="text-subtitle-2 d-flex align-center ga-2 mb-1">
-                <v-icon size="16">mdi-database-import</v-icon>
-                Історичний імпорт IG-розмов
-              </div>
-              <div class="text-caption text-medium-emphasis">
-                Завантажує останні <strong>N</strong> IG-тредів — потрібно перед першим увімкненням режиму «Для всіх клієнтів».
-              </div>
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--blue">
+              <v-icon size="20">mdi-database-import-outline</v-icon>
             </div>
-            <div class="backfill-controls">
-              <v-text-field
-                v-model.number="runtimeBackfillLimit"
-                type="number"
-                min="10"
-                max="500"
-                label="Кількість розмов"
-                variant="outlined"
-                density="compact"
-                hide-details
-                class="backfill-count"
-              />
+            <div>
+              <h3 class="settings-widget__title">Історичний імпорт IG-розмов</h3>
+              <p class="settings-widget__desc">
+                Завантажує останні N тредів з Instagram. Зробіть перед першим увімкненням «Для всіх клієнтів».
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-backfill">
+              <div class="settings-field" style="max-width: 160px">
+                <label class="settings-field__label">Кількість</label>
+                <v-text-field
+                  v-model.number="runtimeBackfillLimit"
+                  type="number"
+                  min="10"
+                  max="500"
+                  variant="outlined"
+                  :density="density"
+                  hide-details
+                  class="settings-field__control"
+                />
+              </div>
               <v-btn
-                size="small"
                 color="primary"
-                variant="tonal"
+                variant="flat"
+                size="large"
+                class="settings-backfill__btn"
                 prepend-icon="mdi-download"
                 :loading="runtimeBackfillLoading"
                 :disabled="igStatus?.connected === false"
@@ -821,284 +877,289 @@
                 Завантажити {{ runtimeBackfillLimit || 200 }}
               </v-btn>
             </div>
+
+            <v-alert
+              v-if="runtimeBackfillError"
+              type="error"
+              variant="tonal"
+              density="compact"
+              class="mb-0"
+            >
+              {{ runtimeBackfillError }}
+            </v-alert>
+
+            <v-alert
+              v-if="runtimeBackfillResult && runtimeBackfillIsEmpty"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mb-0 text-body-2"
+            >
+              Instagram повернув <strong>0 діалогів</strong> для цього акаунту. Можливі причини:
+              <ul class="pl-4 mt-1 mb-0" style="line-height:1.7;">
+                <li>У цього IG-акаунту ще немає жодної DM-розмови.</li>
+                <li>Запити в директ сидять у <strong>Message Requests</strong> і не видимі в API, поки їх не прийняти в Instagram-додатку (Inbox → Requests → Accept).</li>
+                <li>Акаунт не є <strong>Business/Creator</strong> — у «Перевірити підключення» має бути <code>BUSINESS</code> або <code>CREATOR</code>.</li>
+                <li>OAuth був виконаний без <code>instagram_manage_messages</code> scope — повторіть авторизацію.</li>
+              </ul>
+            </v-alert>
+
+            <v-alert
+              v-else-if="runtimeBackfillResult"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-0 text-body-2"
+            >
+              Імпортовано: <strong>{{ runtimeBackfillResult.conversationsImported }}</strong> нових розмов,
+              оновлено: <strong>{{ runtimeBackfillResult.conversationsSkipped }}</strong>.
+              Повідомлень: {{ runtimeBackfillResult.messagesImported }} додано,
+              {{ runtimeBackfillResult.messagesSkipped }} пропущено.
+              <span v-if="runtimeBackfillResult.managerReplies > 0">
+                Знайдено відповідей менеджера: <strong>{{ runtimeBackfillResult.managerReplies }}</strong>.
+              </span>
+            </v-alert>
           </div>
+        </section>
 
-          <v-alert
-            v-if="runtimeBackfillError"
-            type="error"
-            variant="tonal"
-            density="compact"
-            class="text-body-2 mt-2"
-          >
-            {{ runtimeBackfillError }}
-          </v-alert>
-
-          <v-alert
-            v-if="runtimeBackfillResult && runtimeBackfillIsEmpty"
-            type="warning"
-            variant="tonal"
-            density="compact"
-            class="text-body-2 mt-2"
-          >
-            Instagram повернув <strong>0 діалогів</strong> для цього акаунту. Можливі причини:
-            <ul class="pl-4 mt-1" style="line-height:1.7;">
-              <li>У цього IG-акаунту ще немає жодної DM-розмови.</li>
-              <li>Запити в директ сидять у <strong>Message Requests</strong> і не видимі в API, поки їх не прийняти в Instagram-додатку (Inbox → Requests → Accept).</li>
-              <li>Акаунт не є <strong>Business/Creator</strong> — у «Перевірити підключення» має бути <code>BUSINESS</code> або <code>CREATOR</code>.</li>
-              <li>OAuth був виконаний без <code>instagram_manage_messages</code> scope — повторіть авторизацію.</li>
-            </ul>
-          </v-alert>
-
-          <v-alert
-            v-else-if="runtimeBackfillResult"
-            type="info"
-            variant="tonal"
-            density="compact"
-            class="text-body-2 mt-2"
-          >
-            Імпортовано: <strong>{{ runtimeBackfillResult.conversationsImported }}</strong> нових розмов,
-            оновлено: <strong>{{ runtimeBackfillResult.conversationsSkipped }}</strong>.
-            Повідомлень: {{ runtimeBackfillResult.messagesImported }} додано,
-            {{ runtimeBackfillResult.messagesSkipped }} пропущено.
-            <span v-if="runtimeBackfillResult.managerReplies > 0">
-              Знайдено відповідей менеджера: <strong>{{ runtimeBackfillResult.managerReplies }}</strong>.
-            </span>
-          </v-alert>
-        </v-card-text>
-      </v-card>
-
-      <!-- Tenant timezone (always visible — bookings need it even in 24/7) -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="teal">mdi-earth</v-icon>
-          Часовий пояс салону
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Сервер може бути в іншій країні (наприклад у Німеччині). «Зараз», робочі години
-          і вікна запису в CRM рахуються в цьому поясі. За замовчуванням — Україна, Київ.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-select
-            v-model="agentConfig.timezone"
-            :items="timezoneSelectItems"
-            item-title="title"
-            item-value="value"
-            label="Часовий пояс"
-            variant="outlined"
-            density="compact"
-            :loading="timezoneSaving"
-            :disabled="timezoneSaving"
-            hide-details
-            class="mb-2"
-            style="max-width: 420px"
-            @update:model-value="onTimezoneChange"
-          />
-          <v-alert
-            v-if="timezoneSaveError"
-            type="error"
-            variant="tonal"
-            density="compact"
-            class="mb-2"
-            closable
-            @click:close="timezoneSaveError = ''"
-          >
-            {{ timezoneSaveError }}
-          </v-alert>
-          <div v-if="timezoneSavedOk" class="text-caption text-success mb-1">
-            Часовий пояс збережено — нові відповіді й слоти підуть з ним одразу.
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--teal">
+              <v-icon size="20">mdi-map-clock-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Часовий пояс салону</h3>
+              <p class="settings-widget__desc">
+                «Зараз», робочі години і вікна запису в CRM рахуються тут — навіть якщо сервер у іншій країні.
+              </p>
+            </div>
           </div>
-          <div class="text-caption text-medium-emphasis">
-            Зберігається одразу при зміні (без кнопки внизу сторінки). Рестарт PM2 не потрібен.
+          <div class="settings-widget__body">
+            <div class="settings-field" style="max-width: 420px">
+              <label class="settings-field__label">Часовий пояс</label>
+              <v-select
+                v-model="agentConfig.timezone"
+                :items="timezoneSelectItems"
+                item-title="title"
+                item-value="value"
+                variant="outlined"
+                :density="density"
+                :loading="timezoneSaving"
+                :disabled="timezoneSaving"
+                hide-details
+                class="settings-field__control"
+                @update:model-value="onTimezoneChange"
+              />
+              <p class="settings-field__hint">
+                Зберігається одразу. Рестарт PM2 не потрібен. За замовчуванням — Україна, Київ.
+              </p>
+            </div>
+            <v-alert
+              v-if="timezoneSaveError"
+              type="error"
+              variant="tonal"
+              density="compact"
+              class="mb-0"
+              closable
+              @click:close="timezoneSaveError = ''"
+            >
+              {{ timezoneSaveError }}
+            </v-alert>
+            <p v-if="timezoneSavedOk" class="settings-inline-ok mb-0">
+              Часовий пояс збережено — нові відповіді й слоти підуть з ним одразу.
+            </p>
+            <p class="settings-field__hint mb-0">
+              Поточна версія панелі: {{ formatPlatformVersion(platformVersion) }}
+            </p>
           </div>
-          <div class="text-caption text-medium-emphasis mt-3">
-            Поточна версія панелі: {{ formatPlatformVersion(platformVersion) }}
-          </div>
-        </v-card-text>
-      </v-card>
+        </section>
 
-      <!-- Midnight auto-update -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start color="indigo">mdi-update</v-icon>
-          Автооновлення
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Опівночі за часом салону ({{ agentConfig.timezone }}) панель питає Super Admin про
-          новіший код і, якщо є, просить Deploy. При збої збірки або health — відкат на попередній SHA.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-switch
-            v-model="agentConfig.autoUpdateEnabled"
-            color="indigo"
-            hide-details
-            density="comfortable"
-            :loading="autoUpdateSaving"
-            :disabled="autoUpdateSaving"
-            label="Автооновлення опівночі (час салону)"
-            @update:model-value="onAutoUpdateEnabledChange"
-          />
+        <section
+          class="settings-widget settings-widget--accent"
+          :class="{ 'settings-widget--on': agentConfig.autoUpdateEnabled }"
+        >
+          <div class="settings-widget__head settings-widget__head--row">
+            <div class="settings-widget__head-text">
+              <div class="settings-widget__icon settings-widget__icon--violet">
+                <v-icon size="20">mdi-update</v-icon>
+              </div>
+              <div>
+                <h3 class="settings-widget__title">Автооновлення</h3>
+                <p class="settings-widget__desc">
+                  Опівночі за часом салону ({{ agentConfig.timezone }}) панель питає Super Admin про новіший код і, якщо є, просить Deploy.
+                </p>
+              </div>
+            </div>
+            <v-switch
+              v-model="agentConfig.autoUpdateEnabled"
+              color="indigo"
+              :density="density"
+              hide-details
+              :loading="autoUpdateSaving"
+              :disabled="autoUpdateSaving"
+              class="settings-widget__switch"
+              aria-label="Автооновлення опівночі"
+              @update:model-value="onAutoUpdateEnabledChange"
+            />
+          </div>
+          <div class="settings-callout">
+            <p>
+              При збої збірки або health — відкат на попередній SHA.
+              <span v-if="autoUpdateSavedOk" class="settings-inline-ok"> Збережено.</span>
+            </p>
+          </div>
           <v-alert
             v-if="autoUpdateSaveError"
             type="error"
             variant="tonal"
             density="compact"
-            class="mt-2 mb-0"
+            class="mx-4 mb-4"
             closable
             @click:close="autoUpdateSaveError = ''"
           >
             {{ autoUpdateSaveError }}
           </v-alert>
-          <div v-if="autoUpdateSavedOk" class="text-caption text-success mt-2">
-            Налаштування автооновлення збережено.
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--violet">
+              <v-icon size="20">mdi-clock-check-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Коли бот відповідає</h3>
+              <p class="settings-widget__desc">
+                24/7 або лише в робочі години. Поза графіком клієнт отримує шаблон — якщо діалог не був активний останні 30 хв.
+              </p>
+            </div>
           </div>
-        </v-card-text>
-      </v-card>
+          <div class="settings-widget__body">
+            <div class="settings-choice-grid" role="radiogroup" aria-label="Розклад бота">
+              <button
+                type="button"
+                class="settings-choice"
+                :class="{ 'settings-choice--active settings-choice--ok': scheduleMode === '24_7' }"
+                role="radio"
+                :aria-checked="scheduleMode === '24_7'"
+                @click="scheduleMode = '24_7'; onScheduleModeChange('24_7')"
+              >
+                <span class="settings-choice__icon settings-choice__icon--ok">
+                  <v-icon size="18">mdi-weather-night</v-icon>
+                </span>
+                <span class="settings-choice__text">
+                  <strong>24/7</strong>
+                  <span>Бот відповідає цілодобово, без шаблону «зараз не працюємо».</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="settings-choice"
+                :class="{ 'settings-choice--active': scheduleMode === 'schedule' }"
+                role="radio"
+                :aria-checked="scheduleMode === 'schedule'"
+                @click="scheduleMode = 'schedule'; onScheduleModeChange('schedule')"
+              >
+                <span class="settings-choice__icon">
+                  <v-icon size="18">mdi-calendar-clock</v-icon>
+                </span>
+                <span class="settings-choice__text">
+                  <strong>За розкладом</strong>
+                  <span>Поза годинами — шаблон. Активна розмова (&lt; 30 хв) продовжується.</span>
+                </span>
+              </button>
+            </div>
+          </div>
+        </section>
 
-      <!-- AI Agent mode -->
-      <v-card class="mb-4">
-        <v-card-title class="d-flex align-center flex-wrap ga-2">
-          <v-icon start color="primary">mdi-robot</v-icon>
-          <span>Режим роботи AI-агента</span>
-          <v-chip
-            v-if="scheduleSaveState === 'saving'"
-            size="small"
-            color="primary"
-            variant="tonal"
-            prepend-icon="mdi-content-save-outline"
-          >
-            Зберігаю…
-          </v-chip>
-          <v-chip
-            v-else-if="scheduleSaveState === 'saved'"
-            size="small"
-            color="success"
-            variant="tonal"
-            prepend-icon="mdi-check"
-          >
-            Збережено
-          </v-chip>
-          <v-chip
-            v-else-if="scheduleSaveState === 'error'"
-            size="small"
-            color="error"
-            variant="tonal"
-            prepend-icon="mdi-alert-circle-outline"
-          >
-            Помилка збереження
-          </v-chip>
-        </v-card-title>
-        <v-card-text>
-          <v-alert type="info" variant="tonal" density="compact" class="mb-4">
-            AI-агент може працювати <strong>24/7</strong> без перерв. Робочі години впливають лише на те,
-            чи відповідає бот автоматично, чи надсилає шаблон "ми зараз не працюємо".
-            Зміни зберігаються одразу.
-          </v-alert>
-
-          <v-radio-group v-model="scheduleMode" @update:model-value="onScheduleModeChange">
-            <v-radio value="24_7">
-              <template #label>
-                <div>
-                  <strong>24/7 - Агент відповідає завжди</strong>
-                  <div class="text-caption text-medium-emphasis">
-                    Бот обробляє повідомлення цілодобово. Клієнти отримують відповідь миттєво в будь-який час.
-                  </div>
-                </div>
-              </template>
-            </v-radio>
-            <v-radio value="schedule" class="mt-2">
-              <template #label>
-                <div>
-                  <strong>За розкладом - Агент працює у робочі години</strong>
-                  <div class="text-caption text-medium-emphasis">
-                    Поза робочими годинами клієнти отримують шаблонне повідомлення.
-                    Якщо розмова вже активна (повідомлення за останні 30 хв) - бот продовжує відповідати.
-                  </div>
-                </div>
-              </template>
-            </v-radio>
-          </v-radio-group>
-        </v-card-text>
-      </v-card>
-
-      <!-- Working hours (shown only in schedule mode) -->
-      <v-card v-if="scheduleMode === 'schedule'" class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start>mdi-clock-outline</v-icon>
-          Робочі години
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Графік, коли бот відповідає автоматично (у часовому поясі салону вище). Поза цими годинами — надсилає шаблон.
-        </v-card-subtitle>
-        <v-card-text>
-          <v-row
-            v-for="day in days"
-            :key="day.key"
-            dense
-            align="center"
-            class="mb-1"
-          >
-            <v-col cols="12" sm="2" class="text-body-1 font-weight-medium">
-              {{ day.label }}
-            </v-col>
-            <v-col cols="12" sm="2">
+        <section v-if="scheduleMode === 'schedule'" class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--amber">
+              <v-icon size="20">mdi-clock-outline</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Робочі години</h3>
+              <p class="settings-widget__desc">
+                Графік у часовому поясі салону. Поза цими годинами бот надсилає шаблон нижче.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body settings-widget__body--stack">
+            <div
+              v-for="day in days"
+              :key="day.key"
+              class="settings-hours-row"
+              :class="{ 'settings-hours-row--off': !workingHours[day.key].enabled }"
+            >
+              <div class="settings-hours-row__day">{{ day.label }}</div>
               <v-switch
                 v-model="workingHours[day.key].enabled"
                 :label="workingHours[day.key].enabled ? 'Працює' : 'Вихідний'"
                 hide-details
-                density="comfortable"
+                :density="density"
                 color="primary"
+                class="settings-hours-row__switch"
               />
-            </v-col>
-            <v-col cols="5" sm="2">
-              <v-text-field
-                v-model="workingHours[day.key].start"
-                label="Початок"
-                type="time"
-                variant="outlined"
-                density="comfortable"
-                hide-details
-                :disabled="!workingHours[day.key].enabled"
-              />
-            </v-col>
-            <v-col cols="2" sm="1" class="text-center text-body-2 d-flex align-center justify-center">-</v-col>
-            <v-col cols="5" sm="2">
-              <v-text-field
-                v-model="workingHours[day.key].end"
-                label="Кінець"
-                type="time"
-                variant="outlined"
-                density="comfortable"
-                hide-details
-                :disabled="!workingHours[day.key].enabled"
-              />
-            </v-col>
-            <v-col v-if="workingHours[day.key].enabled" cols="12" sm="3" class="text-caption text-medium-emphasis">
-              {{ hoursPerDay(workingHours[day.key]) }}
-            </v-col>
-          </v-row>
-        </v-card-text>
-      </v-card>
+              <div class="settings-hours-row__times">
+                <v-text-field
+                  v-model="workingHours[day.key].start"
+                  label="Початок"
+                  type="time"
+                  variant="outlined"
+                  :density="density"
+                  hide-details
+                  :disabled="!workingHours[day.key].enabled"
+                  class="settings-field__control"
+                />
+                <span class="settings-hours-row__dash" aria-hidden="true">–</span>
+                <v-text-field
+                  v-model="workingHours[day.key].end"
+                  label="Кінець"
+                  type="time"
+                  variant="outlined"
+                  :density="density"
+                  hide-details
+                  :disabled="!workingHours[day.key].enabled"
+                  class="settings-field__control"
+                />
+              </div>
+              <div
+                v-if="workingHours[day.key].enabled"
+                class="settings-hours-row__meta"
+              >
+                {{ hoursPerDay(workingHours[day.key]) }}
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <!-- Out-of-hours template -->
-      <v-card v-if="scheduleMode === 'schedule'" class="mb-4">
-        <v-card-title class="d-flex align-center">
-          <v-icon start>mdi-message-text-clock</v-icon>
-          Повідомлення поза робочим часом
-        </v-card-title>
-        <v-card-subtitle class="pb-2">
-          Текст, який отримає клієнт, якщо напише поза робочими годинами (і розмова не була активна останні 30 хв).
-        </v-card-subtitle>
-        <v-card-text>
-          <v-textarea
-            v-model="outOfHoursTemplate"
-            variant="outlined"
-            rows="3"
-            auto-grow
-            hide-details
-            placeholder="Дякуємо за повідомлення! Зараз ми не на зв'язку. Відповімо вам у робочий час."
-          />
-        </v-card-text>
-      </v-card>
+        <section v-if="scheduleMode === 'schedule'" class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--slate">
+              <v-icon size="20">mdi-message-text-clock</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">Повідомлення поза робочим часом</h3>
+              <p class="settings-widget__desc">
+                Текст клієнту, якщо написав поза графіком і розмова не була активна останні 30 хвилин.
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <div class="settings-field settings-field--full">
+              <label class="settings-field__label">Шаблон</label>
+              <v-textarea
+                v-model="outOfHoursTemplate"
+                variant="outlined"
+                :density="density"
+                rows="3"
+                auto-grow
+                hide-details
+                class="settings-field__control"
+                placeholder="Дякуємо за повідомлення! Зараз ми не на зв'язку. Відповімо вам у робочий час."
+              />
+            </div>
+          </div>
+        </section>
       </div>
 
       <div v-if="activeSection === 'settings-agent'" id="settings-agent" class="settings-section settings-agent">
@@ -5789,47 +5850,9 @@ onUnmounted(() => {
   vertical-align: middle;
 }
 
-/* ── Radio group ────────────────────────────────────────────────────────── */
+/* ── Radio group (other sections) ───────────────────────────────────────── */
 :deep(.v-radio-group .v-selection-control-group) {
   gap: 2px !important;
-}
-
-.radio-label {
-  padding: 2px 0;
-  line-height: 1.3;
-}
-
-/* ── Debug whitelist block ──────────────────────────────────────────────── */
-.debug-whitelist-block {
-  margin-top: 8px;
-  padding: 10px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
-}
-
-/* ── Backfill row ───────────────────────────────────────────────────────── */
-.backfill-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.backfill-info {
-  flex: 1;
-  min-width: 180px;
-}
-
-.backfill-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.backfill-count {
-  width: 130px;
 }
 
 /* ── Health check list ─────────────────────────────────────────────────── */
@@ -5857,6 +5880,21 @@ onUnmounted(() => {
 
 .settings-agent__intro {
   margin-bottom: 2px;
+}
+
+.settings-agent__intro-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-agent__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-agent__title {
@@ -5887,6 +5925,11 @@ onUnmounted(() => {
 .settings-widget--accent {
   border-color: #f5c4a8;
   background: linear-gradient(180deg, #fffaf6 0%, #fff 55%);
+}
+
+.settings-widget--ok {
+  border-color: #b7e4c7;
+  background: linear-gradient(180deg, #f4fbf7 0%, #fff 55%);
 }
 
 .settings-widget--on {
@@ -6017,11 +6060,182 @@ onUnmounted(() => {
   border: 1px solid #f0d0b8;
 }
 
+.settings-callout--warn {
+  margin: 0;
+  border-color: #f5d48a;
+  background: #fffbeb;
+}
+
+.settings-callout--warn p {
+  color: #5c4813;
+}
+
 .settings-callout p {
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.45;
   color: #3d2c22;
+}
+
+.settings-choice-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .settings-choice-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.settings-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #d9e2ec;
+  background: #f7f9fc;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  font: inherit;
+  color: inherit;
+}
+
+.settings-choice:hover {
+  border-color: #b8c5d4;
+  background: #fff;
+}
+
+.settings-choice--active {
+  background: #fff;
+  border-color: #635bff;
+  box-shadow: 0 0 0 1px rgba(99, 91, 255, 0.25);
+}
+
+.settings-choice--ok.settings-choice--active {
+  border-color: #2f9e6a;
+  box-shadow: 0 0 0 1px rgba(47, 158, 106, 0.22);
+}
+
+.settings-choice--warn.settings-choice--active {
+  border-color: #e07a3d;
+  box-shadow: 0 0 0 1px rgba(224, 122, 61, 0.22);
+}
+
+.settings-choice__icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #eef2f6;
+  color: #334155;
+}
+
+.settings-choice__icon--ok {
+  background: #e6f7ef;
+  color: #0f766e;
+}
+
+.settings-choice__icon--warn {
+  background: #ffe8d6;
+  color: #c2410c;
+}
+
+.settings-choice__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-choice__text strong {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  color: #0a2540;
+  line-height: 1.3;
+}
+
+.settings-choice__text span {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #4b5565;
+}
+
+.settings-backfill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.settings-backfill__btn {
+  min-height: 44px;
+}
+
+.settings-inline-ok {
+  font-size: 0.8125rem;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.settings-hours-row {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f7f9fc;
+  border: 1px solid #e3eaf2;
+  align-items: center;
+}
+
+.settings-hours-row--off {
+  opacity: 0.72;
+}
+
+.settings-hours-row__day {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  color: #0a2540;
+}
+
+.settings-hours-row__switch {
+  margin-inline-end: 0;
+}
+
+.settings-hours-row__times {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-hours-row__dash {
+  color: #62748e;
+  font-weight: 600;
+}
+
+.settings-hours-row__meta {
+  font-size: 0.8125rem;
+  color: #4b5565;
+}
+
+@media (min-width: 720px) {
+  .settings-hours-row {
+    grid-template-columns: 88px minmax(140px, 160px) minmax(220px, 1fr) auto;
+  }
+
+  .settings-hours-row__meta {
+    justify-self: end;
+    text-align: right;
+  }
 }
 
 .settings-toggle-row {

@@ -56,6 +56,7 @@ export const PROFILE_TOOL_NAMES = [
   'attach_reference_photo',
   'classify_intent',
   'notify_client_running_late',
+  'send_library_asset',
 ] as const;
 
 export type ProfileToolName = (typeof PROFILE_TOOL_NAMES)[number];
@@ -190,7 +191,7 @@ const LOOKUP_TENANT_EVENTS: ToolDefinition = {
 const READ_LIBRARY: ToolDefinition = {
   name: 'read_library',
   description:
-    'Прочитати одну або кілька активних карток бібліотеки за slug зі змісту в промпті. Викликай, коли для цього питання потрібен текст картки, якого ще немає в блоці «Картки цього ходу». Ціну, кінські сили і список кузовів бери лише з відповіді. Чернетки не повертаються.',
+    'Прочитати одну або кілька активних карток бібліотеки за slug зі змісту в промпті. Викликай, коли для цього питання потрібен текст картки, якого ще немає в блоці «Картки цього ходу». Ціну, кінські сили і список кузовів бери лише з відповіді. Якщо в картці є фото (розмірна сітка) — після відповіді клієнту викликай send_library_asset. Чернетки не повертаються.',
   parameters: {
     type: 'object',
     properties: {
@@ -204,6 +205,26 @@ const READ_LIBRARY: ToolDefinition = {
         description: 'Кілька slug, не більше трьох',
       },
     },
+  },
+};
+
+const SEND_LIBRARY_ASSET: ToolDefinition = {
+  name: 'send_library_asset',
+  description:
+    'Надіслати клієнту вкладення з активної картки бібліотеки (фото розмірної сітки тощо). Лише assets з картки — не вигадуй URL. Для image платформа шле IG-вкладення; для file/link — короткий текст з https. Викликай разом із текстом відповіді, коли клієнт просить сітку/фото з картки.',
+  parameters: {
+    type: 'object',
+    properties: {
+      slug: {
+        type: 'string',
+        description: 'Slug активної картки бібліотеки',
+      },
+      attachment_id: {
+        type: 'string',
+        description: 'UUID вкладення з read_library / карток цього ходу. Якщо один image — можна опустити.',
+      },
+    },
+    required: ['slug'],
   },
 };
 
@@ -967,7 +988,14 @@ function buildSharedBaseTools(opts: BuildAgentToolsOptions): ToolDefinition[] {
 
   const sharedBase: ToolDefinition[] = [updateClientInfo];
   if (hasBranches) sharedBase.push(SET_CONVERSATION_BRANCH);
-  sharedBase.push(LOOKUP_TENANT_EVENTS, READ_LIBRARY, TAG_CLIENT, REQUEST_HANDOFF, CREATE_LOCAL_ORDER);
+  sharedBase.push(
+    LOOKUP_TENANT_EVENTS,
+    READ_LIBRARY,
+    SEND_LIBRARY_ASSET,
+    TAG_CLIENT,
+    REQUEST_HANDOFF,
+    CREATE_LOCAL_ORDER,
+  );
   return sharedBase;
 }
 

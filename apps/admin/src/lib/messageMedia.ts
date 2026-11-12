@@ -1,4 +1,4 @@
-import { resolveMessageMediaSrc } from './mediaUrl';
+import { isMetaMessagingCdnUrl, resolveMessageMediaSrc } from './mediaUrl';
 
 export type MediaKind = 'image' | 'video' | 'audio' | 'file' | 'unknown';
 export type MediaAttachmentStatus = 'ready' | 'unavailable' | 'unsupported';
@@ -35,7 +35,21 @@ function inferKindFromKey(key: string): MediaKind {
   if (IMAGE_EXTS.test(key)) return 'image';
   if (VIDEO_EXTS.test(key)) return 'video';
   if (AUDIO_EXTS.test(key)) return 'audio';
+  // Manager IG photos arrive as lookaside.fbsbx.com/?asset_id=… (no extension).
+  if (isMetaMessagingCdnUrl(key)) return 'image';
   return 'file';
+}
+
+/** Placeholder echo text when Meta sent only attachments — hide once previews render. */
+export function isIgMediaPlaceholderText(text?: string | null): boolean {
+  const t = (text ?? '').trim();
+  return (
+    t === '[медіа Instagram]'
+    || t === '[відео Instagram]'
+    || t === '[голос Instagram]'
+    || t === '[вкладення Instagram]'
+    || t === '[повідомлення Instagram]'
+  );
 }
 
 function unavailableLabelFor(kind: MediaKind, status: MediaAttachmentStatus): string {

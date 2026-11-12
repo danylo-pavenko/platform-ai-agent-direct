@@ -33,4 +33,28 @@ describe('parseLibraryPack', () => {
     const bad = parseLibraryPack({ cards: [{ ...card, slug: 'Ціна N55' }] });
     expect(bad.ok).toBe(false);
   });
+
+  it('accepts version 2 attachments with https url', () => {
+    const parsed = parseLibraryPack({
+      version: 2,
+      cards: [
+        {
+          ...card,
+          attachments: [
+            {
+              type: 'image',
+              title: 'Сітка',
+              url: 'https://cdn.example.com/size.jpg',
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.cards[0].attachments).toHaveLength(1);
+      expect(parsed.cards[0].attachments[0].type).toBe('image');
+      expect(parsed.cards[0].attachments[0].url).toContain('https://');
+    }
+  });
 });

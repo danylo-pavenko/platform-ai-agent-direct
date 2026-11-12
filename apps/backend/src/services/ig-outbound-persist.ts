@@ -19,6 +19,8 @@ export type PersistIgOutboundInput = {
   createdAt?: Date;
   botFailureCode?: string | null;
   botFailureDetail?: string | null;
+  mediaUrls?: string[] | null;
+  mediaAttachments?: unknown;
 };
 
 function graphMids(ids: string[] | null | undefined): string[] {
@@ -81,6 +83,11 @@ export async function persistIgOutboundMessage(input: PersistIgOutboundInput) {
         createdAt: input.createdAt,
         botFailureCode: input.botFailureCode ?? undefined,
         botFailureDetail: input.botFailureDetail ?? undefined,
+        mediaUrls:
+          input.mediaUrls && input.mediaUrls.length > 0
+            ? toInputJsonValue(input.mediaUrls)
+            : undefined,
+        mediaAttachments: toInputJsonValue(input.mediaAttachments) ?? undefined,
       },
     });
   } catch (err) {

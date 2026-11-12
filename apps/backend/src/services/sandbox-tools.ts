@@ -206,6 +206,15 @@ export async function executeSandboxToolCall(tc: ToolCall): Promise<{
         content: '[notify_client_running_late] DRY-RUN: Telegram менеджерам не надіслано.',
       };
 
+    case 'send_library_asset':
+      return {
+        dryRun: true,
+        content:
+          `[send_library_asset] DRY-RUN: фото/лінк клієнту не надсилали.\n` +
+          `slug=${typeof tc.args.slug === 'string' ? tc.args.slug : '—'} ` +
+          `attachment_id=${typeof tc.args.attachment_id === 'string' ? tc.args.attachment_id : '—'}`,
+      };
+
     case 'book_appointment':
       return {
         dryRun: true,
@@ -274,6 +283,7 @@ export function pickSandboxToolCall(toolCalls: ToolCall[]): ToolCall | null {
     'search_services',
     'lookup_tenant_events',
     'read_library',
+    'send_library_asset',
     'get_delivery_cost',
     'lookup_order_shipment',
     'get_available_slots',

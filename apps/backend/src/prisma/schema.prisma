@@ -437,6 +437,8 @@ model KnowledgeArticle {
   description String
   body        String
   aliases     String[]               @default([])
+  /// Optional assets the agent can send: image (IG attachment), file/link (URL in DM).
+  attachments Json                   @default("[]") @db.JsonB
   status      KnowledgeArticleStatus @default(draft)
   author      PromptAuthor           @default(human)
   createdAt   DateTime               @default(now()) @map("created_at")
