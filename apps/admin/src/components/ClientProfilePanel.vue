@@ -73,6 +73,34 @@
         </div>
       </section>
 
+      <!-- Instagram ads attribution -->
+      <section v-if="igAdSource" class="cpp-card">
+        <div class="cpp-card-head">
+          <span class="cpp-card-label">Джерело IG</span>
+          <v-chip size="x-small" label color="deep-orange" variant="tonal" prepend-icon="mdi-bullhorn-outline">
+            Реклама
+          </v-chip>
+        </div>
+        <div class="cpp-stat-grid">
+          <div v-if="igAdSource.title" class="cpp-stat cpp-stat--wide">
+            <span class="cpp-stat-k">Креатив</span>
+            <span class="cpp-stat-v">{{ igAdSource.title }}</span>
+          </div>
+          <div v-if="igAdSource.adId" class="cpp-stat cpp-stat--wide">
+            <span class="cpp-stat-k">ad_id</span>
+            <span class="cpp-stat-v cpp-mono text-break">{{ igAdSource.adId }}</span>
+          </div>
+          <div v-if="igAdSource.firstAt" class="cpp-stat">
+            <span class="cpp-stat-k">Перший CTD</span>
+            <span class="cpp-stat-v">{{ formatLeadDate(igAdSource.firstAt) }}</span>
+          </div>
+          <div v-if="igAdSource.lastAt" class="cpp-stat">
+            <span class="cpp-stat-k">Останній</span>
+            <span class="cpp-stat-v">{{ formatLeadDate(igAdSource.lastAt) }}</span>
+          </div>
+        </div>
+      </section>
+
       <!-- Lead / thread stats -->
       <section v-if="leadSummary" class="cpp-card">
         <div class="cpp-card-head">
@@ -461,6 +489,15 @@ export interface ProfileClient {
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;
+  igAdReferral?: {
+    source?: string;
+    adId?: string;
+    adTitle?: string;
+    ref?: string;
+    capturedAt?: string;
+  } | null;
+  igAdFirstAt?: string | null;
+  igAdLastAt?: string | null;
 }
 
 export interface ProfileLeadSummary {
@@ -542,6 +579,19 @@ const igProfileHref = computed(() =>
 const igDmHref = computed(() =>
   igHandle.value ? `https://ig.me/m/${encodeURIComponent(igHandle.value)}` : null,
 );
+
+const igAdSource = computed(() => {
+  const ref = props.client?.igAdReferral;
+  if (!ref || typeof ref !== 'object') return null;
+  const src = String(ref.source ?? '').toUpperCase();
+  if (src !== 'ADS' && src !== 'SHORTLINK' && src !== 'IG_SHOPPING') return null;
+  return {
+    title: ref.adTitle?.trim() || (ref.ref ? `ref · ${ref.ref}` : null),
+    adId: ref.adId?.trim() || null,
+    firstAt: props.client?.igAdFirstAt ?? ref.capturedAt ?? null,
+    lastAt: props.client?.igAdLastAt ?? null,
+  };
+});
 
 const npDisplay = computed(() => {
   const branch = props.client?.deliveryNpBranch;

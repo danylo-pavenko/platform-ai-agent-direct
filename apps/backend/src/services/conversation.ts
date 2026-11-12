@@ -91,6 +91,13 @@ import { getAgentConfig, resolveResponseDelayMs,
   normalizeClaudeReplyModel,
 } from '../lib/agent-config.js';
 import {
+  ADS_ONLY_ORGANIC_HANDOFF_REASON,
+  ADS_ONLY_SLA_RESUME_HINT,
+  buildAdReferralPromptBlock,
+  conversationHasAdAttribution,
+  referralFromUnknown,
+} from '../lib/ig-ad-referral.js';
+import {
   effectiveChatDisplayName,
   effectiveClientPersonName,
   igProfilePersonName,
@@ -191,6 +198,11 @@ import {
   releaseInboundClaim,
 } from '../lib/inbound-coalesce.js';
 import {
+  clientLanguageTurns,
+  currentClientLanguageOrdinal,
+  languageFromOpeningTurns,
+} from '../lib/client-language.js';
+import {
   AGENT_AUTH_EXPIRED_SYSTEM_NOTE,
   AGENT_FALLBACK_RETRY_NOTE,
   countConsecutiveBotFallbacks,
@@ -253,6 +265,72 @@ export type BotTurnOutcome = 'completed' | 'skipped' | 'released' | 'deferred' |
 // ---------------------------------------------------------------------------
 // Handoff helper
 // ---------------------------------------------------------------------------
+
+/**
+ * Soft handoff for ads-only mode: no IG ack to the client; Telegram escalate once.
+ */
+async function performSilentOrganicAdsOnlyHandoff(params: {
+  conversationId: string;
+  client: {
+    igUserId: string | null;
+    displayName?: string | null;
+    igUsername?: string | null;
+  };
+  reason: string;
+}): Promise<void> {
+  const { conversationId, client, reason } = params;
+  const current = await prisma.conversation.findUnique({
+    where: { id: conversationId },
+    select: { state: true, handedOffAt: true },
+  });
+  if (current?.state === 'handoff') {
+    return;
+  }
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      state: 'handoff',
+      handoffReason: reason,
+      handedOffAt: new Date(),
+    },
+  });
+  cancelPendingFollowUpsSafe(conversationId, 'handoff');
+
+  log.info({ conversationId, reason }, 'Ads-only organic soft handoff (no client ack)');
+
+  if (!client.igUserId) return;
+
+  const recentMsgs = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'desc' },
+    take: 8,
+    select: { sender: true, text: true, mediaAttachments: true },
+  });
+  const lastMessages = recentMsgs
+    .reverse()
+    .map((m) =>
+      formatHandoffMessageLine({
+        sender: m.sender,
+        text: m.text,
+        mediaAttachments: m.mediaAttachments as StoredMediaAttachment[] | null,
+      }),
+    )
+    .filter((line): line is NonNullable<typeof line> => line !== null)
+    .map((line) => ({
+      sender: line.sender,
+      text: line.text,
+      isVoice: line.isVoice,
+    }));
+  notifyHandoff({
+    conversationId,
+    clientIgUserId: client.igUserId,
+    clientDisplayName: client.displayName,
+    clientIgUsername: client.igUsername,
+    reason,
+    lastMessages,
+  }).catch((err) => log.error({ err }, 'Failed to send ads-only handoff notification'));
+}
 
 async function performManagerHandoff(params: {
   conversationId: string;
@@ -664,9 +742,13 @@ async function handleIncomingMessageImpl(
   }
 
   // ── 2. Handoff state - skip bot response (unless idle timeout expired) ──
+  let resumedFromAdsOnlyHandoff = false;
   if (conversation.state === 'handoff' && !opts?.managerAction) {
+    const wasAdsOnlyOrganic =
+      conversation.handoffReason === ADS_ONLY_ORGANIC_HANDOFF_REASON;
     const returnedToBot = await autoReturnHandoffToBotIfExpired(conversation);
     if (returnedToBot) {
+      resumedFromAdsOnlyHandoff = wasAdsOnlyOrganic;
       const refreshed = await prisma.conversation.findUnique({
         where: { id: conversationId },
         include: { client: true, branch: true },
@@ -769,6 +851,35 @@ async function handleIncomingMessageImpl(
   }
 
   const agentCfg = await getAgentConfig();
+
+  // ── 3.6 Ads-only: organic inbound waits for manager (soft handoff) ──
+  const messageReferral = igContext?.referral ?? null;
+  const hasAdAttribution = conversationHasAdAttribution({
+    conversationReferral: conversation.igAdReferral,
+    messageReferral,
+  });
+  if (
+    agentCfg.respondAdsOnly
+    && !opts?.managerAction
+    && !hasAdAttribution
+    && !resumedFromAdsOnlyHandoff
+  ) {
+    await performSilentOrganicAdsOnlyHandoff({
+      conversationId,
+      client: {
+        igUserId: client.igUserId,
+        displayName: client.displayName,
+        igUsername: client.igUsername,
+      },
+      reason: ADS_ONLY_ORGANIC_HANDOFF_REASON,
+    });
+    log.info(
+      { conversationId },
+      'respondAdsOnly: organic inbound → soft handoff, skipping Claude',
+    );
+    await clearTypingOnSkip();
+    return 'skipped';
+  }
 
   const igTyping = await beginIgTypingIndicator({
     channel: conversation.channel,
@@ -1112,6 +1223,19 @@ async function handleIncomingMessageImpl(
       { conversationId, kind: igContext?.kind },
       'Message enriched with IG inbound context (story/reaction)',
     );
+  } else {
+    const stickyReferral = referralFromUnknown(conversation.igAdReferral);
+    if (stickyReferral && !igContext?.referral) {
+      const block = buildAdReferralPromptBlock(stickyReferral);
+      const trimmed = messageText.trim();
+      enrichedMessageText = trimmed
+        ? `${block}\n\nПовідомлення клієнта: "${trimmed}"`
+        : block;
+    }
+  }
+
+  if (resumedFromAdsOnlyHandoff) {
+    enrichedMessageText = `${ADS_ONLY_SLA_RESUME_HINT}\n\n${enrichedMessageText}`;
   }
 
   if (sharedPost) {
@@ -3927,30 +4051,45 @@ async function tryTerminalToolCalls(
 
 /**
  * Locks uk | ru | en on the client card.
- * First or second inbound message decides it. A link, digits, «ок» or a code do not.
+ * The first or second client burst decides it. Several bubbles before a reply are one burst.
+ * A shared Instagram post, an empty photo, a link, digits, «ок» or a code do not count.
  * An explicit «на русском» / «українською» / «in english» updates the card and stays.
+ * If the card is still empty on a later burst, the first clear opening burst is written then.
  */
 async function rememberClientLanguage(
   client: { id: string; preferredLanguage: string | null },
   conversationId: string,
   messageText: string,
 ): Promise<string> {
-  const inboundOrdinal = Math.max(
-    await prisma.message.count({
-      where: { conversationId, sender: 'client' },
-    }),
-    1,
-  );
-  const next = languageToStore({
+  const rows = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: 'asc' },
+    select: { sender: true, text: true, sharedPost: true },
+  });
+  const turns = clientLanguageTurns(rows);
+  const inboundOrdinal = currentClientLanguageOrdinal(rows);
+  let next = languageToStore({
     stored: client.preferredLanguage,
     text: messageText,
     inboundOrdinal,
   });
+  let explainText = messageText;
+  let recoveredFromOpening = false;
+  if (!next && !normalizeClientLanguage(client.preferredLanguage)) {
+    const opening = languageFromOpeningTurns(turns);
+    if (opening) {
+      next = opening;
+      recoveredFromOpening = true;
+      const openingText = turns.find((turn) => detectClientLanguage(turn) === opening);
+      if (openingText) explainText = openingText;
+    }
+  }
   const note = explainLanguageDecision({
     stored: client.preferredLanguage,
-    text: messageText,
+    text: explainText,
     inboundOrdinal,
     next,
+    recoveredFromOpening,
   });
   if (!next) return note;
   try {

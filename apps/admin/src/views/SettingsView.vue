@@ -1145,6 +1145,19 @@
                 Після стількох днів тиші нова вхідна відкриває нову розмову (і з бота, і з handoff). Коротша пауза лишає той самий діалог.
               </div>
             </v-col>
+            <v-col cols="12">
+              <v-switch
+                v-model="agentConfig.respondAdsOnly"
+                color="primary"
+                density="compact"
+                hide-details
+                label="Відповідати лише на звернення з реклами (CTD)"
+              />
+              <div class="text-caption text-medium-emphasis mt-1">
+                Бот відповідає лише в тредах з Instagram Click-to-Direct (є referral). Звичайні DM —
+                soft-handoff менеджеру без відповіді клієнту; після «Повернути боту» / idle TTL бот підхоплює.
+              </div>
+            </v-col>
             <v-col cols="12" sm="6">
               <v-text-field
                 v-model.number="agentConfig.responseDelayMinSeconds"
@@ -4608,6 +4621,7 @@ interface AgentConfigShape {
   outOfHoursStrategy: OutOfHoursStrategyValue;
   managerSlaHoursBusiness: number;
   sessionFreshnessDays: number;
+  respondAdsOnly: boolean;
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
   claudeModel: 'sonnet' | 'opus';
@@ -4622,6 +4636,7 @@ const agentConfig = ref<AgentConfigShape>({
   outOfHoursStrategy: 'warn_early',
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
+  respondAdsOnly: false,
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
@@ -4824,6 +4839,7 @@ async function fetchSettings() {
           typeof (raw as { paymentRequisites?: unknown }).paymentRequisites === 'string'
             ? String((raw as { paymentRequisites?: string }).paymentRequisites)
             : '',
+        respondAdsOnly: (raw as { respondAdsOnly?: unknown }).respondAdsOnly === true,
       };
       lastPersistedTimezone = agentConfig.value.timezone;
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {

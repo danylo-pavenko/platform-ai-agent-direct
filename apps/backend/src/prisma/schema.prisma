@@ -33,6 +33,11 @@ model Client {
   /** Client conversation language (uk | ru | en | pl | es | de). Set from the chat or the client card. */
   preferredLanguage String?       @map("preferred_language")
 
+  /** Last Instagram CTD/ads referral payload (ad_id, title, ref, …). */
+  igAdReferral     Json?          @map("ig_ad_referral") @db.JsonB
+  igAdFirstAt      DateTime?      @map("ig_ad_first_at")
+  igAdLastAt       DateTime?      @map("ig_ad_last_at")
+
   // Cross-reference to the matching buyer/client record in the CRM.
   // Populated on phone match, booking, or manual admin attach.
   crmBuyerId       String?        @unique @map("crm_buyer_id")
@@ -106,6 +111,8 @@ model Conversation {
   openAgenda      Json?               @map("open_agenda") @db.JsonB
   // Soft pin to a TenantEvent when agent/tool matched casting/promo/hiring.
   matchedEventId  String?             @map("matched_event_id") @db.Uuid
+  /** Sticky Instagram ads / CTD referral for this thread (first ADS win). */
+  igAdReferral    Json?               @map("ig_ad_referral") @db.JsonB
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid

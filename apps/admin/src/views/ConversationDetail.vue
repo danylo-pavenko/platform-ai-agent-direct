@@ -108,6 +108,16 @@
             {{ stateLabel(conversation.state) }}
           </v-chip>
           <v-chip
+            v-if="conversationHasAdReferral"
+            size="small"
+            color="deep-orange"
+            variant="tonal"
+            label
+            prepend-icon="mdi-bullhorn-outline"
+          >
+            З реклами
+          </v-chip>
+          <v-chip
             v-if="livePollActive"
             size="x-small"
             color="success"
@@ -379,8 +389,18 @@
                 >
                   Instagram розпізнав номер
                 </v-chip>
+                <v-chip
+                  v-if="messageHasAdReferral(msg)"
+                  size="x-small"
+                  variant="tonal"
+                  color="deep-orange"
+                  class="mt-1"
+                  prepend-icon="mdi-bullhorn-outline"
+                >
+                  {{ messageAdReferralLabel(msg) }}
+                </v-chip>
                 <div
-                  v-else-if="!msg.text && getDisplayMediaItems(msg).length === 0 && !hasSharedPostPreview(msg.sharedPost)"
+                  v-if="!msg.text && getDisplayMediaItems(msg).length === 0 && !hasSharedPostPreview(msg.sharedPost) && !isNativeIgEcho(msg) && !isDetectedPhoneMessage(msg) && !messageHasAdReferral(msg)"
                   class="text-caption text-medium-emphasis font-italic"
                 >
                   Порожнє повідомлення Instagram (картка без тексту)
@@ -842,7 +862,21 @@ interface Message {
   mediaUrls?: string[];
   mediaAttachments?: StoredMediaAttachment[];
   sharedPost?: SharedPostData | null;
-  igContext?: { kind?: string; phone?: string; source?: string } | null;
+  igContext?: {
+    kind?: string;
+    phone?: string;
+    source?: string;
+    referral?: IgAdReferralPayload | null;
+  } | null;
+}
+
+interface IgAdReferralPayload {
+  source?: string;
+  type?: string;
+  adId?: string;
+  ref?: string;
+  adTitle?: string;
+  capturedAt?: string;
 }
 
 interface ClientData {
@@ -862,6 +896,9 @@ interface ClientData {
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;
+  igAdReferral?: IgAdReferralPayload | null;
+  igAdFirstAt?: string | null;
+  igAdLastAt?: string | null;
 }
 
 interface ConversationOrderSummary {
@@ -890,6 +927,7 @@ interface ConversationData {
   briefQuality?: number | null;
   briefQualityNote?: string | null;
   assigneeLabel?: string | null;
+  igAdReferral?: IgAdReferralPayload | null;
 }
 
 interface LeadSummary {
@@ -1129,6 +1167,34 @@ function managerBubbleSource(msg: Message): string {
   return msg.sender;
 }
 
+const conversationHasAdReferral = computed(() => {
+  const ref = conversation.value?.igAdReferral;
+  if (!ref || typeof ref !== 'object') return false;
+  const src = String(ref.source ?? '').toUpperCase();
+  return src === 'ADS' || src === 'SHORTLINK' || src === 'IG_SHOPPING';
+});
+
+function messageHasAdReferral(msg: Message): boolean {
+  const ref = msg.igContext?.referral;
+  if (!ref || typeof ref !== 'object') return false;
+  const src = String(ref.source ?? '').toUpperCase();
+  return src === 'ADS' || src === 'SHORTLINK' || src === 'IG_SHOPPING';
+}
+
+function messageAdReferralLabel(msg: Message): string {
+  const ref = msg.igContext?.referral;
+  if (!ref) return 'З реклами';
+  if (ref.source?.toUpperCase() === 'ADS') {
+    if (ref.adTitle) return `Реклама · ${ref.adTitle}`;
+    if (ref.adId) return `Реклама · ${ref.adId}`;
+    return 'З реклами';
+  }
+  if (ref.source?.toUpperCase() === 'SHORTLINK') {
+    return ref.ref ? `Посилання · ${ref.ref}` : 'Посилання ig.me';
+  }
+  return 'З реклами';
+}
+
 function isDetectedPhoneMessage(msg: Message): boolean {
   if (msg.igContext?.kind === 'detected_phone') return true;
   return Boolean(msg.text?.trim().startsWith('📞'));
@@ -1236,6 +1302,10 @@ function applyLiveUpdate(data: LivePollPayload) {
     conv.briefQuality !== undefined ? conv.briefQuality : conversation.value.briefQuality;
   conversation.value.briefQualityNote =
     conv.briefQualityNote !== undefined ? conv.briefQualityNote : conversation.value.briefQualityNote;
+  if ('igAdReferral' in conv) {
+    conversation.value.igAdReferral =
+      (conv as { igAdReferral?: IgAdReferralPayload | null }).igAdReferral ?? null;
+  }
   if ('assigneeLabel' in conv) {
     conversation.value.assigneeLabel =
       (conv as { assigneeLabel?: string | null }).assigneeLabel ?? null;

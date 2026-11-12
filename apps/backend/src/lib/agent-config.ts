@@ -21,6 +21,7 @@
  *     autoUpdateEnabled: boolean,     // midnight SA poll → request Deploy (default true)
  *     fallbackMessages: { busy: { uk, en, ru? }, timeout: { uk, en, ru? } },
  *     paymentRequisites: string, // IBAN / card text for the admin chat button
+ *     respondAdsOnly: boolean,  // only CTD/ad-attributed threads; organic → soft handoff
  *   }
  */
 import { config } from '../config.js';
@@ -88,6 +89,12 @@ export interface AgentConfig {
   fallbackMessages: FallbackMessages;
   /** IBAN / card copy sent from admin Conversation Detail. Empty = button returns 400. */
   paymentRequisites: string;
+  /**
+   * When true, bot only auto-replies on threads attributed to Instagram CTD/ads
+   * (sticky Conversation.igAdReferral or this-turn referral). Organic inbound
+   * → soft handoff (no client ack); after handoff return-to-bot TTL the bot resumes.
+   */
+  respondAdsOnly: boolean;
 }
 
 function envClaudeModelFallback(): ClaudeModelId {
@@ -126,7 +133,14 @@ const DEFAULTS: AgentConfig = {
   autoUpdateEnabled: true,
   fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
   paymentRequisites: '',
+  respondAdsOnly: false,
 };
+
+/** Coerce settings/UI values to boolean; default false when unset. */
+export function normalizeRespondAdsOnly(value: unknown): boolean {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  return false;
+}
 
 let _cache: AgentConfig | null = null;
 let _cacheAt = 0;
@@ -260,6 +274,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     autoUpdateEnabled: normalizeAutoUpdateEnabled(raw.autoUpdateEnabled),
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
     paymentRequisites: normalizePaymentRequisites(raw.paymentRequisites),
+    respondAdsOnly: normalizeRespondAdsOnly(raw.respondAdsOnly),
   };
   _cacheAt = Date.now();
   return _cache;

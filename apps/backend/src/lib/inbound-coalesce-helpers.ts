@@ -40,6 +40,7 @@ const IG_CONTEXT_PRIORITY: Record<IgInboundKind, number> = {
   story_reply: 4,
   story_mention: 3,
   inline_reply: 2,
+  ad_referral: 2,
   reaction: 1,
   detected_phone: 0,
 };
@@ -199,15 +200,21 @@ function parseSharedPost(value: unknown): SharedPostData | undefined {
 function pickIgContext(messages: PendingInboundMessage[]): IgInboundContext | undefined {
   let best: IgInboundContext | undefined;
   let bestScore = -1;
+  let referral = undefined as IgInboundContext['referral'];
   for (const m of messages) {
     const ctx = parseIgInboundContext(m.igContext);
     if (!ctx) continue;
+    if (ctx.referral) referral = ctx.referral;
     const score = IG_CONTEXT_PRIORITY[ctx.kind] ?? 0;
     // Later message wins ties so a follow-up story reply beats an earlier one.
     if (score >= bestScore) {
       best = ctx;
       bestScore = score;
     }
+  }
+  if (!best) return undefined;
+  if (referral && !best.referral) {
+    return { ...best, referral };
   }
   return best;
 }

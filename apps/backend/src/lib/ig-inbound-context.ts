@@ -4,13 +4,19 @@
  */
 
 import { isSyntheticReactionText } from './ig-reaction-policy.js';
+import {
+  buildAdReferralPromptBlock,
+  referralFromUnknown,
+  type IgAdReferral,
+} from './ig-ad-referral.js';
 
 export type IgInboundKind =
   | 'story_reply'
   | 'story_mention'
   | 'inline_reply'
   | 'reaction'
-  | 'detected_phone';
+  | 'detected_phone'
+  | 'ad_referral';
 
 export interface IgStoryRef {
   id?: string;
@@ -37,6 +43,8 @@ export interface IgInboundContext {
   reaction?: IgReactionData;
   /** Normalised E.164 from Instagram's auto phone-number card. */
   phone?: string;
+  /** CTD / ads / shortlink referral (may sit alongside another kind). */
+  referral?: IgAdReferral;
   [key: string]: unknown;
 }
 
@@ -66,15 +74,26 @@ export function parseIgInboundContext(value: unknown): IgInboundContext | undefi
     kind !== 'story_mention' &&
     kind !== 'inline_reply' &&
     kind !== 'reaction' &&
-    kind !== 'detected_phone'
+    kind !== 'detected_phone' &&
+    kind !== 'ad_referral'
   ) {
     return undefined;
   }
-  return value as IgInboundContext;
+  const referral = referralFromUnknown(v.referral);
+  return {
+    ...(value as IgInboundContext),
+    ...(referral ? { referral } : {}),
+  };
 }
 
 /** Ukrainian prompt header so the sales/booking agent responds appropriately. */
 export function buildIgInboundContextHeader(ctx: IgInboundContext): string {
+  const referralBlock = ctx.referral ? buildAdReferralPromptBlock(ctx.referral) : null;
+
+  if (ctx.kind === 'ad_referral' && referralBlock) {
+    return referralBlock;
+  }
+
   if (ctx.kind === 'story_reply') {
     const parts = [
       '[Клієнт відповів на вашу Instagram Stories]',
@@ -93,32 +112,41 @@ export function buildIgInboundContextHeader(ctx: IgInboundContext): string {
         'Кадр Stories міг не завантажитись (CDN/відео). Не вигадуй текст кадру; орієнтуйся на повідомлення клієнта і системний промпт.',
       );
     }
-    return parts.join('\n');
+    return withOptionalReferral(parts.join('\n'), referralBlock);
   }
 
   if (ctx.kind === 'story_mention') {
-    return [
-      '[Клієнт згадав вас у своїй Instagram Stories (story mention)]',
-      'Медіа Stories ефемерне — не вигадуй деталі кадру, якщо не бачиш зображення.',
-      'Подякуй за згадку коротко й по-людськи, запропонуй написати сюди в Direct, якщо потрібна допомога.',
-    ].join('\n');
+    return withOptionalReferral(
+      [
+        '[Клієнт згадав вас у своїй Instagram Stories (story mention)]',
+        'Медіа Stories ефемерне — не вигадуй деталі кадру, якщо не бачиш зображення.',
+        'Подякуй за згадку коротко й по-людськи, запропонуй написати сюди в Direct, якщо потрібна допомога.',
+      ].join('\n'),
+      referralBlock,
+    );
   }
 
   if (ctx.kind === 'inline_reply') {
-    return [
-      '[Клієнт відповів цитатою на попереднє повідомлення в Direct]',
-      'Врахуй контекст цитати; відповідай по суті того повідомлення.',
-    ].join('\n');
+    return withOptionalReferral(
+      [
+        '[Клієнт відповів цитатою на попереднє повідомлення в Direct]',
+        'Врахуй контекст цитати; відповідай по суті того повідомлення.',
+      ].join('\n'),
+      referralBlock,
+    );
   }
 
   if (ctx.kind === 'detected_phone') {
     const phone = typeof ctx.phone === 'string' && ctx.phone.trim() ? ctx.phone.trim() : '';
-    return [
-      '[Instagram автоматично розпізнав номер телефону клієнта]',
-      'Це окрема службова бульбашка Instagram (картка номера), а не новий набраний текст.',
-      phone ? `Номер: ${phone}` : 'Номер є в тексті повідомлення.',
-      'Збережи як контакт; не перепитуй той самий номер і не ігноруй як порожній вхід.',
-    ].join('\n');
+    return withOptionalReferral(
+      [
+        '[Instagram автоматично розпізнав номер телефону клієнта]',
+        'Це окрема службова бульбашка Instagram (картка номера), а не новий набраний текст.',
+        phone ? `Номер: ${phone}` : 'Номер є в тексті повідомлення.',
+        'Збережи як контакт; не перепитуй той самий номер і не ігноруй як порожній вхід.',
+      ].join('\n'),
+      referralBlock,
+    );
   }
 
   // reaction
@@ -137,7 +165,11 @@ export function buildIgInboundContextHeader(ctx: IgInboundContext): string {
     'Відповідай коротко й тепло (1–2 речення): визнай реакцію, за потреби м’яко продовж діалог.',
     'Не повторюй весь попередній скрипт і не ігноруй реакцію як «порожній» вхід.',
   );
-  return parts.join('\n');
+  return withOptionalReferral(parts.join('\n'), referralBlock);
+}
+
+function withOptionalReferral(header: string, referralBlock: string | null): string {
+  return referralBlock ? `${header}\n\n${referralBlock}` : header;
 }
 
 export function enrichUserMessageWithIgContext(

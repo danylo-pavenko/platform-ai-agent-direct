@@ -43,6 +43,8 @@ import {
   type IgInboundContext,
   reactionDisplay,
 } from '../lib/ig-inbound-context.js';
+import { parseMetaAdReferral } from '../lib/ig-ad-referral.js';
+import { persistIgAdReferralAttribution } from '../services/ig-ad-referral-persist.js';
 import { shouldScheduleBotTurnForReaction } from '../lib/ig-reaction-policy.js';
 import {
   extractSharedPostFromMetaMessage,
@@ -85,7 +87,11 @@ interface MetaMessagingEvent {
       mid?: string;
       story?: { url?: string; id?: string };
     };
+    /** CTD ads / ig.me shortlink referral. */
+    referral?: Record<string, unknown>;
   };
+  /** Top-level referral (some messaging_referral shapes). */
+  referral?: Record<string, unknown>;
   /** Emoji reaction on a prior DM (`message_reactions` field). */
   reaction?: {
     mid: string;
@@ -759,10 +765,11 @@ async function processMessageEvent(
     hasPlayableMedia: directMediaItems.length > 0,
   });
 
-  // ── Story reply / mention / inline reply / IG phone-card context ──
+  // ── Story reply / mention / inline reply / IG phone-card / ads referral ──
   let igContext: IgInboundContext | null = null;
   const storyReply = message.reply_to?.story;
   const storyMentionAtt = attachments.find((a) => a.type === 'story_mention');
+  const adReferral = parseMetaAdReferral(message.referral ?? event.referral);
   if (storyReply) {
     igContext = {
       kind: 'story_reply',
@@ -787,6 +794,11 @@ async function processMessageEvent(
       kind: 'detected_phone',
       phone: payloadPhone,
     };
+  } else if (adReferral) {
+    igContext = { kind: 'ad_referral' };
+  }
+  if (adReferral) {
+    igContext = { ...(igContext ?? { kind: 'ad_referral' }), referral: adReferral };
   }
 
   let mediaAttachments: StoredMediaAttachment[] = [];
@@ -986,10 +998,11 @@ async function processMessageEvent(
         clientId: client.id,
         channel: 'ig',
         state: 'bot',
+        ...(adReferral ? { igAdReferral: adReferral as object } : {}),
       },
     });
     app.log.info(
-      { conversationId: conversation.id, igUserId },
+      { conversationId: conversation.id, igUserId, fromAd: !!adReferral },
       'Created new conversation',
     );
   }
@@ -1070,6 +1083,25 @@ async function processMessageEvent(
     },
   });
   cancelPendingFollowUpsSafe(conversation.id, 'client_inbound');
+
+  if (adReferral) {
+    await persistIgAdReferralAttribution({
+      conversationId: conversation.id,
+      clientId: client.id,
+      referral: adReferral,
+      conversationHadReferral: !!conversation.igAdReferral,
+    }).catch((err) => {
+      app.log.warn({ err, conversationId: conversation.id }, 'Failed to persist IG ad referral');
+    });
+    app.log.info(
+      {
+        conversationId: conversation.id,
+        source: adReferral.source,
+        adId: adReferral.adId ?? null,
+      },
+      'Persisted Instagram ads / CTD referral',
+    );
+  }
 
   app.log.debug(
     {

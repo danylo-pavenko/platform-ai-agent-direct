@@ -190,6 +190,60 @@ export function detectRequestedLanguage(text: string): ClientLanguage | null {
   return found.length === 1 ? found[0] : null;
 }
 
+export type LanguageAttemptRow = {
+  sender: string;
+  text: string | null;
+  /** Set when the row is a shared Instagram post. Its caption is not the client's words. */
+  sharedPost?: unknown;
+};
+
+/** Client's own text on this row, or null for a share, a photo, or an empty bubble. */
+export function clientLanguageAttemptText(row: LanguageAttemptRow): string | null {
+  if (row.sender !== 'client') return null;
+  if (row.sharedPost != null) return null;
+  const text = (row.text ?? '').trim();
+  return text.length > 0 ? text : null;
+}
+
+/**
+ * One string per client burst. Bubbles sent before the bot replies are one message.
+ * A shared post between them does not split or count.
+ */
+export function clientLanguageTurns(rows: readonly LanguageAttemptRow[]): string[] {
+  const turns: string[] = [];
+  let buf: string[] = [];
+  const flush = () => {
+    if (buf.length === 0) return;
+    turns.push(buf.join('\n'));
+    buf = [];
+  };
+  for (const row of rows) {
+    if (row.sender !== 'client') {
+      flush();
+      continue;
+    }
+    const text = clientLanguageAttemptText(row);
+    if (text) buf.push(text);
+  }
+  flush();
+  return turns;
+}
+
+/** 1-based index of the current client burst. The opening burst is 1 even if it has several bubbles. */
+export function currentClientLanguageOrdinal(rows: readonly LanguageAttemptRow[]): number {
+  return Math.max(clientLanguageTurns(rows).length, 1);
+}
+
+/**
+ * Language the card should already hold from the first clear burst, or the second if the first was unclear.
+ * Used when a share pushed the old per-row counter past 2 and the card stayed empty.
+ */
+export function languageFromOpeningTurns(turns: readonly string[]): ClientLanguage | null {
+  const first = detectClientLanguage(turns[0] ?? '');
+  if (first) return first;
+  return detectClientLanguage(turns[1] ?? '');
+}
+
 /**
  * What to write on the card, or null to leave it.
  * A clear language locks on the first or second client message.
@@ -216,6 +270,8 @@ export function explainLanguageDecision(input: {
   text: string;
   inboundOrdinal: number;
   next: ClientLanguage | null;
+  /** Card was still empty, so the first clear burst is applied on a later turn. */
+  recoveredFromOpening?: boolean;
 }): string {
   const sample = clientLanguageSample(input.text).replace(/\s+/g, ' ').trim();
   const preview = sample.length > 90 ? `${sample.slice(0, 89)}…` : sample;
@@ -223,11 +279,17 @@ export function explainLanguageDecision(input: {
   const detected = detectClientLanguage(input.text);
   const requested = detectRequestedLanguage(input.text);
   const quoted = preview ? `«${preview}»` : 'порожньо';
+  if (input.next && input.recoveredFromOpening) {
+    return `Мова: ${clientLanguageLabel(input.next)} (${input.next}). Взято з першого зрозумілого повідомлення; пост Instagram і порожнє фото не рахуються. Текст: ${quoted}.`;
+  }
   if (input.next && requested === input.next) {
     return `Мова: ${clientLanguageLabel(input.next)} (${input.next}). Клієнт попросив. Було: ${before ?? 'немає'}. Текст: ${quoted}.`;
   }
   if (input.next) {
     return `Мова: ${clientLanguageLabel(input.next)} (${input.next}). За текстом клієнта. Було: ${before ?? 'немає'}. Текст: ${quoted}.`;
+  }
+  if (!before && detected && input.inboundOrdinal > 2) {
+    return `Мова не записана (повідомлення ${input.inboundOrdinal}): текст схожий на ${clientLanguageLabel(detected)}, перші два повідомлення мови не дали. Текст: ${quoted}.`;
   }
   if (before && detected && detected !== before) {
     return `Мова картки: ${clientLanguageLabel(before)} (${before}), без зміни. Цей текст схожий на ${clientLanguageLabel(detected)}, у діалозі не перемикаємо. Текст: ${quoted}.`;

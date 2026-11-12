@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clientLanguageTurns,
+  currentClientLanguageOrdinal,
   detectClientLanguage,
   detectRequestedLanguage,
+  languageFromOpeningTurns,
   languageToStore,
   normalizeClientLanguage,
 } from './client-language.js';
@@ -56,6 +59,55 @@ describe('detectClientLanguage', () => {
     expect(detectClientLanguage('2019 320')).toBeNull();
     expect(detectClientLanguage('https://flashex-tuning.com/the-engine-price')).toBeNull();
     expect(detectClientLanguage('F30 320i')).toBeNull();
+  });
+});
+
+describe('client language bursts', () => {
+  const opening = [
+    { sender: 'client', text: 'Я хочу прошить мотор.', sharedPost: null },
+    { sender: 'client', text: null, sharedPost: { postUrl: 'https://instagram.com/p/1' } },
+    { sender: 'client', text: 'Я хочу прошить мотор.', sharedPost: null },
+  ];
+
+  it('counts a shared post and the repeated sentence as the first message', () => {
+    expect(clientLanguageTurns(opening)).toEqual([
+      'Я хочу прошить мотор.\nЯ хочу прошить мотор.',
+    ]);
+    expect(currentClientLanguageOrdinal(opening)).toBe(1);
+    expect(languageFromOpeningTurns(clientLanguageTurns(opening))).toBe('ru');
+    expect(
+      languageToStore({
+        stored: null,
+        text: 'Я хочу прошить мотор. Я хочу прошить мотор.',
+        inboundOrdinal: currentClientLanguageOrdinal(opening),
+      }),
+    ).toBe('ru');
+  });
+
+  it('still recovers Russian from that opening after later messages left the card empty', () => {
+    const rows = [
+      ...opening,
+      { sender: 'bot', text: 'Добрый день.', sharedPost: null },
+      { sender: 'client', text: 'Это где ваше гараж', sharedPost: null },
+      { sender: 'bot', text: 'Адреси немає.', sharedPost: null },
+      { sender: 'client', text: '528i', sharedPost: null },
+    ];
+    expect(currentClientLanguageOrdinal(rows)).toBe(3);
+    expect(detectClientLanguage('Это где ваше гараж')).toBe('ru');
+    expect(languageFromOpeningTurns(clientLanguageTurns(rows))).toBe('ru');
+    expect(languageToStore({ stored: null, text: '528i', inboundOrdinal: 3 })).toBeNull();
+  });
+
+  it('does not invent a language when the first two bursts are unclear', () => {
+    const rows = [
+      { sender: 'client', text: 'ок', sharedPost: null },
+      { sender: 'bot', text: 'Слухаю.', sharedPost: null },
+      { sender: 'client', text: 'F30 320i', sharedPost: null },
+      { sender: 'bot', text: 'Який двигун?', sharedPost: null },
+      { sender: 'client', text: 'Я хочу прошить мотор', sharedPost: null },
+    ];
+    expect(currentClientLanguageOrdinal(rows)).toBe(3);
+    expect(languageFromOpeningTurns(clientLanguageTurns(rows))).toBeNull();
   });
 });
 

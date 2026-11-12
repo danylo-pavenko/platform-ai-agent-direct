@@ -23,7 +23,7 @@ Lookup (search_catalog, search_services, get_available_slots, get_delivery_cost,
 Порожній search_services — не вигадувати ціну. BeautyPro UUID клієнту не світити.
 
 Спільні: update_client_info, tag_client, lookup_tenant_events, read_library, request_handoff, create_local_order; set_conversation_branch (якщо є філії). read_library читає активну картку бібліотеки і не замінює search_catalog.
-Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Вибір дня+майстра («Пт Анастасія») і імʼя майстра зі слотів — не ПІБ клієнта. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment. Мова клієнта (uk, ru, en, pl, es, de) фіксується в картці на першому або другому зрозумілому повідомленні і лишається на цей діалог і наступні. Менеджер може змінити її в картці. Посилання, цифри, «ок» і код її не ставлять. Пряме прохання («на русском», «українською», «in english») оновлює картку. Кирилиця сама по собі не означає українську.
+Імʼя клієнта для CRM/запису — рядок «Імʼя:» у профілі (чат або справжнє імʼя з шапки IG, зокрема латиницею Marta/Anna). Слоган/бізнес-назва Instagram (igFullName) не є ПІБ. Вибір дня+майстра («Пт Анастасія») і імʼя майстра зі слотів — не ПІБ клієнта. Телефон + «я в базі» → lookup_client_by_phone → імʼя з CRM для book_appointment. Мова клієнта (uk, ru, en, pl, es, de) фіксується в картці на першому або другому зрозумілому повідомленні (кілька бульбашок до відповіді — це одне; пост Instagram і порожнє фото не рахуються) і лишається на цей діалог і наступні. Якщо картка лишилась порожньою, перше зрозуміле повідомлення дописується пізніше. Менеджер може змінити її в картці. Посилання, цифри, «ок» і код її не ставлять. Пряме прохання («на русском», «українською», «in english») оновлює картку. Кирилиця сама по собі не означає українську.
 
 sales: search_catalog, get_delivery_cost, lookup_order_shipment, collect_order
 leadgen: classify_intent, submit_brief
@@ -96,6 +96,13 @@ Client.crmBuyerId — привʼязка IG-клієнта до CRM (телеф�
 Smart-trigger / ремаркетинг (Агент і SLA): якщо бот написав і клієнт мовчить N годин (default 18 / max 24) — платформа ставить FollowUpJob у чергу і в runAt один раз викликає агента (контекстний soft-nudge, не шаблон). Воркер бере лише due-джоби. Для Instagram — лише в межах ~24h messaging window Meta.
 Затримка відповіді (responseDelayMin/MaxSeconds у agent_config): пауза 0–60 с перед генерацією відповіді (typing вже увімкнений); 0 = одразу.
 Часовий пояс tenant (agent_config.timezone, default Europe/Kyiv): «зараз», робочі години і межі цивільного дня для CRM-слотів (BeautyPro free_time from/to). Сервер може бути в DE — календар салону не бере системний TZ. У сесію інжектиться «Календар найближчих днів» (14 діб з weekday) — «понеділок»/«завтра» → дата лише звідти; get_available_slots підписує день тижня біля дати.
+
+## Instagram ads / CTD
+
+- Click-to-Direct: Meta шле message.referral (source ADS + ad_id / ads_context_data) на першому повідомленні. Платформа зберігає sticky на Conversation + Client (first/last) і інжектить блок атрибуції в хід Claude.
+- Адмінка: чіп «З реклами» на треді/бульбашці; у профілі клієнта — «Джерело IG» (title / ad_id / first–last).
+- agent_config.respondAdsOnly (Налаштування → Агент і SLA): бот відповідає лише в тредах з CTD/ads sticky або referral на цьому inbound. Органіка → soft-handoff менеджеру без IG-ack клієнту; після handoff return-to-bot / idle TTL бот підхоплює (SLA Telegram як звичайний handoff).
+- Без referral (поділився постом / написав під рекламним постом без CTD) — це не ads attribution. Окремого MCP tool get_ad_attribution немає.
 
 ## Instagram inbound nuances (webhook → Claude)
 

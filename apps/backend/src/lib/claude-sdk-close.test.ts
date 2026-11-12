@@ -2,26 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { closeSdkQuery } from './claude-sdk-close.js';
 
 describe('closeSdkQuery', () => {
-  it('interrupts then closes', async () => {
+  it('interrupts then closes; still closes if interrupt throws; no-ops undefined', async () => {
     const interrupt = vi.fn(async () => undefined);
     const close = vi.fn();
     await closeSdkQuery({ interrupt, close });
     expect(interrupt).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
-  });
 
-  it('still closes when interrupt throws', async () => {
-    const close = vi.fn();
+    const close2 = vi.fn();
     await closeSdkQuery({
       interrupt: async () => {
         throw new Error('not streaming');
       },
-      close,
+      close: close2,
     });
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
-  it('no-ops on undefined', async () => {
+    expect(close2).toHaveBeenCalledTimes(1);
     await expect(closeSdkQuery(undefined)).resolves.toBeUndefined();
   });
 });
