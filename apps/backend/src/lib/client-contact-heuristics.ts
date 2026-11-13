@@ -7,6 +7,7 @@
 import pino from 'pino';
 import { prisma } from './prisma.js';
 import {
+  comparePersonNames,
   effectiveChatDisplayName,
   isPlausiblePersonName,
 } from './client-person-name.js';
@@ -101,6 +102,29 @@ export function normalizeUaPhone(raw: string): string | null {
   // First digit of national number should be mobile range (not 0)
   if (d[0] === '0') return null;
   return `+380${d}`;
+}
+
+/**
+ * A CRM card found by name may be attached only when the full name is the same
+ * person (every word, any order). A phone already stored locally is stronger:
+ * the card is attached only when it carries that same number. A different
+ * number is never copied over it.
+ */
+export function nameMatchMayAttachCard(input: {
+  localName: string | null | undefined;
+  cardName: string | null | undefined;
+  localPhone?: string | null;
+  cardPhone?: string | null;
+}): boolean {
+  if (comparePersonNames(input.localName, input.cardName) !== 'equal') return false;
+  const local = input.localPhone?.trim()
+    ? normalizeUaPhone(input.localPhone) ?? input.localPhone.trim()
+    : '';
+  if (!local) return true;
+  const card = input.cardPhone?.trim()
+    ? normalizeUaPhone(input.cardPhone) ?? input.cardPhone.trim()
+    : '';
+  return card !== '' && local === card;
 }
 
 function extractPhones(text: string): string[] {

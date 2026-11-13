@@ -2,8 +2,46 @@ import { describe, expect, it } from 'vitest';
 import {
   extractContactPatchesFromText,
   extractPersonNameFromText,
+  nameMatchMayAttachCard,
   normalizeUaPhone,
 } from './client-contact-heuristics.js';
+
+describe('nameMatchMayAttachCard', () => {
+  it('does not attach another person who only shares a given name or a different phone', () => {
+    expect(
+      nameMatchMayAttachCard({
+        localName: 'Христина',
+        cardName: 'Христина Ковтун',
+        cardPhone: '+380730839484',
+      }),
+    ).toBe(false);
+    expect(
+      nameMatchMayAttachCard({
+        localName: 'Христина Ковтун',
+        cardName: 'Ковтун Христина',
+        localPhone: '380973323280',
+        cardPhone: '+380730839484',
+      }),
+    ).toBe(false);
+  });
+
+  it('attaches the same full name and keeps a phone only when the card has that number', () => {
+    expect(
+      nameMatchMayAttachCard({
+        localName: 'Христина Ковтун',
+        cardName: 'Ковтун Христина',
+      }),
+    ).toBe(true);
+    expect(
+      nameMatchMayAttachCard({
+        localName: 'Христина Ковтун',
+        cardName: 'Христина Ковтун',
+        localPhone: '380973323280',
+        cardPhone: '+380973323280',
+      }),
+    ).toBe(true);
+  });
+});
 
 describe('extractPersonNameFromText', () => {
   it('accepts a two-word capitalized Ukrainian name', () => {

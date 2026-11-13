@@ -155,7 +155,7 @@ All CRM I/O goes through `getCrmForAction(action)` / `resolveCrmProvider(action)
 
 Routing modes: `single` | `by_action` | `prompt`. Route target may be a vendor or `none`. New tenants / zero credentials → `ensureCrmRoutingAfterIntegrations` persists local-only. Hybrid example: catalog/order → KeyCRM, services/booking → BeautyPro, lead → none.
 
-Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). A chat name updates the local client only. CRM `firstname`/`full_name` is sent when creating a buyer; an existing CRM card is not renamed (BeautyPro PUT, KeyCRM PUT, CleverBOX `slots/save` with `client_id`). Details: `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, BeautyPro: `docs/BEAUTYPRO_CRM_INTEGRATION.md`.
+Client link: `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`). A chat name updates the local client only. BeautyPro name search links a card only when the full name matches in either word order. A given name or a surname alone does not attach another client or copy their phone. A phone already stored on the client is not replaced by a name search. CRM `firstname`/`full_name` is sent when creating a buyer; an existing CRM card is not renamed (BeautyPro PUT, KeyCRM PUT, CleverBOX `slots/save` with `client_id`). Details: `docs/MULTI_CRM_INTEGRATION_GUIDE.md`, BeautyPro: `docs/BEAUTYPRO_CRM_INTEGRATION.md`.
 
 ---
 

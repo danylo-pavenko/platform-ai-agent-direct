@@ -100,6 +100,7 @@ Live 400 `Unknown parameter 'X'` якщо ім'я **немає** в списку
 | Flow | Що робить |
 |------|-----------|
 | Авто (телефон) | `linkClientToCrm` після `update_client_info` / heuristic / admin save phone → `GET /clients?phone=` |
+| Авто (імʼя) | Те саме `findClient`, але картка чіпляється лише коли збігаються всі слова імені в будь-якому порядку. Одне імʼя чи одне прізвище («Христина», «Ковтун») не привʼязує іншу людину і не копіює її телефон. Телефон, який уже стоїть у клієнта, пошук за імʼям не замінює. |
 | Booking | `createBooking` повертає `crmBuyerId` → persist на `Client` |
 | Адмінка | Conversation → профіль: «Знайти за телефоном», UUID вручну, історія візитів. **Замовлення:** overlays Appointment. Старий TIME_CONFLICT (один `master_id` на всі рядки): бекфіл копіює note `master_id` на рядки без `masterId`; менеджер ставить другого майстра в селекті (`PATCH /orders/:id/booking-services`) → `POST /orders/:id/sync-crm`. BeautyPro create/append за замовчуванням з `?force=true`; кнопка «Все одно в CRM (force)» лишається для явного retry. |
 

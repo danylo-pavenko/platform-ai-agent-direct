@@ -34,7 +34,7 @@ import {
   isPlausiblePersonName,
   personNameCollidesWithMaster,
 } from '../lib/client-person-name.js';
-import { normalizeUaPhone } from '../lib/client-contact-heuristics.js';
+import { nameMatchMayAttachCard, normalizeUaPhone } from '../lib/client-contact-heuristics.js';
 import { sendText } from './instagram.js';
 import { persistIgOutboundMessage } from './ig-outbound-persist.js';
 import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
@@ -1519,8 +1519,9 @@ export async function loadMergedUpcomingVisitsForClient(
 }
 
 /**
- * When the linked CRM UUID has no open visits, search another card by ПІБ
- * (full name or one word) and, if that card has upcoming bookings, re-link + hydrate phone.
+ * When the linked CRM UUID has no open visits, search another card by a
+ * distinguishing full name (every word, any order — not a given name or a
+ * surname alone) and, if that card has upcoming bookings, re-link + hydrate phone.
  */
 async function rediscoverUpcomingByClientName(params: {
   clientId: string;
@@ -1556,6 +1557,20 @@ async function rediscoverUpcomingByClientName(params: {
   }
   if (!match?.crmBuyerId) return [];
   if (client.crmBuyerId && match.crmBuyerId === client.crmBuyerId) return [];
+  if (
+    !nameMatchMayAttachCard({
+      localName: personName,
+      cardName: match.fullName,
+      localPhone: client.phone,
+      cardPhone: match.phone,
+    })
+  ) {
+    log.info(
+      { clientId: params.clientId, personName, cardName: match.fullName },
+      'Name rediscover skipped: name or phone is a different person',
+    );
+    return [];
+  }
 
   const range = isoRangeForUpcomingHorizon(
     params.now,
@@ -1574,13 +1589,16 @@ async function rediscoverUpcomingByClientName(params: {
   }
   if (bookings.length === 0) return [];
 
-  const adoptPhone = match.phone?.trim()
-    ? normalizeUaPhone(match.phone) ?? match.phone.trim()
-    : undefined;
+  const adoptPhone =
+    !client.phone?.trim() && match.phone?.trim()
+      ? normalizeUaPhone(match.phone) ?? match.phone.trim()
+      : undefined;
   const adoptName =
-    match.fullName && isPlausiblePersonName(match.fullName) ? match.fullName.trim() : undefined;
+    !personName && match.fullName && isPlausiblePersonName(match.fullName)
+      ? match.fullName.trim()
+      : undefined;
 
-  // Re-link overwrites phone from the correct CRM card (may have hydrated a wrong card earlier).
+  // Phone already on the client stays. Name search may fill it only when empty.
   await prisma.client.update({
     where: { id: params.clientId },
     data: {

@@ -18,7 +18,7 @@ import {
 } from '../lib/client-service-duration.js';
 
 import { crmPersonFullName, effectiveClientPersonName, isPlausiblePersonName } from '../lib/client-person-name.js';
-import { normalizeUaPhone } from '../lib/client-contact-heuristics.js';
+import { nameMatchMayAttachCard, normalizeUaPhone } from '../lib/client-contact-heuristics.js';
 
 const log = pino({ name: 'client-crm-link' });
 
@@ -329,6 +329,22 @@ export async function linkClientToCrm(
       typeof match?.phone === 'string' && match.phone.trim() ? match.phone.trim() : null;
     if (matchedId && !client.phone && !client.email && personName) {
       matchSource = 'name_match';
+    }
+    if (
+      matchedId &&
+      matchSource === 'name_match' &&
+      !nameMatchMayAttachCard({
+        localName: personName,
+        cardName: matchedName,
+        localPhone: client.phone,
+        cardPhone: matchedPhone,
+      })
+    ) {
+      log.info(
+        { clientId, provider, personName, matchedName },
+        'CRM name match is not the same person — not linking or copying the phone',
+      );
+      matchedId = null;
     }
   } catch (err) {
     log.warn({ err, clientId, provider }, 'findClient failed');

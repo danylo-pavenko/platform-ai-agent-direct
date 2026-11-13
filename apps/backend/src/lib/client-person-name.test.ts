@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  comparePersonNames,
   crmPersonFullName,
   effectiveChatDisplayName,
   effectiveClientPersonName,
@@ -8,6 +9,15 @@ import {
   isPlausiblePersonName,
   personNameCollidesWithMaster,
 } from './client-person-name.js';
+
+describe('comparePersonNames', () => {
+  it('treats word order as the same person and a shared first name as not', () => {
+    expect(comparePersonNames('Христина Ковтун', 'Ковтун Христина')).toBe('equal');
+    expect(comparePersonNames('Христина', 'Христина Ковтун')).toBe('compatible');
+    expect(comparePersonNames('Христина Кравченко', 'Христина Ковтун')).toBe('contradictory');
+    expect(comparePersonNames('Ковтун', 'Христина Ковтун')).toBe('compatible');
+  });
+});
 
 describe('isIgProfileTitleNotPersonName', () => {
   it('flags Instagram business headlines', () => {

@@ -12,6 +12,7 @@
  */
 
 import { normalizeUaPhone } from '../../lib/client-contact-heuristics.js';
+import { comparePersonNames } from '../../lib/client-person-name.js';
 
 /** List fields for phone/email match + ranking when duplicates share a number. */
 export const BP_CLIENT_LIST_FIELDS =
@@ -227,6 +228,20 @@ function normalizeNameBlob(raw: string): string {
     .trim();
 }
 
+/**
+ * Name search may link a card only when every word matches, in any order.
+ * «Христина» is not «Христина Ковтун». «Ковтун Христина» is the same person
+ * as «Христина Ковтун». A shared given name or a shared surname is not identity.
+ */
+export function isIdentifyingBeautyproNameMatch(
+  query: string,
+  row: Pick<RawClientLike, 'name' | 'firstname' | 'lastname'>,
+): boolean {
+  const full = formatBeautyproClientFullName(row);
+  if (!full) return false;
+  return comparePersonNames(query, full) === 'equal';
+}
+
 /** Score how well a CRM row matches a person-name query (higher = better). */
 export function scoreBeautyproClientNameMatch(
   row: Pick<RawClientLike, 'name' | 'firstname' | 'lastname'>,
@@ -268,16 +283,9 @@ export function pickBestBeautyproClientByName(
   const pool = active.length > 0 ? active : rows.filter((r) => r?.id);
   if (pool.length === 0) return null;
 
-  const scored = pool.map((row, index) => ({
-    row,
-    score: scoreBeautyproClientNameMatch(row, query),
-    index,
-  }));
-  scored.sort((a, b) => b.score - a.score || a.index - b.index);
-  const best = scored[0]!;
-  // Require a real name signal — avoid random first-page hits on weak tokens.
-  if (best.score < 24) return null;
-  return best.row;
+  const identifying = pool.filter((row) => isIdentifyingBeautyproNameMatch(query, row));
+  if (identifying.length !== 1) return null;
+  return identifying[0]!;
 }
 
 /** Prefer UA E.164; else first non-empty phone on the CRM card. */

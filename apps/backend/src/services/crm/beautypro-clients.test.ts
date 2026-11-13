@@ -14,6 +14,7 @@ import {
   igCommentMarker,
   normalizeIgUsername,
   pickBestBeautyproClient,
+  isIdentifyingBeautyproNameMatch,
   pickBestBeautyproClientByName,
   pickClientMatchingIg,
   primaryPhoneFromBeautyproRow,
@@ -199,5 +200,52 @@ describe('beautypro client helpers', () => {
     expect(best?.id).toBe('target');
     expect(scoreBeautyproClientNameMatch(best!, 'Еліяшевська')).toBeGreaterThan(20);
     expect(primaryPhoneFromBeautyproRow(best!)).toBe('+380983380520');
+  });
+
+  it('does not attach another person who only shares a given name', () => {
+    const rows = [
+      {
+        id: 'regular',
+        firstname: 'Христина',
+        lastname: 'Мельник',
+        phone: ['+380501111111'],
+        archive: false,
+        first_visit: '2024-01-01',
+      },
+      {
+        id: 'other',
+        firstname: 'Христина',
+        lastname: 'Коваль',
+        phone: ['+380502222222'],
+        archive: false,
+        first_visit: '2025-06-01',
+      },
+    ];
+    expect(pickBestBeautyproClientByName(rows, 'Христина')).toBeNull();
+    expect(pickBestBeautyproClientByName(rows.slice(0, 1), 'Христина')).toBeNull();
+    expect(pickBestBeautyproClientByName(rows, 'Христина К')).toBeNull();
+    expect(pickBestBeautyproClientByName(rows, 'Ковтун Христина')).toBeNull();
+    expect(isIdentifyingBeautyproNameMatch('Христина Ковтун', {
+      firstname: 'Ковтун',
+      lastname: 'Христина',
+    })).toBe(true);
+    expect(isIdentifyingBeautyproNameMatch('Христина Ковтун', {
+      name: 'Ковтун Христина',
+    })).toBe(true);
+    expect(isIdentifyingBeautyproNameMatch('Христина', rows[0]!)).toBe(false);
+  });
+
+  it('links only a full name, in either word order', () => {
+    const row = {
+      id: 'target',
+      firstname: 'Анна',
+      lastname: 'Еліяшевська',
+      archive: false,
+    };
+    expect(pickBestBeautyproClientByName([row], 'Анна Еліяшевська')?.id).toBe('target');
+    expect(pickBestBeautyproClientByName([row], 'Еліяшевська Анна')?.id).toBe('target');
+    expect(pickBestBeautyproClientByName([row], 'Еліяшевська')).toBeNull();
+    expect(pickBestBeautyproClientByName([row], 'Анна')).toBeNull();
+    expect(pickBestBeautyproClientByName([row], 'Ковтун Христина')).toBeNull();
   });
 });

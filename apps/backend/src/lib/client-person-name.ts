@@ -33,8 +33,40 @@ function normalizeNameKey(value: string): string {
 function corePersonLabel(value: string): string {
   return normalizeNameKey(value)
     .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/ё/g, 'е')
+    .replace(/[''`ʼ]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function personTokens(value: string): string[] {
+  return corePersonLabel(value)
+    .split(' ')
+    .map((token) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''))
+    .filter((token) => token.length >= 2);
+}
+
+/**
+ * equal — same words, any order («Христина Ковтун» / «Ковтун Христина»).
+ * compatible — one name is only a part of the other («Христина» vs «Христина Ковтун»).
+ * contradictory — both have words the other does not («Христина Кравченко» vs «Христина Ковтун»).
+ */
+export type PersonNameRelation = 'equal' | 'compatible' | 'contradictory' | 'unknown';
+
+export function comparePersonNames(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): PersonNameRelation {
+  const left = personTokens(a ?? '');
+  const right = personTokens(b ?? '');
+  if (left.length === 0 || right.length === 0) return 'unknown';
+  const rightSet = new Set(right);
+  const leftSet = new Set(left);
+  const leftInRight = left.every((token) => rightSet.has(token));
+  const rightInLeft = right.every((token) => leftSet.has(token));
+  if (leftInRight && rightInLeft) return 'equal';
+  if (leftInRight || rightInLeft) return 'compatible';
+  return 'contradictory';
 }
 
 /**
