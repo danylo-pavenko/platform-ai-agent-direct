@@ -927,11 +927,50 @@ async function handleIncomingMessageImpl(
     conversationReferral: conversation.igAdReferral,
     messageReferral,
   });
+  let hasStoryReply = igContext?.kind === 'story_reply' || Boolean(conversation.storyReplyAt);
+  if (igContext?.kind === 'story_reply' && !conversation.storyReplyAt) {
+    const markedAt = new Date();
+    try {
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { storyReplyAt: markedAt },
+      });
+      conversation.storyReplyAt = markedAt;
+    } catch (err) {
+      log.warn({ err, conversationId }, 'Failed to persist storyReplyAt');
+    }
+  } else if (
+    !hasStoryReply
+    && agentCfg.respondAdsOnly
+    && agentCfg.respondStoryReplies
+  ) {
+    const priorStory = await prisma.message.findFirst({
+      where: {
+        conversationId,
+        igContext: { path: ['kind'], equals: 'story_reply' },
+      },
+      select: { createdAt: true },
+    });
+    if (priorStory) {
+      hasStoryReply = true;
+      try {
+        await prisma.conversation.update({
+          where: { id: conversationId },
+          data: { storyReplyAt: priorStory.createdAt },
+        });
+        conversation.storyReplyAt = priorStory.createdAt;
+      } catch (err) {
+        log.warn({ err, conversationId }, 'Failed to backfill storyReplyAt');
+      }
+    }
+  }
   const adsOnlyAssumed = Boolean(conversation.adsOnlyBotAssumedAt);
   if (
     shouldAdsOnlySoftHandoffOrganic({
       respondAdsOnly: agentCfg.respondAdsOnly,
       hasAdAttribution,
+      allowStoryReplies: agentCfg.respondStoryReplies,
+      hasStoryReply,
       adsOnlyAssumed,
       resumedFromAdsOnlyHandoff,
       managerAction: opts?.managerAction,

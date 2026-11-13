@@ -139,6 +139,7 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
         briefQuality: row.briefQuality,
         briefQualityNote: row.briefQualityNote,
         igAdReferral: row.igAdReferral ?? null,
+        storyReplyAt: row.storyReplyAt ?? null,
         assignee,
         assigneeLabel: assignee ? formatAdminLabel(assignee) : null,
       },

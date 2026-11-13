@@ -118,6 +118,8 @@ model Conversation {
    * inbound stays on the bot until a manager takes the thread again.
    */
   adsOnlyBotAssumedAt DateTime?       @map("ads_only_bot_assumed_at")
+  /** First inbound that was a reply to an Instagram Story. Sticky for this thread. */
+  storyReplyAt    DateTime?           @map("story_reply_at")
   createdAt       DateTime            @default(now()) @map("created_at")
   // Salon / multi-location: set when the client picks a branch in chat.
   branchId        String?             @map("branch_id") @db.Uuid

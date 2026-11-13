@@ -1329,6 +1329,33 @@
               Після reclaim бот веде цей тред далі, поки менеджер знову не забере.
             </p>
           </div>
+          <div class="settings-story-exception" :class="{ 'is-off': !agentConfig.respondAdsOnly }">
+            <div class="settings-widget__head settings-widget__head--row">
+              <div class="settings-widget__head-text">
+                <div class="settings-widget__icon settings-widget__icon--violet">
+                  <v-icon size="20">mdi-image-outline</v-icon>
+                </div>
+                <div>
+                  <h3 class="settings-widget__title">Також відповідати на сторіс</h3>
+                  <p class="settings-widget__desc">
+                    Виняток до режиму вище: відповідь на сторіс і наступні повідомлення в цьому діалозі отримують відповідь бота.
+                  </p>
+                </div>
+              </div>
+              <v-switch
+                v-model="agentConfig.respondStoryReplies"
+                color="deep-purple"
+                :density="density"
+                :disabled="!agentConfig.respondAdsOnly"
+                hide-details
+                class="settings-widget__switch"
+                aria-label="Також відповідати на сторіс"
+              />
+            </div>
+            <p class="settings-field__hint">
+              У чаті такі діалоги позначені «На сторіс». Звичайний директ без реклами і без відповіді на сторіс лишається менеджеру.
+            </p>
+          </div>
         </section>
 
         <section class="settings-widget">
@@ -4884,6 +4911,7 @@ interface AgentConfigShape {
   managerSlaHoursBusiness: number;
   sessionFreshnessDays: number;
   respondAdsOnly: boolean;
+  respondStoryReplies: boolean;
   responseDelayMinSeconds: number;
   responseDelayMaxSeconds: number;
   claudeModel: 'sonnet' | 'opus';
@@ -4899,6 +4927,7 @@ const agentConfig = ref<AgentConfigShape>({
   managerSlaHoursBusiness: 2,
   sessionFreshnessDays: 14,
   respondAdsOnly: false,
+  respondStoryReplies: false,
   responseDelayMinSeconds: 0,
   responseDelayMaxSeconds: 0,
   claudeModel: 'sonnet',
@@ -5115,6 +5144,7 @@ async function fetchSettings() {
             ? String((raw as { paymentRequisites?: string }).paymentRequisites)
             : '',
         respondAdsOnly: (raw as { respondAdsOnly?: unknown }).respondAdsOnly === true,
+        respondStoryReplies: (raw as { respondStoryReplies?: unknown }).respondStoryReplies === true,
       };
       lastPersistedTimezone = agentConfig.value.timezone;
       if (agentConfig.value.responseDelayMaxSeconds < agentConfig.value.responseDelayMinSeconds) {
@@ -6075,6 +6105,21 @@ onUnmounted(() => {
   font-size: 0.875rem;
   line-height: 1.45;
   color: #3d2c22;
+}
+
+.settings-story-exception {
+  margin: 0 16px 16px;
+  padding-top: 4px;
+  border-top: 1px solid #eadfd4;
+}
+
+.settings-story-exception .settings-widget__head {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.settings-story-exception.is-off {
+  opacity: 0.55;
 }
 
 .settings-choice-grid {

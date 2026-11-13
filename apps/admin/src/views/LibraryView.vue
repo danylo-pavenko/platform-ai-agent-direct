@@ -877,7 +877,17 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 8px 16px 16px;
+  padding: 8px 16px 24px;
+}
+
+/*
+ * Widgets are flex children of the scroll body. With overflow:hidden they can
+ * shrink below content height and clip the last lines (e.g. empty-state hint).
+ * Never shrink cards — only the body scrolls.
+ */
+.library-dialog-body > .settings-widget {
+  flex: 0 0 auto;
+  overflow: visible;
 }
 
 .library-lead {
@@ -993,7 +1003,8 @@ onMounted(load);
   border: 1px solid #d9e2ec;
   border-radius: 14px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
-  overflow: hidden;
+  /* Prefer clip over hidden: same radius paint, less flex min-size clipping. */
+  overflow: clip;
 }
 
 .settings-widget--accent {
@@ -1057,7 +1068,7 @@ onMounted(load);
 .settings-widget__body {
   display: grid;
   gap: 16px;
-  padding: 14px 16px 16px;
+  padding: 14px 16px 18px;
 }
 
 .settings-widget__body--grid {

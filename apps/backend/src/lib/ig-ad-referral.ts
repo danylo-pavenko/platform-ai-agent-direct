@@ -124,20 +124,27 @@ export function conversationHasAdAttribution(opts: {
 
 /**
  * Soft-handoff gate for respondAdsOnly: organic inbound without exemption /
- * this-turn reclaim / manager action / CTD attribution.
+ * this-turn reclaim / manager action / CTD attribution / allowed Story reply.
+ * Story replies count only when the tenant also enabled respondStoryReplies.
  */
 export function shouldAdsOnlySoftHandoffOrganic(opts: {
   respondAdsOnly: boolean;
   hasAdAttribution: boolean;
+  /** Tenant toggle: also auto-reply to Story replies while ads-only is on. */
+  allowStoryReplies?: boolean;
+  /** This inbound or an earlier bubble in the thread is a Story reply. */
+  hasStoryReply?: boolean;
   adsOnlyAssumed: boolean;
   resumedFromAdsOnlyHandoff?: boolean;
   /** Any truthy manager-forced Claude action skips soft-handoff. */
   managerAction?: unknown;
 }): boolean {
+  const storyAllowed = Boolean(opts.allowStoryReplies && opts.hasStoryReply);
   return (
     opts.respondAdsOnly
     && !opts.managerAction
     && !opts.hasAdAttribution
+    && !storyAllowed
     && !opts.resumedFromAdsOnlyHandoff
     && !opts.adsOnlyAssumed
   );

@@ -22,6 +22,7 @@
  *     fallbackMessages: { busy: { uk, en, ru? }, timeout: { uk, en, ru? } },
  *     paymentRequisites: string, // IBAN / card text for the admin chat button
  *     respondAdsOnly: boolean,  // only CTD/ad-attributed threads; organic → soft handoff
+ *     respondStoryReplies: boolean,  // with ads-only: also reply to Story replies in that thread
  *   }
  */
 import { config } from '../config.js';
@@ -95,6 +96,11 @@ export interface AgentConfig {
    * → soft handoff (no client ack); after handoff return-to-bot TTL the bot resumes.
    */
   respondAdsOnly: boolean;
+  /**
+   * When respondAdsOnly is also on, a reply to an Instagram Story (and later
+   * messages in that thread) is answered like an ad thread. Ignored when ads-only is off.
+   */
+  respondStoryReplies: boolean;
 }
 
 function envClaudeModelFallback(): ClaudeModelId {
@@ -134,6 +140,7 @@ const DEFAULTS: AgentConfig = {
   fallbackMessages: DEFAULT_FALLBACK_MESSAGES,
   paymentRequisites: '',
   respondAdsOnly: false,
+  respondStoryReplies: false,
 };
 
 /** Coerce settings/UI values to boolean; default false when unset. */
@@ -275,6 +282,7 @@ export async function getAgentConfig(): Promise<AgentConfig> {
     fallbackMessages: normalizeFallbackMessages(raw.fallbackMessages),
     paymentRequisites: normalizePaymentRequisites(raw.paymentRequisites),
     respondAdsOnly: normalizeRespondAdsOnly(raw.respondAdsOnly),
+    respondStoryReplies: normalizeRespondAdsOnly(raw.respondStoryReplies),
   };
   _cacheAt = Date.now();
   return _cache;

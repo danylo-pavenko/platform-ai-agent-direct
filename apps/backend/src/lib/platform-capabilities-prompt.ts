@@ -100,8 +100,8 @@ Smart-trigger / ремаркетинг (Агент і SLA): якщо бот на
 ## Instagram ads / CTD
 
 - Click-to-Direct: Meta шле message.referral (source ADS + ad_id / ads_context_data) на першому повідомленні. Платформа зберігає sticky на Conversation + Client (first/last) і інжектить блок атрибуції в хід Claude.
-- Адмінка: чіп «З реклами» на треді/бульбашці; у профілі клієнта — «Джерело IG» (title / ad_id / first–last).
-- agent_config.respondAdsOnly (Налаштування → Агент і SLA): бот відповідає лише в тредах з CTD/ads sticky або referral на цьому inbound. Органіка → soft-handoff без IG-ack; dual SLA (managerSlaHoursBusiness робочих годин) — TG nudge + reclaim ботом з дожимом клієнта без нового inbound; після reclaim exemption (adsOnlyBotAssumedAt) без повторного soft-handoff у цьому UUID. Звичайний handoff лишається на wall-clock return-to-bot. У вкладці Клієнти — фільтри «Без відповіді» / «Довго чекають».
+- Адмінка: чіп «З реклами» на треді/бульбашці; у профілі клієнта — «Джерело IG» (title / ad_id / first–last). Відповідь на сторіс — чіп «На сторіс» на треді і «Відповідь на сторіс» на бульбашці.
+- agent_config.respondAdsOnly (Налаштування → Агент і SLA): бот відповідає лише в тредах з CTD/ads sticky або referral на цьому inbound. respondStoryReplies (той самий блок, лише разом з ads-only): також відповідь на сторіс і подальші повідомлення цього треда (sticky storyReplyAt). Органіка → soft-handoff без IG-ack; dual SLA (managerSlaHoursBusiness робочих годин) — TG nudge + reclaim ботом з дожимом клієнта без нового inbound; після reclaim exemption (adsOnlyBotAssumedAt) без повторного soft-handoff у цьому UUID. Звичайний handoff лишається на wall-clock return-to-bot. У вкладці Клієнти — фільтри «Без відповіді» / «Довго чекають».
 - Без referral (поділився постом / написав під рекламним постом без CTD) — це не ads attribution. Окремого MCP tool get_ad_attribution немає.
 
 ## Instagram inbound nuances (webhook → Claude)

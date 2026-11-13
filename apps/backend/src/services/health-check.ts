@@ -730,7 +730,7 @@ async function checkAdsReferralSchema(): Promise<HealthCheckItem> {
   const label = 'IG ads referral schema';
   try {
     await prisma.$queryRaw`
-      SELECT ig_ad_referral, ads_only_bot_assumed_at
+      SELECT ig_ad_referral, ads_only_bot_assumed_at, story_reply_at
       FROM conversations
       LIMIT 1
     `;
@@ -739,7 +739,7 @@ async function checkAdsReferralSchema(): Promise<HealthCheckItem> {
       id: 'ads_referral_schema',
       label,
       status: 'ok',
-      message: 'Колонки ig_ad_* / ads_only_bot_assumed_at і handoff_sla_jobs на місці',
+      message: 'Колонки ig_ad_* / ads_only_bot_assumed_at / story_reply_at і handoff_sla_jobs на місці',
     };
   } catch (err) {
     return {

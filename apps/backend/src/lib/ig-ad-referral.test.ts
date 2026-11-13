@@ -70,6 +70,9 @@ describe('ig-ad-referral', () => {
     expect(shouldAdsOnlySoftHandoffOrganic({ ...base, resumedFromAdsOnlyHandoff: true })).toBe(false);
     expect(shouldAdsOnlySoftHandoffOrganic({ ...base, hasAdAttribution: true })).toBe(false);
     expect(shouldAdsOnlySoftHandoffOrganic({ ...base, managerAction: true })).toBe(false);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, allowStoryReplies: true, hasStoryReply: true })).toBe(false);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, allowStoryReplies: true, hasStoryReply: false })).toBe(true);
+    expect(shouldAdsOnlySoftHandoffOrganic({ ...base, allowStoryReplies: false, hasStoryReply: true })).toBe(true);
     expect(
       shouldAdsOnlySoftHandoffOrganic({
         respondAdsOnly: false,

@@ -118,6 +118,16 @@
             З реклами
           </v-chip>
           <v-chip
+            v-if="conversationHasStoryReply"
+            size="small"
+            color="deep-purple"
+            variant="tonal"
+            label
+            prepend-icon="mdi-image-outline"
+          >
+            На сторіс
+          </v-chip>
+          <v-chip
             v-if="livePollActive"
             size="x-small"
             color="success"
@@ -399,8 +409,18 @@
                 >
                   {{ messageAdReferralLabel(msg) }}
                 </v-chip>
+                <v-chip
+                  v-if="messageIsStoryReply(msg)"
+                  size="x-small"
+                  variant="tonal"
+                  color="deep-purple"
+                  class="mt-1"
+                  prepend-icon="mdi-image-outline"
+                >
+                  Відповідь на сторіс
+                </v-chip>
                 <div
-                  v-if="!msg.text && getDisplayMediaItems(msg).length === 0 && !hasSharedPostPreview(msg.sharedPost) && !isNativeIgEcho(msg) && !isDetectedPhoneMessage(msg) && !messageHasAdReferral(msg)"
+                  v-if="!msg.text && getDisplayMediaItems(msg).length === 0 && !hasSharedPostPreview(msg.sharedPost) && !isNativeIgEcho(msg) && !isDetectedPhoneMessage(msg) && !messageHasAdReferral(msg) && !messageIsStoryReply(msg)"
                   class="text-caption text-medium-emphasis font-italic"
                 >
                   Порожнє повідомлення Instagram (картка без тексту)
@@ -929,6 +949,7 @@ interface ConversationData {
   briefQualityNote?: string | null;
   assigneeLabel?: string | null;
   igAdReferral?: IgAdReferralPayload | null;
+  storyReplyAt?: string | null;
 }
 
 interface LeadSummary {
@@ -1048,10 +1069,15 @@ const handoffExpanded = ref(false);
 const mobileStatusLine = computed(() => {
   const c = conversation.value;
   if (!c) return 'Завантаження…';
+  const tags: string[] = [];
+  if (conversationHasAdReferral.value) tags.push('З реклами');
+  if (conversationHasStoryReply.value) tags.push('На сторіс');
+  const tag = tags.length ? ` · ${tags.join(' · ')}` : '';
   if (livePollActive.value && c.state === 'handoff') {
-    return c.assigneeLabel ? `Менеджер · ${c.assigneeLabel}` : 'Менеджер';
+    const who = c.assigneeLabel ? `Менеджер · ${c.assigneeLabel}` : 'Менеджер';
+    return `${who}${tag}`;
   }
-  return stateLabel(c.state);
+  return `${stateLabel(c.state)}${tag}`;
 });
 
 // ---------------------------------------------------------------------------
@@ -1174,6 +1200,15 @@ const conversationHasAdReferral = computed(() => {
   const src = String(ref.source ?? '').toUpperCase();
   return src === 'ADS' || src === 'SHORTLINK' || src === 'IG_SHOPPING';
 });
+
+const conversationHasStoryReply = computed(() => {
+  if (conversation.value?.storyReplyAt) return true;
+  return messages.value.some((msg) => msg.igContext?.kind === 'story_reply');
+});
+
+function messageIsStoryReply(msg: Message): boolean {
+  return msg.igContext?.kind === 'story_reply';
+}
 
 function messageHasAdReferral(msg: Message): boolean {
   const ref = msg.igContext?.referral;
@@ -1306,6 +1341,10 @@ function applyLiveUpdate(data: LivePollPayload) {
   if ('igAdReferral' in conv) {
     conversation.value.igAdReferral =
       (conv as { igAdReferral?: IgAdReferralPayload | null }).igAdReferral ?? null;
+  }
+  if ('storyReplyAt' in conv) {
+    conversation.value.storyReplyAt =
+      (conv as { storyReplyAt?: string | null }).storyReplyAt ?? null;
   }
   if ('assigneeLabel' in conv) {
     conversation.value.assigneeLabel =
