@@ -1,12 +1,16 @@
 <template>
   <v-container fluid class="page-shell">
-    <PageHeader title="Промпти">
+    <PageHeader
+      title="Промпти"
+      subtitle="Версії системного промпту. Текст відкривається окремо, список його не вантажить."
+    >
       <template #actions>
         <v-btn
           color="primary"
           class="tap-target"
           :prepend-icon="mobile ? undefined : 'mdi-plus'"
           :icon="mobile ? 'mdi-plus' : undefined"
+          aria-label="Нова версія"
           @click="openNewDialog"
         >
           <span v-if="!mobile">Нова версія</span>
@@ -14,123 +18,179 @@
       </template>
     </PageHeader>
 
-    <v-card>
-      <ResponsiveDataList
-        :loading="loading"
-        :empty="!loading && prompts.length === 0"
-        empty-text="Немає версій промпту"
-      >
-        <template #table>
-          <v-data-table
-            :headers="headers"
-            :items="prompts"
-            :loading="loading"
-            hover
-            item-value="id"
-            show-expand
-          >
-        <template #item.version="{ item }">
-          <strong>v{{ item.version }}</strong>
-        </template>
+    <v-progress-linear v-if="loading" indeterminate class="mb-4" />
 
-        <template #item.isActive="{ item }">
+    <v-alert v-else-if="prompts.length === 0" type="info" variant="tonal" class="mb-4">
+      Версій ще немає. Створіть першу — вона стане чернеткою, доки її не активуєте.
+    </v-alert>
+
+    <template v-else>
+      <div class="prompt-stats mb-4">
+        <section class="settings-widget" :class="activePrompt ? 'settings-widget--ok' : ''">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--green">
+              <v-icon size="20">mdi-check-decagram</v-icon>
+            </div>
+            <div class="min-width-0">
+              <h3 class="settings-widget__title">
+                {{ activePrompt ? `Активна v${activePrompt.version}` : 'Немає активної' }}
+              </h3>
+              <p class="settings-widget__desc">
+                {{ activePrompt ? formatDate(activePrompt.createdAt) : 'Активуйте одну з версій нижче' }}
+              </p>
+            </div>
+          </div>
+          <div class="settings-widget__body">
+            <p class="prompt-summary mb-3">
+              {{ activePrompt?.changeSummary || 'Без опису змін' }}
+            </p>
+            <v-btn
+              v-if="activePrompt"
+              variant="tonal"
+              color="primary"
+              class="tap-target"
+              prepend-icon="mdi-text-box-outline"
+              @click="openViewer(activePrompt)"
+            >
+              Відкрити текст
+            </v-btn>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--blue">
+              <v-icon size="20">mdi-source-branch</v-icon>
+            </div>
+            <div>
+              <h3 class="settings-widget__title">{{ prompts.length }}</h3>
+              <p class="settings-widget__desc">версій у історії</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-widget">
+          <div class="settings-widget__head">
+            <div class="settings-widget__icon settings-widget__icon--violet">
+              <v-icon size="20">mdi-text</v-icon>
+            </div>
+            <div class="min-width-0">
+              <h3 class="settings-widget__title">{{ formatChars(activePrompt?.contentChars) }}</h3>
+              <p class="settings-widget__desc">символів в активній версії</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="prompt-grid">
+        <article
+          v-for="item in prompts"
+          :key="item.id"
+          class="settings-widget prompt-card"
+          :class="{ 'settings-widget--ok': item.isActive }"
+        >
+          <div class="settings-widget__head settings-widget__head--row">
+            <div class="settings-widget__head-text">
+              <div
+                class="settings-widget__icon"
+                :class="item.isActive ? 'settings-widget__icon--green' : 'settings-widget__icon--slate'"
+              >
+                <v-icon size="20">{{ item.isActive ? 'mdi-check' : 'mdi-file-document-outline' }}</v-icon>
+              </div>
+              <div class="min-width-0">
+                <h3 class="settings-widget__title">v{{ item.version }}</h3>
+                <p class="settings-widget__desc">{{ formatDate(item.createdAt) }}</p>
+              </div>
+            </div>
+            <v-chip
+              :color="item.isActive ? 'success' : 'default'"
+              size="small"
+              variant="tonal"
+              label
+            >
+              {{ item.isActive ? 'Активний' : 'Чернетка' }}
+            </v-chip>
+          </div>
+          <div class="settings-widget__body">
+            <div class="d-flex flex-wrap ga-2 mb-2">
+              <v-chip size="small" variant="outlined" label>
+                {{ authorLabel(item.author) }}
+              </v-chip>
+              <v-chip size="small" variant="tonal" label prepend-icon="mdi-text">
+                {{ formatChars(item.contentChars) }} симв.
+              </v-chip>
+            </div>
+            <p class="prompt-summary mb-0">{{ item.changeSummary || 'Без опису змін' }}</p>
+          </div>
+          <div class="prompt-card-actions">
+            <v-btn
+              variant="tonal"
+              color="primary"
+              class="tap-target"
+              prepend-icon="mdi-text-box-outline"
+              @click="openViewer(item)"
+            >
+              Текст
+            </v-btn>
+            <v-btn
+              v-if="!item.isActive"
+              variant="outlined"
+              color="primary"
+              class="tap-target"
+              :loading="activatingId === item.id"
+              @click="activatePrompt(item.id)"
+            >
+              Активувати
+            </v-btn>
+          </div>
+        </article>
+      </div>
+    </template>
+
+    <v-dialog
+      v-model="viewerOpen"
+      class="prompt-viewer-dialog"
+      :fullscreen="mobile"
+      max-width="920"
+      scrollable
+    >
+      <v-card class="prompt-viewer">
+        <v-card-title class="d-flex align-center ga-2 flex-wrap">
+          <span>v{{ viewerPrompt?.version }}</span>
           <v-chip
-            :color="item.isActive ? 'green' : 'grey'"
+            v-if="viewerPrompt"
             size="small"
+            :color="viewerPrompt.isActive ? 'success' : 'default'"
+            variant="tonal"
             label
           >
-            {{ item.isActive ? 'Активний' : 'Неактивний' }}
+            {{ viewerPrompt.isActive ? 'Активний' : 'Чернетка' }}
           </v-chip>
-        </template>
-
-        <template #item.createdAt="{ item }">
-          {{ formatDate(item.createdAt) }}
-        </template>
-
-        <template #item.changeSummary="{ item }">
-          <v-tooltip
-            v-if="item.changeSummary"
-            location="bottom"
-            max-width="420"
-            open-delay="300"
-          >
-            <template #activator="{ props }">
-              <span
-                v-bind="props"
-                class="change-summary-clamp"
-              >
-                {{ item.changeSummary }}
-              </span>
-            </template>
-            <span class="text-body-2">{{ item.changeSummary }}</span>
-          </v-tooltip>
-          <span v-else class="text-grey text-caption">Без опису</span>
-        </template>
-
-        <template #item.actions="{ item }">
+          <v-spacer />
           <v-btn
-            v-if="!item.isActive"
-            size="small"
-            variant="outlined"
-            color="primary"
-            :loading="activatingId === item.id"
-            @click.stop="activatePrompt(item.id)"
-          >
-            Активувати
-          </v-btn>
-        </template>
-
-        <template #expanded-row="{ columns, item }">
-          <tr>
-            <td :colspan="columns.length" class="pa-4">
-              <div v-if="item.changeSummary" class="text-body-2 mb-3">
-                <div class="text-caption text-medium-emphasis mb-1">Опис змін</div>
-                <div class="change-summary-full">{{ item.changeSummary }}</div>
-              </div>
-              <v-textarea
-                :model-value="item.content"
-                label="Зміст промпту"
-                variant="outlined"
-                readonly
-                rows="15"
-                auto-grow
-              />
-            </td>
-          </tr>
-        </template>
-      </v-data-table>
-        </template>
-        <template #cards>
-          <MobileListCard
-            v-for="item in prompts"
-            :key="item.id"
-            :title="`v${item.version}`"
-            :meta="formatDate(item.createdAt)"
-          >
-            <template #chips>
-              <v-chip :color="item.isActive ? 'green' : 'grey'" size="small" label>
-                {{ item.isActive ? 'Активний' : 'Неактивний' }}
-              </v-chip>
-            </template>
-            <div v-if="item.changeSummary" class="text-caption text-medium-emphasis mt-1">
-              {{ item.changeSummary }}
-            </div>
-            <template #actions>
-              <v-btn
-                v-if="!item.isActive"
-                variant="tonal"
-                color="primary"
-                class="tap-target"
-                :loading="activatingId === item.id"
-                @click="activatePrompt(item.id)"
-              >
-                Активувати
-              </v-btn>
-            </template>
-          </MobileListCard>
-        </template>
-      </ResponsiveDataList>
-    </v-card>
+            icon="mdi-close"
+            variant="text"
+            class="tap-target"
+            aria-label="Закрити"
+            @click="viewerOpen = false"
+          />
+        </v-card-title>
+        <v-card-subtitle v-if="viewerPrompt" class="pb-2">
+          {{ formatDate(viewerPrompt.createdAt) }}
+          · {{ authorLabel(viewerPrompt.author) }}
+          · {{ formatChars(viewerPrompt.contentChars) }} символів
+        </v-card-subtitle>
+        <v-card-text class="prompt-viewer-body">
+          <p v-if="viewerPrompt?.changeSummary" class="prompt-summary prompt-summary--full mb-3">
+            {{ viewerPrompt.changeSummary }}
+          </p>
+          <div v-if="viewerLoading" class="d-flex justify-center pa-8">
+            <v-progress-circular indeterminate color="primary" />
+          </div>
+          <pre v-else class="prompt-viewer-text">{{ viewerContent }}</pre>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
 
     <!-- New/Edit prompt dialog -->
     <v-dialog
@@ -196,6 +256,8 @@
               :rows="mobile ? 12 : 18"
               no-resize
               hide-details
+              :loading="seedingEditor"
+              :placeholder="seedingEditor ? 'Завантажую активну версію…' : ''"
             />
           </div>
 
@@ -352,7 +414,7 @@
             v-if="editTab === 'manual'"
             color="primary"
             :loading="saving"
-            :disabled="!newContent.trim()"
+            :disabled="!newContent.trim() || seedingEditor"
             @click="createPrompt"
           >
             Зберегти нову версію
@@ -380,24 +442,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue';
+import { computed, ref, nextTick, onMounted } from 'vue';
 import { useDisplay } from 'vuetify';
 import api from '@/api';
 import { formatMetaAgentMarkdown } from '@/lib/metaAgentMarkdown';
 import PageHeader from '@/components/PageHeader.vue';
-import MobileListCard from '@/components/MobileListCard.vue';
-import ResponsiveDataList from '@/components/ResponsiveDataList.vue';
 
 const { mobile } = useDisplay();
 
 interface Prompt {
   id: string;
   version: number;
-  content: string;
-  changeSummary: string;
+  changeSummary: string | null;
   author: string;
   isActive: boolean;
   createdAt: string;
+  contentChars: number;
 }
 
 interface AgentMessage {
@@ -435,14 +495,17 @@ const snackbar = ref(false);
 const snackbarText = ref('');
 const snackbarColor = ref('success');
 
-const headers = [
-  { title: 'Версія', key: 'version', width: '100px' },
-  { title: 'Автор', key: 'author' },
-  { title: 'Опис змін', key: 'changeSummary', minWidth: '220px', cellProps: { class: 'change-summary-cell' } },
-  { title: 'Дата', key: 'createdAt', width: '180px' },
-  { title: 'Статус', key: 'isActive', width: '130px' },
-  { title: 'Дії', key: 'actions', sortable: false, width: '150px' },
-];
+const contentCache = new Map<string, string>();
+const viewerOpen = ref(false);
+const viewerId = ref<string | null>(null);
+const viewerContent = ref('');
+const viewerLoading = ref(false);
+const seedingEditor = ref(false);
+
+const activePrompt = computed(() => prompts.value.find((item) => item.isActive) ?? null);
+const viewerPrompt = computed(
+  () => prompts.value.find((item) => item.id === viewerId.value) ?? null,
+);
 
 function showSnack(text: string, color = 'success') {
   snackbarText.value = text;
@@ -461,7 +524,46 @@ function formatContentStats(content: string): string {
   return `${chars.toLocaleString('uk-UA')} символів · ${lines} рядків`;
 }
 
-function openNewDialog() {
+function formatChars(value: number | null | undefined): string {
+  return (value ?? 0).toLocaleString('uk-UA');
+}
+
+function authorLabel(author: string): string {
+  if (author === 'meta_agent') return 'Мета-агент';
+  if (author === 'human') return 'Людина';
+  return author || '—';
+}
+
+async function ensurePromptContent(id: string): Promise<string> {
+  const cached = contentCache.get(id);
+  if (cached != null) return cached;
+  const { data } = await api.get(`/prompts/${id}`);
+  const content = typeof data?.content === 'string' ? data.content : '';
+  contentCache.set(id, content);
+  return content;
+}
+
+async function openViewer(item: Prompt) {
+  viewerId.value = item.id;
+  viewerOpen.value = true;
+  viewerContent.value = contentCache.get(item.id) ?? '';
+  if (contentCache.has(item.id)) {
+    viewerLoading.value = false;
+    return;
+  }
+  viewerLoading.value = true;
+  try {
+    viewerContent.value = await ensurePromptContent(item.id);
+  } catch {
+    viewerContent.value = '';
+    error.value = 'Не вдалося відкрити текст промпту';
+    viewerOpen.value = false;
+  } finally {
+    viewerLoading.value = false;
+  }
+}
+
+async function openNewDialog() {
   newContent.value = '';
   newChangeSummary.value = '';
   markdownHintOpen.value = mobile.value ? [] : ['hint'];
@@ -469,11 +571,17 @@ function openNewDialog() {
   agentInput.value = '';
   agentDiff.value = null;
   editTab.value = 'manual';
-  const active = Array.isArray(prompts.value) ? prompts.value.find((p) => p.isActive) : undefined;
-  if (active) {
-    newContent.value = active.content;
-  }
   dialogOpen.value = true;
+  const active = activePrompt.value;
+  if (!active) return;
+  seedingEditor.value = true;
+  try {
+    newContent.value = await ensurePromptContent(active.id);
+  } catch {
+    error.value = 'Не вдалося взяти текст активної версії';
+  } finally {
+    seedingEditor.value = false;
+  }
 }
 
 function closeDialog() {
@@ -684,27 +792,172 @@ onMounted(() => {
   overflow-y: auto;
 }
 
-.change-summary-cell {
-  white-space: normal !important;
-  vertical-align: top;
-  max-width: 28rem;
+.change-summary-full {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
-.change-summary-clamp {
+.prompt-stats,
+.prompt-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.prompt-stats {
+  grid-template-columns: 1fr;
+}
+
+.prompt-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 720px) {
+  .prompt-stats {
+    grid-template-columns: minmax(0, 1.6fr) minmax(140px, 0.7fr) minmax(160px, 0.8fr);
+  }
+
+  .prompt-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.settings-widget {
+  background: #fff;
+  border: 1px solid #d9e2ec;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.04);
+  overflow: clip;
+  min-width: 0;
+}
+
+.settings-widget--ok {
+  border-color: #b7e4c7;
+  background: linear-gradient(180deg, #f4fbf7 0%, #fff 55%);
+}
+
+.settings-widget__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px 16px 0;
+}
+
+.settings-widget__head--row {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-widget__head-text {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-widget__icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0a2540;
+}
+
+.settings-widget__icon--violet { background: #ecebff; color: #4f46e5; }
+.settings-widget__icon--blue { background: #e8f1ff; color: #2563eb; }
+.settings-widget__icon--green { background: #e6f7ef; color: #0f766e; }
+.settings-widget__icon--slate { background: #eef2f6; color: #334155; }
+
+.settings-widget__title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: #0a2540;
+  line-height: 1.3;
+}
+
+.settings-widget__desc {
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #425466;
+}
+
+.settings-widget__body {
+  padding: 12px 16px 16px;
+}
+
+.prompt-summary {
+  margin: 0;
+  color: #1c3348;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
-  width: 100%;
   word-break: break-word;
-  line-height: 1.35;
-  cursor: default;
 }
 
-.change-summary-full {
+.prompt-summary--full {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  white-space: pre-wrap;
+}
+
+.prompt-stats > .settings-widget > .settings-widget__head:last-child {
+  padding-bottom: 16px;
+}
+
+.prompt-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.prompt-viewer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100dvh;
+}
+
+.prompt-viewer-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.prompt-viewer-text {
+  margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #0a2540;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid #d9e2ec;
+  background: #f7f9fc;
+  max-height: min(68dvh, 720px);
+  overflow: auto;
+}
+
+@media (max-width: 959px) {
+  .prompt-viewer {
+    height: 100%;
+    border-radius: 0;
+  }
+
+  .prompt-viewer-text {
+    max-height: none;
+  }
 }
 
 .diff-before {

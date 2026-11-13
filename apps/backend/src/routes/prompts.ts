@@ -3,13 +3,33 @@ import { prisma } from '../lib/prisma.js';
 import { bumpPromptRuntimeGeneration } from '../services/prompt-runtime.js';
 
 export async function promptRoutes(app: FastifyInstance): Promise<void> {
-  // GET / - List all prompt versions
+  // GET / - Version cards only. Body is GET /:id so the list stays small.
   app.get('/', { onRequest: [app.authenticate] }, async () => {
-    const data = await prisma.systemPrompt.findMany({
-      orderBy: { version: 'desc' },
-    });
+    const [rows, sizes] = await Promise.all([
+      prisma.systemPrompt.findMany({
+        orderBy: { version: 'desc' },
+        select: {
+          id: true,
+          version: true,
+          author: true,
+          changeSummary: true,
+          isActive: true,
+          createdAt: true,
+        },
+      }),
+      prisma.$queryRaw<Array<{ id: string; contentChars: number }>>`
+        SELECT id::text AS id, CHAR_LENGTH(content)::int AS "contentChars"
+        FROM system_prompts
+      `,
+    ]);
+    const charsById = new Map(sizes.map((row) => [row.id, Number(row.contentChars) || 0]));
 
-    return { data };
+    return {
+      data: rows.map((row) => ({
+        ...row,
+        contentChars: charsById.get(row.id) ?? 0,
+      })),
+    };
   });
 
   // GET /:id - Get single prompt by id
