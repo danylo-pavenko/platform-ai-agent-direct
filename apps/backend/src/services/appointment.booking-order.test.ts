@@ -26,6 +26,7 @@ const {
       message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
       clientReferencePhoto: { findMany: vi.fn() },
       setting: { findUnique: vi.fn() },
+      clientCrmIdentity: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
     },
     resolveBookingBranchForAppointment: vi.fn(),
     resolveCrmProvider,
@@ -639,6 +640,7 @@ describe('reflectAppointmentCrmOnOrder + mirrorAppointmentToCrm', () => {
       status: 'failed',
     });
     mirrorCreateBooking.mockResolvedValue({ crmRecordId: 'bp-1' });
+    prismaMock.clientCrmIdentity.findUnique.mockResolvedValue(null);
 
     await mirrorAppointmentToCrm('appt-1', { force: true });
     expect(mirrorCreateBooking).toHaveBeenCalledWith(
