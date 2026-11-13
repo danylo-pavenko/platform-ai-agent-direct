@@ -37,6 +37,11 @@ import { probeBeautyproDatasets, testBeautyproConnection } from '../services/crm
 import { testAltegioConnection } from '../services/crm/altegio.js';
 import { testKeycrmConnection } from '../services/crm/keycrm.js';
 import {
+  getLastSalonCutoverReport,
+  runSalonCrmCutover,
+} from '../services/crm-salon-cutover.js';
+import { isCrmProviderName } from '../lib/crm-providers.js';
+import {
   cancelClaudeAuthLogin,
   getClaudeAuthStatus,
   getClaudeLoginStatus,
@@ -613,6 +618,51 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       });
     }
   });
+
+  /**
+   * GET /settings/crm/salon-cutover — last hard cutover report (if any).
+   */
+  app.get(
+    '/crm/salon-cutover',
+    { onRequest: [app.authenticate, app.requireOwner] },
+    async () => {
+      const last = await getLastSalonCutoverReport();
+      return { last };
+    },
+  );
+
+  /**
+   * POST /settings/crm/salon-cutover — BeautyPro→Altegio (or similar) hard switch.
+   * Rematch clients by phone; keep legacy identities; switch salon routing.
+   */
+  app.post<{
+    Body: { fromProvider?: string; toProvider?: string; confirm?: boolean };
+  }>(
+    '/crm/salon-cutover',
+    { onRequest: [app.authenticate, app.requireOwner] },
+    async (request, reply) => {
+      const body = request.body ?? {};
+      if (body.confirm !== true) {
+        return reply.code(400).send({
+          error: 'Потрібне confirm: true — cutover змінює routing і CRM-привʼязки клієнтів',
+        });
+      }
+      const fromProvider = String(body.fromProvider ?? '').trim();
+      const toProvider = String(body.toProvider ?? '').trim();
+      if (!isCrmProviderName(fromProvider) || !isCrmProviderName(toProvider)) {
+        return reply.code(400).send({
+          error: 'fromProvider і toProvider мають бути keycrm|cleverbox|beautypro|altegio',
+        });
+      }
+      try {
+        const report = await runSalonCrmCutover({ fromProvider, toProvider });
+        return { ok: true, report };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return reply.code(400).send({ ok: false, error: message });
+      }
+    },
+  );
 
   /**
    * POST /settings/altegio/test

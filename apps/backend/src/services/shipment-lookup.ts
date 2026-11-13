@@ -73,8 +73,16 @@ export function shipmentBelongsToClient(
 
 function buyerIdForProvider(
   provider: CrmProviderName,
-  client: { crmBuyerId: string | null; crmProvider: string | null },
+  client: {
+    id?: string;
+    crmBuyerId: string | null;
+    crmProvider: string | null;
+    /** Pre-resolved identity for this provider (preferred). */
+    identityId?: string | null;
+  },
 ): string | undefined {
+  const fromIdentity = client.identityId?.trim();
+  if (fromIdentity) return fromIdentity;
   const id = client.crmBuyerId?.trim();
   if (!id) return undefined;
   if (client.crmProvider && client.crmProvider !== provider) return undefined;
@@ -407,8 +415,18 @@ export async function lookupOrderShipment(input: {
   const client = input.clientId
     ? await prisma.client.findUnique({
         where: { id: input.clientId },
-        select: { phone: true, crmBuyerId: true, crmProvider: true },
+        select: { id: true, phone: true, crmBuyerId: true, crmProvider: true },
       })
+    : null;
+  const identityId = client
+    ? (
+        await prisma.clientCrmIdentity.findUnique({
+          where: {
+            clientId_provider: { clientId: client.id, provider },
+          },
+          select: { externalId: true },
+        })
+      )?.externalId ?? null
     : null;
   const localOrders = input.clientId
     ? await prisma.order.findMany({
@@ -425,7 +443,9 @@ export async function lookupOrderShipment(input: {
   const orderIds = localOrders
     .map((row) => row.keycrmOrderId?.trim() ?? '')
     .filter((id) => id.length > 0);
-  const buyerId = client ? buyerIdForProvider(provider, client) : undefined;
+  const buyerId = client
+    ? buyerIdForProvider(provider, { ...client, identityId })
+    : undefined;
   const phone = client?.phone?.trim() || undefined;
   const missingIdentity = !input.allowUnverified && !phone && !buyerId && orderIds.length === 0;
 

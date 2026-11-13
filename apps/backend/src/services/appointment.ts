@@ -5,9 +5,14 @@
 
 import pino from 'pino';
 import { prisma, toInputJsonValue } from '../lib/prisma.js';
-import { isCrmWriteEnabled } from '../lib/crm-write.js';
+import { isCrmWriteEnabled, providerHasCredentials } from '../lib/crm-write.js';
 import { getCrmForAction, resolveCrmProvider } from '../lib/crm-routing.js';
-import { CRM_NOT_CONNECTED_LABEL } from '../lib/crm-providers.js';
+import {
+  CRM_NOT_CONNECTED_LABEL,
+  isCrmProviderName,
+  providerDisplayName,
+  type CrmProviderName,
+} from '../lib/crm-providers.js';
 import { asCrmId, crmProviderRequiresGuid, crmProviderRequiresNumericId, formatInvalidCrmIdToolResult, isCrmGuid, isCrmGuidPrefix, isCrmNumericId, resolveCrmEntityId, shouldResolveBookingCrmIds } from '../lib/crm-ids.js';
 import { getCrmAdapter } from './crm/index.js';
 import { resolveBookingBranchForAppointment } from './booking-branch.js';
@@ -27,6 +32,9 @@ import {
   linkClientToCrm,
   persistCrmBuyerIdFromBooking,
 } from './client-crm-link.js';
+import { resolveClientCrmBuyerIdForProvider } from './client-crm-identity.js';
+import { getIntegrationConfig } from '../lib/integration-config.js';
+import type { CrmAdapter } from './crm/types.js';
 import {
   crmPersonFullName,
   effectiveChatDisplayName,
@@ -41,7 +49,6 @@ import { markFirstOutboundAt } from '../lib/conversation-metrics.js';
 import { normalizeToUaDate, parseAgentDate } from './crm/beautypro-free-time.js';
 import type { OrderLineItem } from '../lib/order-normalize.js';
 import { normalizeOrderItems } from '../lib/order-normalize.js';
-import { providerDisplayName, type CrmProviderName } from '../lib/crm-providers.js';
 import { isBeautyproTimeConflictError } from './crm/beautypro-appointment.js';
 import { formatTimeConflictToolResult } from '../lib/booking-time-conflict.js';
 import { lookupAvailableSlotsForContext } from './service-search.js';
@@ -110,6 +117,35 @@ export class AppointmentUpdateError extends Error {
 }
 
 const BOOKING_ORDER_DEDUPE_MS = 2 * 60 * 1000;
+
+/**
+ * Cancel/reschedule must hit the CRM that owns the appointment record
+ * (legacy BeautyPro after Altegio cutover), not only current booking routing.
+ */
+async function resolveAppointmentCrmBound(appointment: {
+  crmProvider: string;
+}): Promise<
+  | { ok: true; provider: CrmProviderName; adapter: CrmAdapter }
+  | { ok: false; message: string }
+> {
+  const recorded = appointment.crmProvider?.trim();
+  if (recorded && isCrmProviderName(recorded)) {
+    const cfg = await getIntegrationConfig();
+    if (!providerHasCredentials(recorded, cfg)) {
+      return {
+        ok: false,
+        message:
+          `CRM ${providerDisplayName(recorded)} більше не підключена для цього візиту (legacy після зміни CRM). request_handoff.`,
+      };
+    }
+    return { ok: true, provider: recorded, adapter: getCrmAdapter(recorded) };
+  }
+  const bound = await getCrmForAction('booking');
+  if (!bound) {
+    return { ok: false, message: `${CRM_NOT_CONNECTED_LABEL}.` };
+  }
+  return { ok: true, provider: bound.provider, adapter: bound.adapter };
+}
 
 export type BookAppointmentOptions = {
   clientIgUserId?: string | null;
@@ -1170,11 +1206,16 @@ export async function mirrorAppointmentToCrm(
       photoNote = `\nРеференс-фото: ${photos.map((p) => p.storageKey).join(', ')}`;
     }
 
-    const linkedCrmBuyerId =
-      appointment.client?.crmBuyerId?.trim() &&
-      (!appointment.client.crmProvider || appointment.client.crmProvider === provider)
-        ? appointment.client.crmBuyerId.trim()
-        : undefined;
+    const linkedCrmBuyerId = appointment.client
+      ? await resolveClientCrmBuyerIdForProvider(
+          {
+            id: appointment.clientId,
+            crmBuyerId: appointment.client.crmBuyerId,
+            crmProvider: appointment.client.crmProvider,
+          },
+          provider,
+        )
+      : undefined;
 
     const result = await crm.createBooking({
       date: appointment.scheduledDate,
@@ -1968,9 +2009,9 @@ export async function cancelAppointmentById(
       crmError = 'CRM write вимкнено — скасовано лише локально';
     } else {
       try {
-        const bound = await getCrmForAction('booking');
-        if (!bound) {
-          crmError = `${CRM_NOT_CONNECTED_LABEL} — скасовано лише локально`;
+        const bound = await resolveAppointmentCrmBound(appointment);
+        if (!bound.ok) {
+          crmError = `${bound.message} — скасовано лише локально`;
         } else if (!bound.adapter.cancelBooking) {
           crmError = `CRM ${bound.provider} не підтримує скасування запису`;
         } else {
@@ -2102,12 +2143,12 @@ export async function handleCancelAppointment(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const bound = await getCrmForAction('booking');
-      if (!bound) {
+      const bound = await resolveAppointmentCrmBound(appointment);
+      if (!bound.ok) {
         return {
           appointmentId: appointment.id,
           crmSynced: false,
-          toolResult: `[cancel_appointment] failed: ${CRM_NOT_CONNECTED_LABEL}. Локально скасуємо без CRM.`,
+          toolResult: `[cancel_appointment] failed: ${bound.message}`,
         };
       }
       const { provider, adapter: crm } = bound;
@@ -2278,12 +2319,12 @@ export async function handleRemoveAppointmentService(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const bound = await getCrmForAction('booking');
-      if (!bound) {
+      const bound = await resolveAppointmentCrmBound(appointment);
+      if (!bound.ok) {
         return {
           appointmentId: appointment.id,
           crmSynced: false,
-          toolResult: `[remove_appointment_service] failed: ${CRM_NOT_CONNECTED_LABEL}.`,
+          toolResult: `[remove_appointment_service] failed: ${bound.message}`,
         };
       }
       const { provider, adapter: crm } = bound;
@@ -2491,13 +2532,15 @@ export async function handleRescheduleAppointment(
 
   if (appointment.crmRecordId && (await isCrmWriteEnabled())) {
     try {
-      const bound = await getCrmForAction('booking');
-      if (!bound?.adapter.cancelBooking) {
+      const bound = await resolveAppointmentCrmBound(appointment);
+      if (!bound.ok || !bound.adapter.cancelBooking) {
         return {
           appointmentId: appointment.id,
           crmSynced: false,
           toolResult: `[reschedule_appointment] failed: ${
-            bound ? `CRM ${bound.provider} не підтримує скасування старого візиту` : CRM_NOT_CONNECTED_LABEL
+            bound.ok
+              ? `CRM ${bound.provider} не підтримує скасування старого візиту`
+              : bound.message
           }. request_handoff.`,
         };
       }

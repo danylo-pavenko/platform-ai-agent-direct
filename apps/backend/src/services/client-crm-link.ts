@@ -19,8 +19,43 @@ import {
 
 import { crmPersonFullName, effectiveClientPersonName, isPlausiblePersonName } from '../lib/client-person-name.js';
 import { nameMatchMayAttachCard, normalizeUaPhone } from '../lib/client-contact-heuristics.js';
+import {
+  getClientCrmId,
+  removeClientCrmIdentity,
+  resolveClientCrmBuyerIdForProvider,
+  resolvePrimaryCrmProvider,
+  syncClientPrimaryFromRouting,
+  upsertClientCrmIdentity,
+  type ClientCrmIdentitySource,
+} from './client-crm-identity.js';
 
 const log = pino({ name: 'client-crm-link' });
+
+async function stampClientCrmLink(
+  clientId: string,
+  provider: CrmProviderName,
+  externalId: string,
+  source: ClientCrmIdentitySource,
+  extra?: { displayName?: string; phone?: string },
+): Promise<void> {
+  await upsertClientCrmIdentity({
+    clientId,
+    provider,
+    externalId,
+    source,
+    status: 'active',
+  });
+  await syncClientPrimaryFromRouting(clientId);
+  if (extra && (extra.displayName || extra.phone)) {
+    await prisma.client.update({
+      where: { id: clientId },
+      data: {
+        ...(extra.displayName ? { displayName: extra.displayName } : {}),
+        ...(extra.phone ? { phone: extra.phone } : {}),
+      },
+    });
+  }
+}
 
 export interface LinkClientResult {
   linked: boolean;
@@ -151,6 +186,13 @@ export async function linkClientToCrm(
     crmBuyerId?: string | null;
     /** Also upsert contact into CRM when write is enabled (default true). */
     upsert?: boolean;
+    /**
+     * Unlink scope when crmBuyerId is null.
+     * Default: primary routing provider only. Pass `all` to clear every identity.
+     */
+    unlinkProvider?: CrmProviderName | 'all';
+    /** Prefer this provider for find/manual (otherwise booking → client_upsert). */
+    provider?: CrmProviderName;
   },
 ): Promise<LinkClientResult> {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
@@ -166,11 +208,12 @@ export async function linkClientToCrm(
 
   // Unlink
   if (opts && 'crmBuyerId' in opts && opts.crmBuyerId === null) {
-    await prisma.client.update({
-      where: { id: clientId },
-      data: { crmBuyerId: null, crmProvider: null, crmLinkedAt: null },
-    });
-    log.info({ clientId }, 'Unlinked client from CRM');
+    const scope =
+      opts.unlinkProvider ??
+      (await resolvePrimaryCrmProvider()) ??
+      'all';
+    await removeClientCrmIdentity(clientId, scope);
+    log.info({ clientId, scope }, 'Unlinked client from CRM');
     return {
       linked: false,
       crmBuyerId: null,
@@ -179,9 +222,14 @@ export async function linkClientToCrm(
     };
   }
 
-  // Manual attach — validate UUID exists in CRM when adapter can fetch the card.
+  const targetProvider =
+    opts?.provider ??
+    (await resolveLinkProvider(opts?.provider ?? null)) ??
+    (await resolvePrimaryCrmProvider());
+
+  // Manual attach — validate id exists in CRM when adapter can fetch the card.
   if (typeof opts?.crmBuyerId === 'string' && opts.crmBuyerId.trim()) {
-    const provider = await resolveLinkProvider(client.crmProvider);
+    const provider = targetProvider ?? (await resolveLinkProvider(client.crmProvider));
     if (!provider) {
       return {
         linked: false,
@@ -204,17 +252,10 @@ export async function linkClientToCrm(
             crmBuyerId: null,
             provider,
             source: 'skipped',
-            message: 'CRM клієнта з таким UUID не знайдено — перевір id у BeautyPro',
+            message: 'CRM клієнта з таким id не знайдено — перевір id у CRM',
           };
         }
-        await prisma.client.update({
-          where: { id: clientId },
-          data: {
-            crmBuyerId: card.crmBuyerId,
-            crmProvider: provider,
-            crmLinkedAt: new Date(),
-          },
-        });
+        await stampClientCrmLink(clientId, provider, card.crmBuyerId, 'manual');
         await hydrateLocalClientFromCrm(clientId, {
           crmBuyerId: card.crmBuyerId,
           provider,
@@ -240,14 +281,7 @@ export async function linkClientToCrm(
         };
       }
     }
-    await prisma.client.update({
-      where: { id: clientId },
-      data: {
-        crmBuyerId,
-        crmProvider: provider,
-        crmLinkedAt: new Date(),
-      },
-    });
+    await stampClientCrmLink(clientId, provider, crmBuyerId, 'manual');
     log.info({ clientId, crmBuyerId, provider }, 'Manually linked client to CRM (no fetchClient)');
     return {
       linked: true,
@@ -257,25 +291,26 @@ export async function linkClientToCrm(
     };
   }
 
-  if (client.crmBuyerId) {
-    const provider = isCrmProviderName(client.crmProvider ?? '')
-      ? (client.crmProvider as CrmProviderName)
-      : await resolveLinkProvider(client.crmProvider);
-    if (provider) {
+  const provider =
+    targetProvider ?? (await resolveLinkProvider(client.crmProvider));
+
+  // Already have an identity for the *target* provider — do not early-return on a legacy denorm.
+  if (provider) {
+    const existingForTarget = await getClientCrmId(clientId, provider);
+    if (existingForTarget) {
+      await syncClientPrimaryFromRouting(clientId);
       await hydrateLocalClientFromCrm(clientId, {
-        crmBuyerId: client.crmBuyerId,
+        crmBuyerId: existingForTarget,
         provider,
       });
+      return {
+        linked: true,
+        crmBuyerId: existingForTarget,
+        provider,
+        source: 'existing',
+      };
     }
-    return {
-      linked: true,
-      crmBuyerId: client.crmBuyerId,
-      provider,
-      source: 'existing',
-    };
   }
-
-  const provider = await resolveLinkProvider(client.crmProvider);
   if (!provider) {
     return {
       linked: false,
@@ -369,15 +404,9 @@ export async function linkClientToCrm(
       matchedPhone && !client.phone?.trim()
         ? normalizeUaPhone(matchedPhone) ?? matchedPhone
         : undefined;
-    await prisma.client.update({
-      where: { id: clientId },
-      data: {
-        crmBuyerId: matchedId,
-        crmProvider: provider,
-        crmLinkedAt: new Date(),
-        ...(adoptCrmName ? { displayName: adoptCrmName } : {}),
-        ...(adoptPhone ? { phone: adoptPhone } : {}),
-      },
+    await stampClientCrmLink(clientId, provider, matchedId, matchSource, {
+      ...(adoptCrmName ? { displayName: adoptCrmName } : {}),
+      ...(adoptPhone ? { phone: adoptPhone } : {}),
     });
     if (!adoptPhone) {
       await hydrateLocalClientFromCrm(clientId, {
@@ -427,14 +456,7 @@ export async function linkClientToCrm(
         email: client.email ?? undefined,
         instagramUsername: client.igUsername ?? undefined,
       });
-      await prisma.client.update({
-        where: { id: clientId },
-        data: {
-          crmBuyerId: created.crmBuyerId,
-          crmProvider: provider,
-          crmLinkedAt: new Date(),
-        },
-      });
+      await stampClientCrmLink(clientId, provider, created.crmBuyerId, 'upsert');
       log.info(
         { clientId, crmBuyerId: created.crmBuyerId, provider },
         'Created CRM client and linked',
@@ -466,39 +488,31 @@ export async function linkClientToCrm(
   };
 }
 
-/** Persist CRM client id learned during booking without overwriting a different link. */
+/** Persist CRM client id from booking onto the provider identity (not denorm-only). */
 export async function persistCrmBuyerIdFromBooking(
   clientId: string,
   crmBuyerId: string,
   provider: string,
 ): Promise<void> {
-  const client = await prisma.client.findUnique({
-    where: { id: clientId },
-    select: { crmBuyerId: true },
-  });
-  if (!client) return;
-  if (client.crmBuyerId && client.crmBuyerId !== crmBuyerId) {
-    log.info(
-      { clientId, existing: client.crmBuyerId, fromBooking: crmBuyerId },
-      'Keeping existing crmBuyerId (differs from booking)',
-    );
+  if (!isCrmProviderName(provider)) {
+    log.warn({ clientId, provider }, 'persistCrmBuyerIdFromBooking: unknown provider');
     return;
   }
-  if (client.crmBuyerId === crmBuyerId) {
-    await hydrateLocalClientFromCrm(clientId, { crmBuyerId, provider });
-    return;
-  }
+  const id = crmBuyerId.trim();
+  if (!id) return;
 
-  await prisma.client.update({
-    where: { id: clientId },
-    data: {
-      crmBuyerId,
-      crmProvider: isCrmProviderName(provider) ? provider : provider,
-      crmLinkedAt: new Date(),
-    },
+  const row = await upsertClientCrmIdentity({
+    clientId,
+    provider,
+    externalId: id,
+    source: 'booking',
+    status: 'active',
   });
-  await hydrateLocalClientFromCrm(clientId, { crmBuyerId, provider });
-  log.info({ clientId, crmBuyerId, provider }, 'Linked client from booking');
+  if (!row) return;
+
+  await syncClientPrimaryFromRouting(clientId);
+  await hydrateLocalClientFromCrm(clientId, { crmBuyerId: id, provider });
+  log.info({ clientId, crmBuyerId: id, provider }, 'Linked client from booking');
 }
 
 export function formatCrmHistoryForPrompt(
@@ -687,15 +701,9 @@ export async function lookupClientByPhone(
         ? match.fullName.trim()
         : null;
     const localPerson = effectiveClientPersonName(client.displayName, client.igFullName);
-    await prisma.client.update({
-      where: { id: clientId },
-      data: {
-        phone,
-        crmBuyerId: match.crmBuyerId,
-        crmProvider: provider,
-        crmLinkedAt: new Date(),
-        ...(crmName && !localPerson ? { displayName: crmName } : {}),
-      },
+    await stampClientCrmLink(clientId, provider, match.crmBuyerId, 'phone_match', {
+      phone,
+      ...(crmName && !localPerson ? { displayName: crmName } : {}),
     });
     const name = crmName ?? localPerson ?? null;
     return {
@@ -777,11 +785,25 @@ export async function fetchClientCrmHistory(
   text: string;
 }> {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!client?.crmBuyerId) {
-    // Try auto-link once if we have phone
+  const provider = await resolvePrimaryCrmProvider();
+  if (!provider) {
+    return {
+      items: [],
+      provider: null,
+      crmBuyerId: null,
+      text: CRM_NOT_CONNECTED_LABEL,
+    };
+  }
+
+  let crmBuyerId = client
+    ? await resolveClientCrmBuyerIdForProvider(client, provider)
+    : undefined;
+
+  if (!crmBuyerId) {
     if (client?.phone) {
-      const link = await linkClientToCrm(clientId, { upsert: false });
-      if (!link.crmBuyerId) {
+      const link = await linkClientToCrm(clientId, { upsert: false, provider });
+      crmBuyerId = link.crmBuyerId ?? undefined;
+      if (!crmBuyerId) {
         return {
           items: [],
           provider: link.provider,
@@ -794,49 +816,30 @@ export async function fetchClientCrmHistory(
     } else {
       return {
         items: [],
-        provider: null,
+        provider,
         crmBuyerId: null,
         text: 'Немає телефону / CRM-привʼязки — історія візитів недоступна.',
       };
     }
   }
 
-  const refreshed = await prisma.client.findUnique({ where: { id: clientId } });
-  if (!refreshed?.crmBuyerId) {
-    return {
-      items: [],
-      provider: null,
-      crmBuyerId: null,
-      text: 'Клієнт не привʼязаний до CRM.',
-    };
-  }
-
-  const provider = await resolveLinkProvider(refreshed.crmProvider);
-  if (!provider) {
-    return {
-      items: [],
-      provider: null,
-      crmBuyerId: refreshed.crmBuyerId,
-      text: CRM_NOT_CONNECTED_LABEL,
-    };
-  }
   const crm = getCrmAdapter(provider);
   if (!crm.fetchClientHistory) {
     return {
       items: [],
       provider,
-      crmBuyerId: refreshed.crmBuyerId,
+      crmBuyerId: crmBuyerId ?? null,
       text: `CRM ${provider} не віддає історію візитів.`,
     };
   }
 
   await hydrateLocalClientFromCrm(clientId, {
-    crmBuyerId: refreshed.crmBuyerId,
+    crmBuyerId,
     provider,
   });
 
   try {
-    const items = await crm.fetchClientHistory(refreshed.crmBuyerId, {
+    const items = await crm.fetchClientHistory(crmBuyerId, {
       limit: opts?.limit ?? 20,
     });
     let text = formatCrmHistoryForPrompt(items, {
@@ -861,7 +864,7 @@ export async function fetchClientCrmHistory(
           agentCfg.timezone,
           UPCOMING_VISIT_HORIZON_DAYS,
         );
-        const upcoming = await crm.listClientUpcomingBookings(refreshed.crmBuyerId, range);
+        const upcoming = await crm.listClientUpcomingBookings(crmBuyerId, range);
         if (upcoming.length > 0) {
           const lines = upcoming.slice(0, 8).map((b) => {
             const ua = isoDateToUaDate(b.date) ?? b.date;
@@ -887,7 +890,7 @@ export async function fetchClientCrmHistory(
     return {
       items,
       provider,
-      crmBuyerId: refreshed.crmBuyerId,
+      crmBuyerId: crmBuyerId ?? null,
       text,
     };
   } catch (err) {
@@ -896,7 +899,7 @@ export async function fetchClientCrmHistory(
     return {
       items: [],
       provider,
-      crmBuyerId: refreshed.crmBuyerId,
+      crmBuyerId: crmBuyerId ?? null,
       text: `Не вдалося завантажити історію CRM: ${message.slice(0, 200)}`,
     };
   }

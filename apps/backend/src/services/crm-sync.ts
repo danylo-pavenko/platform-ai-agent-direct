@@ -28,6 +28,11 @@ import { getActiveCrmFieldMappings } from '../lib/crm-field-mappings.js';
 import { resolveQuotedTotal, scaleItemsToQuotedTotal } from '../lib/order-normalize.js';
 import { notifyCrmFallback } from './telegram-notify.js';
 import { linkClientToCrm } from './client-crm-link.js';
+import {
+  getClientCrmId,
+  syncClientPrimaryFromRouting,
+  upsertClientCrmIdentity,
+} from './client-crm-identity.js';
 import { crmPersonFullName } from '../lib/client-person-name.js';
 
 const log = pino({ name: 'crm-sync' });
@@ -76,7 +81,10 @@ export async function mirrorClientToCrm(
     return;
   }
 
-  let crmBuyerId: string | null = client.crmBuyerId;
+  let crmBuyerId: string | null = await getClientCrmId(clientId, provider);
+  if (!crmBuyerId && client.crmProvider === provider) {
+    crmBuyerId = client.crmBuyerId;
+  }
   if (!crmBuyerId) {
     try {
       const match = await crm.findClient({
@@ -121,30 +129,23 @@ export async function mirrorClientToCrm(
 
   const result = await crm.upsertClient(crmBuyerId, input);
 
-  if (client.crmBuyerId !== result.crmBuyerId) {
-    await prisma.client.update({
-      where: { id: clientId },
-      data: {
-        crmBuyerId: result.crmBuyerId,
-        crmProvider: provider,
-        crmLinkedAt: new Date(),
-      },
-    });
-    log.info(
-      { clientId, crmBuyerId: result.crmBuyerId, provider: crm.name },
-      'Linked local client to CRM buyer',
-    );
-  } else {
-    log.info(
-      {
-        clientId,
-        crmBuyerId: result.crmBuyerId,
-        customFieldsMirrored: customFields.length,
-        provider: crm.name,
-      },
-      'Client mirrored to CRM',
-    );
-  }
+  await upsertClientCrmIdentity({
+    clientId,
+    provider,
+    externalId: result.crmBuyerId,
+    source: 'upsert',
+    status: 'active',
+  });
+  await syncClientPrimaryFromRouting(clientId);
+  log.info(
+    {
+      clientId,
+      crmBuyerId: result.crmBuyerId,
+      customFieldsMirrored: customFields.length,
+      provider: crm.name,
+    },
+    'Client mirrored to CRM',
+  );
 }
 
 // ── mirrorOrderToCrm ───────────────────────────────────────────────────────

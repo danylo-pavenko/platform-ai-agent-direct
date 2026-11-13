@@ -61,10 +61,10 @@ Client search filters (docs): `phone`, `email`, `name`, `card_number` — **no I
 
 ## Client ↔ dialog link (local)
 
-- Store CRM client UUID on `Client.crmBuyerId` (+ `crmProvider`, `crmLinkedAt`).
-- **Auto:** phone via `linkClientToCrm` / `mirrorClientToCrm` (read match works even if CRM write off).
-- **Booking:** `createBooking` returns `crmBuyerId` → `persistCrmBuyerIdFromBooking`.
-- **Admin:** Conversation profile → find by phone / paste UUID / history. Orders: per-service master select (`PATCH /orders/:id/booking-services`) then retry CRM. Data migration copies note `master_id` onto JSON lines missing `masterId` (does not invent a second master).
+- Store CRM client UUID in `ClientCrmIdentity` (provider=`beautypro`) and denorm `Client.crmBuyerId` when BeautyPro is booking primary (+ `crmProvider`, `crmLinkedAt`).
+- **Auto:** phone via `linkClientToCrm` / `mirrorClientToCrm` (read match works even if CRM write off). After Altegio cutover BeautyPro rows become `legacy` — do not early-return on them when linking to the new CRM.
+- **Booking:** `createBooking` returns `crmBuyerId` → `persistCrmBuyerIdFromBooking` (identity for that provider).
+- **Admin:** Conversation profile → multi-id list / find by phone / paste UUID / history. Salon cutover: Settings → CRM routing. Orders: per-service master select (`PATCH /orders/:id/booking-services`) then retry CRM. Data migration copies note `master_id` onto JSON lines missing `masterId` (does not invent a second master).
 - **Agent:** prompt inject when linked; tool `get_client_crm_history` in booking mode.
 
 ## Routing example (salon-only)

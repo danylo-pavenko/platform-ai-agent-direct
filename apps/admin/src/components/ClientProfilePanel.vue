@@ -350,7 +350,54 @@
           </v-chip>
         </div>
 
-        <div v-if="client?.crmBuyerId" class="cpp-crm-id mb-3">
+        <div v-if="crmIdentities.length > 0" class="cpp-crm-list mb-3">
+          <div
+            v-for="row in crmIdentities"
+            :key="`${row.provider}:${row.externalId}`"
+            class="cpp-crm-id mb-2"
+          >
+            <div class="d-flex align-center justify-space-between ga-2">
+              <div class="cpp-mono text-break">{{ row.externalId }}</div>
+              <div class="d-flex align-center ga-1 flex-shrink-0">
+                <v-chip
+                  v-if="row.provider === client?.crmProvider && row.externalId === client?.crmBuyerId"
+                  size="x-small"
+                  label
+                  color="primary"
+                  variant="flat"
+                >
+                  primary
+                </v-chip>
+                <v-chip
+                  size="x-small"
+                  label
+                  :color="row.status === 'legacy' ? 'warning' : 'success'"
+                  variant="tonal"
+                >
+                  {{ row.status === 'legacy' ? 'legacy' : 'active' }}
+                </v-chip>
+              </div>
+            </div>
+            <div class="cpp-meta-line">
+              {{
+                [row.provider, row.source, row.linkedAt ? `з ${formatLeadDate(row.linkedAt)}` : null]
+                  .filter(Boolean)
+                  .join(' · ')
+              }}
+            </div>
+            <v-btn
+              size="small"
+              variant="text"
+              color="error"
+              class="tap-target px-0"
+              :disabled="crmLinking"
+              @click="unlinkCrmProvider(row.provider)"
+            >
+              Відвʼязати {{ row.provider }}
+            </v-btn>
+          </div>
+        </div>
+        <div v-else-if="client?.crmBuyerId" class="cpp-crm-id mb-3">
           <div class="cpp-mono text-break">{{ client.crmBuyerId }}</div>
           <div class="cpp-meta-line">
             {{
@@ -362,7 +409,7 @@
         </div>
         <p v-else class="text-body-2 text-medium-emphasis mb-3">
           CRM не підключена або клієнт ще не привʼязаний. Якщо CRM є — знайдіть за телефоном або
-          вставте UUID; інакше клієнт лишається лише в локальній базі.
+          вставте id; інакше клієнт лишається лише в локальній базі.
         </p>
 
         <div class="cpp-actions">
@@ -390,7 +437,7 @@
             Оновити історію
           </v-btn>
           <v-btn
-            v-if="client?.crmBuyerId"
+            v-if="client?.crmBuyerId || crmIdentities.length > 0"
             block
             variant="text"
             color="error"
@@ -398,15 +445,15 @@
             :disabled="crmLinking"
             @click="unlinkCrm"
           >
-            Відвʼязати
+            Відвʼязати primary
           </v-btn>
         </div>
 
         <div class="cpp-manual mt-3">
           <v-text-field
             v-model="crmManualId"
-            label="CRM client UUID"
-            placeholder="Вставити UUID вручну"
+            label="CRM client id"
+            placeholder="UUID (BeautyPro) або число (Altegio)"
             variant="outlined"
             density="comfortable"
             hide-details="auto"
@@ -489,6 +536,13 @@ export interface ProfileClient {
   crmBuyerId?: string | null;
   crmProvider?: string | null;
   crmLinkedAt?: string | null;
+  crmIdentities?: Array<{
+    provider: string;
+    externalId: string;
+    status: string;
+    source: string;
+    linkedAt?: string;
+  }>;
   igAdReferral?: {
     source?: string;
     adId?: string;
@@ -552,6 +606,28 @@ const crmHistoryLoading = ref(false);
 const crmManualId = ref('');
 const crmHistoryText = ref('');
 const crmLinkMessage = ref('');
+const crmIdentities = ref<
+  Array<{
+    provider: string;
+    externalId: string;
+    status: string;
+    source: string;
+    linkedAt?: string;
+  }>
+>([]);
+
+async function refreshCrmIdentities() {
+  if (!props.client?.id) {
+    crmIdentities.value = [];
+    return;
+  }
+  try {
+    const { data } = await api.get(`/conversations/clients/${props.client.id}/crm-identities`);
+    crmIdentities.value = Array.isArray(data.crmIdentities) ? data.crmIdentities : [];
+  } catch {
+    crmIdentities.value = props.client.crmIdentities ?? [];
+  }
+}
 
 const form = ref<Partial<ProfileClient>>({});
 const languageItems = [
@@ -766,6 +842,8 @@ async function linkCrmByPhone() {
   try {
     const { data } = await api.post(`/conversations/clients/${props.client.id}/crm-link`);
     if (data.client) emit('updated', data.client);
+    if (Array.isArray(data.crmIdentities)) crmIdentities.value = data.crmIdentities;
+    else await refreshCrmIdentities();
     crmLinkMessage.value = data.linked
       ? `Привʼязано (${data.source})`
       : data.message || 'Не знайдено в CRM';
@@ -782,7 +860,7 @@ async function linkCrmManual() {
   if (!props.client?.id) return;
   const id = crmManualId.value.trim();
   if (!id) {
-    crmLinkMessage.value = 'Вкажи CRM client UUID';
+    crmLinkMessage.value = 'Вкажи CRM client id';
     return;
   }
   crmLinking.value = true;
@@ -792,6 +870,8 @@ async function linkCrmManual() {
       crmBuyerId: id,
     });
     if (data.client) emit('updated', data.client);
+    if (Array.isArray(data.crmIdentities)) crmIdentities.value = data.crmIdentities;
+    else await refreshCrmIdentities();
     crmManualId.value = '';
     crmLinkMessage.value = 'Привʼязано вручну';
     await loadCrmHistory();
@@ -805,13 +885,36 @@ async function linkCrmManual() {
 
 async function unlinkCrm() {
   if (!props.client?.id) return;
-  if (!confirm('Відвʼязати клієнта від CRM?')) return;
+  if (!confirm('Відвʼязати primary CRM-привʼязку клієнта?')) return;
   crmLinking.value = true;
   try {
     const { data } = await api.delete(`/conversations/clients/${props.client.id}/crm-link`);
     if (data.client) emit('updated', data.client);
+    if (Array.isArray(data.crmIdentities)) crmIdentities.value = data.crmIdentities;
+    else await refreshCrmIdentities();
     crmHistoryText.value = '';
-    crmLinkMessage.value = 'Відвʼязано';
+    crmLinkMessage.value = 'Відвʼязано primary';
+  } catch (e: unknown) {
+    const err = e as { response?: { data?: { error?: string } } };
+    crmLinkMessage.value = err.response?.data?.error || 'Помилка';
+  } finally {
+    crmLinking.value = false;
+  }
+}
+
+async function unlinkCrmProvider(provider: string) {
+  if (!props.client?.id) return;
+  if (!confirm(`Відвʼязати ${provider}?`)) return;
+  crmLinking.value = true;
+  try {
+    const { data } = await api.delete(
+      `/conversations/clients/${props.client.id}/crm-link`,
+      { params: { provider } },
+    );
+    if (data.client) emit('updated', data.client);
+    if (Array.isArray(data.crmIdentities)) crmIdentities.value = data.crmIdentities;
+    else await refreshCrmIdentities();
+    crmLinkMessage.value = `Відвʼязано ${provider}`;
   } catch (e: unknown) {
     const err = e as { response?: { data?: { error?: string } } };
     crmLinkMessage.value = err.response?.data?.error || 'Помилка';
@@ -839,6 +942,14 @@ function openLastOrder() {
   if (!id) return;
   router.push({ name: 'orders', query: { open: id } });
 }
+
+watch(
+  () => props.client?.id,
+  () => {
+    void refreshCrmIdentities();
+  },
+  { immediate: true },
+);
 
 watch(
   () => props.client?.crmBuyerId,

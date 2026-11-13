@@ -9,6 +9,13 @@ import { dedupeConversationMessages } from '../lib/message-dedupe.js';
 import { resolveCrmProvider } from '../lib/crm-routing.js';
 import { fetchClientCrmHistory, linkClientToCrm } from '../services/client-crm-link.js';
 import {
+  listClientCrmIdentities,
+  upsertClientCrmIdentity,
+  syncClientPrimaryFromRouting,
+  removeClientCrmIdentity,
+} from '../services/client-crm-identity.js';
+import { isCrmProviderName } from '../lib/crm-providers.js';
+import {
   resolveConversationAssignee,
   resolveConversationAssignees,
 } from '../lib/conversation-assignee.js';
@@ -525,22 +532,30 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Manual CRM id from admin form (optional)
+    // Manual CRM id from admin form — write identity + sync primary (not denorm-only).
+    let stampedCrmId: string | null = null;
     if ('crmBuyerId' in body) {
       const raw = body.crmBuyerId;
       if (raw === null || raw === '') {
-        update.crmBuyerId = null;
-        update.crmProvider = null;
-        update.crmLinkedAt = null;
+        await removeClientCrmIdentity(clientId, 'all');
       } else if (typeof raw === 'string' && raw.trim()) {
         const provider = await resolveCrmProvider('booking');
-        update.crmBuyerId = raw.trim();
-        update.crmProvider = provider ?? null;
-        update.crmLinkedAt = new Date();
+        if (provider) {
+          stampedCrmId = raw.trim();
+          await upsertClientCrmIdentity({
+            clientId,
+            provider,
+            externalId: stampedCrmId,
+            source: 'manual',
+            status: 'active',
+            force: true,
+          });
+          await syncClientPrimaryFromRouting(clientId);
+        }
       }
     }
 
-    if (Object.keys(update).length === 0) {
+    if (Object.keys(update).length === 0 && !('crmBuyerId' in body)) {
       return reply.code(400).send({ error: 'No fields to update' });
     }
 
@@ -549,10 +564,13 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       select: { phone: true },
     });
 
-    const client = await prisma.client.update({
-      where: { id: clientId },
-      data: update,
-    }).catch(() => null);
+    const client =
+      Object.keys(update).length > 0
+        ? await prisma.client.update({
+            where: { id: clientId },
+            data: update,
+          }).catch(() => null)
+        : await prisma.client.findUnique({ where: { id: clientId } });
 
     if (!client) {
       return reply.code(404).send({ error: 'Client not found' });
@@ -562,19 +580,37 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       typeof update.phone === 'string' &&
       update.phone &&
       update.phone !== before?.phone;
-    if (phoneChanged || (client.phone && !client.crmBuyerId)) {
+    if (phoneChanged || (client.phone && !client.crmBuyerId && !stampedCrmId)) {
       await linkClientToCrm(clientId, { upsert: false }).catch(() => undefined);
       const refreshed = await prisma.client.findUnique({ where: { id: clientId } });
-      return refreshed ?? client;
+      const identities = await listClientCrmIdentities(clientId);
+      return { ...(refreshed ?? client), crmIdentities: identities };
     }
 
-    return client;
+    const identities = await listClientCrmIdentities(clientId);
+    return { ...client, crmIdentities: identities };
   });
+
+  // GET /clients/:clientId/crm-identities
+  app.get<{ Params: { clientId: string } }>(
+    '/clients/:clientId/crm-identities',
+    { onRequest: [app.authenticate] },
+    async (request, reply) => {
+      const { clientId } = request.params;
+      const exists = await prisma.client.findUnique({
+        where: { id: clientId },
+        select: { id: true, crmBuyerId: true, crmProvider: true, crmLinkedAt: true },
+      });
+      if (!exists) return reply.code(404).send({ error: 'Client not found' });
+      const identities = await listClientCrmIdentities(clientId);
+      return { ...exists, crmIdentities: identities };
+    },
+  );
 
   // POST /clients/:clientId/crm-link — find by phone or attach explicit id
   app.post<{
     Params: { clientId: string };
-    Body: { crmBuyerId?: string };
+    Body: { crmBuyerId?: string; provider?: string };
   }>('/clients/:clientId/crm-link', { onRequest: [app.authenticate] }, async (request, reply) => {
     const { clientId } = request.params;
     const exists = await prisma.client.findUnique({
@@ -587,18 +623,29 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       typeof request.body?.crmBuyerId === 'string' && request.body.crmBuyerId.trim()
         ? request.body.crmBuyerId.trim()
         : undefined;
+    const providerRaw = request.body?.provider;
+    const provider =
+      typeof providerRaw === 'string' && isCrmProviderName(providerRaw)
+        ? providerRaw
+        : undefined;
 
     const result = await linkClientToCrm(
       clientId,
-      crmBuyerId ? { crmBuyerId, upsert: false } : { upsert: false },
+      crmBuyerId
+        ? { crmBuyerId, upsert: false, provider }
+        : { upsert: false, provider },
     );
 
     const client = await prisma.client.findUnique({ where: { id: clientId } });
-    return { ...result, client };
+    const identities = await listClientCrmIdentities(clientId);
+    return { ...result, client, crmIdentities: identities };
   });
 
-  // DELETE /clients/:clientId/crm-link — unlink
-  app.delete<{ Params: { clientId: string } }>(
+  // DELETE /clients/:clientId/crm-link — unlink primary or ?provider= / all
+  app.delete<{
+    Params: { clientId: string };
+    Querystring: { provider?: string };
+  }>(
     '/clients/:clientId/crm-link',
     { onRequest: [app.authenticate] },
     async (request, reply) => {
@@ -609,9 +656,17 @@ export async function conversationRoutes(app: FastifyInstance): Promise<void> {
       });
       if (!exists) return reply.code(404).send({ error: 'Client not found' });
 
-      const result = await linkClientToCrm(clientId, { crmBuyerId: null });
+      const q = request.query?.provider?.trim();
+      const unlinkProvider =
+        q === 'all' ? 'all' : q && isCrmProviderName(q) ? q : undefined;
+
+      const result = await linkClientToCrm(clientId, {
+        crmBuyerId: null,
+        unlinkProvider,
+      });
       const client = await prisma.client.findUnique({ where: { id: clientId } });
-      return { ...result, client };
+      const identities = await listClientCrmIdentities(clientId);
+      return { ...result, client, crmIdentities: identities };
     },
   );
 

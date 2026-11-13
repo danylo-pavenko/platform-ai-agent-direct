@@ -1609,6 +1609,7 @@
           </v-btn>
         </v-col>
       </v-row>
+      <SalonCutoverCard />
       </div>
 
       <div v-if="activeSection === 'settings-branches'" class="settings-section">
@@ -3060,6 +3061,7 @@ import CrmRoutingCard, { type CrmRoutingShape } from '@/components/settings/CrmR
 import CleverboxCard from '@/components/settings/CleverboxCard.vue';
 import BeautyproCard from '@/components/settings/BeautyproCard.vue';
 import AltegioCard from '@/components/settings/AltegioCard.vue';
+import SalonCutoverCard from '@/components/settings/SalonCutoverCard.vue';
 import CrmRoutingHint from '@/components/settings/CrmRoutingHint.vue';
 import { resolveApiHostFromAdmin, tenantApiOrigin } from '@/lib/tenant-api-url';
 import TelegramBotsCard, { type TelegramBotForm } from '@/components/settings/TelegramBotsCard.vue';

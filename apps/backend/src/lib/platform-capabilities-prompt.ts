@@ -53,7 +53,7 @@ Telegram-сповіщення менеджерам — з collect_order / create
 | altegio | services, branches, booking, client upsert, visit history (B2B v2; slots and create stay on Online Booking v1) |
 
 Гібрид: by_action (напр. catalog/order→keycrm, services/booking→beautypro|cleverbox, lead→none).
-Client.crmBuyerId — привʼязка IG-клієнта до CRM (телефон / адмінка / після запису).
+Client.crmBuyerId — primary привʼязка IG-клієнта до CRM поточного booking (телефон / адмінка / після запису). Повна мапа — ClientCrmIdentity на кожен provider (active/legacy). Після salon cutover (BeautyPro→Altegio) історія/cancel старого візиту йде через Appointment.crmProvider, не через чужий id.
 Історія візитів (фактична тривалість + professionalId / master_id) — get_client_crm_history + runtime-блок. Платформа підставляє персональну duration у free_time / book.
 
 ## Booking master preference (booking / general)

@@ -38,9 +38,9 @@ model Client {
   igAdFirstAt      DateTime?      @map("ig_ad_first_at")
   igAdLastAt       DateTime?      @map("ig_ad_last_at")
 
-  // Cross-reference to the matching buyer/client record in the CRM.
-  // Populated on phone match, booking, or manual admin attach.
-  crmBuyerId       String?        @unique @map("crm_buyer_id")
+  // Denormalized primary CRM id = identity for current booking (or client_upsert) routing.
+  // Full multi-provider map lives in ClientCrmIdentity; uniqueness is per (provider, externalId).
+  crmBuyerId       String?        @map("crm_buyer_id")
   /** Which CRM provider owns crmBuyerId (keycrm | beautypro | cleverbox | altegio). */
   crmProvider      String?        @map("crm_provider")
   crmLinkedAt      DateTime?      @map("crm_linked_at")
@@ -53,8 +53,30 @@ model Client {
   briefs           PresaleBrief[]
   appointments     Appointment[]
   referencePhotos  ClientReferencePhoto[]
+  crmIdentities    ClientCrmIdentity[]
 
   @@map("clients")
+}
+
+/** Per-provider CRM client id (BeautyPro UUID, Altegio numeric, KeyCRM buyer, …). */
+model ClientCrmIdentity {
+  id         String   @id @default(uuid()) @db.Uuid
+  clientId   String   @map("client_id") @db.Uuid
+  provider   String
+  externalId String   @map("external_id")
+  /** active = usable for this provider; legacy = kept after salon CRM cutover. */
+  status     String   @default("active")
+  /** phone | booking | manual | migration | upsert */
+  source     String   @default("phone")
+  linkedAt   DateTime @default(now()) @map("linked_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, provider])
+  @@unique([provider, externalId])
+  @@index([clientId])
+  @@map("client_crm_identities")
 }
 
 // ── Conversations ──

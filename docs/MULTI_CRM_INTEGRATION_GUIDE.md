@@ -153,6 +153,21 @@ interface CrmCapabilities {
 
 Altegio (салон, B2B v2 + Online Booking) — окремо в §4.1. Для салону він покриває те саме, що BeautyPro: послуги, філії, слоти, запис, клієнт, історія. Каталог товарів, замовлення, ТТН і ліди — ні.
 
+### Client CRM identities + salon cutover
+
+`Client.crmBuyerId` / `crmProvider` — **denormalized primary** для поточного booking (або `client_upsert`). Повна мапа — таблиця `client_crm_identities` (`ClientCrmIdentity`): один `(clientId, provider)` → `externalId`, `status` `active|legacy`.
+
+Hard cutover (BeautyPro → Altegio тощо): Admin → CRM routing → **Перехід на іншу salon CRM** (`POST /settings/crm/salon-cutover`, `confirm: true`).
+
+1. Salon routes (`services`, `branches`, `booking`, `client_upsert`) → `toProvider`; KeyCRM catalog/order/lead не чіпає.
+2. Import філій з нової CRM (старі BeautyPro branch rows лишаються).
+3. Клієнти з телефоном → `findClient` у новій CRM → identity `active`; стара → `legacy`.
+4. Без телефону / не знайдено → pending у звіті; агент/admin долінковують пізніше.
+5. Очищає `Conversation.bookingOffer` (старі UUID слотів).
+6. Історичні `Appointment` з `crmProvider=beautypro` **не** дзеркаляться. Cancel/reschedule йде в адаптер **запису** (`Appointment.crmProvider`), якщо credentials ще є; інакше явна помилка / handoff.
+
+Повторний cutover ідемпотентний. Не видаляє credentials старої CRM автоматично (потрібні для legacy cancel).
+
 ---
 
 ## 4.1 Altegio

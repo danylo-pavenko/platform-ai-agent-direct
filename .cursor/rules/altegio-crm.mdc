@@ -20,3 +20,7 @@ alwaysApply: true
 Adapter `services/crm/altegio.ts` via `getCrmAdapter('altegio')`. One record = one `staff_id`. Slots: v1 `book_dates` + `book_times`. Create: v1 `POST /records/{location}` with `save_if_busy: false`. Cancel: v2 `DELETE /locations/{id}/appointments/{id}`. Reschedule stays cancel-then-book. Ids are numeric strings.
 
 Webhook (optional): `POST /webhooks/altegio`. Require body `partner_token` or `?token=` / `X-Webhook-Token` equal to the saved webhook secret. Ignore other company ids. Do not log tokens.
+
+## Cutover from BeautyPro
+
+Hard switch: Admin → CRM routing → salon cutover (`from=beautypro`, `to=altegio`). Clients rematch by phone into `ClientCrmIdentity`; BeautyPro ids stay `legacy`. New books use Altegio numeric client id. Old appointments keep `crmProvider=beautypro` — cancel only if BeautyPro credentials remain.

@@ -250,6 +250,19 @@ async function persistCrmRouting(next: CrmRoutingConfig): Promise<void> {
   invalidateCrmRoutingCache();
 }
 
+/** Public persist for salon cutover / admin tools. */
+export async function saveCrmRouting(next: CrmRoutingConfig): Promise<void> {
+  await persistCrmRouting(next);
+}
+
+/** Salon actions that move together on hard cutover (KeyCRM catalog/order/lead untouched). */
+export const SALON_CRM_ACTIONS: CrmAction[] = [
+  'services',
+  'branches',
+  'booking',
+  'client_upsert',
+];
+
 /**
  * After integrations save: 0 CRM → local-only; exactly one → sole default;
  * two or more → ensure they appear in enabled_providers.

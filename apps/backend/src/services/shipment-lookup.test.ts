@@ -4,6 +4,7 @@ vi.mock('../lib/prisma.js', () => ({
   prisma: {
     client: { findUnique: vi.fn() },
     order: { findMany: vi.fn() },
+    clientCrmIdentity: { findUnique: vi.fn() },
   },
 }));
 vi.mock('../lib/crm-routing.js', () => ({
@@ -32,6 +33,7 @@ import type { CrmShipment } from './crm/types.js';
 
 const clientFind = vi.mocked(prisma.client.findUnique);
 const orderFind = vi.mocked(prisma.order.findMany);
+const identityFind = vi.mocked(prisma.clientCrmIdentity.findUnique);
 const resolveProvider = vi.mocked(resolveCrmProvider);
 const adapterOf = vi.mocked(getCrmAdapter);
 const trackNp = vi.mocked(trackNovaPoshtaDocument);
@@ -108,10 +110,12 @@ describe('lookupOrderShipment', () => {
     vi.clearAllMocks();
     resolveProvider.mockResolvedValue('keycrm');
     clientFind.mockResolvedValue({
+      id: 'client-1',
       phone: '+380971442540',
       crmBuyerId: '55',
       crmProvider: 'keycrm',
     } as never);
+    identityFind.mockResolvedValue(null as never);
     orderFind.mockResolvedValue([] as never);
     trackNp.mockResolvedValue({ error: 'not_configured' });
     findNp.mockResolvedValue({ status: 'not_configured' });
